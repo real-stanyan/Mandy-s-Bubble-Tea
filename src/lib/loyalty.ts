@@ -16,6 +16,18 @@ let cachedProgramId: string | null = null;
 let cachedStarsPerReward: number | null = null;
 let cachedRewardTierId: string | null = null;
 
+/**
+ * Force the next call to getActiveProgram() to re-fetch from Square.
+ * Call this after a Square error that implies our cached tier id has
+ * gone stale (e.g. NOT_FOUND on reward_tier_id after the seller
+ * rebuilt their rewards in the Dashboard).
+ */
+export function invalidateLoyaltyProgramCache(): void {
+  cachedProgramId = null;
+  cachedStarsPerReward = null;
+  cachedRewardTierId = null;
+}
+
 type LoyaltyProgramInfo = {
   programId: string;
    /**
@@ -50,23 +62,40 @@ export async function getActiveProgram(): Promise<LoyaltyProgramInfo> {
     throw new Error("No active loyalty program found on this Square account");
    }
 
-  cachedProgramId = program.id;
    // The smallest reward tier is what we treat as "one free drink".
-   // Ignore ineligible tiers by picking the min points across tiers.
-  const rawTiers = program.rewardTiers as any[] | undefined;
-  const tiers = rawTiers?.filter(
-     (t) => typeof t.points === "number" && t.id != null,
-   ) as Array<{ points: number; id: string }> | undefined;
-  if (tiers && tiers.length > 0) {
-    const minTier = tiers.reduce((min, t) =>
-      t.points < min.points ? t : min,
-      );
-    cachedStarsPerReward = minTier.points;
-    cachedRewardTierId = minTier.id ?? "default";
-   } else {
-    cachedStarsPerReward = 9;
-    cachedRewardTierId = "default";
+   // We coerce `points` through Number() because the Square SDK has
+   // historically returned numeric fields as bigint at runtime even
+   // when the declared type is `number` — a plain `typeof === "number"`
+   // filter would silently drop every tier and fall back to a bogus
+   // reward tier id. An empty/invalid tier list is a hard error: the
+   // previous "default" fallback meant Square rejected redemptions
+   // with reward_tier_id NOT_FOUND instead of a clear message.
+   const tiers: Array<{ points: number; id: string }> = [];
+   for (const t of program.rewardTiers ?? []) {
+     const points = Number(
+       (t as { points?: unknown }).points as number | bigint | string,
+     );
+     const id = (t as { id?: unknown }).id;
+     if (
+       Number.isFinite(points) &&
+       typeof id === "string" &&
+       id.length > 0
+     ) {
+       tiers.push({ points, id });
+     }
    }
+   if (tiers.length === 0) {
+     throw new Error(
+       `Loyalty program "${program.id}" has no reward tiers configured. Add one in Square Dashboard → Loyalty → Rewards before using redemption.`,
+     );
+   }
+   const minTier = tiers.reduce((min, t) =>
+     t.points < min.points ? t : min,
+   );
+
+  cachedProgramId = program.id;
+   cachedStarsPerReward = minTier.points;
+   cachedRewardTierId = minTier.id;
 
   return {
     programId: cachedProgramId,
@@ -80,6 +109,34 @@ type LoyaltyAccountSummary = {
   balance: number;
   lifetimePoints: number;
 };
+
+/**
+ * Look up the loyalty account for a phone number without creating
+ * one. Use this in read/redeem flows where conjuring a zero-balance
+ * account on a lookup miss would be wrong (e.g. redemption silently
+ * treating the user as a brand-new customer with 0 stars).
+ *
+ * Returns `null` when no account is mapped to the phone.
+ */
+export async function findLoyaltyAccountByPhone(
+  phoneE164: string,
+): Promise<LoyaltyAccountSummary | null> {
+  const search = await squareClient.loyalty.accounts.search({
+    query: {
+      mappings: [{ phoneNumber: phoneE164 }],
+    },
+    limit: 1,
+  });
+
+  const existing = search.loyaltyAccounts?.[0];
+  if (!existing?.id) return null;
+
+  return {
+    accountId: existing.id,
+    balance: existing.balance ?? 0,
+    lifetimePoints: existing.lifetimePoints ?? 0,
+  };
+}
 
 /**
  * Look up the loyalty account for a customer by their phone number,
@@ -165,24 +222,50 @@ export async function accrueForOrder(
  *
  * Returns the loyaltyRewardId which must be attached to the order
  * in the orders.create call.
+ *
+ * The Square Create Loyalty Reward endpoint does NOT accept a
+ * `status` field in the request body — rewards are always created
+ * in the ISSUED state. Including it in earlier versions of this
+ * code was harmless with some SDK releases but has tripped up others.
+ * We omit it now so the request matches the API schema exactly.
  */
 export async function redeemReward(
   accountId: string,
   rewardTierId: string,
+  orderId?: string,
 ): Promise<{ loyaltyRewardId: string }> {
-  const result = await squareClient.loyalty.rewards.create({
-    idempotencyKey: randomUUID(),
-    reward: {
-      loyaltyAccountId: accountId,
-      rewardTierId,
-      status: "ISSUED",
+  try {
+    const result = await squareClient.loyalty.rewards.create({
+      idempotencyKey: randomUUID(),
+      reward: {
+        loyaltyAccountId: accountId,
+        rewardTierId,
+        // When orderId is provided, Square automatically applies the
+        // reward's discount to that order. This is the ONLY supported
+        // way to discount an order with a loyalty reward — there is
+        // no loyaltyRewards field on the order-create request body.
+        ...(orderId ? { orderId } : {}),
       },
-   });
+    });
 
-  const rewardId = result.reward?.id;
-  if (!rewardId) {
-    throw new Error("Square did not return a loyalty reward id");
-   }
+    const rewardId = result.reward?.id;
+    if (!rewardId) {
+      throw new Error("Square did not return a loyalty reward id");
+    }
 
-  return { loyaltyRewardId: rewardId };
+    return { loyaltyRewardId: rewardId };
+  } catch (err) {
+    // Invalidate the cached program so the next attempt refetches —
+    // if the seller rebuilt their reward tiers in the Dashboard our
+    // cached id is permanently stale until a process restart. Then
+    // re-throw with the values we actually sent so the API route
+    // response is actionable instead of an opaque Square dump.
+    invalidateLoyaltyProgramCache();
+    const base = err instanceof Error ? err.message : String(err);
+    const wrapped = new Error(
+      `Square rejected loyalty reward create (accountId=${accountId}, rewardTierId=${rewardTierId}): ${base}`,
+    );
+    (wrapped as Error & { cause?: unknown }).cause = err;
+    throw wrapped;
+  }
 }

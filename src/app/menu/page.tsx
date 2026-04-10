@@ -1,13 +1,15 @@
 import Link from "next/link";
-import { getMenu, type Menu } from "@/lib/catalog";
+import { getMenu, type Menu, type MenuItem } from "@/lib/catalog";
 import { BRAND } from "@/lib/constants";
-import { CartIcon } from "@/components/cart/CartIcon";
+import { formatPrice } from "@/lib/utils";
 
-// Menu landing page — 2/3-col category grid. Empty categories are
-// shown greyed out with a "Coming soon" label so the structure is
-// visible even when the shop hasn't stocked that category yet.
+// Menu landing page — each category shown as a horizontal section
+// with up to 3 preview items and a "See More" link to the full
+// category page.
 
 export const revalidate = 300;
+
+const PREVIEW_COUNT = 3;
 
 async function loadMenu(): Promise<
   { ok: true; menu: Menu } | { ok: false; error: string }
@@ -26,113 +28,58 @@ export default async function MenuPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header
-        className="w-full px-6 py-8 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        <div className="mx-auto flex max-w-5xl flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="text-sm opacity-80 hover:opacity-100">
-              ← Home
-            </Link>
-            <CartIcon />
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">Menu</h1>
-          <p className="text-sm opacity-90">Pick a category to get started.</p>
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mb-8 sm:mb-10">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
+            Menu
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Browse our handcrafted drinks.
+          </p>
         </div>
-      </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
         {!result.ok ? (
           <ErrorState message={result.error} />
         ) : result.menu.categories.length === 0 ? (
           <EmptyState />
         ) : (
-          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div className="space-y-14">
             {result.menu.categories.map((cat) => {
-              const empty = cat.itemCount === 0;
-              const content = (
-                <div
-                  className={`relative flex aspect-square flex-col justify-end overflow-hidden rounded-lg border shadow-sm transition ${
-                    empty
-                      ? "cursor-not-allowed border-black/5 bg-zinc-50 opacity-60"
-                      : "border-black/10 bg-white hover:shadow-md"
-                  }`}
-                  style={
-                    empty
-                      ? undefined
-                      : { borderColor: `${BRAND.primaryColor}22` }
-                  }
-                >
-                  {cat.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={cat.imageUrl}
-                      alt={cat.squareName}
-                      className="absolute inset-0 h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  )}
-                  {/* Text overlay — gradient ensures legibility over images */}
-                  <div
-                    className={`relative flex h-full flex-col justify-between p-4 ${
-                      cat.imageUrl
-                        ? "bg-gradient-to-t from-black/70 via-black/20 to-transparent text-white"
-                        : ""
-                    }`}
-                  >
-                    <div>
-                      <h2
-                        className={`text-lg font-semibold leading-tight ${
-                          cat.imageUrl ? "text-white" : "text-zinc-900"
-                        }`}
-                      >
-                        {cat.squareName}
-                      </h2>
-                      {empty ? (
-                        <p className="mt-1 text-xs uppercase tracking-wide text-zinc-400">
-                          Coming soon
-                        </p>
-                      ) : (
-                        <p
-                          className={`mt-1 text-xs uppercase tracking-wide ${
-                            cat.imageUrl ? "text-white/80" : "text-zinc-500"
-                          }`}
-                        >
-                          {cat.itemCount}{" "}
-                          {cat.itemCount === 1 ? "item" : "items"}
-                        </p>
-                      )}
-                    </div>
-                    {!empty && (
-                      <p
-                        className="text-sm font-medium"
-                        style={
-                          cat.imageUrl
-                            ? { color: "white" }
-                            : { color: BRAND.primaryColor }
-                        }
-                      >
-                        View →
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
+              const items = result.menu.itemsBySlug.get(cat.slug) ?? [];
+              if (items.length === 0) return null;
+              const preview = items.slice(0, PREVIEW_COUNT);
+              const hasMore = items.length > PREVIEW_COUNT;
 
               return (
-                <li key={cat.id}>
-                  {empty ? (
-                    content
-                  ) : (
-                    <Link href={`/menu/${cat.slug}`} className="block">
-                      {content}
+                <section key={cat.id}>
+                  {/* Category header */}
+                  <div className="mb-5 flex items-baseline justify-between">
+                    <h2 className="text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
+                      {cat.squareName}
+                    </h2>
+                    <Link
+                      href={`/menu/${cat.slug}`}
+                      className="text-xs font-medium hover:underline sm:text-sm"
+                      style={{ color: BRAND.primaryColor }}
+                    >
+                      {hasMore
+                        ? `See all ${items.length} items →`
+                        : "See all →"}
                     </Link>
-                  )}
-                </li>
+                  </div>
+
+                  {/* Item cards */}
+                  <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5">
+                    {preview.map((item) => (
+                      <li key={item.id}>
+                        <ItemCard item={item} categorySlug={cat.slug} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               );
             })}
-          </ul>
+          </div>
         )}
 
         {result.ok && result.menu.uncategorizedItems.length > 0 && (
@@ -143,6 +90,59 @@ export default async function MenuPage() {
         )}
       </main>
     </div>
+  );
+}
+
+function ItemCard({
+  item,
+  categorySlug,
+}: {
+  item: MenuItem;
+  categorySlug: string;
+}) {
+  return (
+    <Link
+      href={`/menu/${categorySlug}/${item.id}`}
+      className="group block overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm transition hover:shadow-md"
+    >
+      {/* Image */}
+      <div className="aspect-square w-full overflow-hidden">
+        {item.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.imageUrl}
+            alt={item.name}
+            className="h-full w-full object-contain transition group-hover:scale-105"
+            loading="lazy"
+          />
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center text-5xl"
+            style={{ backgroundColor: BRAND.accentColor }}
+          >
+            🧋
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-3 sm:p-4">
+        <h3 className="text-xs font-semibold text-zinc-900 sm:text-sm">{item.name}</h3>
+        {item.priceCents != null && (
+          <p className="mt-0.5 text-[11px] text-zinc-500 sm:text-xs">
+            {formatPrice(item.priceCents)}
+          </p>
+        )}
+        <div className="mt-2 sm:mt-3">
+          <span
+            className="inline-flex w-full items-center justify-center rounded-full py-1.5 text-[11px] font-semibold text-white transition group-hover:opacity-90 sm:py-2 sm:text-xs"
+            style={{ backgroundColor: BRAND.primaryColor }}
+          >
+            Add to Cart
+          </span>
+        </div>
+      </div>
+    </Link>
   );
 }
 

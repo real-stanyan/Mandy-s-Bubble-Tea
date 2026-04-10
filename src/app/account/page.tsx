@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
+
+const SQUARE_PROFILE_URL = LOYALTY.squareProfileUrl;
 import { formatPrice } from "@/lib/utils";
 
 // Account page: phone-based "sign-in" (no passwords — Square is the
@@ -48,7 +50,6 @@ export default function AccountPage() {
     setLoading(true);
     setError(null);
     try {
-      // 1) Resolve phone → customerId (lookup only, no create).
       const lookupRes = await fetch("/api/customer/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,7 +67,6 @@ export default function AccountPage() {
 
       const { customerId, givenName, familyName, phoneE164 } = lookupJson;
 
-      // 2+3) Loyalty balance and order history in parallel.
       const [loyaltyRes, ordersRes] = await Promise.all([
         fetch("/api/loyalty/account", {
           method: "POST",
@@ -98,8 +98,7 @@ export default function AccountPage() {
           accountId: loyaltyJson.accountId,
           balance: loyaltyJson.balance ?? 0,
           lifetimePoints: loyaltyJson.lifetimePoints ?? 0,
-          starsPerReward:
-            loyaltyJson.starsPerReward ?? LOYALTY.starsPerReward,
+          starsPerReward: loyaltyJson.starsPerReward ?? LOYALTY.starsPerReward,
         },
         orders: ordersJson.orders ?? [],
       });
@@ -114,14 +113,14 @@ export default function AccountPage() {
     }
   }, []);
 
-  // Restore stored phone after hydration.
   useEffect(() => {
-    setHydrated(true);
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored) {
       setPhoneInput(stored);
+      setLoading(true);
       void loadAccount(stored);
     }
+    setHydrated(true);
   }, [loadAccount]);
 
   function handleSubmit(e: React.FormEvent) {
@@ -138,42 +137,32 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header
-        className="w-full px-6 py-8 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          <Link href="/menu" className="text-sm opacity-80 hover:opacity-100">
-            ← Menu
-          </Link>
-          <h1 className="text-3xl font-semibold tracking-tight">My account</h1>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        {!hydrated ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
-        ) : !data ? (
-          <SignInForm
-            phone={phoneInput}
-            onPhoneChange={setPhoneInput}
-            onSubmit={handleSubmit}
-            loading={loading}
-            error={error}
-          />
-        ) : (
-          <AccountDashboard
-            data={data}
-            onSignOut={handleSignOut}
-            refreshing={loading}
-            error={error}
-          />
-        )}
-      </main>
-    </div>
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+      {!hydrated || (!data && loading) ? (
+        <p className="text-sm text-zinc-500">Loading…</p>
+      ) : !data ? (
+        <SignInForm
+          phone={phoneInput}
+          onPhoneChange={setPhoneInput}
+          onSubmit={handleSubmit}
+          loading={loading}
+          error={error}
+        />
+      ) : (
+        <AccountDashboard
+          data={data}
+          onSignOut={handleSignOut}
+          refreshing={loading}
+          error={error}
+        />
+      )}
+    </main>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Sign-in form                                                       */
+/* ------------------------------------------------------------------ */
 
 function SignInForm({
   phone,
@@ -189,46 +178,90 @@ function SignInForm({
   error: string | null;
 }) {
   return (
-    <div className="rounded-lg border border-black/10 bg-white p-6">
-      <h2 className="mb-2 text-lg font-semibold text-zinc-900">
-        Find your account
+    <div className="mx-auto max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8">
+      <h2 className="mb-2 text-2xl font-bold text-zinc-900">
+        Login or Sign Up
       </h2>
-      <p className="mb-4 text-sm text-zinc-600">
-        Enter the phone number you used at checkout to see your stars and
-        order history.
+      <p className="mb-6 text-sm leading-relaxed text-zinc-600">
+        Welcome back! Please enter your mobile number to continue to your tea
+        sanctuary.
       </p>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700">
-            Phone
+      <form onSubmit={onSubmit} className="space-y-5">
+        <div>
+          <span className="mb-2 block text-sm font-semibold text-zinc-800">
+            Mobile Number
           </span>
-          <input
-            type="tel"
-            value={phone}
-            onChange={(e) => onPhoneChange(e.target.value)}
-            placeholder="0404 123 456"
-            autoComplete="tel"
-            required
-            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm outline-none focus:border-black/40"
-          />
-        </label>
+          <div className="flex items-center gap-2">
+            <span
+              className="flex shrink-0 items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium"
+              style={{
+                backgroundColor: BRAND.accentColor,
+                color: BRAND.primaryColor,
+              }}
+            >
+              +61
+            </span>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => onPhoneChange(e.target.value)}
+              placeholder="0400 000 000"
+              autoComplete="tel"
+              required
+              className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
+            />
+          </div>
+        </div>
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ backgroundColor: BRAND.primaryColor }}
         >
-          {loading ? "Looking up…" : "View my account"}
+          {loading ? "Looking up…" : "View My Account →"}
         </button>
       </form>
+
       {error && (
-        <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </p>
       )}
+
+      <p className="mt-5 text-center text-xs text-zinc-400">
+        By continuing, you agree to our{" "}
+        <a href="#" className="font-medium" style={{ color: BRAND.primaryColor }}>
+          Terms of Service
+        </a>{" "}
+        and{" "}
+        <a href="#" className="font-medium" style={{ color: BRAND.primaryColor }}>
+          Privacy Policy
+        </a>
+        .
+      </p>
+
+      <div className="mt-6 flex items-center gap-3 text-xs text-zinc-400">
+        <div className="h-px flex-1 bg-black/10" />
+        <span>Need help?</span>
+        <div className="h-px flex-1 bg-black/10" />
+      </div>
+
+      <a
+        href="tel:0404978238"
+        className="mt-4 flex items-center justify-center gap-2 text-sm font-semibold text-zinc-700 transition hover:text-zinc-900"
+      >
+        <PhoneIcon />
+        Contact Support
+      </a>
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard                                                          */
+/* ------------------------------------------------------------------ */
+
+const RECENT_ORDER_LIMIT = 6;
 
 function AccountDashboard({
   data,
@@ -241,133 +274,501 @@ function AccountDashboard({
   refreshing: boolean;
   error: string | null;
 }) {
+  const [showAllOrders, setShowAllOrders] = useState(false);
   const displayName =
-    [data.givenName, data.familyName].filter(Boolean).join(" ") || "friend";
+    [data.givenName, data.familyName].filter(Boolean).join(" ") || "Friend";
   const { balance, starsPerReward, lifetimePoints } = data.loyalty;
-  const progress = Math.min(balance, starsPerReward);
-  const percent = Math.round((progress / starsPerReward) * 100);
+  const filled = Math.min(balance, starsPerReward);
+  const remaining = Math.max(starsPerReward - balance, 0);
   const rewardsAvailable = Math.floor(balance / starsPerReward);
+  const rewardReady = balance >= starsPerReward;
 
   return (
     <div className="space-y-8">
-      <section className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-zinc-500">Signed in as</p>
-          <p className="text-lg font-semibold text-zinc-900">{displayName}</p>
-          <p className="text-xs text-zinc-500">{data.phoneE164}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="rounded-full border border-black/15 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-        >
-          Sign out
-        </button>
-      </section>
-
       {error && (
-        <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </p>
       )}
 
-      {/* Loyalty progress */}
-      <section className="rounded-lg border border-black/10 bg-white p-6">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900">
-            Loyalty stars
-          </h2>
-          <span className="text-xs text-zinc-500">
-            Lifetime: {lifetimePoints} {LOYALTY.unit}
-          </span>
-        </div>
+      {/* ── Profile header card ── */}
+      <section className="relative overflow-hidden rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8">
+        {/* Decorative background motif (top-right) */}
+        <div
+          className="pointer-events-none absolute -top-6 -right-6 h-40 w-40 rounded-full opacity-[0.07]"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        />
+        <div
+          className="pointer-events-none absolute top-8 right-16 h-24 w-24 rounded-full opacity-[0.05]"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        />
 
-        <div className="mb-2 flex items-baseline justify-between">
-          <span className="text-3xl font-semibold text-zinc-900">
-            {balance} <span className="text-base font-normal">of {starsPerReward}</span>
-          </span>
-          <span className="text-sm text-zinc-600">
-            {balance >= starsPerReward
-              ? `🎉 ${rewardsAvailable} reward${rewardsAvailable > 1 ? "s" : ""} ready`
-              : `${starsPerReward - balance} to go`}
-          </span>
-        </div>
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+          <div className="flex items-center gap-3 sm:gap-5">
+            {/* Avatar */}
+            <div
+              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-2xl font-bold text-white shadow-md sm:h-24 sm:w-24 sm:text-3xl"
+              style={{ backgroundColor: BRAND.primaryColor }}
+            >
+              {(data.givenName?.[0] ?? "?").toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
+                {displayName}
+              </h1>
+              <p className="mt-0.5 text-sm text-zinc-500">{data.phoneE164}</p>
+              <p
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+                style={{
+                  backgroundColor: BRAND.accentColor,
+                  color: BRAND.primaryColor,
+                }}
+              >
+                <StarIcon className="h-3 w-3" />
+                {lifetimePoints > 0
+                  ? `${lifetimePoints} lifetime stars`
+                  : "New member"}
+              </p>
+            </div>
+          </div>
 
-        <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-100">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${percent}%`,
-              backgroundColor: BRAND.primaryColor,
-            }}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="rounded-full border border-black/15 px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
-
-        <p className="mt-3 text-xs text-zinc-500">
-          Earn 1 {LOYALTY.unit} per drink. {starsPerReward} {LOYALTY.unit} ={" "}
-          {LOYALTY.rewardLabel}.
-        </p>
       </section>
 
-      {/* Order history */}
+      {/* ── Loyalty card ── */}
+      <div>
+        <section className="relative overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm">
+          {/* Watermark star */}
+          <div className="pointer-events-none absolute top-4 right-4 opacity-[0.06]">
+            <svg
+              width="120"
+              height="120"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style={{ color: BRAND.primaryColor }}
+            >
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          </div>
+
+          <div className="p-4 sm:p-8">
+            <div className="flex items-center gap-2">
+              <span
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: BRAND.primaryColor,
+                  color: "white",
+                }}
+              >
+                <StarIcon className="h-3.5 w-3.5" />
+              </span>
+              <h2
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{ color: BRAND.primaryColor }}
+              >
+                Loyalty Rewards
+              </h2>
+            </div>
+
+            <h3 className="mt-3 text-xl font-bold tracking-tight text-zinc-900 sm:mt-4 sm:text-3xl">
+              Collect {starsPerReward} stars for a free drink!
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              {rewardReady
+                ? `You have ${rewardsAvailable} reward${rewardsAvailable > 1 ? "s" : ""} ready to redeem!`
+                : `You have ${balance} star${balance !== 1 ? "s" : ""}. Just ${remaining} more to go for your next artisanal boba.`}
+            </p>
+          </div>
+
+          {/* Stamp row */}
+          <div className="border-t border-black/5 px-4 py-5 sm:px-8 sm:py-6">
+            <div className="flex flex-wrap justify-center gap-2.5 sm:justify-start sm:gap-4">
+              {Array.from({ length: starsPerReward }).map((_, i) => (
+                <StampCircle key={i} filled={i < filled} />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Apple Wallet banner — mobile only */}
+        <a
+          href={SQUARE_PROFILE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md sm:hidden"
+        >
+          <p className="text-sm font-medium text-zinc-700">
+            Easily check in and track rewards with Apple Wallet.
+          </p>
+          <span className="flex shrink-0 items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
+            <AppleWalletIcon />
+            <span className="leading-tight">
+              Add to<br />Apple Wallet
+            </span>
+          </span>
+        </a>
+      </div>
+
+
+      {/* ── Order history ── */}
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-zinc-900">
-          Order history
-        </h2>
+        <div className="mb-5 flex items-baseline justify-between">
+          <h2 className="text-2xl font-bold tracking-tight text-zinc-900">
+            {showAllOrders ? "Order History" : "Recent Order History"}
+          </h2>
+          {data.orders.length > RECENT_ORDER_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAllOrders((prev) => !prev)}
+              className="text-sm font-semibold transition hover:opacity-80"
+              style={{ color: BRAND.primaryColor }}
+            >
+              {showAllOrders ? "Show Recent" : "View All Orders"}
+            </button>
+          )}
+        </div>
+
         {refreshing && data.orders.length === 0 ? (
           <p className="text-sm text-zinc-500">Loading orders…</p>
         ) : data.orders.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-black/20 p-8 text-center text-sm text-zinc-500">
+          <div className="rounded-2xl border border-dashed border-black/15 p-10 text-center text-sm text-zinc-500">
             No orders yet.{" "}
             <Link
               href="/menu"
-              className="underline"
+              className="font-medium underline"
               style={{ color: BRAND.primaryColor }}
             >
               Browse the menu
             </Link>
           </div>
         ) : (
-          <ul className="divide-y divide-black/10 rounded-lg border border-black/10 bg-white">
-            {data.orders.map((order) => (
-              <li key={order.id}>
-                <Link
-                  href={`/order-confirmation/${order.id}`}
-                  className="flex items-start justify-between gap-3 p-4 hover:bg-zinc-50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-zinc-900">
-                      {order.itemSummary || `${order.lineCount} item(s)`}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {formatDate(order.createdAt)}
-                      {order.state && order.state !== "COMPLETED"
-                        ? ` · ${order.state.toLowerCase()}`
-                        : ""}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold text-zinc-900">
-                    {formatPrice(BigInt(order.totalCents))}
-                  </p>
-                </Link>
-              </li>
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+            {(showAllOrders
+              ? data.orders
+              : data.orders.slice(0, RECENT_ORDER_LIMIT)
+            ).map((order) => (
+              <OrderCard key={order.id} order={order} />
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Order card                                                         */
+/* ------------------------------------------------------------------ */
+
+function OrderCard({ order }: { order: OrderHistoryItem }) {
+  const stateBadgeColor =
+    order.state === "COMPLETED"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : "bg-zinc-50 text-zinc-600 border-zinc-200";
+
+  return (
+    <div className="flex flex-col justify-between rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
+      <div>
+        {/* Date + status */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+            {formatDate(order.createdAt)}
+          </p>
+          {order.state && (
+            <span
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeColor}`}
+            >
+              {order.state.charAt(0) + order.state.slice(1).toLowerCase()}
+            </span>
+          )}
+        </div>
+
+        {/* Item name */}
+        <h3 className="mt-2 text-base font-bold text-zinc-900">
+          {order.itemSummary || `${order.lineCount} item(s)`}
+        </h3>
+
+        {/* Placeholder customisation details (from data if available) */}
+        <div className="mt-2 space-y-1">
+          <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <span
+              className="inline-block h-1 w-1 rounded-full"
+              style={{ backgroundColor: BRAND.primaryColor }}
+            />
+            {order.lineCount} item{order.lineCount !== 1 ? "s" : ""}
+          </p>
+        </div>
+      </div>
+
+      {/* Price + Reorder */}
+      <div className="mt-4 flex items-center justify-between border-t border-black/5 pt-4">
+        <p className="text-lg font-bold text-zinc-900">
+          {formatPrice(BigInt(order.totalCents))}
+        </p>
+        <Link
+          href={`/order-confirmation/${order.id}`}
+          className="rounded-full px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        >
+          Reorder
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quick link item                                                    */
+/* ------------------------------------------------------------------ */
+
+function QuickLinkItem({
+  icon,
+  label,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between gap-3 py-4 text-sm font-medium text-zinc-700 transition hover:text-zinc-900"
+    >
+      <span className="flex items-center gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
+          {icon}
+        </span>
+        {label}
+      </span>
+      <ChevronRightIcon />
+    </Link>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Stamp circle                                                       */
+/* ------------------------------------------------------------------ */
+
+function StampCircle({ filled }: { filled: boolean }) {
+  if (filled) {
+    return (
+      <div
+        className="flex h-11 w-11 items-center justify-center rounded-full shadow-sm sm:h-16 sm:w-16"
+        style={{ backgroundColor: BRAND.primaryColor }}
+        aria-label="Earned stamp"
+      >
+        <StarIcon className="h-4 w-4 text-white sm:h-6 sm:w-6" />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-dashed sm:h-16 sm:w-16"
+      style={{
+        borderColor: BRAND.primaryColor,
+      }}
+      aria-label="Empty stamp"
+    >
+      <StarIcon
+        className="h-4 w-4 opacity-30 sm:h-6 sm:w-6"
+        style={{ color: BRAND.primaryColor }}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
 function formatDate(iso: string | null): string {
   if (!iso) return "";
   try {
     return new Intl.DateTimeFormat("en-AU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: "Australia/Brisbane",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     }).format(new Date(iso));
   } catch {
     return iso;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Icons                                                              */
+/* ------------------------------------------------------------------ */
+
+function StarIcon({
+  className,
+  style,
+}: {
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      style={style}
+      aria-hidden="true"
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function LocationIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+function PaymentIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function AppleWalletIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Simplified wallet card stack icon */}
+      <rect x="2" y="6" width="20" height="14" rx="2" fill="#4CAF50" />
+      <rect x="3" y="4" width="18" height="14" rx="2" fill="#FF9800" />
+      <rect x="4" y="2" width="16" height="14" rx="2" fill="#2196F3" />
+      <rect x="6" y="5" width="5" height="5" rx="1" fill="#FFD54F" />
+      <rect x="6" y="5" width="2.5" height="2.5" rx="0.5" fill="#F44336" />
+      <rect x="8.5" y="5" width="2.5" height="2.5" rx="0.5" fill="#66BB6A" />
+      <rect x="6" y="7.5" width="2.5" height="2.5" rx="0.5" fill="#42A5F5" />
+      <rect x="8.5" y="7.5" width="2.5" height="2.5" rx="0.5" fill="#FFA726" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="text-zinc-400"
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
-import { CartIcon } from "@/components/cart/CartIcon";
 
 // Items within a single category. Unknown slugs 404.
 // Data layer fetches the entire menu once and this page filters from it —
@@ -49,7 +48,7 @@ export default async function CategoryPage({ params }: PageProps) {
           <p className="text-zinc-600">No items in this category yet.</p>
         </div>
       ) : (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {items.map((item) => (
             <li key={item.id}>
               <Link
@@ -76,30 +75,22 @@ function CategoryFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-1 flex-col">
-      <header
-        className="w-full px-6 py-8 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        <div className="mx-auto flex max-w-5xl flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Link
-              href="/menu"
-              className="text-sm opacity-80 hover:opacity-100"
-            >
-              ← Menu
-            </Link>
-            <CartIcon />
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="text-sm opacity-90">{subtitle}</p>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-        {children}
-      </main>
-    </div>
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-5 sm:mb-6">
+        <Link
+          href="/menu"
+          className="text-sm font-medium hover:underline"
+          style={{ color: BRAND.primaryColor }}
+        >
+          ← Menu
+        </Link>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
+          {title}
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
+      </div>
+      {children}
+    </main>
   );
 }
 
@@ -121,15 +112,15 @@ function ItemCard({ item }: { item: MenuItem }) {
           No image
         </div>
       )}
-      <div className="p-4">
-        <h2 className="text-lg font-semibold text-zinc-900">{item.name}</h2>
+      <div className="p-3 sm:p-4">
+        <h2 className="text-sm font-semibold text-zinc-900 sm:text-lg">{item.name}</h2>
         {item.variationLabel && (
-          <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
+          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500 sm:mt-1 sm:text-xs">
             {item.variationLabel}
           </p>
         )}
         <p
-          className="mt-2 text-xl font-semibold"
+          className="mt-1 text-base font-semibold sm:mt-2 sm:text-xl"
           style={{ color: BRAND.primaryColor }}
         >
           {item.priceCents != null ? formatPrice(item.priceCents) : "—"}

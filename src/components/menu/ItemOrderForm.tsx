@@ -11,10 +11,6 @@ import type {
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
 
-// Interactive order form for a single item: variation + modifier lists
-// + quantity + add-to-cart. Renders nothing on the server (purely client)
-// to avoid hydration mismatches around the cart store.
-
 type Props = {
   item: MenuItem;
   modifierLists: ModifierList[];
@@ -23,15 +19,26 @@ type Props = {
 export function ItemOrderForm({ item, modifierLists }: Props) {
   const addLine = useCart((s) => s.addLine);
 
-  // Default-select the first variation.
   const [variationId, setVariationId] = useState<string>(
     item.variations[0]?.id ?? "",
   );
 
   // modifierListId → set of selected modifier ids
+  // Initialize from onByDefault flags set in Square Dashboard.
   const [selectedByList, setSelectedByList] = useState<
     Record<string, Set<string>>
-  >({});
+  >(() => {
+    const initial: Record<string, Set<string>> = {};
+    for (const ml of modifierLists) {
+      const defaults = ml.modifiers
+        .filter((m) => m.onByDefault)
+        .map((m) => m.id);
+      if (defaults.length > 0) {
+        initial[ml.id] = new Set(defaults);
+      }
+    }
+    return initial;
+  });
 
   const [quantity, setQuantity] = useState(1);
 
@@ -39,7 +46,6 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     (v) => v.id === variationId,
   );
 
-  // Validation: each modifier list must satisfy its selection bounds.
   const validationErrors = useMemo(() => {
     const errors: Record<string, string> = {};
     for (const ml of modifierLists) {
@@ -59,7 +65,6 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   const canAdd =
     selectedVariation != null && Object.keys(validationErrors).length === 0;
 
-  // Live total (unit × quantity).
   const unitPriceCents = useMemo(() => {
     if (!selectedVariation?.priceCents) return 0n;
     let total = selectedVariation.priceCents;
@@ -103,51 +108,64 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
         }));
     });
 
-    addLine({
-      itemId: item.id,
-      itemName: item.name,
-      itemImageUrl: item.imageUrl,
-      variationId: selectedVariation.id,
-      variationName: selectedVariation.name,
-      variationPriceCents: selectedVariation.priceCents ?? 0n,
-      modifiers: chosenModifiers,
-    }, quantity);
+    addLine(
+      {
+        itemId: item.id,
+        itemName: item.name,
+        itemImageUrl: item.imageUrl,
+        variationId: selectedVariation.id,
+        variationName: selectedVariation.name,
+        variationPriceCents: selectedVariation.priceCents ?? 0n,
+        modifiers: chosenModifiers,
+      },
+      quantity,
+    );
 
-    // Reset local form so the next add starts fresh.
-    setSelectedByList({});
+    // Reset to defaults from Square Dashboard.
+    const reset: Record<string, Set<string>> = {};
+    for (const ml of modifierLists) {
+      const defaults = ml.modifiers
+        .filter((m) => m.onByDefault)
+        .map((m) => m.id);
+      if (defaults.length > 0) {
+        reset[ml.id] = new Set(defaults);
+      }
+    }
+    setSelectedByList(reset);
     setQuantity(1);
   }
 
   return (
     <div>
+      {/* Variations — pill toggle */}
       {item.variations.length > 1 && (
-        <Section title="Size">
-          <div className="divide-y divide-black/5 rounded-md border border-black/10 bg-white">
-            {item.variations.map((v) => (
-              <label
-                key={v.id}
-                className="flex cursor-pointer items-center justify-between px-4 py-3"
-              >
-                <span className="flex items-center gap-3">
-                  <input
-                    type="radio"
-                    name="variation"
-                    checked={variationId === v.id}
-                    onChange={() => setVariationId(v.id)}
-                    className="accent-current"
-                    style={{ accentColor: BRAND.primaryColor }}
-                  />
-                  <span className="text-sm text-zinc-800">{v.name}</span>
-                </span>
-                <span className="text-sm font-medium text-zinc-600">
-                  {v.priceCents != null ? formatPrice(v.priceCents) : "—"}
-                </span>
-              </label>
-            ))}
+        <Section title="Select Size">
+          <div className="flex flex-wrap gap-2">
+            {item.variations.map((v) => {
+              const active = variationId === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setVariationId(v.id)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition ${
+                    active
+                      ? "border-transparent text-white"
+                      : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
+                  }`}
+                  style={
+                    active ? { backgroundColor: "#3E2723" } : undefined
+                  }
+                >
+                  {v.name}
+                </button>
+              );
+            })}
           </div>
         </Section>
       )}
 
+      {/* Modifier lists — pill selectors */}
       {modifierLists.map((ml) => (
         <Section
           key={ml.id}
@@ -155,34 +173,80 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
           hint={describeSelection(ml)}
           error={validationErrors[ml.id]}
         >
-          <ModifierOptions
-            list={ml}
-            selected={selectedByList[ml.id] ?? new Set()}
-            onToggle={(modId) => toggleModifier(ml, modId)}
-          />
+          <div className="flex flex-wrap gap-2">
+            {ml.modifiers.map((mod) => {
+              const selected = selectedByList[ml.id]?.has(mod.id) ?? false;
+              return (
+                <button
+                  key={mod.id}
+                  type="button"
+                  onClick={() => toggleModifier(ml, mod.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    selected
+                      ? "border-transparent text-white"
+                      : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
+                  }`}
+                  style={
+                    selected
+                      ? { backgroundColor: BRAND.primaryColor }
+                      : undefined
+                  }
+                >
+                  {selected && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {mod.name}
+                  {priceLabel(mod) && (
+                    <span className={selected ? "opacity-80" : "text-zinc-400"}>
+                      {priceLabel(mod)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </Section>
       ))}
 
-      {/* Quantity + add to cart */}
-      <div className="mt-8 border-t border-black/10 pt-6">
-        <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-medium text-zinc-700">Quantity</span>
-          <QuantityStepper value={quantity} onChange={setQuantity} />
-        </div>
+      {/* Quantity + Add to Cart */}
+      <div className="mt-6 flex items-center gap-3 sm:mt-8">
+        <QuantityStepper value={quantity} onChange={setQuantity} />
 
         <button
           type="button"
           onClick={handleAdd}
           disabled={!canAdd}
-          className={`flex w-full items-center justify-between rounded-full px-6 py-3 text-white transition ${
-            canAdd
-              ? "hover:opacity-90"
-              : "cursor-not-allowed opacity-50"
+          className={`flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold text-white transition ${
+            canAdd ? "hover:opacity-90" : "cursor-not-allowed opacity-50"
           }`}
           style={{ backgroundColor: BRAND.primaryColor }}
         >
-          <span className="font-semibold">Add to cart</span>
-          <span className="font-semibold">{formatPrice(totalCents)}</span>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="9" cy="21" r="1" />
+            <circle cx="20" cy="21" r="1" />
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+          </svg>
+          Add to Cart — {formatPrice(totalCents)}
         </button>
       </div>
     </div>
@@ -204,63 +268,18 @@ function Section({
 }) {
   return (
     <section className="mb-6">
-      <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-zinc-900">{title}</h2>
+      <div className="mb-2.5 flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          {title}
+        </h2>
         {hint && (
-          <span className="text-xs uppercase tracking-wide text-zinc-500">
-            {hint}
-          </span>
+          <span className="text-xs text-zinc-400">{hint}</span>
         )}
       </div>
       {children}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
     </section>
   );
-}
-
-function ModifierOptions({
-  list,
-  selected,
-  onToggle,
-}: {
-  list: ModifierList;
-  selected: Set<string>;
-  onToggle: (modifierId: string) => void;
-}) {
-  if (list.modifiers.length === 0) {
-    return (
-      <p className="text-sm italic text-zinc-400">No options available.</p>
-    );
-  }
-  const isSingleSelect = list.maxSelected === 1;
-  return (
-    <ul className="divide-y divide-black/5 rounded-md border border-black/10 bg-white">
-      {list.modifiers.map((mod) => (
-        <li key={mod.id}>
-          <label className="flex cursor-pointer items-center justify-between px-4 py-3">
-            <span className="flex items-center gap-3">
-              <input
-                type={isSingleSelect ? "radio" : "checkbox"}
-                name={`modlist-${list.id}`}
-                checked={selected.has(mod.id)}
-                onChange={() => onToggle(mod.id)}
-                style={{ accentColor: BRAND.primaryColor }}
-              />
-              <span className="text-sm text-zinc-800">{mod.name}</span>
-            </span>
-            <span className="text-sm font-medium text-zinc-600">
-              {priceLabel(mod)}
-            </span>
-          </label>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function priceLabel(mod: ModifierOption): string {
-  if (mod.priceCents == null || mod.priceCents === 0n) return "";
-  return `+${formatPrice(mod.priceCents)}`;
 }
 
 function QuantityStepper({
@@ -271,26 +290,31 @@ function QuantityStepper({
   onChange: (q: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-black/10">
+    <div className="flex items-center rounded-full border border-black/10 bg-white">
       <button
         type="button"
         onClick={() => onChange(Math.max(1, value - 1))}
         aria-label="Decrease quantity"
-        className="h-8 w-8 rounded-l-full text-sm hover:bg-black/5"
+        className="flex h-10 w-10 items-center justify-center rounded-l-full text-lg text-zinc-500 hover:bg-black/5"
       >
         −
       </button>
-      <span className="w-6 text-center text-sm font-medium">{value}</span>
+      <span className="w-8 text-center text-sm font-semibold">{value}</span>
       <button
         type="button"
         onClick={() => onChange(value + 1)}
         aria-label="Increase quantity"
-        className="h-8 w-8 rounded-r-full text-sm hover:bg-black/5"
+        className="flex h-10 w-10 items-center justify-center rounded-r-full text-lg text-zinc-500 hover:bg-black/5"
       >
         +
       </button>
     </div>
   );
+}
+
+function priceLabel(mod: ModifierOption): string {
+  if (mod.priceCents == null || mod.priceCents === 0n) return "";
+  return `+${formatPrice(mod.priceCents)}`;
 }
 
 function describeSelection(ml: ModifierList): string {

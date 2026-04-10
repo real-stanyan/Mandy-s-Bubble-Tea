@@ -29,7 +29,6 @@ type CreateOrderBody = {
   recipientName: string;
   recipientPhone: string; // already E.164-ish (from /api/customer flow)
   note?: string;
-  loyaltyRewardId?: string; // Optional loyalty reward to apply
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -96,47 +95,41 @@ export async function POST(request: Request) {
   const pickupAt = new Date().toISOString();
 
   try {
-      // Build the order body
-    const orderBody: any = {
-      locationId: SQUARE_LOCATION_ID,
-      customerId: body.customerId,
-      lineItems,
-      fulfillments: [
-         {
-          type: "PICKUP",
-          state: "PROPOSED",
-          pickupDetails: {
-            scheduleType: "ASAP",
-            pickupAt,
-            recipient: {
-              customerId: body.customerId,
-              displayName: body.recipientName,
-              phoneNumber: body.recipientPhone,
+    // Note: loyalty rewards are NOT attached here. Square's order
+    // create request has no loyaltyRewards field — the discount is
+    // applied by calling CreateLoyaltyReward with this orderId
+    // AFTER the order exists. The checkout flow does that step
+    // right after this route returns.
+    const response = await squareClient.orders.create({
+      idempotencyKey: randomUUID(),
+      order: {
+        locationId: SQUARE_LOCATION_ID,
+        customerId: body.customerId,
+        lineItems,
+        fulfillments: [
+          {
+            type: "PICKUP",
+            state: "PROPOSED",
+            pickupDetails: {
+              scheduleType: "ASAP",
+              pickupAt,
+              recipient: {
+                customerId: body.customerId,
+                displayName: body.recipientName,
+                phoneNumber: body.recipientPhone,
               },
-            note: body.note || undefined,
+              note: body.note || undefined,
             },
           },
         ],
         // Metadata helps us trace orders back to this web app in the
         // Square Dashboard and is safe to include (no PII).
-      metadata: {
-        source: "web",
-        site: BUSINESS.domain,
+        metadata: {
+          source: "web",
+          site: BUSINESS.domain,
         },
-      };
-
-      // Attach loyalty reward if provided
-    if (body.loyaltyRewardId) {
-      orderBody.loyaltyRewards = [{
-        loyaltyRewardId: body.loyaltyRewardId,
-        redemptionType: "LOYALTY",
-        }];
-      }
-
-    const response = await squareClient.orders.create({
-      idempotencyKey: randomUUID(),
-      order: orderBody,
-     });
+      },
+    });
 
     const orderId = response.order?.id;
     if (!orderId) {

@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   useCart,
-  lineUnitPrice,
   lineTotal,
   cartSubtotal,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND } from "@/lib/constants";
+import { BRAND, LOYALTY } from "@/lib/constants";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
+
+const PHONE_STORAGE_KEY = "mbt:account:phone";
 
 export function CartDrawer() {
   const isOpen = useCart((s) => s.isOpen);
@@ -46,6 +47,8 @@ export function CartDrawer() {
   // Avoid SSR hydration mismatch — server renders nothing for this drawer.
   if (!hydrated) return null;
 
+  const itemCount = lines.reduce((n, l) => n + l.quantity, 0);
+
   return (
     <div
       aria-hidden={!isOpen}
@@ -69,35 +72,44 @@ export function CartDrawer() {
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <header
-          className="flex items-center justify-between px-5 py-4 text-white"
-          style={{ backgroundColor: BRAND.primaryColor }}
-        >
-          <h2 className="text-lg font-semibold">Your Cart</h2>
+        {/* Header */}
+        <header className="flex items-start justify-between px-5 pt-6 pb-4">
+          <div>
+            <h2 className="text-xl font-bold text-zinc-900">Your Cart</h2>
+            <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              {itemCount} item{itemCount !== 1 ? "s" : ""} selected
+            </p>
+          </div>
           <button
             type="button"
             onClick={closeDrawer}
             aria-label="Close cart"
-            className="rounded p-1 hover:bg-white/15"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 text-sm text-zinc-500 transition hover:bg-zinc-50"
           >
             ✕
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto px-5">
           {lines.length === 0 ? (
             <EmptyState onClose={closeDrawer} />
           ) : (
-            <ul className="divide-y divide-black/10">
-              {lines.map((line) => (
-                <CartLineRow
-                  key={line.id}
-                  line={line}
-                  onQuantityChange={(q) => setQuantity(line.id, q)}
-                  onRemove={() => removeLine(line.id)}
-                />
-              ))}
-            </ul>
+            <>
+              {/* Tea Journey loyalty card */}
+              <TeaJourneyCard />
+
+              {/* Cart items */}
+              <div className="mt-5 space-y-5">
+                {lines.map((line) => (
+                  <CartLineRow
+                    key={line.id}
+                    line={line}
+                    onQuantityChange={(q) => setQuantity(line.id, q)}
+                    onRemove={() => removeLine(line.id)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
 
@@ -106,6 +118,97 @@ export function CartDrawer() {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Tea Journey (loyalty progress)                                     */
+/* ------------------------------------------------------------------ */
+
+function TeaJourneyCard() {
+  const [balance, setBalance] = useState<number | null>(null);
+  const starsPerReward = LOYALTY.starsPerReward;
+
+  useEffect(() => {
+    const phone =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(PHONE_STORAGE_KEY)
+        : null;
+    if (!phone) return;
+
+    (async () => {
+      try {
+        const custRes = await fetch("/api/customer/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        });
+        const custJson = await custRes.json();
+        if (!custRes.ok || !custJson.ok || !custJson.found) return;
+
+        const loyaltyRes = await fetch("/api/loyalty/account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: custJson.customerId,
+            phone: custJson.phoneE164,
+          }),
+        });
+        const loyaltyJson = await loyaltyRes.json();
+        if (loyaltyRes.ok && loyaltyJson.ok) {
+          setBalance(loyaltyJson.balance ?? 0);
+        }
+      } catch {
+        // Silently fail — loyalty is optional
+      }
+    })();
+  }, []);
+
+  const stars = balance ?? 0;
+  const remaining = Math.max(starsPerReward - stars, 0);
+  const progressPct = Math.min((stars / starsPerReward) * 100, 100);
+
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{ backgroundColor: BRAND.accentColor }}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-zinc-900">Your Tea Journey</h3>
+          <p className="mt-0.5 text-xs text-zinc-600">
+            {stars > 0
+              ? `${remaining} more star${remaining !== 1 ? "s" : ""} until your next free treat!`
+              : "Start earning stars toward a free drink!"}
+          </p>
+        </div>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        >
+          <StarIcon />
+        </span>
+      </div>
+      {/* Progress bar */}
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${progressPct}%`,
+            backgroundColor: BRAND.primaryColor,
+          }}
+        />
+      </div>
+      <div className="mt-1.5 text-[10px] font-semibold text-zinc-500">
+        <span>
+          {stars} / {starsPerReward} Stars
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Empty state                                                        */
+/* ------------------------------------------------------------------ */
 
 function EmptyState({ onClose }: { onClose: () => void }) {
   return (
@@ -123,6 +226,10 @@ function EmptyState({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Cart line row                                                      */
+/* ------------------------------------------------------------------ */
+
 function CartLineRow({
   line,
   onQuantityChange,
@@ -132,82 +239,68 @@ function CartLineRow({
   onQuantityChange: (q: number) => void;
   onRemove: () => void;
 }) {
-  const unit = lineUnitPrice(line);
   const total = lineTotal(line);
+  const details = [
+    line.variationName,
+    ...line.modifiers.map((m) => m.name),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
-    <li className="flex gap-3 p-4">
+    <div className="flex gap-3">
+      {/* Image */}
       {line.itemImageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={line.itemImageUrl}
           alt=""
-          className="h-16 w-16 flex-shrink-0 rounded object-cover"
+          className="h-16 w-16 shrink-0 rounded-xl object-cover"
         />
       ) : (
-        <div className="h-16 w-16 flex-shrink-0 rounded bg-zinc-100" />
+        <div
+          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl text-lg"
+          style={{ backgroundColor: BRAND.accentColor }}
+        >
+          🧋
+        </div>
       )}
 
+      {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-zinc-900">
-              {line.itemName}
-            </p>
-            {line.variationName && (
-              <p className="text-xs text-zinc-500">{line.variationName}</p>
-            )}
-            {line.modifiers.length > 0 && (
-              <ul className="mt-1 space-y-0.5">
-                {line.modifiers.map((m) => (
-                  <li
-                    key={m.id}
-                    className="truncate text-xs text-zinc-500"
-                  >
-                    + {m.name}
-                    {m.priceCents !== 0n && (
-                      <span className="text-zinc-400">
-                        {" "}
-                        ({formatPrice(m.priceCents)})
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <p className="text-sm font-bold text-zinc-900">{line.itemName}</p>
+          <p
+            className="shrink-0 text-sm font-bold"
+            style={{ color: BRAND.primaryColor }}
+          >
+            {formatPrice(total)}
+          </p>
+        </div>
+        {details && (
+          <p className="mt-0.5 text-xs text-zinc-500">{details}</p>
+        )}
+
+        {/* Quantity + Remove */}
+        <div className="mt-2 flex items-center justify-between">
+          <QuantityStepper value={line.quantity} onChange={onQuantityChange} />
           <button
             type="button"
             onClick={onRemove}
             aria-label="Remove item"
-            className="text-xs text-zinc-400 hover:text-zinc-700"
+            className="text-xs font-medium transition hover:opacity-70"
+            style={{ color: BRAND.primaryColor }}
           >
             Remove
           </button>
         </div>
-
-        <div className="mt-2 flex items-center justify-between">
-          <QuantityStepper
-            value={line.quantity}
-            onChange={onQuantityChange}
-          />
-          <div className="text-right">
-            <p
-              className="text-sm font-semibold"
-              style={{ color: BRAND.primaryColor }}
-            >
-              {formatPrice(total)}
-            </p>
-            {line.quantity > 1 && (
-              <p className="text-[10px] text-zinc-400">
-                {formatPrice(unit)} each
-              </p>
-            )}
-          </div>
-        </div>
       </div>
-    </li>
+    </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Quantity stepper                                                    */
+/* ------------------------------------------------------------------ */
 
 function QuantityStepper({
   value,
@@ -217,21 +310,21 @@ function QuantityStepper({
   onChange: (q: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-full border border-black/10">
+    <div className="flex items-center gap-0.5 rounded-full border border-black/10">
       <button
         type="button"
         onClick={() => onChange(value - 1)}
         aria-label="Decrease quantity"
-        className="h-7 w-7 rounded-l-full text-sm hover:bg-black/5"
+        className="flex h-7 w-7 items-center justify-center rounded-l-full text-sm text-zinc-600 hover:bg-black/5"
       >
         −
       </button>
-      <span className="w-6 text-center text-sm">{value}</span>
+      <span className="w-6 text-center text-sm font-medium">{value}</span>
       <button
         type="button"
         onClick={() => onChange(value + 1)}
         aria-label="Increase quantity"
-        className="h-7 w-7 rounded-r-full text-sm hover:bg-black/5"
+        className="flex h-7 w-7 items-center justify-center rounded-r-full text-sm text-zinc-600 hover:bg-black/5"
       >
         +
       </button>
@@ -239,28 +332,65 @@ function QuantityStepper({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Footer                                                             */
+/* ------------------------------------------------------------------ */
+
 function CartFooter({ lines }: { lines: CartLine[] }) {
   const subtotal = cartSubtotal(lines);
   const closeDrawer = useCart((s) => s.closeDrawer);
   return (
-    <footer className="border-t border-black/10 bg-zinc-50 p-5">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-sm text-zinc-600">Subtotal</span>
-        <span className="text-lg font-semibold text-zinc-900">
+    <footer className="border-t border-black/10 px-5 pb-6 pt-5">
+      <div className="space-y-2">
+        <div className="flex justify-between text-sm text-zinc-600">
+          <span>Subtotal</span>
+          <span className="font-semibold text-zinc-900">
+            {formatPrice(subtotal)}
+          </span>
+        </div>
+        <div className="flex justify-between text-sm text-zinc-600">
+          <span>Tax</span>
+          <span className="font-semibold text-zinc-900">
+            At checkout
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 flex items-baseline justify-between border-t border-black/10 pt-3">
+        <span className="text-base font-bold text-zinc-900">Total Price</span>
+        <span
+          className="text-xl font-bold"
+          style={{ color: BRAND.primaryColor }}
+        >
           {formatPrice(subtotal)}
         </span>
       </div>
-      <p className="mb-4 text-[11px] text-zinc-500">
-        Taxes and loyalty discounts calculated at checkout.
-      </p>
       <Link
         href="/checkout"
         onClick={closeDrawer}
-        className="block w-full rounded-full py-3 text-center text-sm font-semibold text-white transition hover:opacity-90"
+        className="mt-5 block w-full rounded-full py-3.5 text-center text-sm font-semibold text-white transition hover:opacity-90"
         style={{ backgroundColor: BRAND.primaryColor }}
       >
-        Checkout
+        Checkout Now
       </Link>
     </footer>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Icons                                                              */
+/* ------------------------------------------------------------------ */
+
+function StarIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
   );
 }

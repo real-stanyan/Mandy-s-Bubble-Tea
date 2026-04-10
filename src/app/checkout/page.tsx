@@ -11,7 +11,7 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND } from "@/lib/constants";
+import { BRAND, LOYALTY } from "@/lib/constants";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { customer, order, payment } through
@@ -107,13 +107,40 @@ export default function CheckoutPage() {
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
 
+  // Loyalty-derived values — declared early so effects can reference them.
+  const loyaltyBalance =
+    loyaltyLookup.status === "ready" ? loyaltyLookup.balance : 0;
+  const loyaltyTotal =
+    loyaltyLookup.status === "ready" && loyaltyLookup.starsPerReward > 0
+      ? loyaltyLookup.starsPerReward
+      : LOYALTY.starsPerReward;
+  const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
+  const progressPct = Math.min((loyaltyBalance / loyaltyTotal) * 100, 100);
+
+  // When the user has enough stars for a free drink AND the cart contains
+  // exactly 1 drink, the reward fully covers the order — no payment needed.
+  const canRedeemFully =
+    loyaltyLookup.status === "ready" &&
+    loyaltyLookup.starsPerReward > 0 &&
+    loyaltyLookup.balance >= loyaltyLookup.starsPerReward &&
+    starsThisOrder === 1;
+
+  // Auto-toggle reward when the order qualifies for a fully free checkout.
+  useEffect(() => {
+    setUseReward(canRedeemFully);
+  }, [canRedeemFully]);
+
   // Fetches the loyalty account for the current phone. Called on phone
-  // blur. Uses the phone-only /api/customer/lookup (no create) so a
-  // typo doesn't leave an empty customer record behind. If the phone
-  // isn't on file yet, there's nothing to redeem — surface a friendly
+  // blur and on mount (if a saved phone is restored from localStorage).
+  // Uses the phone-only /api/customer/lookup (no create) so a typo
+  // doesn't leave an empty customer record behind. If the phone isn't
+  // on file yet, there's nothing to redeem — surface a friendly
   // "new customer" state.
-  async function lookupLoyalty() {
-    const trimmedPhone = phone.trim();
+  //
+  // Takes an explicit phone arg so the on-mount effect can pass the
+  // value it just restored without racing React's state update.
+  async function lookupLoyalty(phoneOverride?: string) {
+    const trimmedPhone = (phoneOverride ?? phone).trim();
     if (!trimmedPhone) return;
     setLoyaltyLookup({ status: "loading" });
     try {
@@ -135,6 +162,17 @@ export default function CheckoutPage() {
           starsPerReward: 0,
         });
         return;
+      }
+
+      // Pre-fill the Name field from the matched Square customer,
+      // but only if the user hasn't started typing. Functional
+      // setState avoids clobbering in-flight keystrokes.
+      const fullName = [customerJson.givenName, customerJson.familyName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      if (fullName) {
+        setName((current) => (current.trim() === "" ? fullName : current));
       }
 
       const loyaltyRes = await fetch("/api/loyalty/account", {
@@ -162,9 +200,44 @@ export default function CheckoutPage() {
     }
   }
 
-  // Initialize the Square card form once the SDK has loaded. Attach is
-  // keyed on the container mounting, so we wait for both.
+  // On mount, pre-fill phone (and later name) from the saved account.
+  // Same localStorage key as /account and <AccountLink />: a "signed
+  // in" visitor shouldn't have to retype their details just to pay.
+  // Runs once — subsequent edits to the phone field use the normal
+  // onChange/onBlur path.
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    let storedPhone: string | null = null;
+    try {
+      storedPhone = window.localStorage.getItem("mbt:account:phone");
+    } catch {
+      return;
+    }
+    if (!storedPhone) return;
+    setPhone(storedPhone);
+    // Pass the phone explicitly so we don't race the setPhone above.
+    // lookupLoyalty will populate the name field from Square as a
+    // side effect when the customer is found.
+    void lookupLoyalty(storedPhone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Whether the payment card section is currently rendered in the DOM.
+  const needsCard = !(canRedeemFully && useReward);
+
+  // Initialize the Square card form once the SDK has loaded AND the
+  // #card-container element is in the DOM. When the order is fully
+  // covered by a loyalty reward the container is not rendered, so we
+  // skip initialization (and tear down any existing card instance).
+  useEffect(() => {
+    if (!needsCard) {
+      // Card section was removed — tear down any existing instance.
+      cardRef.current?.destroy().catch(() => undefined);
+      cardRef.current = null;
+      setCardReady(false);
+      return;
+    }
+
     if (!sdkReady) return;
     if (cardRef.current) return;
     if (!SQUARE_APP_ID || !SQUARE_LOCATION_ID) {
@@ -201,7 +274,7 @@ export default function CheckoutPage() {
       cardRef.current?.destroy().catch(() => undefined);
       cardRef.current = null;
     };
-  }, [sdkReady]);
+  }, [sdkReady, needsCard]);
 
   // Avoid SSR mismatch: render a placeholder until the cart hydrates.
   if (!hydrated) {
@@ -238,7 +311,8 @@ export default function CheckoutPage() {
       setError("Please enter your name and phone.");
       return;
     }
-    if (!cardRef.current) {
+    const expectFreeOrder = canRedeemFully && useReward;
+    if (!expectFreeOrder && !cardRef.current) {
       setError("Card form is not ready yet.");
       return;
     }
@@ -256,29 +330,9 @@ export default function CheckoutPage() {
         throw new Error(customerJson.error ?? "Customer lookup failed");
       }
 
-      // 2) Optionally redeem a loyalty reward. We do this before order
-      // creation so the loyaltyRewardId can be attached to the order and
-      // Square applies the discount server-side. If redemption fails we
-      // bail out — charging full price after the user opted in would be
-      // a surprise.
-      let loyaltyRewardId: string | undefined;
-      if (useReward && loyaltyLookup.status === "ready") {
-        const redeemRes = await fetch("/api/loyalty/redeem", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: customerJson.customerId,
-            phone: phone.trim(),
-          }),
-        });
-        const redeemJson = await redeemRes.json();
-        if (!redeemRes.ok || !redeemJson.ok) {
-          throw new Error(redeemJson.error ?? "Could not redeem reward");
-        }
-        loyaltyRewardId = redeemJson.loyaltyRewardId;
-      }
-
-      // 3) Create the order (server computes trusted total).
+      // 2) Create the order at full price. Loyalty discounts are
+      // applied by Square AFTER the order exists — we attach the
+      // reward in the next step, not here.
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -287,7 +341,6 @@ export default function CheckoutPage() {
           recipientName: name.trim(),
           recipientPhone: phone.trim(),
           note: note.trim() || undefined,
-          loyaltyRewardId,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -305,51 +358,93 @@ export default function CheckoutPage() {
         throw new Error(orderJson.error ?? "Order creation failed");
       }
 
-      // 4) Tokenize the card via the Web Payments SDK.
-      const tokenResult = await cardRef.current.tokenize();
-      if (tokenResult.status !== "OK" || !tokenResult.token) {
-        const detail =
-          tokenResult.errors?.[0]?.message ??
-          `Tokenization failed (${tokenResult.status})`;
-        throw new Error(detail);
-      }
-
-      // 5) Verify the buyer for SCA/3DS. Mandatory in AU for online
-      // card payments — skipping this triggers CARD_DECLINED_VERIFICATION_REQUIRED.
-      // The amount must match what Square will actually charge, so we
-      // read it from the just-created order.
-      if (!paymentsRef.current) {
-        throw new Error("Payments SDK not initialized");
-      }
-      const amountMajor = (Number(orderJson.amountCents) / 100).toFixed(2);
-      const [firstName, ...restName] = name.trim().split(/\s+/);
-      const verification = await paymentsRef.current.verifyBuyer(
-        tokenResult.token,
-        {
-          amount: amountMajor,
-          currencyCode: "AUD",
-          intent: "CHARGE",
-          billingContact: {
-            givenName: firstName,
-            familyName: restName.join(" ") || undefined,
+      // 3) Optionally redeem a loyalty reward against the order.
+      // Square's CreateLoyaltyReward with an orderId is the ONLY
+      // supported way to discount an order with a reward — there is
+      // no order-level loyaltyRewards field on create. If this step
+      // fails we bail out before any payment is taken; charging
+      // full price after the user opted in would be a surprise.
+      //
+      // The redeem route returns the re-fetched order total so
+      // verifyBuyer/pay both see the discounted amount.
+      let amountCents: string = orderJson.amountCents;
+      if (useReward && loyaltyLookup.status === "ready") {
+        const redeemRes = await fetch("/api/loyalty/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: customerJson.customerId,
             phone: phone.trim(),
-            countryCode: "AU",
-          },
-          customerInitiated: true,
-          sellerKeyedIn: false,
-        },
-      );
+            orderId: orderJson.orderId,
+          }),
+        });
+        const redeemJson = await redeemRes.json();
+        if (!redeemRes.ok || !redeemJson.ok) {
+          throw new Error(redeemJson.error ?? "Could not redeem reward");
+        }
+        if (typeof redeemJson.updatedAmountCents === "string") {
+          amountCents = redeemJson.updatedAmountCents;
+        }
+      }
 
-      // 6) Charge the token against the order.
+      // 4) Tokenize + verify the card, UNLESS the order is fully
+      // covered by a loyalty reward (total 0). Square rejects zero-
+      // amount Payment objects, so in that case we skip the card
+      // flow entirely and let /api/payment close the order via
+      // orders.pay with empty paymentIds.
+      const isFreeOrder = amountCents === "0" || Number(amountCents) === 0;
+
+      let sourceToken: string | undefined;
+      let verificationToken: string | undefined;
+      if (!isFreeOrder) {
+        if (!cardRef.current) throw new Error("Card form is not ready yet.");
+        const tokenResult = await cardRef.current.tokenize();
+        if (tokenResult.status !== "OK" || !tokenResult.token) {
+          const detail =
+            tokenResult.errors?.[0]?.message ??
+            `Tokenization failed (${tokenResult.status})`;
+          throw new Error(detail);
+        }
+        sourceToken = tokenResult.token;
+
+        // SCA/3DS is mandatory in AU for online card payments —
+        // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
+        if (!paymentsRef.current) {
+          throw new Error("Payments SDK not initialized");
+        }
+        const amountMajor = (Number(amountCents) / 100).toFixed(2);
+        const [firstName, ...restName] = name.trim().split(/\s+/);
+        const verification = await paymentsRef.current.verifyBuyer(
+          sourceToken,
+          {
+            amount: amountMajor,
+            currencyCode: "AUD",
+            intent: "CHARGE",
+            billingContact: {
+              givenName: firstName,
+              familyName: restName.join(" ") || undefined,
+              phone: phone.trim(),
+              countryCode: "AU",
+            },
+            customerInitiated: true,
+            sellerKeyedIn: false,
+          },
+        );
+        verificationToken = verification.token;
+      }
+
+      // 5) Finalize the order — either by charging the tokenized
+      // card, or (for free orders) by closing the order with an
+      // empty payment set. Same endpoint handles both.
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceId: tokenResult.token,
+          sourceId: sourceToken,
           orderId: orderJson.orderId,
           customerId: customerJson.customerId,
           phone: phone.trim(),
-          verificationToken: verification.token,
+          verificationToken,
         }),
       });
       const paymentJson = await paymentRes.json();
@@ -375,154 +470,272 @@ export default function CheckoutPage() {
         onReady={() => setSdkReady(true)}
       />
 
-      <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-2">
-        {/* Customer + card */}
-        <section>
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
-            Your details
-          </h2>
-          <div className="space-y-4">
-            <Field
-              label="Name"
-              value={name}
-              onChange={setName}
-              placeholder="Your name"
-              autoComplete="name"
-              required
-            />
-            <Field
-              label="Phone"
-              value={phone}
-              onChange={(v) => {
-                setPhone(v);
-                // If the user edits the phone after a lookup, drop the
-                // stale loyalty result so they don't accidentally redeem
-                // against a different account.
-                if (loyaltyLookup.status !== "idle") {
-                  setLoyaltyLookup({ status: "idle" });
-                  setUseReward(false);
-                }
-              }}
-              onBlur={lookupLoyalty}
-              placeholder="0404 123 456"
-              type="tel"
-              autoComplete="tel"
-              required
-              hint="We use this to send pickup updates."
-            />
-            <TextArea
-              label="Pickup note (optional)"
-              value={note}
-              onChange={setNote}
-              placeholder="Anything we should know?"
-            />
-          </div>
+      <form
+        onSubmit={handleSubmit}
+        className="grid gap-6 sm:gap-8 lg:grid-cols-[1fr_380px]"
+      >
+        {/* ── Left column ── */}
+        <div className="space-y-6">
+          {/* Rewards Progress */}
+          <section
+            className="relative overflow-hidden rounded-2xl p-5"
+            style={{ backgroundColor: BRAND.accentColor }}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">
+                  Rewards Progress
+                </h3>
+                <p className="mt-1 text-sm text-zinc-600">
+                  {loyaltyBalance > 0
+                    ? `You have ${loyaltyBalance} stars. This order will earn you ${starsThisOrder} more star${starsThisOrder !== 1 ? "s" : ""}!`
+                    : `This order will earn you ${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""}!`}
+                </p>
+              </div>
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white"
+                style={{ backgroundColor: BRAND.primaryColor }}
+              >
+                <StarIcon />
+              </span>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-white/60">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${progressPct}%`,
+                  backgroundColor: BRAND.primaryColor,
+                }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+              <span>{loyaltyBalance} Stars</span>
+              <span>{loyaltyTotal} Stars for Free Drink</span>
+            </div>
 
-          <h2 className="mb-2 mt-8 text-lg font-semibold text-zinc-900">
-            Payment
-          </h2>
-          {SQUARE_ENV !== "production" && (
-            <p className="mb-3 text-xs text-zinc-500">
-              Sandbox test card: <code>4111 1111 1111 1111</code>, expiry{" "}
-              <code>12/27</code>, CVV <code>111</code>, postcode{" "}
-              <code>4215</code>.
-            </p>
+            {/* Redeem checkbox */}
+            {loyaltyLookup.status === "ready" &&
+              loyaltyLookup.starsPerReward > 0 &&
+              loyaltyLookup.balance >= loyaltyLookup.starsPerReward && (
+                <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-3">
+                  <input
+                    type="checkbox"
+                    checked={useReward}
+                    onChange={(e) => setUseReward(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span
+                    className="text-sm font-semibold"
+                    style={{ color: BRAND.primaryColor }}
+                  >
+                    Redeem free drink ({loyaltyLookup.starsPerReward} stars)
+                  </span>
+                </label>
+              )}
+          </section>
+
+          {/* Hidden phone field — auto-filled from localStorage */}
+          <input type="hidden" value={phone} />
+
+          {/* Free drink banner — shown when reward fully covers the order */}
+          {canRedeemFully && useReward && (
+            <section
+              className="rounded-2xl border-2 p-5"
+              style={{ borderColor: BRAND.primaryColor }}
+            >
+              <p
+                className="text-center text-lg font-bold"
+                style={{ color: BRAND.primaryColor }}
+              >
+                This drink is on us! 🎉
+              </p>
+              <p className="mt-1 text-center text-sm text-zinc-600">
+                Your {loyaltyTotal} stars will be redeemed for a free drink — no payment needed.
+              </p>
+
+              {/* Name field — still needed for order recipient */}
+              <label className="mt-4 block">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  Name
+                </span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                  required
+                  className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                />
+              </label>
+            </section>
           )}
-          <div
-            id="card-container"
-            className="min-h-[90px] rounded-md border border-black/15 bg-white px-3 py-2"
-          />
-          {!cardReady && (
-            <p className="mt-2 text-xs text-zinc-400">Loading card form…</p>
+
+          {/* Payment Method — hidden when the reward fully covers the order */}
+          {!(canRedeemFully && useReward) && (
+            <>
+              <section>
+                <h3 className="mb-3 text-base font-bold text-zinc-900 sm:mb-4 sm:text-lg">
+                  Payment Method
+                </h3>
+                <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:gap-3">
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
+                    style={{
+                      borderColor: BRAND.primaryColor,
+                      color: BRAND.primaryColor,
+                    }}
+                  >
+                    <CardIcon />
+                    Card
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 rounded-full border-2 border-black/15 py-3 text-sm font-semibold text-zinc-500 transition hover:border-black/30"
+                    disabled
+                    title="Coming soon"
+                  >
+                    <ApplePayIcon />
+                    Apple Pay
+                  </button>
+                </div>
+              </section>
+
+              {/* Card form */}
+              <section className="rounded-2xl border border-black/10 bg-white p-5">
+                {/* Cardholder name */}
+                <label className="mb-4 block">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Cardholder Name
+                  </span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                    required
+                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                  />
+                </label>
+
+                {/* Phone (visible if not pre-filled) */}
+                {!phone && (
+                  <label className="mb-4 block">
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Phone
+                    </span>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(v) => {
+                        setPhone(v.target.value);
+                        if (loyaltyLookup.status !== "idle") {
+                          setLoyaltyLookup({ status: "idle" });
+                          setUseReward(false);
+                        }
+                      }}
+                      onBlur={() => lookupLoyalty()}
+                      placeholder="0404 123 456"
+                      autoComplete="tel"
+                      required
+                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                    />
+                  </label>
+                )}
+
+                {/* Square card fields */}
+                <div>
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Card Details
+                  </span>
+                  {SQUARE_ENV !== "production" && (
+                    <p className="mb-2 text-[10px] text-zinc-400">
+                      Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
+                    </p>
+                  )}
+                  <div
+                    id="card-container"
+                    className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
+                  />
+                  {!cardReady && (
+                    <p className="mt-2 text-xs text-zinc-400">
+                      Loading card form…
+                    </p>
+                  )}
+                </div>
+              </section>
+            </>
           )}
 
           {error && (
-            <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </p>
           )}
-        </section>
+        </div>
 
-        {/* Order summary */}
-        <section>
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
-            Order summary
-          </h2>
-          <ul className="divide-y divide-black/10 rounded-lg border border-black/10 bg-white">
+        {/* ── Right column: Order Summary ── */}
+        <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-6 lg:self-start">
+          <h3 className="mb-4 text-lg font-bold text-zinc-900 sm:mb-5 sm:text-xl">
+            Order Summary
+          </h3>
+
+          <ul className="space-y-5">
             {lines.map((line) => (
               <SummaryRow key={line.id} line={line} />
             ))}
           </ul>
 
-          {loyaltyLookup.status === "loading" && (
-            <p className="mt-4 text-xs text-zinc-500">
-              Checking your loyalty balance…
-            </p>
-          )}
-          {loyaltyLookup.status === "ready" && loyaltyLookup.starsPerReward === 0 && (
-            <p className="mt-4 text-xs text-zinc-500">
-              New here? You&apos;ll earn stars on your first order toward a free
-              drink.
-            </p>
-          )}
-          {loyaltyLookup.status === "ready" && loyaltyLookup.starsPerReward > 0 &&
-            (loyaltyLookup.balance >= loyaltyLookup.starsPerReward ? (
-              <label
-                className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                style={{
-                  borderColor: BRAND.primaryColor,
-                  backgroundColor: BRAND.accentColor,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={useReward}
-                  onChange={(e) => setUseReward(e.target.checked)}
-                  className="mt-0.5 h-4 w-4"
-                />
-                <span className="text-sm">
-                  <span
-                    className="block font-semibold"
-                    style={{ color: BRAND.primaryColor }}
-                  >
-                    Redeem free drink ⭐ ({loyaltyLookup.starsPerReward} stars)
-                  </span>
-                  <span className="mt-0.5 block text-xs text-zinc-600">
-                    You have {loyaltyLookup.balance} stars. Square will apply
-                    the discount at checkout.
-                  </span>
-                </span>
-              </label>
-            ) : (
-              <p className="mt-4 text-xs text-zinc-500">
-                You have {loyaltyLookup.balance} / {loyaltyLookup.starsPerReward}{" "}
-                stars — {loyaltyLookup.starsPerReward - loyaltyLookup.balance}{" "}
-                to go for a free drink.
-              </p>
-            ))}
-
-          <div className="mt-4 flex items-baseline justify-between">
-            <span className="text-sm text-zinc-600">Subtotal</span>
-            <span className="text-xl font-semibold text-zinc-900">
-              {formatPrice(subtotal)}
-            </span>
+          <div className="mt-6 space-y-3 border-t border-black/10 pt-5">
+            <div className="flex justify-between text-sm text-zinc-600">
+              <span>Subtotal</span>
+              <span className="font-semibold text-zinc-900">
+                {formatPrice(subtotal)}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm text-zinc-600">
+              <span>Tax</span>
+              <span className="font-semibold text-zinc-900">
+                Calculated at payment
+              </span>
+            </div>
+            <div className="flex justify-between border-t border-black/10 pt-3 text-base">
+              <span className="font-bold text-zinc-900">Total</span>
+              <span className="text-lg font-bold text-zinc-900">
+                {formatPrice(subtotal)}
+              </span>
+            </div>
           </div>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Taxes and loyalty discounts calculated by Square.
-          </p>
 
           <button
             type="submit"
-            disabled={submitting || !cardReady}
-            className="mt-6 w-full rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={submitting || (!(canRedeemFully && useReward) && !cardReady)}
+            className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {submitting
               ? "Processing…"
-              : cardReady
-                ? "Pay & place order"
-                : "Loading payment…"}
+              : canRedeemFully && useReward
+                ? "Redeem Free Drink"
+                : cardReady
+                  ? "Place Order"
+                  : "Loading payment…"}
           </button>
+
+          <p className="mt-3 text-center text-[11px] text-zinc-400">
+            By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
+            <a href="#" className="underline">
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a href="#" className="underline">
+              Privacy Policy
+            </a>
+            .
+          </p>
         </section>
       </form>
     </CheckoutFrame>
@@ -533,115 +746,133 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col">
       <header
-        className="w-full px-6 py-8 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
+        className="w-full px-4 py-6 sm:px-6 sm:py-8"
+        style={{ backgroundColor: BRAND.accentColor }}
       >
-        <div className="mx-auto flex max-w-5xl flex-col gap-2">
-          <Link href="/menu" className="text-sm opacity-80 hover:opacity-100">
-            ← Menu
-          </Link>
-          <h1 className="text-3xl font-semibold tracking-tight">Checkout</h1>
+        <div className="mx-auto max-w-5xl">
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            className="mb-2 flex items-center gap-1 text-sm text-zinc-600 transition hover:text-zinc-900"
+          >
+            <span aria-hidden="true">←</span> Back
+          </button>
+          <h1
+            className="text-2xl font-bold italic tracking-tight sm:text-3xl"
+            style={{ color: BRAND.primaryColor }}
+          >
+            Checkout
+          </h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            Finalize your artisanal boba experience.
+          </p>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         {children}
       </main>
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  onBlur,
-  placeholder,
-  type = "text",
-  autoComplete,
-  required,
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  onBlur?: () => void;
-  placeholder?: string;
-  type?: string;
-  autoComplete?: string;
-  required?: boolean;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-zinc-700">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        required={required}
-        className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm outline-none focus:border-black/40"
-      />
-      {hint && <span className="mt-1 block text-xs text-zinc-500">{hint}</span>}
-    </label>
-  );
-}
-
-function TextArea({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-zinc-700">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={3}
-        className="w-full resize-none rounded-md border border-black/15 bg-white px-3 py-2 text-sm outline-none focus:border-black/40"
-      />
-    </label>
-  );
-}
 
 function SummaryRow({ line }: { line: CartLine }) {
+  const details = [
+    line.variationName,
+    ...line.modifiers.map((m) => m.name),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
-    <li className="flex items-start justify-between gap-3 p-4">
+    <li className="flex items-start gap-3">
+      {/* Item image */}
+      {line.itemImageUrl ? (
+        <img
+          src={line.itemImageUrl}
+          alt={line.itemName}
+          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+        />
+      ) : (
+        <div
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-lg"
+          style={{ backgroundColor: BRAND.accentColor }}
+        >
+          🧋
+        </div>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-zinc-900">
-          {line.quantity}× {line.itemName}
-        </p>
-        {line.variationName && (
-          <p className="text-xs text-zinc-500">{line.variationName}</p>
-        )}
-        {line.modifiers.length > 0 && (
-          <ul className="mt-1 space-y-0.5">
-            {line.modifiers.map((m) => (
-              <li key={m.id} className="truncate text-xs text-zinc-500">
-                + {m.name}
-              </li>
-            ))}
-          </ul>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-bold text-zinc-900">
+            {line.quantity > 1 && `${line.quantity}× `}
+            {line.itemName}
+          </p>
+          <p
+            className="shrink-0 text-sm font-bold"
+            style={{ color: BRAND.primaryColor }}
+          >
+            {formatPrice(lineTotal(line))}
+          </p>
+        </div>
+        {details && (
+          <p className="mt-0.5 text-xs text-zinc-500">{details}</p>
         )}
       </div>
-      <p className="text-sm font-semibold text-zinc-900">
-        {formatPrice(lineTotal(line))}
-      </p>
     </li>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Icons                                                              */
+/* ------------------------------------------------------------------ */
+
+function StarIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  );
+}
+
+function CardIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  );
+}
+
+function ApplePayIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M17.72 7.54c-.48.56-1.27.99-2.03.93-.1-.76.28-1.56.71-2.06.49-.56 1.34-.97 2.03-.99.08.78-.23 1.56-.71 2.12zM17 10.09c-1.12-.06-2.08.64-2.61.64s-1.36-.6-2.24-.59c-1.15.02-2.21.67-2.81 1.7-1.2 2.07-.31 5.14.86 6.83.57.83 1.25 1.76 2.15 1.73.86-.04 1.19-.56 2.23-.56s1.34.56 2.25.54c.93-.02 1.51-.85 2.08-1.68.65-.95.92-1.87.93-1.92-.02-.01-1.79-.69-1.81-2.73-.01-1.7 1.39-2.52 1.46-2.56-.8-1.18-2.04-1.31-2.49-1.34v-.06z" />
+    </svg>
   );
 }

@@ -13,7 +13,13 @@ import { normalizeAuPhone } from "@/lib/phone";
 // for client-side UX (matching paymentRequest.total for wallet flows).
 
 type PaymentBody = {
-  sourceId: string;
+  /**
+   * Card nonce from the Web Payments SDK. Optional because a fully
+   * discounted order (e.g. a free drink loyalty reward covering the
+   * whole cart) has nothing to charge — the route closes the order
+   * via orders.pay with empty paymentIds instead.
+   */
+  sourceId?: string;
   orderId: string;
   customerId?: string;
   /** Phone in any format — needed for loyalty account lookup. */
@@ -25,10 +31,9 @@ function isValidBody(body: unknown): body is PaymentBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<PaymentBody>;
   return (
-    typeof b.sourceId === "string" &&
-    b.sourceId.length > 0 &&
     typeof b.orderId === "string" &&
-    b.orderId.length > 0
+    b.orderId.length > 0 &&
+    (b.sourceId === undefined || typeof b.sourceId === "string")
   );
 }
 
@@ -71,34 +76,56 @@ export async function POST(request: Request) {
       );
     }
 
-    const amount = order.totalMoney?.amount;
-    if (!amount || amount <= 0n) {
-      return NextResponse.json(
-        { ok: false, error: "Order has no chargeable amount" },
-        { status: 400 },
-      );
-    }
+    const amount = order.totalMoney?.amount ?? 0n;
+    let paymentId: string | null = null;
+    let paymentStatus: string | null = null;
+    let paymentForResponse: unknown = null;
 
-    const payment = await squareClient.payments.create({
-      sourceId: body.sourceId,
-      idempotencyKey: randomUUID(),
-      amountMoney: {
-        amount,
-        currency: BUSINESS.currency,
-      },
-      orderId: body.orderId,
-      customerId: body.customerId,
-      locationId: SQUARE_LOCATION_ID,
-      autocomplete: true,
-      verificationToken: body.verificationToken,
-    });
+    if (amount > 0n) {
+      // Standard paid order. Require a card nonce and run the card
+      // charge through payments.create.
+      if (!body.sourceId) {
+        return NextResponse.json(
+          { ok: false, error: "Missing sourceId for a non-zero order" },
+          { status: 400 },
+        );
+      }
 
-    const paymentId = payment.payment?.id;
-    if (!paymentId) {
-      return NextResponse.json(
-        { ok: false, error: "Square did not return a payment id" },
-        { status: 502 },
-      );
+      const payment = await squareClient.payments.create({
+        sourceId: body.sourceId,
+        idempotencyKey: randomUUID(),
+        amountMoney: {
+          amount,
+          currency: BUSINESS.currency,
+        },
+        orderId: body.orderId,
+        customerId: body.customerId,
+        locationId: SQUARE_LOCATION_ID,
+        autocomplete: true,
+        verificationToken: body.verificationToken,
+      });
+
+      const id = payment.payment?.id;
+      if (!id) {
+        return NextResponse.json(
+          { ok: false, error: "Square did not return a payment id" },
+          { status: 502 },
+        );
+      }
+      paymentId = id;
+      paymentStatus = payment.payment?.status ?? null;
+      paymentForResponse = serializeSquareResponse(payment.payment);
+    } else {
+      // Zero-total order: fully covered by a loyalty reward (or other
+      // discount). Square rejects zero-amount Payment objects, so we
+      // close the order via orders.pay with an empty paymentIds list
+      // instead. Square accepts that because the order total (0) is
+      // satisfied by the sum of payments (0).
+      await squareClient.orders.pay({
+        orderId: body.orderId,
+        idempotencyKey: randomUUID(),
+        paymentIds: [],
+      });
     }
 
     // Accrue loyalty stars. Wrapped in its own try/catch so a loyalty
@@ -131,9 +158,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       paymentId,
-      status: payment.payment?.status,
+      status: paymentStatus,
       loyaltyAccrued,
-      payment: serializeSquareResponse(payment.payment),
+      payment: paymentForResponse,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

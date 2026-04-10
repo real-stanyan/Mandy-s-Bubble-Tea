@@ -1,7 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
+import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,6 +20,12 @@ export const metadata: Metadata = {
   description: "Fresh bubble tea in Southport QLD",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -29,7 +37,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <SiteHeaderGate />
         {children}
+        <SiteFooterGate />
         <CartDrawer />
       </body>
     </html>

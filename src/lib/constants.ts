@@ -6,6 +6,7 @@ export const BRAND = {
   name: "Mandy's Bubble Tea",
   primaryColor: "#C43A10", // brick red
   accentColor: "#F5E6C8", // cream
+  bgColor: "#F9F6EE", // warm off-white page background
 } as const;
 
 export const BUSINESS = {
@@ -34,4 +35,10 @@ export const LOYALTY = {
   /** Display unit. */
   unit: "⭐",
   rewardLabel: "Free Drink of Your Choice",
+  /**
+   * Square-hosted loyalty profile page. Customers can add their
+   * loyalty card to Apple Wallet from this page.
+   * Find yours at: Square Dashboard → Loyalty → Settings → Profile URL
+   */
+  squareProfileUrl: "https://profile.squareup.com/loyalty/CBASECG-zeMhZlE7OUa1UTJ4XBo",
 } as const;

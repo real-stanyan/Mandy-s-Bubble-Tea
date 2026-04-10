@@ -4,11 +4,6 @@ import { getMenu, getItemDetail } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { ItemOrderForm } from "@/components/menu/ItemOrderForm";
-import { CartIcon } from "@/components/cart/CartIcon";
-
-// Item detail page — purely display for now. Variation and modifier
-// selection will become interactive in a later slice once the cart
-// exists.
 
 export const revalidate = 300;
 
@@ -25,12 +20,12 @@ export default async function ItemDetailPage({ params }: PageProps) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return (
-      <ItemFrame backHref="/menu" backLabel="Menu" title="Error">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
         <div className="rounded-lg border border-red-200 bg-red-50 p-6">
           <p className="font-semibold text-red-800">Could not load menu</p>
           <p className="mt-2 font-mono text-sm text-red-700">{message}</p>
         </div>
-      </ItemFrame>
+      </main>
     );
   }
 
@@ -40,75 +35,80 @@ export default async function ItemDetailPage({ params }: PageProps) {
   const { category, item, modifierLists } = detail;
 
   return (
-    <ItemFrame
-      backHref={`/menu/${category.slug}`}
-      backLabel={category.squareName}
-      title={item.name}
-      subtitle={
-        item.priceCents != null ? formatPrice(item.priceCents) : undefined
-      }
-    >
-      {item.imageUrl && (
-        <div className="mb-6 overflow-hidden rounded-lg border border-black/10 bg-zinc-50">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={item.imageUrl}
-            alt={item.name}
-            className="aspect-[4/3] w-full object-cover"
-          />
-        </div>
-      )}
-
-      {item.description && (
-        <p className="mb-6 text-sm leading-relaxed text-zinc-600">
-          {item.description}
-        </p>
-      )}
-
-      <ItemOrderForm item={item} modifierLists={modifierLists} />
-    </ItemFrame>
-  );
-}
-
-function ItemFrame({
-  backHref,
-  backLabel,
-  title,
-  subtitle,
-  children,
-}: {
-  backHref: string;
-  backLabel: string;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-1 flex-col">
-      <header
-        className="w-full px-6 py-8 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      {/* Back link */}
+      <Link
+        href={`/menu/${category.slug}`}
+        className="mb-4 inline-block text-sm font-medium hover:underline sm:mb-6"
+        style={{ color: BRAND.primaryColor }}
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Link
-              href={backHref}
-              className="text-sm opacity-80 hover:opacity-100"
-            >
-              ← {backLabel}
-            </Link>
-            <CartIcon />
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-          {subtitle && (
-            <p className="text-lg font-medium opacity-90">{subtitle}</p>
-          )}
-        </div>
-      </header>
+        ← {category.squareName}
+      </Link>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        {children}
-      </main>
-    </div>
+      <div className="grid items-start gap-6 sm:gap-10 md:grid-cols-2">
+        {/* Left — product image */}
+        <div className="relative">
+          <div className="overflow-hidden rounded-2xl">
+            {item.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                className="aspect-square w-full object-contain"
+                style={{ backgroundColor: BRAND.accentColor }}
+              />
+            ) : (
+              <div
+                className="flex aspect-square w-full items-center justify-center text-7xl"
+                style={{ backgroundColor: BRAND.accentColor }}
+              >
+                🧋
+              </div>
+            )}
+          </div>
+
+          {/* Loyalty badge */}
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm">
+            <span>⭐</span>
+            <span className="text-zinc-700">
+              Earn 1 star with this purchase
+            </span>
+          </div>
+        </div>
+
+        {/* Right — product info + order form */}
+        <div>
+          {/* Category badge */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span
+              className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+              style={{ backgroundColor: "#5B7A3A" }}
+            >
+              {category.squareName}
+            </span>
+          </div>
+
+          <h1 className="text-2xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-3xl md:text-4xl">
+            {item.name}
+          </h1>
+
+          {item.description && (
+            <p className="mt-3 text-sm leading-relaxed text-zinc-500">
+              {item.description}
+            </p>
+          )}
+
+          {item.priceCents != null && (
+            <p className="mt-4 text-2xl font-bold text-zinc-900">
+              {formatPrice(item.priceCents)}
+            </p>
+          )}
+
+          <div className="mt-6">
+            <ItemOrderForm item={item} modifierLists={modifierLists} />
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }

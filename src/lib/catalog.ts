@@ -20,6 +20,8 @@ export type ModifierOption = {
   /** Upcharge amount. null means the modifier is included (no charge). */
   priceCents: bigint | null;
   ordinal: number;
+  /** Whether this modifier should be pre-selected by default. */
+  onByDefault: boolean;
 };
 
 export type ModifierList = {
@@ -43,10 +45,18 @@ export type ModifierList = {
  * Reference from a MenuItem to a ModifierList, carrying any per-item
  * override values. Use getItemDetail() to get resolved (effective) bounds.
  */
+/** Per-item override for a modifier's onByDefault. */
+export type ModifierDefaultOverride = {
+  modifierId: string;
+  onByDefault: boolean | null;
+};
+
 export type ItemModifierListRef = {
   id: string;
   minOverride: number | null;
   maxOverride: number | null;
+  /** Per-item overrides for individual modifier defaults. */
+  modifierOverrides: ModifierDefaultOverride[];
 };
 
 export type MenuItem = {
@@ -147,6 +157,7 @@ function buildModifierList(
       name: md.name ?? "(unnamed)",
       priceCents: md.priceMoney?.amount ?? null,
       ordinal: md.ordinal ?? 0,
+      onByDefault: md.onByDefault === true,
     });
   }
   modifiers.sort((a, b) => a.ordinal - b.ordinal);
@@ -200,6 +211,12 @@ function buildMenuItem(
           id: mli.modifierListId,
           minOverride: mli.minSelectedModifiers ?? null,
           maxOverride: mli.maxSelectedModifiers ?? null,
+          modifierOverrides: (mli.modifierOverrides ?? [])
+            .filter((o) => o.modifierId != null)
+            .map((o) => ({
+              modifierId: o.modifierId!,
+              onByDefault: o.onByDefault ?? null,
+            })),
         };
       })
       .filter((r): r is ItemModifierListRef => r != null),
@@ -344,8 +361,20 @@ export function getItemDetail(
   for (const ref of item.modifierListRefs) {
     const base = menu.modifierLists.get(ref.id);
     if (!base) continue;
+
+    // Apply per-item onByDefault overrides to individual modifiers.
+    const overrideMap = new Map(
+      ref.modifierOverrides.map((o) => [o.modifierId, o.onByDefault]),
+    );
+    const modifiers = base.modifiers.map((mod) => {
+      const override = overrideMap.get(mod.id);
+      if (override == null) return mod;
+      return { ...mod, onByDefault: override };
+    });
+
     modifierLists.push({
       ...base,
+      modifiers,
       minSelected: resolveMin(ref.minOverride, base.minSelected),
       maxSelected: resolveMax(ref.maxOverride, base.maxSelected),
     });
