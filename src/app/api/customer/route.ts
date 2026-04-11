@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         customerId: existing.id,
+        phoneE164: e164,
         created: false,
       });
     }
@@ -85,6 +86,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       customerId: newId,
+      phoneE164: e164,
       created: true,
     });
   } catch (error) {

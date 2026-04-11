@@ -94,3 +94,6 @@ src/
 - **Domain**: mandybubbletea.com
 - **Timezone**: Australia/Brisbane
 - **Currency**: AUD
+
+## System
+Cross-project tracking lives in `~/system/`. Check `~/system/DEV_QUEUE.md` for priorities if needed.

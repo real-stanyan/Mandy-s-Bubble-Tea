@@ -5,6 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 
 const SQUARE_PROFILE_URL = LOYALTY.squareProfileUrl;
+// Square's customer profile host (profile.squareup.com) is production-only —
+// there is no sandbox equivalent. Hide the Apple Wallet banner until we're
+// running against a production Square account with a real profile URL.
+const SHOW_WALLET_BANNER =
+  process.env.NEXT_PUBLIC_SQUARE_ENVIRONMENT === "production";
 import { formatPrice } from "@/lib/utils";
 
 // Account page: phone-based "sign-in" (no passwords — Square is the
@@ -41,32 +46,15 @@ type AccountData = {
 
 export default function AccountPage() {
   const [phoneInput, setPhoneInput] = useState("");
+  const [nameInput, setNameInput] = useState("");
+  const [signupPhone, setSignupPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AccountData | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
-  const loadAccount = useCallback(async (phone: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const lookupRes = await fetch("/api/customer/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
-      });
-      const lookupJson = await lookupRes.json();
-      if (!lookupRes.ok || !lookupJson.ok) {
-        throw new Error(lookupJson.error ?? "Lookup failed");
-      }
-      if (!lookupJson.found) {
-        throw new Error(
-          "We couldn't find an account for that phone. Place an order first to sign up.",
-        );
-      }
-
-      const { customerId, givenName, familyName, phoneE164 } = lookupJson;
-
+  const hydrateDashboard = useCallback(
+    async (customerId: string, phoneE164: string, givenName: string | null, familyName: string | null) => {
       const [loyaltyRes, ordersRes] = await Promise.all([
         fetch("/api/loyalty/account", {
           method: "POST",
@@ -104,6 +92,34 @@ export default function AccountPage() {
       });
 
       window.localStorage.setItem(STORAGE_KEY, phoneE164);
+    },
+    [],
+  );
+
+  const loadAccount = useCallback(async (phone: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const lookupRes = await fetch("/api/customer/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const lookupJson = await lookupRes.json();
+      if (!lookupRes.ok || !lookupJson.ok) {
+        throw new Error(lookupJson.error ?? "Lookup failed");
+      }
+      if (!lookupJson.found) {
+        // No existing customer — switch the form into sign-up mode so the
+        // user can finish by entering their name. /api/customer will then
+        // create the Square customer and we load the (empty) dashboard.
+        setSignupPhone(phone);
+        setLoading(false);
+        return;
+      }
+
+      const { customerId, givenName, familyName, phoneE164 } = lookupJson;
+      await hydrateDashboard(customerId, phoneE164, givenName, familyName);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -111,7 +127,39 @@ export default function AccountPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hydrateDashboard]);
+
+  const signUp = useCallback(
+    async (name: string, phone: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, phone }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error ?? "Sign up failed");
+        }
+
+        const [givenName, ...rest] = name.trim().split(/\s+/);
+        const familyName = rest.join(" ") || null;
+        const phoneE164 = json.phoneE164 ?? phone;
+
+        await hydrateDashboard(json.customerId, phoneE164, givenName, familyName);
+        setSignupPhone(null);
+        setNameInput("");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [hydrateDashboard],
+  );
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -125,14 +173,27 @@ export default function AccountPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (signupPhone) {
+      if (!nameInput.trim()) return;
+      void signUp(nameInput.trim(), signupPhone);
+      return;
+    }
     if (!phoneInput.trim()) return;
     void loadAccount(phoneInput.trim());
+  }
+
+  function handleBackToPhone() {
+    setSignupPhone(null);
+    setNameInput("");
+    setError(null);
   }
 
   function handleSignOut() {
     window.localStorage.removeItem(STORAGE_KEY);
     setData(null);
     setPhoneInput("");
+    setNameInput("");
+    setSignupPhone(null);
     setError(null);
   }
 
@@ -144,6 +205,10 @@ export default function AccountPage() {
         <SignInForm
           phone={phoneInput}
           onPhoneChange={setPhoneInput}
+          name={nameInput}
+          onNameChange={setNameInput}
+          signupMode={signupPhone !== null}
+          onBackToPhone={handleBackToPhone}
           onSubmit={handleSubmit}
           loading={loading}
           error={error}
@@ -167,12 +232,20 @@ export default function AccountPage() {
 function SignInForm({
   phone,
   onPhoneChange,
+  name,
+  onNameChange,
+  signupMode,
+  onBackToPhone,
   onSubmit,
   loading,
   error,
 }: {
   phone: string;
   onPhoneChange: (v: string) => void;
+  name: string;
+  onNameChange: (v: string) => void;
+  signupMode: boolean;
+  onBackToPhone: () => void;
   onSubmit: (e: React.FormEvent) => void;
   loading: boolean;
   error: string | null;
@@ -180,45 +253,77 @@ function SignInForm({
   return (
     <div className="mx-auto max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8">
       <h2 className="mb-2 text-2xl font-bold text-zinc-900">
-        Login or Sign Up
+        {signupMode ? "Finish Signing Up" : "Login or Sign Up"}
       </h2>
       <p className="mb-6 text-sm leading-relaxed text-zinc-600">
-        Welcome back! Please enter your mobile number to continue to your tea
-        sanctuary.
+        {signupMode
+          ? "Looks like you're new here. What should we call you?"
+          : "Welcome back! Please enter your mobile number to continue to your tea sanctuary."}
       </p>
       <form onSubmit={onSubmit} className="space-y-5">
-        <div>
-          <span className="mb-2 block text-sm font-semibold text-zinc-800">
-            Mobile Number
-          </span>
-          <div className="flex items-center gap-2">
-            <span
-              className="flex shrink-0 items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium"
-              style={{
-                backgroundColor: BRAND.accentColor,
-                color: BRAND.primaryColor,
-              }}
-            >
-              +61
+        {signupMode ? (
+          <div>
+            <span className="mb-2 block text-sm font-semibold text-zinc-800">
+              Your Name
             </span>
             <input
-              type="tel"
-              value={phone}
-              onChange={(e) => onPhoneChange(e.target.value)}
-              placeholder="0400 000 000"
-              autoComplete="tel"
+              type="text"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="e.g. Mandy"
+              autoComplete="given-name"
+              autoFocus
               required
               className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
             />
+            <button
+              type="button"
+              onClick={onBackToPhone}
+              className="mt-2 text-xs text-zinc-500 underline-offset-2 hover:underline"
+            >
+              ← Use a different phone number
+            </button>
           </div>
-        </div>
+        ) : (
+          <div>
+            <span className="mb-2 block text-sm font-semibold text-zinc-800">
+              Mobile Number
+            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className="flex shrink-0 items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium"
+                style={{
+                  backgroundColor: BRAND.accentColor,
+                  color: BRAND.primaryColor,
+                }}
+              >
+                +61
+              </span>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => onPhoneChange(e.target.value)}
+                placeholder="0400 000 000"
+                autoComplete="tel"
+                required
+                className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
+              />
+            </div>
+          </div>
+        )}
         <button
           type="submit"
           disabled={loading}
           className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ backgroundColor: BRAND.primaryColor }}
         >
-          {loading ? "Looking up…" : "View My Account →"}
+          {loading
+            ? signupMode
+              ? "Creating account…"
+              : "Looking up…"
+            : signupMode
+              ? "Create Account →"
+              : "View My Account →"}
         </button>
       </form>
 
@@ -399,23 +504,25 @@ function AccountDashboard({
           </div>
         </section>
 
-        {/* Apple Wallet banner — mobile only */}
-        <a
-          href={SQUARE_PROFILE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md sm:hidden"
-        >
-          <p className="text-sm font-medium text-zinc-700">
-            Easily check in and track rewards with Apple Wallet.
-          </p>
-          <span className="flex shrink-0 items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
-            <AppleWalletIcon />
-            <span className="leading-tight">
-              Add to<br />Apple Wallet
+        {/* Apple Wallet banner — mobile only, production only */}
+        {SHOW_WALLET_BANNER && (
+          <a
+            href={SQUARE_PROFILE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md sm:hidden"
+          >
+            <p className="text-sm font-medium text-zinc-700">
+              Easily check in and track rewards with Apple Wallet.
+            </p>
+            <span className="flex shrink-0 items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
+              <AppleWalletIcon />
+              <span className="leading-tight">
+                Add to<br />Apple Wallet
+              </span>
             </span>
-          </span>
-        </a>
+          </a>
+        )}
       </div>
 
 

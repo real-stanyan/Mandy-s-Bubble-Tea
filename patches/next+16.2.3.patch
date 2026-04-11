@@ -1,0 +1,104 @@
+diff --git a/node_modules/next/dist/build/swc/index.js b/node_modules/next/dist/build/swc/index.js
+index 69ee654..68fb88e 100644
+--- a/node_modules/next/dist/build/swc/index.js
++++ b/node_modules/next/dist/build/swc/index.js
+@@ -499,41 +499,67 @@ function bindingToApi(binding, bindingPath, _wasm) {
+                 else buffer[0] = item;
+             }
+         }
+-        async function* createIterator() {
+-            const task = await nativeFunction(emitResult);
+-            try {
+-                while(!canceled){
+-                    if (buffer.length > 0) {
+-                        const item = buffer.shift();
+-                        if (item.err) throw item.err;
+-                        yield item.value;
+-                    } else {
+-                        // eslint-disable-next-line no-loop-func
+-                        yield new Promise((resolve, reject)=>{
+-                            waiting = {
+-                                resolve,
+-                                reject
+-                            };
+-                        });
+-                    }
++        // Manual async iterator instead of an async generator to avoid
++        // creating multiple async hook IDs per iteration, which overflows
++        // React dev-mode pendingOperations Map. See vercel/next.js#91704.
++        let task;
++        nativeFunction(emitResult).then((t)=>{
++            if (canceled) {
++                if (t) binding.rootTaskDispose(t);
++            } else {
++                task = t;
++            }
++        }, (err)=>{
++            emitResult(err, undefined);
++        });
++        const iterator = {
++            [Symbol.asyncIterator] () {
++                return this;
++            },
++            next () {
++                if (canceled) {
++                    return Promise.resolve({
++                        value: undefined,
++                        done: true
++                    });
+                 }
+-            } catch (e) {
+-                if (e === cancel) return;
+-                throw e;
+-            } finally{
+-                if (task) {
+-                    binding.rootTaskDispose(task);
++                if (buffer.length > 0) {
++                    const item = buffer.shift();
++                    if (item.err) return Promise.reject(item.err);
++                    return Promise.resolve({
++                        value: item.value,
++                        done: false
++                    });
+                 }
++                // eslint-disable-next-line no-loop-func
++                return new Promise((resolve, reject)=>{
++                    waiting = {
++                        resolve: (value)=>resolve({
++                            value,
++                            done: false
++                        }),
++                        reject: (e)=>{
++                            if (e === cancel) {
++                                resolve({
++                                    value: undefined,
++                                    done: true
++                                });
++                            } else {
++                                reject(e);
++                            }
++                        }
++                    };
++                });
++            },
++            return: async ()=>{
++                canceled = true;
++                if (waiting) waiting.reject(cancel);
++                if (task) binding.rootTaskDispose(task);
++                return {
++                    value: undefined,
++                    done: true
++                };
+             }
+-        }
+-        const iterator = createIterator();
+-        iterator.return = async ()=>{
+-            canceled = true;
+-            if (waiting) waiting.reject(cancel);
+-            return {
+-                value: undefined,
+-                done: true
+-            };
+         };
+         return iterator;
+     }

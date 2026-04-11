@@ -132,6 +132,11 @@ Nothing actively in progress. F just landed, ready to pick the next slice.
 - **Apple Pay domain verification** (Square Dashboard → Web Payments →
   register domain, drop `.well-known/apple-developer-merchantid-domain-association`)
 - Swap Web Payments SDK to production CDN via `NEXT_PUBLIC_SQUARE_ENVIRONMENT=production`
+- **Update `LOYALTY.squareProfileUrl` in `src/lib/constants.ts`** with the real
+  URL from Square Dashboard → Loyalty → Settings → Profile URL. The Apple
+  Wallet banner on `/account` is guarded by
+  `NEXT_PUBLIC_SQUARE_ENVIRONMENT === "production"` and only appears once this
+  is set (sandbox has no equivalent `profile.squareupsandbox.com` host).
 
 ## Known issues / gotchas
 
@@ -147,6 +152,15 @@ Nothing actively in progress. F just landed, ready to pick the next slice.
 - **Loyalty program must exist in the Square account** before accrual works.
   Early sandbox testing hit a silent failure because no program was
   configured — logs now surface `[payment] loyalty accrual failed: …`.
+- **Next 16.2.3 dev HMR crash: `RangeError: Map maximum size exceeded`.**
+  Long dev sessions crashed at `AsyncHook.init` in
+  `app-page-turbo.runtime.dev.js`. Root cause: the async generator in
+  `subscribe()` (`node_modules/next/dist/build/swc/index.js`) creates 3–4
+  async hook IDs per HMR event, overflowing React's `pendingOperations` Map
+  (~16M entries) faster than GC can drain. Patched locally via
+  `patch-package` applying vercel/next.js#91704 — see
+  `patches/next+16.2.3.patch`. **Remove the patch when #91704 lands in an
+  upstream Next release** (check on every Next upgrade).
 
 ## Environment variables
 
