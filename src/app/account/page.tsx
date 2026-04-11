@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
+import { MemberQrCard } from "@/components/account/MemberQrCard";
 
 const SQUARE_PROFILE_URL = LOYALTY.squareProfileUrl;
 // Square's customer profile host (profile.squareup.com) is production-only —
@@ -449,6 +450,12 @@ function AccountDashboard({
           </div>
         </div>
       </section>
+
+      {/* ── Member QR card ── */}
+      <MemberQrCard
+        customerId={data.customerId}
+        phoneE164={data.phoneE164}
+      />
 
       {/* ── Loyalty card ── */}
       <div>
