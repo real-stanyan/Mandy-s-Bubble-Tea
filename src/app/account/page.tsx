@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
+import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 
 const SQUARE_PROFILE_URL = LOYALTY.squareProfileUrl;
 // Square's customer profile host (profile.squareup.com) is production-only —
@@ -200,7 +201,7 @@ export default function AccountPage() {
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
       {!hydrated || (!data && loading) ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <LoadingSpinner />
       ) : !data ? (
         <SignInForm
           phone={phoneInput}
