@@ -94,6 +94,12 @@ export async function POST(request: Request) {
    // so we use "now" as a reasonable approximation.
   const pickupAt = new Date().toISOString();
 
+  // 3-digit pickup number (100–999) shown to the customer on the
+  // confirmation page AND written to Square's ticketName so staff see
+  // the same number on the POS / Dashboard / kitchen printer when
+  // matching orders at the counter.
+  const pickupNumber = String(Math.floor(Math.random() * 900) + 100);
+
   try {
     // Note: loyalty rewards are NOT attached here. Square's order
     // create request has no loyaltyRewards field — the discount is
@@ -105,6 +111,7 @@ export async function POST(request: Request) {
       order: {
         locationId: SQUARE_LOCATION_ID,
         customerId: body.customerId,
+        ticketName: `#${pickupNumber}`,
         lineItems,
         fulfillments: [
           {

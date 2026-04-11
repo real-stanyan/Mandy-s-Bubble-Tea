@@ -101,10 +101,13 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
 
   const pickup = order.fulfillments?.[0]?.pickupDetails;
 
-  // Build short order display ID from the full ID
-  const shortId = order.id
-    ? `#${order.id.slice(-4).toUpperCase()}`
-    : "";
+  // Pickup number is written to Square's ticketName at order creation
+  // (see /api/orders/route.ts). Staff see the same number on the POS
+  // / Dashboard. Fall back to the tail of the order id for orders
+  // placed before this feature existed.
+  const pickupNumber =
+    order.ticketName ||
+    (order.id ? `#${order.id.slice(-4).toUpperCase()}` : "");
 
   // Collect catalog object IDs from line items to fetch product images
   const catalogIds = (order.lineItems ?? [])
@@ -151,6 +154,24 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         </p>
       </div>
 
+      {/* Pickup number — big, so staff and customer can match on it */}
+      <div
+        className="mb-6 rounded-2xl border border-black/5 bg-white p-5 text-center shadow-sm"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+          Your Pickup Number
+        </p>
+        <p
+          className="mt-1 text-5xl font-extrabold tracking-tight sm:text-6xl"
+          style={{ color: BRAND.primaryColor }}
+        >
+          {pickupNumber}
+        </p>
+        <p className="mt-2 text-xs text-zinc-500">
+          Show this number at the counter to collect your order.
+        </p>
+      </div>
+
       {/* Pickup Location + Estimated Time cards */}
       <div className="mb-6 grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
@@ -170,9 +191,6 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           </p>
           <p className="mt-1.5 text-2xl font-bold text-zinc-900">
             15–20 mins
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Order ID: {shortId}
           </p>
         </div>
       </div>
