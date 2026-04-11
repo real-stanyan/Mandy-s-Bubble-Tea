@@ -182,3 +182,25 @@ Browser-safe (`NEXT_PUBLIC_` prefix):
 - **Domain**: mandybubbletea.com
 - **Timezone**: Australia/Brisbane
 - **Currency**: AUD
+
+## Member QR code — hardware verification pending (2026-04-11)
+
+Shipped on `feat/member-qr-code`: Square `Customer.reference_id` is now synced
+to the E.164 phone on every login/create (`ensureReferenceId` helper in
+`src/lib/square.ts`, called from both `/api/customer` and
+`/api/customer/lookup`). The `/account` dashboard renders a QR card
+(`src/components/account/MemberQrCard.tsx`) encoding the same E.164 phone,
+plus the last 6 of `customer_id` as a visual Member ID.
+
+Still to verify with physical hardware before we rely on the scan flow:
+
+1. On Square Register, go to **Settings → Checkout → Customer Management**
+   and enable **Scan customers using device camera**.
+2. During checkout, tap **Review sale → Add a customer → scan icon**, then
+   scan a test account's QR off the `/account` page.
+3. Expected: the customer is added to the sale via `reference_id` match. If
+   the built-in imager does not trigger the "Add a customer" scan flow,
+   evaluate an external HID Bluetooth scanner — no code changes required.
+
+Until step 3 is confirmed, the Member Card is still useful as a visual
+identifier (cashier reads phone/last-6) without scanning.
