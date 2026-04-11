@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { squareClient } from "@/lib/square";
+import { squareClient, ensureReferenceId } from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
 
 // Phone-only lookup, no create. Used by the account page so someone
@@ -49,6 +49,8 @@ export async function POST(request: Request) {
     if (!existing?.id) {
       return NextResponse.json({ ok: true, found: false });
     }
+
+    await ensureReferenceId(existing.id, existing.referenceId, e164);
 
     return NextResponse.json({
       ok: true,

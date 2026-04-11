@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { squareClient } from "@/lib/square";
+import { squareClient, ensureReferenceId } from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
 
 // Phone-based customer lookup. Given {name, phone}, finds an existing
@@ -60,24 +60,7 @@ export async function POST(request: Request) {
 
     const existing = search.customers?.[0];
     if (existing?.id) {
-      // Keep Square's reference_id in sync with our E.164 phone so that
-      // scanning a QR containing the E.164 phone resolves to this customer
-      // inside Square POS (Customer Directory matches reference_id exactly).
-      if (existing.referenceId !== e164) {
-        try {
-          await squareClient.customers.update({
-            customerId: existing.id,
-            referenceId: e164,
-          });
-        } catch (err) {
-          // Non-fatal: log and continue. Next login will retry.
-          console.warn(
-            "[api/customer] failed to sync referenceId",
-            err instanceof Error ? err.message : err,
-          );
-        }
-      }
-
+      await ensureReferenceId(existing.id, existing.referenceId, e164);
       return NextResponse.json({
         ok: true,
         customerId: existing.id,

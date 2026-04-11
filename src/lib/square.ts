@@ -24,3 +24,28 @@ export const squareClient = new SquareClient({
 });
 
 export const SQUARE_LOCATION_ID = process.env.SQUARE_LOCATION_ID ?? "";
+
+/**
+ * Ensure a Square Customer's reference_id equals the given E.164 phone.
+ * Idempotent: skips the update if already in sync. Non-fatal: logs and
+ * swallows errors so lookup flows never fail on sync issues. Safe to call
+ * on every successful customer lookup.
+ */
+export async function ensureReferenceId(
+  customerId: string,
+  currentReferenceId: string | null | undefined,
+  e164: string,
+): Promise<void> {
+  if (currentReferenceId === e164) return;
+  try {
+    await squareClient.customers.update({
+      customerId,
+      referenceId: e164,
+    });
+  } catch (err) {
+    console.warn(
+      "[square] failed to sync referenceId",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
