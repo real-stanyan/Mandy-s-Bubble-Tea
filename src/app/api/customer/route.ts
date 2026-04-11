@@ -60,6 +60,24 @@ export async function POST(request: Request) {
 
     const existing = search.customers?.[0];
     if (existing?.id) {
+      // Keep Square's reference_id in sync with our E.164 phone so that
+      // scanning a QR containing the E.164 phone resolves to this customer
+      // inside Square POS (Customer Directory matches reference_id exactly).
+      if (existing.referenceId !== e164) {
+        try {
+          await squareClient.customers.update({
+            customerId: existing.id,
+            referenceId: e164,
+          });
+        } catch (err) {
+          // Non-fatal: log and continue. Next login will retry.
+          console.warn(
+            "[api/customer] failed to sync referenceId",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
       return NextResponse.json({
         ok: true,
         customerId: existing.id,
@@ -68,11 +86,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // Not found — create a new customer.
+    // Not found — create a new customer with referenceId set up-front.
     const created = await squareClient.customers.create({
       givenName,
       familyName,
       phoneNumber: e164,
+      referenceId: e164,
     });
 
     const newId = created.customer?.id;
