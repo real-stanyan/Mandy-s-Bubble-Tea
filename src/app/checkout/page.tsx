@@ -338,8 +338,10 @@ export default function CheckoutPage() {
         }
         applePayRef.current = ap;
         setApplePayAvailable(true);
-      } catch {
-        // Apple Pay not supported on this device/browser — that's fine.
+      } catch (err) {
+        // Apple Pay not supported on this device/browser — expected on
+        // non-Safari or when HTTPS is unavailable (localhost).
+        console.info("[apple-pay]", err instanceof Error ? err.message : err);
       }
     })();
 
