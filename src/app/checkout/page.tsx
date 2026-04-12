@@ -35,6 +35,12 @@ type CardInstance = {
   destroy(): Promise<void>;
 };
 type ApplePayInstance = {
+  attach(selector: string): Promise<void>;
+  tokenize(): Promise<TokenizeResult>;
+  destroy(): Promise<void>;
+};
+type GooglePayInstance = {
+  attach(selector: string): Promise<void>;
   tokenize(): Promise<TokenizeResult>;
   destroy(): Promise<void>;
 };
@@ -51,12 +57,10 @@ type VerificationDetails = {
   customerInitiated: boolean;
   sellerKeyedIn: boolean;
 };
-type PaymentRequestUpdate = {
-  total: { amount: string; label: string };
-};
 type PaymentsInstance = {
   card(): Promise<CardInstance>;
   applePay(paymentRequest: unknown): Promise<ApplePayInstance>;
+  googlePay(paymentRequest: unknown): Promise<GooglePayInstance>;
   paymentRequest(config: {
     countryCode: string;
     currencyCode: string;
@@ -100,7 +104,9 @@ export default function CheckoutPage() {
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
-  const [payMethod, setPayMethod] = useState<"card" | "apple-pay">("card");
+  const [googlePayAvailable, setGooglePayAvailable] = useState(false);
+  const walletAvailable = applePayAvailable || googlePayAvailable;
+  const [payMethod, setPayMethod] = useState<"card" | "wallet">("card");
 
   // Loyalty reward state. We look up the buyer's star balance once
   // they've filled in name + phone (on phone blur) and offer a free
@@ -121,6 +127,7 @@ export default function CheckoutPage() {
 
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
+  const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
@@ -160,6 +167,11 @@ export default function CheckoutPage() {
   useEffect(() => {
     setUseReward(canRedeemFully);
   }, [canRedeemFully]);
+
+  // Auto-select wallet tab when it becomes available.
+  useEffect(() => {
+    if (walletAvailable) setPayMethod("wallet");
+  }, [walletAvailable]);
 
   // Fetches the loyalty account for the current phone. Called on phone
   // blur and on mount (if a saved phone is restored from localStorage).
@@ -336,6 +348,11 @@ export default function CheckoutPage() {
           ap.destroy().catch(() => undefined);
           return;
         }
+        await ap.attach("#apple-pay-container");
+        if (cancelled) {
+          ap.destroy().catch(() => undefined);
+          return;
+        }
         applePayRef.current = ap;
         setApplePayAvailable(true);
       } catch (err) {
@@ -350,6 +367,50 @@ export default function CheckoutPage() {
       applePayRef.current?.destroy().catch(() => undefined);
       applePayRef.current = null;
       setApplePayAvailable(false);
+    };
+  }, [sdkReady, needsCard, cardReady, subtotal]);
+
+  // Initialize Google Pay — same pattern as Apple Pay.
+  useEffect(() => {
+    if (!sdkReady || !needsCard) return;
+    if (googlePayRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const payments = paymentsRef.current;
+        if (!payments) return;
+
+        const paymentRequest = payments.paymentRequest({
+          countryCode: "AU",
+          currencyCode: "AUD",
+          total: {
+            amount: (Number(subtotal) / 100).toFixed(2),
+            label: BRAND.name,
+          },
+        });
+        const gp = await payments.googlePay(paymentRequest);
+        if (cancelled) {
+          gp.destroy().catch(() => undefined);
+          return;
+        }
+        await gp.attach("#google-pay-container");
+        if (cancelled) {
+          gp.destroy().catch(() => undefined);
+          return;
+        }
+        googlePayRef.current = gp;
+        setGooglePayAvailable(true);
+      } catch (err) {
+        console.info("[google-pay]", err instanceof Error ? err.message : err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      googlePayRef.current?.destroy().catch(() => undefined);
+      googlePayRef.current = null;
+      setGooglePayAvailable(false);
     };
   }, [sdkReady, needsCard, cardReady, subtotal]);
 
@@ -389,12 +450,8 @@ export default function CheckoutPage() {
       return;
     }
     const expectFreeOrder = canRedeemFully && useReward;
-    if (!expectFreeOrder && payMethod === "card" && !cardRef.current) {
+    if (!expectFreeOrder && !cardRef.current) {
       setError("Card form is not ready yet.");
-      return;
-    }
-    if (!expectFreeOrder && payMethod === "apple-pay" && !applePayRef.current) {
-      setError("Apple Pay is not available.");
       return;
     }
 
@@ -478,61 +535,40 @@ export default function CheckoutPage() {
       let sourceToken: string | undefined;
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
-        if (payMethod === "apple-pay") {
-          // Apple Pay — the payment sheet handles authentication,
-          // so verifyBuyer is not needed (SCA is built in).
-          if (!applePayRef.current) {
-            throw new Error("Apple Pay is not available.");
-          }
-          const tokenResult = await applePayRef.current.tokenize();
-          if (tokenResult.status !== "OK" || !tokenResult.token) {
-            if (tokenResult.status === "Cancel") {
-              setSubmitting(false);
-              return; // User dismissed the Apple Pay sheet
-            }
-            const detail =
-              tokenResult.errors?.[0]?.message ??
-              `Apple Pay failed (${tokenResult.status})`;
-            throw new Error(detail);
-          }
-          sourceToken = tokenResult.token;
-        } else {
-          // Card payment — tokenize + SCA/3DS verification.
-          if (!cardRef.current) throw new Error("Card form is not ready yet.");
-          const tokenResult = await cardRef.current.tokenize();
-          if (tokenResult.status !== "OK" || !tokenResult.token) {
-            const detail =
-              tokenResult.errors?.[0]?.message ??
-              `Tokenization failed (${tokenResult.status})`;
-            throw new Error(detail);
-          }
-          sourceToken = tokenResult.token;
-
-          // SCA/3DS is mandatory in AU for online card payments —
-          // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
-          if (!paymentsRef.current) {
-            throw new Error("Payments SDK not initialized");
-          }
-          const amountMajor = (Number(amountCents) / 100).toFixed(2);
-          const [firstName, ...restName] = name.trim().split(/\s+/);
-          const verification = await paymentsRef.current.verifyBuyer(
-            sourceToken,
-            {
-              amount: amountMajor,
-              currencyCode: "AUD",
-              intent: "CHARGE",
-              billingContact: {
-                givenName: firstName,
-                familyName: restName.join(" ") || undefined,
-                phone: phone.trim(),
-                countryCode: "AU",
-              },
-              customerInitiated: true,
-              sellerKeyedIn: false,
-            },
-          );
-          verificationToken = verification.token;
+        if (!cardRef.current) throw new Error("Card form is not ready yet.");
+        const tokenResult = await cardRef.current.tokenize();
+        if (tokenResult.status !== "OK" || !tokenResult.token) {
+          const detail =
+            tokenResult.errors?.[0]?.message ??
+            `Tokenization failed (${tokenResult.status})`;
+          throw new Error(detail);
         }
+        sourceToken = tokenResult.token;
+
+        // SCA/3DS is mandatory in AU for online card payments —
+        // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
+        if (!paymentsRef.current) {
+          throw new Error("Payments SDK not initialized");
+        }
+        const amountMajor = (Number(amountCents) / 100).toFixed(2);
+        const [firstName, ...restName] = name.trim().split(/\s+/);
+        const verification = await paymentsRef.current.verifyBuyer(
+          sourceToken,
+          {
+            amount: amountMajor,
+            currencyCode: "AUD",
+            intent: "CHARGE",
+            billingContact: {
+              givenName: firstName,
+              familyName: restName.join(" ") || undefined,
+              phone: phone.trim(),
+              countryCode: "AU",
+            },
+            customerInitiated: true,
+            sellerKeyedIn: false,
+          },
+        );
+        verificationToken = verification.token;
       }
 
       // 5) Finalize the order — either by charging the tokenized
@@ -679,154 +715,168 @@ export default function CheckoutPage() {
                 <h3 className="mb-3 text-base font-bold text-zinc-900 sm:mb-4 sm:text-lg">
                   Payment Method
                 </h3>
-                <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("card")}
-                    className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
-                    style={
-                      payMethod === "card"
-                        ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
-                        : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
-                    }
-                  >
-                    <CardIcon />
-                    Card
-                  </button>
-                  {applePayAvailable && (
+
+                {/* Tab buttons — wallet + card */}
+                {walletAvailable && (
+                  <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:gap-3">
                     <button
                       type="button"
-                      onClick={() => setPayMethod("apple-pay")}
+                      onClick={() => setPayMethod("wallet")}
                       className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
                       style={
-                        payMethod === "apple-pay"
+                        payMethod === "wallet"
                           ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
                           : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
                       }
                     >
-                      <ApplePayIcon />
-                      Apple Pay
+                      {applePayAvailable ? <><ApplePayIcon /> Apple Pay</> : <><GooglePayIcon /> Google Pay</>}
                     </button>
-                  )}
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("card")}
+                      className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
+                      style={
+                        payMethod === "card"
+                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
+                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
+                      }
+                    >
+                      <CardIcon />
+                      Card
+                    </button>
+                  </div>
+                )}
+              </section>
+
+              {/* Wallet panel — SDK-rendered button(s).
+                  Containers stay in the DOM always so attach() survives
+                  tab switches; we toggle visibility with style. */}
+              <section
+                className="rounded-2xl border border-black/10 bg-white p-5"
+                style={{ display: payMethod === "wallet" && walletAvailable ? undefined : "none" }}
+              >
+                <label className="mb-4 block">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Name
+                  </span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                  />
+                </label>
+                {!phone && (
+                  <label className="mb-4 block">
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Phone
+                    </span>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(v) => {
+                        setPhone(v.target.value);
+                        if (loyaltyLookup.status !== "idle") {
+                          setLoyaltyLookup({ status: "idle" });
+                          setUseReward(false);
+                        }
+                      }}
+                      onBlur={() => lookupLoyalty()}
+                      placeholder="0404 123 456"
+                      autoComplete="tel"
+                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                    />
+                  </label>
+                )}
+                <p className="mb-3 text-xs text-zinc-400">
+                  Click the button below to pay with {applePayAvailable ? "Apple Pay" : "Google Pay"}.
+                </p>
+                {/* SDK buttons: full-width on mobile, right-aligned on desktop.
+                    The SDK renders fixed-size buttons; we override via CSS. */}
+                <style>{`
+                  #apple-pay-container button,
+                  #google-pay-container button,
+                  #apple-pay-container > div,
+                  #google-pay-container > div {
+                    width: 100% !important;
+                  }
+                  @media (min-width: 640px) {
+                    #apple-pay-container button,
+                    #google-pay-container button,
+                    #apple-pay-container > div,
+                    #google-pay-container > div {
+                      width: auto !important;
+                    }
+                  }
+                `}</style>
+                <div id="apple-pay-container" className={applePayAvailable ? "mb-2 sm:flex sm:justify-end" : ""} />
+                <div id="google-pay-container" className={googlePayAvailable ? "mb-2 sm:flex sm:justify-end" : ""} />
               </section>
 
               {/* Card form */}
-              {payMethod === "card" && (
-                <section className="rounded-2xl border border-black/10 bg-white p-5">
-                  {/* Cardholder name */}
+              <section
+                className="rounded-2xl border border-black/10 bg-white p-5"
+                style={{ display: payMethod === "card" ? undefined : "none" }}
+              >
+                <label className="mb-4 block">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Cardholder Name
+                  </span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                    required
+                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                  />
+                </label>
+                {!phone && (
                   <label className="mb-4 block">
                     <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Cardholder Name
+                      Phone
                     </span>
                     <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Your name"
-                      autoComplete="name"
+                      type="tel"
+                      value={phone}
+                      onChange={(v) => {
+                        setPhone(v.target.value);
+                        if (loyaltyLookup.status !== "idle") {
+                          setLoyaltyLookup({ status: "idle" });
+                          setUseReward(false);
+                        }
+                      }}
+                      onBlur={() => lookupLoyalty()}
+                      placeholder="0404 123 456"
+                      autoComplete="tel"
                       required
                       className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
                     />
                   </label>
-
-                  {/* Phone (visible if not pre-filled) */}
-                  {!phone && (
-                    <label className="mb-4 block">
-                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Phone
-                      </span>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(v) => {
-                          setPhone(v.target.value);
-                          if (loyaltyLookup.status !== "idle") {
-                            setLoyaltyLookup({ status: "idle" });
-                            setUseReward(false);
-                          }
-                        }}
-                        onBlur={() => lookupLoyalty()}
-                        placeholder="0404 123 456"
-                        autoComplete="tel"
-                        required
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
-                      />
-                    </label>
-                  )}
-
-                  {/* Square card fields */}
-                  <div>
-                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Card Details
-                    </span>
-                    {SQUARE_ENV !== "production" && (
-                      <p className="mb-2 text-[10px] text-zinc-400">
-                        Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
-                      </p>
-                    )}
-                    <div
-                      id="card-container"
-                      className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
-                    />
-                    {!cardReady && (
-                      <p className="mt-2 text-xs text-zinc-400">
-                        Loading card form…
-                      </p>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* Apple Pay info */}
-              {payMethod === "apple-pay" && (
-                <section className="rounded-2xl border border-black/10 bg-white p-5">
-                  {/* Name + phone still needed for order/loyalty */}
-                  <label className="mb-4 block">
-                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Name
-                    </span>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Your name"
-                      autoComplete="name"
-                      required
-                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
-                    />
-                  </label>
-                  {!phone && (
-                    <label className="mb-4 block">
-                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Phone
-                      </span>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(v) => {
-                          setPhone(v.target.value);
-                          if (loyaltyLookup.status !== "idle") {
-                            setLoyaltyLookup({ status: "idle" });
-                            setUseReward(false);
-                          }
-                        }}
-                        onBlur={() => lookupLoyalty()}
-                        placeholder="0404 123 456"
-                        autoComplete="tel"
-                        required
-                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
-                      />
-                    </label>
-                  )}
-                  <div className="flex items-center gap-3 rounded-lg bg-zinc-50 p-4">
-                    <ApplePayIcon />
-                    <p className="text-sm text-zinc-600">
-                      You&apos;ll confirm payment with Apple Pay when you place the order.
+                )}
+                <div>
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Card Details
+                  </span>
+                  {SQUARE_ENV !== "production" && (
+                    <p className="mb-2 text-[10px] text-zinc-400">
+                      Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
                     </p>
-                  </div>
-                </section>
-              )}
+                  )}
+                  <div
+                    id="card-container"
+                    className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
+                  />
+                  {!cardReady && (
+                    <p className="mt-2 text-xs text-zinc-400">
+                      Loading card form…
+                    </p>
+                  )}
+                </div>
+              </section>
             </>
           )}
 
@@ -882,27 +932,24 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={
-              submitting ||
-              (!(canRedeemFully && useReward) &&
-                payMethod === "card" &&
-                !cardReady)
-            }
-            className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ backgroundColor: BRAND.primaryColor }}
-          >
-            {submitting
-              ? "Processing…"
-              : canRedeemFully && useReward
-                ? "Redeem Free Drink"
-                : payMethod === "apple-pay"
-                  ? "Pay with Apple Pay"
+          {/* Submit button — shown for card payment and free-drink redemption.
+              Wallet payments are triggered by the SDK-rendered button. */}
+          {(payMethod === "card" || (canRedeemFully && useReward)) && (
+            <button
+              type="submit"
+              disabled={submitting || (!(canRedeemFully && useReward) && !cardReady)}
+              className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ backgroundColor: BRAND.primaryColor }}
+            >
+              {submitting
+                ? "Processing…"
+                : canRedeemFully && useReward
+                  ? "Redeem Free Drink"
                   : cardReady
                     ? "Place Order"
                     : "Loading payment…"}
-          </button>
+            </button>
+          )}
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
             By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
@@ -1052,6 +1099,21 @@ function ApplePayIcon() {
       aria-hidden="true"
     >
       <path d="M17.72 7.54c-.48.56-1.27.99-2.03.93-.1-.76.28-1.56.71-2.06.49-.56 1.34-.97 2.03-.99.08.78-.23 1.56-.71 2.12zM17 10.09c-1.12-.06-2.08.64-2.61.64s-1.36-.6-2.24-.59c-1.15.02-2.21.67-2.81 1.7-1.2 2.07-.31 5.14.86 6.83.57.83 1.25 1.76 2.15 1.73.86-.04 1.19-.56 2.23-.56s1.34.56 2.25.54c.93-.02 1.51-.85 2.08-1.68.65-.95.92-1.87.93-1.92-.02-.01-1.79-.69-1.81-2.73-.01-1.7 1.39-2.52 1.46-2.56-.8-1.18-2.04-1.31-2.49-1.34v-.06z" />
+    </svg>
+  );
+}
+
+function GooglePayIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path d="M12.24 10.285V14.4h6.806c-.275 1.765-2.056 5.174-6.806 5.174-4.095 0-7.439-3.389-7.439-7.574s3.345-7.574 7.439-7.574c2.33 0 3.891.989 4.785 1.849l3.254-3.138C18.189 1.186 15.479 0 12.24 0c-6.635 0-12 5.365-12 12s5.365 12 12 12c6.926 0 11.52-4.869 11.52-11.726 0-.788-.085-1.39-.189-1.989H12.24z" fill="currentColor" />
     </svg>
   );
 }
