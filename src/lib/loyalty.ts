@@ -133,8 +133,8 @@ export async function findLoyaltyAccountByPhone(
 
   return {
     accountId: existing.id,
-    balance: existing.balance ?? 0,
-    lifetimePoints: existing.lifetimePoints ?? 0,
+    balance: Number(existing.balance ?? 0),
+    lifetimePoints: Number(existing.lifetimePoints ?? 0),
   };
 }
 
@@ -162,8 +162,8 @@ export async function findOrCreateLoyaltyAccount(
   if (existing?.id) {
     return {
       accountId: existing.id,
-      balance: existing.balance ?? 0,
-      lifetimePoints: existing.lifetimePoints ?? 0,
+      balance: Number(existing.balance ?? 0),
+      lifetimePoints: Number(existing.lifetimePoints ?? 0),
       };
     }
 
@@ -187,8 +187,8 @@ export async function findOrCreateLoyaltyAccount(
 
     return {
       accountId: account.id,
-      balance: account.balance ?? 0,
-      lifetimePoints: account.lifetimePoints ?? 0,
+      balance: Number(account.balance ?? 0),
+      lifetimePoints: Number(account.lifetimePoints ?? 0),
     };
   } catch (createErr) {
     // "The customer referenced already has a loyalty account." —
@@ -212,8 +212,8 @@ export async function findOrCreateLoyaltyAccount(
 
     return {
       accountId: found.id,
-      balance: found.balance ?? 0,
-      lifetimePoints: found.balance ?? 0,
+      balance: Number(found.balance ?? 0),
+      lifetimePoints: Number(found.lifetimePoints ?? 0),
     };
   }
 }
