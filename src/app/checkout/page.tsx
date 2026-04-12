@@ -450,9 +450,16 @@ export default function CheckoutPage() {
       return;
     }
     const expectFreeOrder = canRedeemFully && useReward;
-    if (!expectFreeOrder && !cardRef.current) {
-      setError("Card form is not ready yet.");
-      return;
+    if (!expectFreeOrder) {
+      if (payMethod === "wallet") {
+        if (!googlePayRef.current && !applePayRef.current) {
+          setError("Wallet payment is not ready yet.");
+          return;
+        }
+      } else if (!cardRef.current) {
+        setError("Card form is not ready yet.");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -535,8 +542,19 @@ export default function CheckoutPage() {
       let sourceToken: string | undefined;
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
-        if (!cardRef.current) throw new Error("Card form is not ready yet.");
-        const tokenResult = await cardRef.current.tokenize();
+        // Tokenize via the selected payment method.
+        let tokenResult: TokenizeResult;
+        if (payMethod === "wallet") {
+          const walletInstance = applePayAvailable
+            ? applePayRef.current
+            : googlePayRef.current;
+          if (!walletInstance) throw new Error("Wallet payment is not ready.");
+          tokenResult = await walletInstance.tokenize();
+        } else {
+          if (!cardRef.current) throw new Error("Card form is not ready yet.");
+          tokenResult = await cardRef.current.tokenize();
+        }
+
         if (tokenResult.status !== "OK" || !tokenResult.token) {
           const detail =
             tokenResult.errors?.[0]?.message ??
@@ -545,8 +563,9 @@ export default function CheckoutPage() {
         }
         sourceToken = tokenResult.token;
 
-        // SCA/3DS is mandatory in AU for online card payments —
+        // SCA/3DS is mandatory in AU for ALL payment methods —
         // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
+        // verifyBuyer must be called for cards AND digital wallets.
         if (!paymentsRef.current) {
           throw new Error("Payments SDK not initialized");
         }
@@ -752,7 +771,7 @@ export default function CheckoutPage() {
                   Containers stay in the DOM always so attach() survives
                   tab switches; we toggle visibility with style. */}
               <section
-                className="rounded-2xl border border-black/10 bg-white p-5"
+                className="relative rounded-2xl border border-black/10 bg-white p-5"
                 style={{ display: payMethod === "wallet" && walletAvailable ? undefined : "none" }}
               >
                 <label className="mb-4 block">
@@ -791,28 +810,13 @@ export default function CheckoutPage() {
                   </label>
                 )}
                 <p className="mb-3 text-xs text-zinc-400">
-                  Click the button below to pay with {applePayAvailable ? "Apple Pay" : "Google Pay"}.
+                  Click &quot;{applePayAvailable ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
-                {/* SDK buttons: full-width on mobile, right-aligned on desktop.
-                    The SDK renders fixed-size buttons; we override via CSS. */}
-                <style>{`
-                  #apple-pay-container button,
-                  #google-pay-container button,
-                  #apple-pay-container > div,
-                  #google-pay-container > div {
-                    width: 100% !important;
-                  }
-                  @media (min-width: 640px) {
-                    #apple-pay-container button,
-                    #google-pay-container button,
-                    #apple-pay-container > div,
-                    #google-pay-container > div {
-                      width: auto !important;
-                    }
-                  }
-                `}</style>
-                <div id="apple-pay-container" className={applePayAvailable ? "mb-2 sm:flex sm:justify-end" : ""} />
-                <div id="google-pay-container" className={googlePayAvailable ? "mb-2 sm:flex sm:justify-end" : ""} />
+                {/* SDK containers: kept in the DOM so attach() works.
+                    Visually hidden but NOT display:none — the SDK needs
+                    a rendered element to initialise its iframe/button. */}
+                <div id="apple-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
+                <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
               </section>
 
               {/* Card form */}
@@ -932,24 +936,28 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {/* Submit button — shown for card payment and free-drink redemption.
-              Wallet payments are triggered by the SDK-rendered button. */}
-          {(payMethod === "card" || (canRedeemFully && useReward)) && (
-            <button
-              type="submit"
-              disabled={submitting || (!(canRedeemFully && useReward) && !cardReady)}
-              className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: BRAND.primaryColor }}
-            >
-              {submitting
-                ? "Processing…"
-                : canRedeemFully && useReward
-                  ? "Redeem Free Drink"
+          <button
+            type="submit"
+            disabled={
+              submitting ||
+              (!(canRedeemFully && useReward) &&
+                (payMethod === "card" ? !cardReady : !walletAvailable))
+            }
+            className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ backgroundColor: BRAND.primaryColor }}
+          >
+            {submitting
+              ? "Processing…"
+              : canRedeemFully && useReward
+                ? "Redeem Free Drink"
+                : payMethod === "wallet"
+                  ? walletAvailable
+                    ? `Pay with ${applePayAvailable ? "Apple Pay" : "Google Pay"}`
+                    : "Loading payment…"
                   : cardReady
                     ? "Place Order"
                     : "Loading payment…"}
-            </button>
-          )}
+          </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
             By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
