@@ -88,6 +88,10 @@ export default function AccountPage() {
       });
 
       window.localStorage.setItem(STORAGE_KEY, phoneE164);
+      const fullName = [givenName, familyName].filter(Boolean).join(" ").trim();
+      if (fullName) {
+        window.localStorage.setItem("mbt:account:name", fullName);
+      }
     },
     [],
   );

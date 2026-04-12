@@ -1,20 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Script from "next/script";
+import { useRouter } from "next/navigation";
 import {
   useCart,
   lineTotal,
+  lineUnitPrice,
   cartSubtotal,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 
+const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
+
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
 
 const PHONE_STORAGE_KEY = "mbt:account:phone";
+const NAME_STORAGE_KEY = "mbt:account:name";
+
+import type {
+  ApplePayInstance,
+  GooglePayInstance,
+  PaymentsInstance,
+} from "@/types/square-sdk";
+import "@/types/square-sdk";
+
+const SQUARE_ENV = process.env.NEXT_PUBLIC_SQUARE_ENVIRONMENT ?? "sandbox";
+const WEB_SDK_SRC =
+  SQUARE_ENV === "production"
+    ? "https://web.squarecdn.com/v1/square.js"
+    : "https://sandbox.web.squarecdn.com/v1/square.js";
+const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID ?? "";
+const SQUARE_LOCATION_ID = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID ?? "";
 
 export function CartDrawer() {
   const isOpen = useCart((s) => s.isOpen);
@@ -90,59 +111,78 @@ export function CartDrawer() {
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5">
-          {lines.length === 0 ? (
-            <EmptyState onClose={closeDrawer} />
-          ) : (
-            <>
-              {/* Tea Journey loyalty card */}
-              <TeaJourneyCard />
-
-              {/* Cart items */}
-              <div className="mt-5 space-y-5">
-                {lines.map((line) => (
-                  <CartLineRow
-                    key={line.id}
-                    line={line}
-                    onQuantityChange={(q) => setQuantity(line.id, q)}
-                    onRemove={() => removeLine(line.id)}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {lines.length > 0 && <CartFooter lines={lines} />}
+        <CartBody
+          lines={lines}
+          closeDrawer={closeDrawer}
+          setQuantity={setQuantity}
+          removeLine={removeLine}
+        />
       </aside>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Tea Journey (loyalty progress)                                     */
+/*  Cart body — manages shared loyalty state for card + footer          */
 /* ------------------------------------------------------------------ */
 
-function TeaJourneyCard() {
+function CartBody({
+  lines,
+  closeDrawer,
+  setQuantity,
+  removeLine,
+}: {
+  lines: CartLine[];
+  closeDrawer: () => void;
+  setQuantity: (id: string, q: number) => void;
+  removeLine: (id: string) => void;
+}) {
   const [balance, setBalance] = useState<number | null>(null);
-  const starsPerReward = LOYALTY.starsPerReward;
+  const [starsPerReward, setStarsPerReward] = useState(LOYALTY.starsPerReward);
+  const [useReward, setUseReward] = useState(false);
+  const [savedPhone, setSavedPhone] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [loyaltyCustomerId, setLoyaltyCustomerId] = useState<string | null>(null);
 
+  // SDK state for wallet quick-pay.
+  const [sdkReady, setSdkReady] = useState(false);
+  const [applePayReady, setApplePayReady] = useState(false);
+  const [googlePayReady, setGooglePayReady] = useState(false);
+  const applePayRef = useRef<ApplePayInstance | null>(null);
+  const googlePayRef = useRef<GooglePayInstance | null>(null);
+  const paymentsRef = useRef<PaymentsInstance | null>(null);
+
+  // Read saved user info.
   useEffect(() => {
-    const phone =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(PHONE_STORAGE_KEY)
-        : null;
-    if (!phone) return;
+    const phone = window.localStorage.getItem(PHONE_STORAGE_KEY);
+    const name = window.localStorage.getItem(NAME_STORAGE_KEY);
+    setSavedPhone(phone);
+    setSavedName(name);
+  }, []);
+
+  // Fetch loyalty balance once.
+  useEffect(() => {
+    if (!savedPhone) return;
 
     (async () => {
       try {
         const custRes = await fetch("/api/customer/lookup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
+          body: JSON.stringify({ phone: savedPhone }),
         });
         const custJson = await custRes.json();
         if (!custRes.ok || !custJson.ok || !custJson.found) return;
+
+        setLoyaltyCustomerId(custJson.customerId);
+        // Pre-fill name from Square if not already saved.
+        if (!savedName) {
+          const fullName = [custJson.givenName, custJson.familyName]
+            .filter(Boolean)
+            .join(" ")
+            .trim();
+          if (fullName) setSavedName(fullName);
+        }
 
         const loyaltyRes = await fetch("/api/loyalty/account", {
           method: "POST",
@@ -155,14 +195,193 @@ function TeaJourneyCard() {
         const loyaltyJson = await loyaltyRes.json();
         if (loyaltyRes.ok && loyaltyJson.ok) {
           setBalance(loyaltyJson.balance ?? 0);
+          if (loyaltyJson.starsPerReward) {
+            setStarsPerReward(loyaltyJson.starsPerReward);
+          }
         }
       } catch {
         // Silently fail — loyalty is optional
       }
     })();
-  }, []);
+  }, [savedPhone, savedName]);
+
+  // Initialize Square SDK + wallet payment methods.
+  const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+
+  useEffect(() => {
+    if (!sdkReady || lines.length === 0) return;
+    if (!SQUARE_APP_ID || !SQUARE_LOCATION_ID) return;
+    if (paymentsRef.current) return;
+
+    const square = window.Square;
+    if (!square) return;
+    const payments = square.payments(SQUARE_APP_ID, SQUARE_LOCATION_ID);
+    paymentsRef.current = payments;
+
+    // Apple Pay — no attach needed.
+    (async () => {
+      try {
+        const pr = payments.paymentRequest({
+          countryCode: "AU",
+          currencyCode: "AUD",
+          total: {
+            amount: (Number(subtotal) / 100).toFixed(2),
+            label: BRAND.name,
+          },
+        });
+        const ap = await payments.applePay(pr);
+        applePayRef.current = ap;
+        setApplePayReady(true);
+      } catch {
+        // Not available on this device/browser
+      }
+    })();
+
+    // Google Pay — needs a DOM container.
+    let gpCancelled = false;
+    (async () => {
+      try {
+        const pr = payments.paymentRequest({
+          countryCode: "AU",
+          currencyCode: "AUD",
+          total: {
+            amount: (Number(subtotal) / 100).toFixed(2),
+            label: BRAND.name,
+          },
+        });
+        const gp = await payments.googlePay(pr);
+        if (gpCancelled) { gp.destroy().catch(() => {}); return; }
+        await gp.attach("#cart-google-pay-container");
+        if (gpCancelled) { gp.destroy().catch(() => {}); return; }
+        googlePayRef.current = gp;
+        setGooglePayReady(true);
+      } catch {
+        // Not available
+      }
+    })();
+
+    return () => {
+      gpCancelled = true;
+      googlePayRef.current?.destroy().catch(() => {});
+      googlePayRef.current = null;
+      applePayRef.current = null;
+      paymentsRef.current = null;
+      setApplePayReady(false);
+      setGooglePayReady(false);
+    };
+    // Only init once when SDK becomes ready — subtotal changes are fine
+    // since we re-create the paymentRequest at tokenize time anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sdkReady, lines.length > 0]);
 
   const stars = balance ?? 0;
+  const canRedeem = stars >= starsPerReward && starsPerReward > 0;
+
+  // Cheapest drink unit price = reward discount amount.
+  const rewardDiscount = useMemo(() => {
+    if (lines.length === 0) return 0n;
+    let cheapest = lineUnitPrice(lines[0]);
+    for (const l of lines) {
+      const up = lineUnitPrice(l);
+      if (up < cheapest) cheapest = up;
+    }
+    return cheapest;
+  }, [lines]);
+
+  // Persist redeem preference so checkout can pick it up.
+  useEffect(() => {
+    try {
+      if (useReward) {
+        window.localStorage.setItem(REDEEM_STORAGE_KEY, "1");
+      } else {
+        window.localStorage.removeItem(REDEEM_STORAGE_KEY);
+      }
+    } catch { /* noop */ }
+  }, [useReward]);
+
+  // Reset redeem when user no longer qualifies.
+  useEffect(() => {
+    if (!canRedeem) setUseReward(false);
+  }, [canRedeem]);
+
+  // Has saved user info for quick pay?
+  const hasUserInfo = !!savedPhone && !!savedName;
+
+  return (
+    <>
+      {/* Load Square SDK for wallet quick-pay */}
+      <Script
+        src={WEB_SDK_SRC}
+        strategy="afterInteractive"
+        onReady={() => setSdkReady(true)}
+      />
+      {/* Hidden Google Pay SDK container */}
+      <div id="cart-google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
+
+      <div className="flex-1 overflow-y-auto px-5">
+        {lines.length === 0 ? (
+          <EmptyState onClose={closeDrawer} />
+        ) : (
+          <>
+            <TeaJourneyCard
+              stars={stars}
+              starsPerReward={starsPerReward}
+              canRedeem={canRedeem}
+              useReward={useReward}
+              onToggleReward={() => setUseReward((v) => !v)}
+            />
+
+            <div className="mt-5 space-y-5">
+              {lines.map((line) => (
+                <CartLineRow
+                  key={line.id}
+                  line={line}
+                  onQuantityChange={(q) => setQuantity(line.id, q)}
+                  onRemove={() => removeLine(line.id)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {lines.length > 0 && (
+        <CartFooter
+          lines={lines}
+          useReward={useReward}
+          rewardDiscount={rewardDiscount}
+          hasUserInfo={hasUserInfo}
+          savedPhone={savedPhone}
+          savedName={savedName}
+          loyaltyCustomerId={loyaltyCustomerId}
+          applePayReady={applePayReady}
+          googlePayReady={googlePayReady}
+          applePayRef={applePayRef}
+          googlePayRef={googlePayRef}
+          paymentsRef={paymentsRef}
+        />
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tea Journey (loyalty progress)                                     */
+/* ------------------------------------------------------------------ */
+
+function TeaJourneyCard({
+  stars,
+  starsPerReward,
+  canRedeem,
+  useReward,
+  onToggleReward,
+}: {
+  stars: number;
+  starsPerReward: number;
+  canRedeem: boolean;
+  useReward: boolean;
+  onToggleReward: () => void;
+}) {
   const remaining = Math.max(starsPerReward - stars, 0);
   const progressPct = Math.min((stars / starsPerReward) * 100, 100);
 
@@ -175,9 +394,11 @@ function TeaJourneyCard() {
         <div>
           <h3 className="text-sm font-bold text-zinc-900">Your Tea Journey</h3>
           <p className="mt-0.5 text-xs text-zinc-600">
-            {stars > 0
-              ? `${remaining} more star${remaining !== 1 ? "s" : ""} until your next free treat!`
-              : "Start earning stars toward a free drink!"}
+            {canRedeem
+              ? "You've earned a free drink!"
+              : stars > 0
+                ? `${remaining} more star${remaining !== 1 ? "s" : ""} until your next free treat!`
+                : "Start earning stars toward a free drink!"}
           </p>
         </div>
         <span
@@ -202,6 +423,32 @@ function TeaJourneyCard() {
           {stars} / {starsPerReward} Stars
         </span>
       </div>
+
+      {/* Redeem toggle */}
+      {canRedeem && (
+        <button
+          type="button"
+          onClick={onToggleReward}
+          className={`mt-3 flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+            useReward
+              ? "bg-white text-zinc-900"
+              : "bg-white/60 text-zinc-700 hover:bg-white/80"
+          }`}
+          style={useReward ? { boxShadow: `0 0 0 2px ${BRAND.primaryColor}` } : undefined}
+        >
+          <span className="flex items-center gap-1.5">
+            🎉 Redeem free drink
+          </span>
+          <span
+            className={`flex h-5 w-9 items-center rounded-full transition-colors ${
+              useReward ? "justify-end" : "justify-start bg-zinc-300"
+            }`}
+            style={useReward ? { backgroundColor: BRAND.primaryColor } : undefined}
+          >
+            <span className="mx-0.5 h-4 w-4 rounded-full bg-white shadow" />
+          </span>
+        </button>
+      )}
     </div>
   );
 }
@@ -336,13 +583,207 @@ function QuantityStepper({
 /*  Footer                                                             */
 /* ------------------------------------------------------------------ */
 
-function CartFooter({ lines }: { lines: CartLine[] }) {
+function CartFooter({
+  lines,
+  useReward,
+  rewardDiscount,
+  hasUserInfo,
+  savedPhone,
+  savedName,
+  loyaltyCustomerId,
+  applePayReady,
+  googlePayReady,
+  applePayRef,
+  googlePayRef,
+  paymentsRef,
+}: {
+  lines: CartLine[];
+  useReward: boolean;
+  rewardDiscount: bigint;
+  hasUserInfo: boolean;
+  savedPhone: string | null;
+  savedName: string | null;
+  loyaltyCustomerId: string | null;
+  applePayReady: boolean;
+  googlePayReady: boolean;
+  applePayRef: React.RefObject<ApplePayInstance | null>;
+  googlePayRef: React.RefObject<GooglePayInstance | null>;
+  paymentsRef: React.RefObject<PaymentsInstance | null>;
+}) {
   const subtotal = cartSubtotal(lines);
   const closeDrawer = useCart((s) => s.closeDrawer);
+  const clear = useCart((s) => s.clear);
+  const router = useRouter();
   const isIOS = useIsIOS();
+
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const discountedTotal = useReward
+    ? subtotal - rewardDiscount > 0n
+      ? subtotal - rewardDiscount
+      : 0n
+    : subtotal;
+
+  // Full wallet payment flow — runs entirely in the cart drawer.
+  const handleWalletPay = useCallback(
+    async (method: "apple" | "google") => {
+      if (paying) return;
+      setError(null);
+
+      if (!hasUserInfo || !savedPhone || !savedName) {
+        // No saved user info — fall back to checkout page.
+        closeDrawer();
+        router.push("/checkout");
+        return;
+      }
+
+      setPaying(true);
+      try {
+        // 0) Tokenize IMMEDIATELY — must stay in the user gesture frame.
+        const walletInstance =
+          method === "apple" ? applePayRef.current : googlePayRef.current;
+        if (!walletInstance) throw new Error("Wallet not ready");
+        const tokenResult = await walletInstance.tokenize();
+        if (tokenResult.status !== "OK" || !tokenResult.token) {
+          const detail =
+            tokenResult.errors?.[0]?.message ??
+            `Tokenization failed (${tokenResult.status})`;
+          throw new Error(detail);
+        }
+        const sourceToken = tokenResult.token;
+
+        // 1) Customer lookup/create.
+        const customerRes = await fetch("/api/customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: savedName, phone: savedPhone }),
+        });
+        const customerJson = await customerRes.json();
+        if (!customerRes.ok || !customerJson.ok) {
+          throw new Error(customerJson.error ?? "Customer lookup failed");
+        }
+
+        // 2) Create order.
+        const orderRes = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: customerJson.customerId,
+            recipientName: savedName.trim(),
+            recipientPhone: savedPhone.trim(),
+            lines: lines.map((l) => ({
+              itemName: l.itemName,
+              variationId: l.variationId,
+              variationName: l.variationName,
+              modifiers: l.modifiers.map((m) => ({
+                id: m.id,
+                name: m.name,
+              })),
+              quantity: l.quantity,
+            })),
+          }),
+        });
+        const orderJson = await orderRes.json();
+        if (!orderRes.ok || !orderJson.ok) {
+          throw new Error(orderJson.error ?? "Order creation failed");
+        }
+
+        // 3) Optionally redeem loyalty reward.
+        let amountCents: string = orderJson.amountCents;
+        if (useReward && loyaltyCustomerId) {
+          const redeemRes = await fetch("/api/loyalty/redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customerId: loyaltyCustomerId,
+              phone: savedPhone.trim(),
+              orderId: orderJson.orderId,
+            }),
+          });
+          const redeemJson = await redeemRes.json();
+          if (!redeemRes.ok || !redeemJson.ok) {
+            throw new Error(redeemJson.error ?? "Could not redeem reward");
+          }
+          if (typeof redeemJson.updatedAmountCents === "string") {
+            amountCents = redeemJson.updatedAmountCents;
+          }
+        }
+
+        // 4) verifyBuyer (SCA required in AU for all methods).
+        const isFreeOrder =
+          amountCents === "0" || Number(amountCents) === 0;
+
+        let verificationToken: string | undefined;
+        if (!isFreeOrder) {
+          if (!paymentsRef.current) throw new Error("SDK not initialized");
+          const amountMajor = (Number(amountCents) / 100).toFixed(2);
+          const [firstName, ...restName] = savedName.trim().split(/\s+/);
+          const verification = await paymentsRef.current.verifyBuyer(
+            sourceToken,
+            {
+              amount: amountMajor,
+              currencyCode: "AUD",
+              intent: "CHARGE",
+              billingContact: {
+                givenName: firstName,
+                familyName: restName.join(" ") || undefined,
+                phone: savedPhone.trim(),
+                countryCode: "AU",
+              },
+              customerInitiated: true,
+              sellerKeyedIn: false,
+            },
+          );
+          verificationToken = verification.token;
+        }
+
+        // 5) Pay.
+        const paymentRes = await fetch("/api/payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceId: sourceToken,
+            orderId: orderJson.orderId,
+            customerId: customerJson.customerId,
+            phone: savedPhone.trim(),
+            verificationToken,
+          }),
+        });
+        const paymentJson = await paymentRes.json();
+        if (!paymentRes.ok || !paymentJson.ok) {
+          throw new Error(paymentJson.error ?? "Payment failed");
+        }
+
+        // Success — clear cart and go to confirmation.
+        clear();
+        closeDrawer();
+        router.push(`/order-confirmation/${orderJson.orderId}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        setPaying(false);
+      }
+    },
+    [
+      paying, hasUserInfo, savedPhone, savedName, loyaltyCustomerId,
+      useReward, lines, applePayRef, googlePayRef, paymentsRef,
+      clear, closeDrawer, router,
+    ],
+  );
+
+  // Determine which wallet button to show.
+  const showApple = applePayReady;
+  const showGoogle = googlePayReady && !applePayReady; // prefer Apple Pay on iOS
 
   return (
     <footer className="border-t border-black/10 px-5 pb-6 pt-5">
+      {error && (
+        <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+          {error}
+        </div>
+      )}
+
       <div className="space-y-2">
         <div className="flex justify-between text-sm text-zinc-600">
           <span>Subtotal</span>
@@ -350,6 +791,14 @@ function CartFooter({ lines }: { lines: CartLine[] }) {
             {formatPrice(subtotal)}
           </span>
         </div>
+        {useReward && (
+          <div className="flex justify-between text-sm">
+            <span className="text-green-600">Free drink reward</span>
+            <span className="font-semibold text-green-600">
+              −{formatPrice(rewardDiscount)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between text-sm text-zinc-600">
           <span>Tax</span>
           <span className="font-semibold text-zinc-900">
@@ -363,24 +812,47 @@ function CartFooter({ lines }: { lines: CartLine[] }) {
           className="text-xl font-bold"
           style={{ color: BRAND.primaryColor }}
         >
-          {formatPrice(subtotal)}
+          {formatPrice(discountedTotal)}
         </span>
       </div>
 
-      {/* Quick wallet pay — Apple Pay on iOS, Google Pay elsewhere */}
-      <Link
-        href="/checkout"
-        onClick={closeDrawer}
-        className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
-          isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
-        }`}
-      >
-        {isIOS ? (
-          <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-        ) : (
-          <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-        )}
-      </Link>
+      {/* Wallet quick-pay — real payment, no redirect */}
+      {showApple && (
+        <button
+          type="button"
+          disabled={paying}
+          onClick={() => handleWalletPay("apple")}
+          className="mt-5 flex w-full items-center justify-center gap-0.5 rounded-xl bg-black py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          {paying ? "Processing…" : <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>}
+        </button>
+      )}
+      {showGoogle && (
+        <button
+          type="button"
+          disabled={paying}
+          onClick={() => handleWalletPay("google")}
+          className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl bg-[#3c4043] py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          {paying ? "Processing…" : <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>}
+        </button>
+      )}
+      {/* Fallback if wallet not ready yet — still a link */}
+      {!showApple && !showGoogle && (
+        <Link
+          href="/checkout"
+          onClick={closeDrawer}
+          className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
+            isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
+          }`}
+        >
+          {isIOS ? (
+            <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+          ) : (
+            <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+          )}
+        </Link>
+      )}
 
       <Link
         href="/checkout"

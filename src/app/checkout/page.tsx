@@ -21,64 +21,15 @@ import { BRAND, LOYALTY } from "@/lib/constants";
 //
 // SDK docs: https://developer.squareup.com/docs/web-payments/overview
 
-// Minimal shape of the Square Web Payments SDK we actually use. The
-// real type lives on `window.Square`; we keep our own narrow surface
-// rather than adding a full @types dependency.
-type TokenizeResult = {
-  status: "OK" | "Invalid" | "Cancel" | string;
-  token?: string;
-  errors?: { message: string }[];
-};
-type CardInstance = {
-  attach(selector: string): Promise<void>;
-  tokenize(): Promise<TokenizeResult>;
-  destroy(): Promise<void>;
-};
-type ApplePayInstance = {
-  // Apple Pay has no attach() — it uses the native payment sheet.
-  tokenize(): Promise<TokenizeResult>;
-};
-type GooglePayInstance = {
-  attach(selector: string): Promise<void>;
-  tokenize(): Promise<TokenizeResult>;
-  destroy(): Promise<void>;
-};
-type VerificationDetails = {
-  amount: string; // major-unit string, e.g. "7.50"
-  currencyCode: string;
-  intent: "CHARGE" | "STORE";
-  billingContact: {
-    givenName?: string;
-    familyName?: string;
-    phone?: string;
-    countryCode?: string;
-  };
-  customerInitiated: boolean;
-  sellerKeyedIn: boolean;
-};
-type PaymentsInstance = {
-  card(): Promise<CardInstance>;
-  applePay(paymentRequest: unknown): Promise<ApplePayInstance>;
-  googlePay(paymentRequest: unknown): Promise<GooglePayInstance>;
-  paymentRequest(config: {
-    countryCode: string;
-    currencyCode: string;
-    total: { amount: string; label: string };
-  }): unknown;
-  verifyBuyer(
-    source: string,
-    details: VerificationDetails,
-  ): Promise<{ token: string }>;
-};
-type SquareGlobal = {
-  payments(appId: string, locationId: string): PaymentsInstance;
-};
-
-declare global {
-  interface Window {
-    Square?: SquareGlobal;
-  }
-}
+import type {
+  TokenizeResult,
+  CardInstance,
+  ApplePayInstance,
+  GooglePayInstance,
+  PaymentsInstance,
+} from "@/types/square-sdk";
+// Ensure the global Window.Square augmentation is loaded.
+import "@/types/square-sdk";
 
 const SQUARE_ENV = process.env.NEXT_PUBLIC_SQUARE_ENVIRONMENT ?? "sandbox";
 const WEB_SDK_SRC =
@@ -162,9 +113,18 @@ export default function CheckoutPage() {
   // When the reward fully covers the order — no payment needed.
   const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
 
+  // Pre-fill redeem toggle from cart drawer preference (localStorage).
+  useEffect(() => {
+    if (!canRedeem) return;
+    try {
+      const saved = window.localStorage.getItem("mbt:cart:useReward");
+      if (saved === "1") setUseReward(true);
+    } catch { /* noop */ }
+  }, [canRedeem]);
+
   // Auto-toggle reward when the order qualifies for a fully free checkout.
   useEffect(() => {
-    setUseReward(canRedeemFully);
+    if (canRedeemFully) setUseReward(true);
   }, [canRedeemFully]);
 
   // Auto-select the best available wallet when it becomes available.
@@ -621,7 +581,11 @@ export default function CheckoutPage() {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
-      // Success — clear cart and go to confirmation.
+      // Success — save user info for next time, clear cart, go to confirmation.
+      try {
+        window.localStorage.setItem("mbt:account:phone", phone.trim());
+        window.localStorage.setItem("mbt:account:name", name.trim());
+      } catch { /* noop */ }
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
