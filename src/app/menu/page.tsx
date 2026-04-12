@@ -29,15 +29,6 @@ export default async function MenuPage() {
   return (
     <div className="flex flex-1 flex-col">
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mb-8 sm:mb-10">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
-            Menu
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Browse our handcrafted drinks.
-          </p>
-        </div>
-
         {!result.ok ? (
           <ErrorState message={result.error} />
         ) : result.menu.categories.length === 0 ? (
@@ -69,7 +60,7 @@ export default async function MenuPage() {
                   </div>
 
                   {/* Item cards */}
-                  <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5">
+                  <ul className="grid grid-cols-3 gap-2 sm:gap-5">
                     {preview.map((item) => (
                       <li key={item.id}>
                         <ItemCard item={item} categorySlug={cat.slug} />
@@ -127,7 +118,9 @@ function ItemCard({
 
       {/* Info */}
       <div className="p-3 sm:p-4">
-        <h3 className="text-xs font-semibold text-zinc-900 sm:text-sm">{item.name}</h3>
+        <h3 className="truncate text-xs font-semibold text-zinc-900 sm:text-sm">
+          {item.name}
+        </h3>
         {item.priceCents != null && (
           <p className="mt-0.5 text-[11px] text-zinc-500 sm:text-xs">
             {formatPrice(item.priceCents)}

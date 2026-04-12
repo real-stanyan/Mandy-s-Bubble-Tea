@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCart,
   lineTotal,
+  lineUnitPrice,
   cartSubtotal,
   type CartLine,
 } from "@/store/cart";
@@ -23,13 +24,18 @@ import { BRAND, LOYALTY } from "@/lib/constants";
 // Minimal shape of the Square Web Payments SDK we actually use. The
 // real type lives on `window.Square`; we keep our own narrow surface
 // rather than adding a full @types dependency.
+type TokenizeResult = {
+  status: "OK" | "Invalid" | "Cancel" | string;
+  token?: string;
+  errors?: { message: string }[];
+};
 type CardInstance = {
   attach(selector: string): Promise<void>;
-  tokenize(): Promise<{
-    status: "OK" | "Invalid" | "Cancel" | string;
-    token?: string;
-    errors?: { message: string }[];
-  }>;
+  tokenize(): Promise<TokenizeResult>;
+  destroy(): Promise<void>;
+};
+type ApplePayInstance = {
+  tokenize(): Promise<TokenizeResult>;
   destroy(): Promise<void>;
 };
 type VerificationDetails = {
@@ -45,8 +51,17 @@ type VerificationDetails = {
   customerInitiated: boolean;
   sellerKeyedIn: boolean;
 };
+type PaymentRequestUpdate = {
+  total: { amount: string; label: string };
+};
 type PaymentsInstance = {
   card(): Promise<CardInstance>;
+  applePay(paymentRequest: unknown): Promise<ApplePayInstance>;
+  paymentRequest(config: {
+    countryCode: string;
+    currencyCode: string;
+    total: { amount: string; label: string };
+  }): unknown;
   verifyBuyer(
     source: string,
     details: VerificationDetails,
@@ -84,6 +99,8 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
+  const [applePayAvailable, setApplePayAvailable] = useState(false);
+  const [payMethod, setPayMethod] = useState<"card" | "apple-pay">("card");
 
   // Loyalty reward state. We look up the buyer's star balance once
   // they've filled in name + phone (on phone blur) and offer a free
@@ -103,9 +120,28 @@ export default function CheckoutPage() {
   const [useReward, setUseReward] = useState(false);
 
   const cardRef = useRef<CardInstance | null>(null);
+  const applePayRef = useRef<ApplePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+
+  // The cheapest single-drink unit price — used as the reward discount
+  // (Square's "Free Drink" reward covers the cheapest item).
+  const rewardDiscount = useMemo(() => {
+    if (lines.length === 0) return 0n;
+    let cheapest = lineUnitPrice(lines[0]);
+    for (const l of lines) {
+      const up = lineUnitPrice(l);
+      if (up < cheapest) cheapest = up;
+    }
+    return cheapest;
+  }, [lines]);
+
+  // Whether the user can redeem (enough stars).
+  const canRedeem =
+    loyaltyLookup.status === "ready" &&
+    loyaltyLookup.starsPerReward > 0 &&
+    loyaltyLookup.balance >= loyaltyLookup.starsPerReward;
 
   // Loyalty-derived values — declared early so effects can reference them.
   const loyaltyBalance =
@@ -117,13 +153,8 @@ export default function CheckoutPage() {
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
   const progressPct = Math.min((loyaltyBalance / loyaltyTotal) * 100, 100);
 
-  // When the user has enough stars for a free drink AND the cart contains
-  // exactly 1 drink, the reward fully covers the order — no payment needed.
-  const canRedeemFully =
-    loyaltyLookup.status === "ready" &&
-    loyaltyLookup.starsPerReward > 0 &&
-    loyaltyLookup.balance >= loyaltyLookup.starsPerReward &&
-    starsThisOrder === 1;
+  // When the reward fully covers the order — no payment needed.
+  const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
 
   // Auto-toggle reward when the order qualifies for a fully free checkout.
   useEffect(() => {
@@ -276,6 +307,50 @@ export default function CheckoutPage() {
     };
   }, [sdkReady, needsCard]);
 
+  // Initialize Apple Pay. The SDK checks device/browser support
+  // internally — if not available, applePay() throws and we just
+  // leave the button hidden. We need the payments instance to exist
+  // first (created in the card init above).
+  useEffect(() => {
+    if (!sdkReady || !needsCard) return;
+    if (applePayRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        // Wait for paymentsRef to be populated by the card init effect.
+        // If it's not ready yet, the next render cycle will retry.
+        const payments = paymentsRef.current;
+        if (!payments) return;
+
+        const paymentRequest = payments.paymentRequest({
+          countryCode: "AU",
+          currencyCode: "AUD",
+          total: {
+            amount: (Number(subtotal) / 100).toFixed(2),
+            label: BRAND.name,
+          },
+        });
+        const ap = await payments.applePay(paymentRequest);
+        if (cancelled) {
+          ap.destroy().catch(() => undefined);
+          return;
+        }
+        applePayRef.current = ap;
+        setApplePayAvailable(true);
+      } catch {
+        // Apple Pay not supported on this device/browser — that's fine.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      applePayRef.current?.destroy().catch(() => undefined);
+      applePayRef.current = null;
+      setApplePayAvailable(false);
+    };
+  }, [sdkReady, needsCard, cardReady, subtotal]);
+
   // Avoid SSR mismatch: render a placeholder until the cart hydrates.
   if (!hydrated) {
     return (
@@ -312,8 +387,12 @@ export default function CheckoutPage() {
       return;
     }
     const expectFreeOrder = canRedeemFully && useReward;
-    if (!expectFreeOrder && !cardRef.current) {
+    if (!expectFreeOrder && payMethod === "card" && !cardRef.current) {
       setError("Card form is not ready yet.");
+      return;
+    }
+    if (!expectFreeOrder && payMethod === "apple-pay" && !applePayRef.current) {
+      setError("Apple Pay is not available.");
       return;
     }
 
@@ -397,40 +476,61 @@ export default function CheckoutPage() {
       let sourceToken: string | undefined;
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
-        if (!cardRef.current) throw new Error("Card form is not ready yet.");
-        const tokenResult = await cardRef.current.tokenize();
-        if (tokenResult.status !== "OK" || !tokenResult.token) {
-          const detail =
-            tokenResult.errors?.[0]?.message ??
-            `Tokenization failed (${tokenResult.status})`;
-          throw new Error(detail);
-        }
-        sourceToken = tokenResult.token;
+        if (payMethod === "apple-pay") {
+          // Apple Pay — the payment sheet handles authentication,
+          // so verifyBuyer is not needed (SCA is built in).
+          if (!applePayRef.current) {
+            throw new Error("Apple Pay is not available.");
+          }
+          const tokenResult = await applePayRef.current.tokenize();
+          if (tokenResult.status !== "OK" || !tokenResult.token) {
+            if (tokenResult.status === "Cancel") {
+              setSubmitting(false);
+              return; // User dismissed the Apple Pay sheet
+            }
+            const detail =
+              tokenResult.errors?.[0]?.message ??
+              `Apple Pay failed (${tokenResult.status})`;
+            throw new Error(detail);
+          }
+          sourceToken = tokenResult.token;
+        } else {
+          // Card payment — tokenize + SCA/3DS verification.
+          if (!cardRef.current) throw new Error("Card form is not ready yet.");
+          const tokenResult = await cardRef.current.tokenize();
+          if (tokenResult.status !== "OK" || !tokenResult.token) {
+            const detail =
+              tokenResult.errors?.[0]?.message ??
+              `Tokenization failed (${tokenResult.status})`;
+            throw new Error(detail);
+          }
+          sourceToken = tokenResult.token;
 
-        // SCA/3DS is mandatory in AU for online card payments —
-        // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
-        if (!paymentsRef.current) {
-          throw new Error("Payments SDK not initialized");
-        }
-        const amountMajor = (Number(amountCents) / 100).toFixed(2);
-        const [firstName, ...restName] = name.trim().split(/\s+/);
-        const verification = await paymentsRef.current.verifyBuyer(
-          sourceToken,
-          {
-            amount: amountMajor,
-            currencyCode: "AUD",
-            intent: "CHARGE",
-            billingContact: {
-              givenName: firstName,
-              familyName: restName.join(" ") || undefined,
-              phone: phone.trim(),
-              countryCode: "AU",
+          // SCA/3DS is mandatory in AU for online card payments —
+          // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
+          if (!paymentsRef.current) {
+            throw new Error("Payments SDK not initialized");
+          }
+          const amountMajor = (Number(amountCents) / 100).toFixed(2);
+          const [firstName, ...restName] = name.trim().split(/\s+/);
+          const verification = await paymentsRef.current.verifyBuyer(
+            sourceToken,
+            {
+              amount: amountMajor,
+              currencyCode: "AUD",
+              intent: "CHARGE",
+              billingContact: {
+                givenName: firstName,
+                familyName: restName.join(" ") || undefined,
+                phone: phone.trim(),
+                countryCode: "AU",
+              },
+              customerInitiated: true,
+              sellerKeyedIn: false,
             },
-            customerInitiated: true,
-            sellerKeyedIn: false,
-          },
-        );
-        verificationToken = verification.token;
+          );
+          verificationToken = verification.token;
+        }
       }
 
       // 5) Finalize the order — either by charging the tokenized
@@ -515,9 +615,7 @@ export default function CheckoutPage() {
             </div>
 
             {/* Redeem checkbox */}
-            {loyaltyLookup.status === "ready" &&
-              loyaltyLookup.starsPerReward > 0 &&
-              loyaltyLookup.balance >= loyaltyLookup.starsPerReward && (
+            {canRedeem && (
                 <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-3">
                   <input
                     type="checkbox"
@@ -582,91 +680,151 @@ export default function CheckoutPage() {
                 <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:gap-3">
                   <button
                     type="button"
+                    onClick={() => setPayMethod("card")}
                     className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
-                    style={{
-                      borderColor: BRAND.primaryColor,
-                      color: BRAND.primaryColor,
-                    }}
+                    style={
+                      payMethod === "card"
+                        ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
+                        : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
+                    }
                   >
                     <CardIcon />
                     Card
                   </button>
-                  <button
-                    type="button"
-                    className="flex items-center justify-center gap-2 rounded-full border-2 border-black/15 py-3 text-sm font-semibold text-zinc-500 transition hover:border-black/30"
-                    disabled
-                    title="Coming soon"
-                  >
-                    <ApplePayIcon />
-                    Apple Pay
-                  </button>
+                  {applePayAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("apple-pay")}
+                      className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
+                      style={
+                        payMethod === "apple-pay"
+                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
+                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
+                      }
+                    >
+                      <ApplePayIcon />
+                      Apple Pay
+                    </button>
+                  )}
                 </div>
               </section>
 
               {/* Card form */}
-              <section className="rounded-2xl border border-black/10 bg-white p-5">
-                {/* Cardholder name */}
-                <label className="mb-4 block">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Cardholder Name
-                  </span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Your name"
-                    autoComplete="name"
-                    required
-                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
-                  />
-                </label>
-
-                {/* Phone (visible if not pre-filled) */}
-                {!phone && (
+              {payMethod === "card" && (
+                <section className="rounded-2xl border border-black/10 bg-white p-5">
+                  {/* Cardholder name */}
                   <label className="mb-4 block">
                     <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Phone
+                      Cardholder Name
                     </span>
                     <input
-                      type="tel"
-                      value={phone}
-                      onChange={(v) => {
-                        setPhone(v.target.value);
-                        if (loyaltyLookup.status !== "idle") {
-                          setLoyaltyLookup({ status: "idle" });
-                          setUseReward(false);
-                        }
-                      }}
-                      onBlur={() => lookupLoyalty()}
-                      placeholder="0404 123 456"
-                      autoComplete="tel"
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your name"
+                      autoComplete="name"
                       required
                       className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
                     />
                   </label>
-                )}
 
-                {/* Square card fields */}
-                <div>
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Card Details
-                  </span>
-                  {SQUARE_ENV !== "production" && (
-                    <p className="mb-2 text-[10px] text-zinc-400">
-                      Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
-                    </p>
+                  {/* Phone (visible if not pre-filled) */}
+                  {!phone && (
+                    <label className="mb-4 block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Phone
+                      </span>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(v) => {
+                          setPhone(v.target.value);
+                          if (loyaltyLookup.status !== "idle") {
+                            setLoyaltyLookup({ status: "idle" });
+                            setUseReward(false);
+                          }
+                        }}
+                        onBlur={() => lookupLoyalty()}
+                        placeholder="0404 123 456"
+                        autoComplete="tel"
+                        required
+                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                      />
+                    </label>
                   )}
-                  <div
-                    id="card-container"
-                    className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
-                  />
-                  {!cardReady && (
-                    <p className="mt-2 text-xs text-zinc-400">
-                      Loading card form…
-                    </p>
+
+                  {/* Square card fields */}
+                  <div>
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Card Details
+                    </span>
+                    {SQUARE_ENV !== "production" && (
+                      <p className="mb-2 text-[10px] text-zinc-400">
+                        Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
+                      </p>
+                    )}
+                    <div
+                      id="card-container"
+                      className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
+                    />
+                    {!cardReady && (
+                      <p className="mt-2 text-xs text-zinc-400">
+                        Loading card form…
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Apple Pay info */}
+              {payMethod === "apple-pay" && (
+                <section className="rounded-2xl border border-black/10 bg-white p-5">
+                  {/* Name + phone still needed for order/loyalty */}
+                  <label className="mb-4 block">
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Name
+                    </span>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your name"
+                      autoComplete="name"
+                      required
+                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                    />
+                  </label>
+                  {!phone && (
+                    <label className="mb-4 block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Phone
+                      </span>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(v) => {
+                          setPhone(v.target.value);
+                          if (loyaltyLookup.status !== "idle") {
+                            setLoyaltyLookup({ status: "idle" });
+                            setUseReward(false);
+                          }
+                        }}
+                        onBlur={() => lookupLoyalty()}
+                        placeholder="0404 123 456"
+                        autoComplete="tel"
+                        required
+                        className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                      />
+                    </label>
                   )}
-                </div>
-              </section>
+                  <div className="flex items-center gap-3 rounded-lg bg-zinc-50 p-4">
+                    <ApplePayIcon />
+                    <p className="text-sm text-zinc-600">
+                      You&apos;ll confirm payment with Apple Pay when you place the order.
+                    </p>
+                  </div>
+                </section>
+              )}
             </>
           )}
 
@@ -696,6 +854,16 @@ export default function CheckoutPage() {
                 {formatPrice(subtotal)}
               </span>
             </div>
+            {canRedeem && useReward && (
+              <div className="flex justify-between text-sm">
+                <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                  Free Drink Reward
+                </span>
+                <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(rewardDiscount)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm text-zinc-600">
               <span>Tax</span>
               <span className="font-semibold text-zinc-900">
@@ -705,14 +873,21 @@ export default function CheckoutPage() {
             <div className="flex justify-between border-t border-black/10 pt-3 text-base">
               <span className="font-bold text-zinc-900">Total</span>
               <span className="text-lg font-bold text-zinc-900">
-                {formatPrice(subtotal)}
+                {canRedeem && useReward
+                  ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
+                  : formatPrice(subtotal)}
               </span>
             </div>
           </div>
 
           <button
             type="submit"
-            disabled={submitting || (!(canRedeemFully && useReward) && !cardReady)}
+            disabled={
+              submitting ||
+              (!(canRedeemFully && useReward) &&
+                payMethod === "card" &&
+                !cardReady)
+            }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
@@ -720,9 +895,11 @@ export default function CheckoutPage() {
               ? "Processing…"
               : canRedeemFully && useReward
                 ? "Redeem Free Drink"
-                : cardReady
-                  ? "Place Order"
-                  : "Loading payment…"}
+                : payMethod === "apple-pay"
+                  ? "Pay with Apple Pay"
+                  : cardReady
+                    ? "Place Order"
+                    : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">

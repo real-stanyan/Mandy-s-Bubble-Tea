@@ -3,6 +3,14 @@ import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 // Items within a single category. Unknown slugs 404.
 // Data layer fetches the entire menu once and this page filters from it —
@@ -24,7 +32,11 @@ export default async function CategoryPage({ params }: PageProps) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return (
-      <CategoryFrame title="Error" subtitle="Could not load menu">
+      <CategoryFrame
+        title="Error"
+        subtitle="Could not load menu"
+        crumb={<MenuCrumb current="Error" />}
+      >
         <div className="rounded-lg border border-red-200 bg-red-50 p-6">
           <p className="font-semibold text-red-800">Could not load menu</p>
           <p className="mt-2 font-mono text-sm text-red-700">{message}</p>
@@ -42,6 +54,7 @@ export default async function CategoryPage({ params }: PageProps) {
     <CategoryFrame
       title={category.squareName}
       subtitle={`${items.length} ${items.length === 1 ? "item" : "items"}`}
+      crumb={<MenuCrumb current={category.squareName} />}
     >
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-black/20 p-12 text-center">
@@ -68,29 +81,45 @@ export default async function CategoryPage({ params }: PageProps) {
 function CategoryFrame({
   title,
   subtitle,
+  crumb,
   children,
 }: {
   title: string;
   subtitle: string;
+  crumb: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-5 sm:mb-6">
-        <Link
-          href="/menu"
-          className="text-sm font-medium hover:underline"
-          style={{ color: BRAND.primaryColor }}
-        >
-          ← Menu
-        </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
+        {crumb}
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
           {title}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
       </div>
       {children}
     </main>
+  );
+}
+
+function MenuCrumb({ current }: { current: string }) {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink href="/">Home</BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbLink href="/menu">Menu</BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{current}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
   );
 }
 

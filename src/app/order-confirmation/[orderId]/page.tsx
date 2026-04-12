@@ -5,6 +5,11 @@ import type { Square } from "square";
 import { squareClient } from "@/lib/square";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, BUSINESS, LOYALTY } from "@/lib/constants";
+import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
+import {
+  OrderStatusHero,
+  type FulfillmentState,
+} from "./OrderStatusHero";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +104,9 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
 
   if (!order) notFound();
 
-  const pickup = order.fulfillments?.[0]?.pickupDetails;
+  const fulfillment = order.fulfillments?.[0];
+  const initialState =
+    (fulfillment?.state as FulfillmentState | undefined) ?? null;
 
   // Pickup number is written to Square's ticketName at order creation
   // (see /api/orders/route.ts). Staff see the same number on the POS
@@ -121,38 +128,34 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     0
   ) ?? 0;
 
+  // Fetch real loyalty balance for the customer (if they have a loyalty account).
+  // The order's customerId → customer phone → loyalty account search.
+  let loyaltyBalance: number | null = null;
+  let starsPerReward: number = LOYALTY.starsPerReward;
+  if (order.customerId) {
+    try {
+      const customer = await squareClient.customers.get({
+        customerId: order.customerId,
+      });
+      const phone = customer.customer?.phoneNumber;
+      if (phone) {
+        const [account, program] = await Promise.all([
+          findLoyaltyAccountByPhone(phone),
+          getActiveProgram(),
+        ]);
+        if (account) {
+          loyaltyBalance = account.balance;
+        }
+        starsPerReward = program.starsPerReward;
+      }
+    } catch {
+      // Non-critical — fall back to showing only stars earned this order
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8 sm:px-6 sm:py-12">
-      {/* Green checkmark */}
-      <div className="mb-5 flex justify-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#D5E3D0]">
-          <svg
-            className="h-8 w-8 text-[#5B7A52]"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={3}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M5 13l4 4L19 7"
-            />
-          </svg>
-        </div>
-      </div>
-
-      {/* Heading */}
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-[#5B7A52] sm:text-3xl">
-          Ready for Pickup Soon!
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
-          Our tea masters are crafting your order. We&apos;ll have
-          <br className="hidden sm:block" />
-          it ready for you at the counter shortly.
-        </p>
-      </div>
+      <OrderStatusHero orderId={orderId} initialState={initialState} />
 
       {/* Pickup number — big, so staff and customer can match on it */}
       <div
@@ -196,43 +199,51 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
       </div>
 
       {/* Loyalty stars banner */}
-      <div className="mb-6 rounded-2xl bg-gradient-to-r from-[#7B5B3A] to-[#A0784C] p-5 text-white shadow-md">
-        <div className="flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-white/50 text-[10px]">
-            ⭐
-          </span>
-          <span className="text-sm font-semibold">
-            Stars Earned: +{totalDrinkItems}
-          </span>
-        </div>
-        <div className="mt-2 flex items-center justify-between">
-          <p className="text-xs text-white/80">
-            Current Progress: {totalDrinkItems}/{LOYALTY.starsPerReward} Stars
-          </p>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
-            {totalDrinkItems >= LOYALTY.starsPerReward
-              ? "Next Goal Reached"
-              : `${LOYALTY.starsPerReward - totalDrinkItems} more to go`}
-          </p>
-        </div>
-        {/* Progress bar */}
-        <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
-          <div
-            className="h-full rounded-full bg-[#D4934C] transition-all"
-            style={{
-              width: `${Math.min(
-                (totalDrinkItems / LOYALTY.starsPerReward) * 100,
-                100
-              )}%`,
-            }}
-          />
-        </div>
-        {totalDrinkItems >= LOYALTY.starsPerReward && (
-          <p className="mt-2 text-sm font-bold text-[#FFD700]">
-            You&apos;ve earned a free drink!
-          </p>
-        )}
-      </div>
+      {(() => {
+        const progressBalance = loyaltyBalance ?? totalDrinkItems;
+        const progressMod = progressBalance % starsPerReward;
+        const remaining = starsPerReward - progressMod;
+        const rewardReady = progressBalance >= starsPerReward && progressMod === 0;
+        return (
+          <div className="mb-6 rounded-2xl bg-gradient-to-r from-[#7B5B3A] to-[#A0784C] p-5 text-white shadow-md">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-white/50 text-[10px]">
+                ⭐
+              </span>
+              <span className="text-sm font-semibold">
+                Stars Earned: +{totalDrinkItems}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <p className="text-xs text-white/80">
+                Current Progress: {progressMod}/{starsPerReward} Stars
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                {rewardReady
+                  ? "Reward Ready!"
+                  : `${remaining} more to go`}
+              </p>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
+              <div
+                className="h-full rounded-full bg-[#D4934C] transition-all"
+                style={{
+                  width: `${Math.min(
+                    (progressMod / starsPerReward) * 100,
+                    100
+                  )}%`,
+                }}
+              />
+            </div>
+            {rewardReady && (
+              <p className="mt-2 text-sm font-bold text-[#FFD700]">
+                You&apos;ve earned a free drink!
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Order Summary */}
       <section className="mb-8">
@@ -296,28 +307,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         </div>
       </section>
 
-      {/* Action buttons */}
-      <div className="flex gap-3">
-        <Link
-          href={`/order-confirmation/${orderId}`}
-          className="flex flex-1 items-center justify-center gap-2 rounded-full py-3 text-sm font-semibold text-white shadow-md"
-          style={{ backgroundColor: BRAND.primaryColor }}
-        >
-          Check Pickup Status
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        </Link>
+      <div className="flex">
         <Link
           href="/"
           className="flex flex-1 items-center justify-center rounded-full border border-black/10 bg-white py-3 text-sm font-semibold text-zinc-600 shadow-sm"

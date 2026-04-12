@@ -591,7 +591,10 @@ function OrderCard({ order }: { order: OrderHistoryItem }) {
       : "bg-zinc-50 text-zinc-600 border-zinc-200";
 
   return (
-    <div className="flex flex-col justify-between rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
+    <Link
+      href={`/order-confirmation/${order.id}`}
+      className="flex flex-col justify-between rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md"
+    >
       <div>
         {/* Date + status */}
         <div className="flex items-center justify-between gap-2">
@@ -624,20 +627,19 @@ function OrderCard({ order }: { order: OrderHistoryItem }) {
         </div>
       </div>
 
-      {/* Price + Reorder */}
+      {/* Price */}
       <div className="mt-4 flex items-center justify-between border-t border-black/5 pt-4">
         <p className="text-lg font-bold text-zinc-900">
           {formatPrice(BigInt(order.totalCents))}
         </p>
-        <Link
-          href={`/order-confirmation/${order.id}`}
+        <span
           className="rounded-full px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90"
           style={{ backgroundColor: BRAND.primaryColor }}
         >
-          Reorder
-        </Link>
+          View Order
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 

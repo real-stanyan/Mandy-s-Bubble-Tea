@@ -98,7 +98,7 @@ export default function OurStoryPage() {
             <PillarCard
               icon="💛"
               title="Made with Love"
-              description="No artificial flavors, no shortcuts. Just honest, handcrafted bubble tea made with care by our team."
+              description="No shortcuts, no compromises. Just honest, handcrafted bubble tea made with care by our team."
             />
           </div>
         </div>
@@ -140,10 +140,10 @@ export default function OurStoryPage() {
                   className="text-2xl font-bold"
                   style={{ color: BRAND.primaryColor }}
                 >
-                  Zero
+                  In-House
                 </p>
                 <p className="text-xs uppercase tracking-wide text-zinc-500">
-                  Artificial Flavors
+                  Made Fresh
                 </p>
               </div>
               <div>

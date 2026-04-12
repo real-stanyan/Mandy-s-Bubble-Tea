@@ -198,7 +198,7 @@ function Hero({
               className="inline-flex items-center rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 sm:px-6 sm:py-3"
               style={{ backgroundColor: BRAND.primaryColor }}
             >
-              View Menu
+              Order
             </Link>
             <Link
               href="/our-story"
@@ -288,7 +288,7 @@ function FeaturedProducts({ items }: { items: FeaturedItem[] }) {
                   </div>
 
                   <div className="mt-3 flex items-start justify-between gap-2 sm:mt-4">
-                    <h3 className="text-xs font-semibold text-zinc-900 sm:text-sm">
+                    <h3 className="min-w-0 truncate text-xs font-semibold text-zinc-900 sm:text-sm">
                       {item.name}
                     </h3>
                     {item.priceCents != null && (
@@ -369,8 +369,8 @@ function OurStory() {
           </p>
           <p className="text-sm leading-relaxed text-white/80">
             We source our leaves from high-altitude gardens and prepare our
-            toppings in-house every 4 hours, ensuring that every sip is as fresh
-            as the first of the day.
+            toppings in-house daily, ensuring that every sip is as fresh as the
+            first of the day.
           </p>
 
           <div className="mt-4 flex gap-10">
@@ -381,9 +381,9 @@ function OurStory() {
               </p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-white">Zero</p>
+              <p className="text-2xl font-bold text-white">In-House</p>
               <p className="text-xs uppercase tracking-wide text-white/60">
-                Artificial Flavors
+                Made Fresh
               </p>
             </div>
           </div>

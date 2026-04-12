@@ -1,9 +1,16 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getMenu, getItemDetail } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { ItemOrderForm } from "@/components/menu/ItemOrderForm";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 export const revalidate = 300;
 
@@ -36,14 +43,27 @@ export default async function ItemDetailPage({ params }: PageProps) {
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-      {/* Back link */}
-      <Link
-        href={`/menu/${category.slug}`}
-        className="mb-4 inline-block text-sm font-medium hover:underline sm:mb-6"
-        style={{ color: BRAND.primaryColor }}
-      >
-        ← {category.squareName}
-      </Link>
+      <Breadcrumb className="mb-4 sm:mb-6">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Home</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/menu">Menu</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href={`/menu/${category.slug}`}>
+              {category.squareName}
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{item.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
       <div className="grid items-start gap-6 sm:gap-10 md:grid-cols-2">
         {/* Left — product image */}
