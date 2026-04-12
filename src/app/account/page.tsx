@@ -6,12 +6,6 @@ import { BRAND, LOYALTY } from "@/lib/constants";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 import { MemberQrCard } from "@/components/account/MemberQrCard";
 
-const SQUARE_PROFILE_URL = LOYALTY.squareProfileUrl;
-// Square's customer profile host (profile.squareup.com) is production-only —
-// there is no sandbox equivalent. Hide the Apple Wallet banner until we're
-// running against a production Square account with a real profile URL.
-const SHOW_WALLET_BANNER =
-  process.env.NEXT_PUBLIC_SQUARE_ENVIRONMENT === "production";
 import { formatPrice } from "@/lib/utils";
 
 // Account page: phone-based "sign-in" (no passwords — Square is the
@@ -512,25 +506,6 @@ function AccountDashboard({
           </div>
         </section>
 
-        {/* Apple Wallet banner — mobile only, production only */}
-        {SHOW_WALLET_BANNER && (
-          <a
-            href={SQUARE_PROFILE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md sm:hidden"
-          >
-            <p className="text-sm font-medium text-zinc-700">
-              Easily check in and track rewards with Apple Wallet.
-            </p>
-            <span className="flex shrink-0 items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
-              <AppleWalletIcon />
-              <span className="leading-tight">
-                Add to<br />Apple Wallet
-              </span>
-            </span>
-          </a>
-        )}
       </div>
 
 
@@ -846,28 +821,6 @@ function PhoneIcon() {
   );
 }
 
-function AppleWalletIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-    >
-      {/* Simplified wallet card stack icon */}
-      <rect x="2" y="6" width="20" height="14" rx="2" fill="#4CAF50" />
-      <rect x="3" y="4" width="18" height="14" rx="2" fill="#FF9800" />
-      <rect x="4" y="2" width="16" height="14" rx="2" fill="#2196F3" />
-      <rect x="6" y="5" width="5" height="5" rx="1" fill="#FFD54F" />
-      <rect x="6" y="5" width="2.5" height="2.5" rx="0.5" fill="#F44336" />
-      <rect x="8.5" y="5" width="2.5" height="2.5" rx="0.5" fill="#66BB6A" />
-      <rect x="6" y="7.5" width="2.5" height="2.5" rx="0.5" fill="#42A5F5" />
-      <rect x="8.5" y="7.5" width="2.5" height="2.5" rx="0.5" fill="#FFA726" />
-    </svg>
-  );
-}
 
 function ChevronRightIcon() {
   return (
