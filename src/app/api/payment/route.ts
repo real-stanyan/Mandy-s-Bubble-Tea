@@ -1,10 +1,51 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { SquareError } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { normalizeAuPhone } from "@/lib/phone";
+
+const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
+  INSUFFICIENT_FUNDS:
+    "Your card was declined due to insufficient funds. Please try another card.",
+  CARD_DECLINED:
+    "Your card was declined. Please try another card or contact your bank.",
+  CVV_FAILURE:
+    "The CVV code you entered is incorrect. Please check and try again.",
+  INVALID_EXPIRATION:
+    "The expiration date on your card is invalid. Please check and try again.",
+  ADDRESS_VERIFICATION_FAILURE:
+    "Address verification failed. Please check your billing address.",
+  GENERIC_DECLINE:
+    "Your card was declined. Please try another payment method.",
+  CARD_EXPIRED:
+    "Your card has expired. Please use a different card.",
+  CARD_NOT_SUPPORTED:
+    "This card type is not supported. Please try another card.",
+  INVALID_CARD:
+    "The card details are invalid. Please check and try again.",
+  ALLOWABLE_PIN_TRIES_EXCEEDED:
+    "Too many PIN attempts. Please try another card.",
+  CARD_DECLINED_VERIFICATION_REQUIRED:
+    "Additional verification is required. Please try again.",
+};
+
+function friendlyPaymentError(error: unknown): string {
+  if (error instanceof SquareError && error.errors?.length) {
+    const first = error.errors[0];
+    const code = first.code as string;
+    if (code && FRIENDLY_PAYMENT_ERRORS[code]) {
+      return FRIENDLY_PAYMENT_ERRORS[code];
+    }
+    if (first.detail) {
+      return first.detail;
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "Payment failed. Please try again.";
+}
 
 // Takes a tokenized payment source from the Web Payments SDK and
 // charges it against a previously-created Square order. The server
@@ -163,7 +204,9 @@ export async function POST(request: Request) {
       payment: paymentForResponse,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ ok: false, error: message }, { status: 502 });
+    console.error("[payment] error:", error instanceof Error ? error.message : error);
+    const message = friendlyPaymentError(error);
+    const status = error instanceof SquareError ? 400 : 502;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
