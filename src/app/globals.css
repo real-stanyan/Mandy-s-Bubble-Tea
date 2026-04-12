@@ -26,6 +26,15 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Hide scrollbar for horizontal scroll strips */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Prevent iOS zoom on input focus */
 @media (max-width: 639px) {
   input[type="text"],

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 // Header account link that swaps label based on whether the visitor
@@ -14,12 +15,15 @@ import { useEffect, useState } from "react";
 const STORAGE_KEY = "mbt:account:phone";
 
 export function AccountLink({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  const pathname = usePathname();
   // Start both server and first-client render as null so the DOM
   // matches. After mount we read localStorage and swap the label.
   // A short flash of the default label is fine — the alternative is
   // suppressHydrationWarning which hides real bugs too.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
+  // Re-check on mount AND on every client-side navigation so that
+  // logging in on /account immediately updates the header label.
   useEffect(() => {
     try {
       const phone = window.localStorage.getItem(STORAGE_KEY);
@@ -27,7 +31,7 @@ export function AccountLink({ className, style }: { className?: string; style?: 
     } catch {
       setSignedIn(false);
     }
-  }, []);
+  }, [pathname]);
 
   // Pre-hydration label — neutral so nothing jumps visually. After
   // hydration we show "Sign in" or "My Account".

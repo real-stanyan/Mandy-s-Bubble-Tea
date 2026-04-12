@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getMenu, type MenuItem } from "@/lib/catalog";
-import { BRAND, BUSINESS, LOYALTY } from "@/lib/constants";
+import { BRAND, BUSINESS } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
+import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
 
 // Branded home page for Mandy's Bubble Tea. Server-rendered so
 // featured categories come straight from Square without any client
@@ -152,7 +153,7 @@ export default async function Home() {
       <Hero imageUrl={heroImageUrl} review={review} />
       <FeaturedProducts items={featuredItems} />
       <OurStory />
-      <LoyaltyTeaser />
+      <LoyaltyPopup />
     </div>
   );
 }
@@ -400,124 +401,3 @@ function OurStory() {
   );
 }
 
-function LoyaltyTeaser() {
-  // Demo progress — 6 of 9 stars earned
-  const earned = 6;
-  const total = LOYALTY.starsPerReward;
-  const remaining = total - earned;
-
-  return (
-    <section
-      className="px-4 py-12 sm:px-6 sm:py-20"
-      style={{ backgroundColor: BRAND.accentColor }}
-    >
-      <div className="mx-auto grid max-w-5xl items-center gap-8 sm:gap-12 sm:grid-cols-2">
-        {/* Left — copy */}
-        <div className="flex flex-col items-start gap-4 sm:gap-5">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
-            style={{ backgroundColor: "#F5E6C8", color: BRAND.primaryColor }}
-          >
-            <span className="text-sm">+</span> LOYALTY PROGRAM
-          </span>
-
-          <h2 className="text-2xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-3xl md:text-4xl">
-            Earn Your Way to
-            <br />a Free Cup
-          </h2>
-
-          <p className="max-w-md text-sm leading-relaxed text-zinc-600">
-            Every purchase earns you stars.{" "}
-            <span className="font-semibold text-zinc-900">
-              Collect {total} stars
-            </span>{" "}
-            and get your next artisanal boba on us. It&apos;s our way of saying
-            thanks for being part of the family.
-          </p>
-
-          <div className="mt-1 flex flex-wrap items-center gap-3">
-            <Link
-              href="/account"
-              className="inline-flex items-center rounded-full px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-              style={{ backgroundColor: BRAND.primaryColor }}
-            >
-              Join Rewards
-            </Link>
-            <Link
-              href="/account"
-              className="inline-flex items-center rounded-full border border-black/15 px-6 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-black/5"
-            >
-              Learn More
-            </Link>
-          </div>
-        </div>
-
-        {/* Right — loyalty card */}
-        <div className="flex justify-center sm:justify-end">
-          <div className="w-full max-w-xs rounded-2xl bg-white p-6 shadow-lg">
-            {/* Card header */}
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-zinc-900">
-                Your Progress
-              </h3>
-              <span
-                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                style={{
-                  backgroundColor: `${BRAND.primaryColor}15`,
-                  color: BRAND.primaryColor,
-                }}
-              >
-                {earned} / {total} Stars
-              </span>
-            </div>
-
-            {/* 3×3 star grid */}
-            <div className="grid grid-cols-3 gap-3">
-              {Array.from({ length: total }).map((_, i) => {
-                const isEarned = i < earned;
-                return (
-                  <div
-                    key={i}
-                    className="flex aspect-square items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: isEarned ? "#E8D5C4" : BRAND.accentColor,
-                      border: isEarned ? "none" : `2px dashed #D4C4B0`,
-                    }}
-                  >
-                    <svg
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill={isEarned ? "#8B5E3C" : "#C4B5A3"}
-                    >
-                      <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
-                    </svg>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Progress bar */}
-            <div className="mt-5">
-              <div
-                className="h-2.5 w-full overflow-hidden rounded-full"
-                style={{ backgroundColor: BRAND.accentColor }}
-              >
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${(earned / total) * 100}%`,
-                    backgroundColor: BRAND.primaryColor,
-                  }}
-                />
-              </div>
-              <p className="mt-2 text-center text-xs text-zinc-500">
-                Just {remaining} more sips to your free reward!
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}

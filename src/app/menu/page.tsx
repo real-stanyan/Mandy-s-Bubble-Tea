@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getMenu, type Menu, type MenuItem } from "@/lib/catalog";
 import { BRAND } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
+import ScrollStrip from "@/components/menu/ScrollStrip";
 
 // Menu landing page — each category shown as a horizontal section
 // with up to 3 preview items and a "See More" link to the full
@@ -9,7 +10,7 @@ import { formatPrice } from "@/lib/utils";
 
 export const revalidate = 300;
 
-const PREVIEW_COUNT = 3;
+// Show all items per category in a horizontal scroll strip
 
 async function loadMenu(): Promise<
   { ok: true; menu: Menu } | { ok: false; error: string }
@@ -38,9 +39,6 @@ export default async function MenuPage() {
             {result.menu.categories.map((cat) => {
               const items = result.menu.itemsBySlug.get(cat.slug) ?? [];
               if (items.length === 0) return null;
-              const preview = items.slice(0, PREVIEW_COUNT);
-              const hasMore = items.length > PREVIEW_COUNT;
-
               return (
                 <section key={cat.id}>
                   {/* Category header */}
@@ -53,20 +51,18 @@ export default async function MenuPage() {
                       className="text-xs font-medium hover:underline sm:text-sm"
                       style={{ color: BRAND.primaryColor }}
                     >
-                      {hasMore
-                        ? `See all ${items.length} items →`
-                        : "See all →"}
+                      See all {items.length} items →
                     </Link>
                   </div>
 
-                  {/* Item cards */}
-                  <ul className="grid grid-cols-3 gap-2 sm:gap-5">
-                    {preview.map((item) => (
-                      <li key={item.id}>
+                  {/* Horizontal scroll strip */}
+                  <ScrollStrip>
+                    {items.map((item) => (
+                      <li key={item.id} className="w-36 flex-shrink-0 sm:w-44">
                         <ItemCard item={item} categorySlug={cat.slug} />
                       </li>
                     ))}
-                  </ul>
+                  </ScrollStrip>
                 </section>
               );
             })}
