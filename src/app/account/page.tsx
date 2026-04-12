@@ -299,7 +299,7 @@ function SignInForm({
                 type="tel"
                 value={phone}
                 onChange={(e) => onPhoneChange(e.target.value)}
-                placeholder="0400 000 000"
+                placeholder="400 000 000"
                 autoComplete="tel"
                 required
                 className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"

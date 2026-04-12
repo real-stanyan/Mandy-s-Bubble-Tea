@@ -167,26 +167,55 @@ export async function findOrCreateLoyaltyAccount(
       };
     }
 
-   // Not found — enroll the buyer.
-  const created = await squareClient.loyalty.accounts.create({
-    idempotencyKey: randomUUID(),
-    loyaltyAccount: {
-      programId,
-      customerId,
-      mapping: { phoneNumber: phoneE164 },
+   // Not found by phone — try creating. If the customer already has a
+   // loyalty account (created via POS or with a different phone), the
+   // create call throws. In that case, fall back to a customerIds search.
+  try {
+    const created = await squareClient.loyalty.accounts.create({
+      idempotencyKey: randomUUID(),
+      loyaltyAccount: {
+        programId,
+        customerId,
+        mapping: { phoneNumber: phoneE164 },
       },
-   });
+    });
 
-  const account = created.loyaltyAccount;
-  if (!account?.id) {
-    throw new Error("Square did not return a loyalty account id");
-   }
+    const account = created.loyaltyAccount;
+    if (!account?.id) {
+      throw new Error("Square did not return a loyalty account id");
+    }
 
-  return {
-    accountId: account.id,
-    balance: account.balance ?? 0,
-    lifetimePoints: account.lifetimePoints ?? 0,
-   };
+    return {
+      accountId: account.id,
+      balance: account.balance ?? 0,
+      lifetimePoints: account.lifetimePoints ?? 0,
+    };
+  } catch (createErr) {
+    // "The customer referenced already has a loyalty account." —
+    // the account exists but wasn't found by phone (phone mismatch
+    // between Square customer record and loyalty mapping). Search
+    // by customerId instead.
+    const msg = createErr instanceof Error ? createErr.message : String(createErr);
+    if (!msg.includes("already has a loyalty account")) throw createErr;
+
+    const fallback = await squareClient.loyalty.accounts.search({
+      query: { customerIds: [customerId] },
+      limit: 1,
+    });
+
+    const found = fallback.loyaltyAccounts?.[0];
+    if (!found?.id) {
+      throw new Error(
+        "Customer already has a loyalty account but it could not be retrieved",
+      );
+    }
+
+    return {
+      accountId: found.id,
+      balance: found.balance ?? 0,
+      lifetimePoints: found.balance ?? 0,
+    };
+  }
 }
 
 /**
