@@ -40,5 +40,5 @@ export const LOYALTY = {
    * loyalty card to Apple Wallet from this page.
    * Find yours at: Square Dashboard → Loyalty → Settings → Profile URL
    */
-  squareProfileUrl: "https://profile.squareup.com/loyalty/CBASECG-zeMhZlE7OUa1UTJ4XBo",
+  squareProfileUrl: "https://profile.squareup.com/loyalty/cdb0ee64-67ce-466f-8846-7b48aeb491a6",
 } as const;
