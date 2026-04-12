@@ -105,7 +105,7 @@ export default function CheckoutPage() {
   const [applePayAvailable, setApplePayAvailable] = useState(false);
   const [googlePayAvailable, setGooglePayAvailable] = useState(false);
   const walletAvailable = applePayAvailable || googlePayAvailable;
-  const [payMethod, setPayMethod] = useState<"card" | "wallet">("card");
+  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
 
   // Loyalty reward state. We look up the buyer's star balance once
   // they've filled in name + phone (on phone blur) and offer a free
@@ -167,10 +167,11 @@ export default function CheckoutPage() {
     setUseReward(canRedeemFully);
   }, [canRedeemFully]);
 
-  // Auto-select wallet tab when it becomes available.
+  // Auto-select the best available wallet when it becomes available.
   useEffect(() => {
-    if (walletAvailable) setPayMethod("wallet");
-  }, [walletAvailable]);
+    if (applePayAvailable) setPayMethod("apple");
+    else if (googlePayAvailable) setPayMethod("google");
+  }, [applePayAvailable, googlePayAvailable]);
 
   // Fetches the loyalty account for the current phone. Called on phone
   // blur and on mount (if a saved phone is restored from localStorage).
@@ -443,9 +444,14 @@ export default function CheckoutPage() {
     }
     const expectFreeOrder = canRedeemFully && useReward;
     if (!expectFreeOrder) {
-      if (payMethod === "wallet") {
-        if (!googlePayRef.current && !applePayRef.current) {
-          setError("Wallet payment is not ready yet.");
+      if (payMethod === "apple") {
+        if (!applePayRef.current) {
+          setError("Apple Pay is not ready yet.");
+          return;
+        }
+      } else if (payMethod === "google") {
+        if (!googlePayRef.current) {
+          setError("Google Pay is not ready yet.");
           return;
         }
       } else if (!cardRef.current) {
@@ -463,8 +469,8 @@ export default function CheckoutPage() {
       // use it after order creation for verifyBuyer + payment.
       let sourceToken: string | undefined;
       const expectFreeOrder2 = canRedeemFully && useReward;
-      if (!expectFreeOrder2 && payMethod === "wallet") {
-        const walletInstance = applePayAvailable
+      if (!expectFreeOrder2 && (payMethod === "apple" || payMethod === "google")) {
+        const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet payment is not ready.");
@@ -554,7 +560,7 @@ export default function CheckoutPage() {
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
         // Tokenize card — wallet token was already obtained above.
-        if (payMethod !== "wallet") {
+        if (payMethod === "card") {
           if (!cardRef.current) throw new Error("Card form is not ready yet.");
           const tokenResult = await cardRef.current.tokenize();
           if (tokenResult.status !== "OK" || !tokenResult.token) {
@@ -741,36 +747,32 @@ export default function CheckoutPage() {
                   Payment Method
                 </h3>
 
-                {/* Tab buttons — wallet + card */}
-                {walletAvailable && (
-                  <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod("wallet")}
-                      className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
-                      style={
-                        payMethod === "wallet"
-                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
-                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
-                      }
-                    >
-                      {applePayAvailable ? <><ApplePayIcon /> Apple Pay</> : <><GooglePayIcon /> Google Pay</>}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod("card")}
-                      className="flex items-center justify-center gap-2 rounded-full border-2 py-3 text-sm font-semibold transition"
-                      style={
-                        payMethod === "card"
-                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
-                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
-                      }
-                    >
-                      <CardIcon />
-                      Card
-                    </button>
-                  </div>
-                )}
+                {/* Tab buttons — one per available payment method */}
+                {walletAvailable && (() => {
+                  const tabs: { key: "apple" | "google" | "card"; label: React.ReactNode }[] = [];
+                  if (applePayAvailable) tabs.push({ key: "apple", label: <><ApplePayIcon /> Apple Pay</> });
+                  if (googlePayAvailable) tabs.push({ key: "google", label: <><GooglePayIcon /> Google Pay</> });
+                  tabs.push({ key: "card", label: <><CardIcon /> Card</> });
+                  return (
+                    <div className={`mb-4 grid gap-2 sm:mb-5 sm:gap-3 ${tabs.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+                      {tabs.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          onClick={() => setPayMethod(t.key)}
+                          className="flex items-center justify-center gap-1.5 rounded-full border-2 py-3 text-sm font-semibold transition"
+                          style={
+                            payMethod === t.key
+                              ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
+                              : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
+                          }
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </section>
 
               {/* Wallet panel — SDK-rendered button(s).
@@ -778,7 +780,7 @@ export default function CheckoutPage() {
                   tab switches; we toggle visibility with style. */}
               <section
                 className="relative rounded-2xl border border-black/10 bg-white p-5"
-                style={{ display: payMethod === "wallet" && walletAvailable ? undefined : "none" }}
+                style={{ display: (payMethod === "apple" || payMethod === "google") && walletAvailable ? undefined : "none" }}
               >
                 <label className="mb-4 block">
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -816,7 +818,7 @@ export default function CheckoutPage() {
                   </label>
                 )}
                 <p className="mb-3 text-xs text-zinc-400">
-                  Click &quot;{applePayAvailable ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
+                  Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
                 {/* SDK containers: kept in the DOM so attach() works.
                     Visually hidden but NOT display:none — the SDK needs
@@ -950,7 +952,9 @@ export default function CheckoutPage() {
             disabled={
               submitting ||
               (!(canRedeemFully && useReward) &&
-                (payMethod === "card" ? !cardReady : !walletAvailable))
+                (payMethod === "card" ? !cardReady
+                  : payMethod === "apple" ? !applePayAvailable
+                  : !googlePayAvailable))
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
@@ -959,13 +963,13 @@ export default function CheckoutPage() {
               ? "Processing…"
               : canRedeemFully && useReward
                 ? "Redeem Free Drink"
-                : payMethod === "wallet"
-                  ? walletAvailable
-                    ? `Pay with ${applePayAvailable ? "Apple Pay" : "Google Pay"}`
-                    : "Loading payment…"
-                  : cardReady
-                    ? "Place Order"
-                    : "Loading payment…"}
+                : payMethod === "apple"
+                  ? "Pay with Apple Pay"
+                  : payMethod === "google"
+                    ? "Pay with Google Pay"
+                    : cardReady
+                      ? "Place Order"
+                      : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
