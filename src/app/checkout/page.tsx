@@ -35,9 +35,8 @@ type CardInstance = {
   destroy(): Promise<void>;
 };
 type ApplePayInstance = {
-  attach(selector: string): Promise<void>;
+  // Apple Pay has no attach() — it uses the native payment sheet.
   tokenize(): Promise<TokenizeResult>;
-  destroy(): Promise<void>;
 };
 type GooglePayInstance = {
   attach(selector: string): Promise<void>;
@@ -344,36 +343,26 @@ export default function CheckoutPage() {
           },
         });
         const ap = await payments.applePay(paymentRequest);
-        if (cancelled) {
-          ap.destroy().catch(() => undefined);
-          return;
-        }
-        await ap.attach("#apple-pay-container");
-        if (cancelled) {
-          ap.destroy().catch(() => undefined);
-          return;
-        }
+        if (cancelled) return;
+        // Apple Pay has no attach() — it uses the native iOS/Safari
+        // payment sheet, not a DOM-rendered button.
         applePayRef.current = ap;
         setApplePayAvailable(true);
       } catch (err) {
         // Apple Pay not supported on this device/browser — expected on
         // non-Safari or when HTTPS is unavailable (localhost).
-        const msg = err instanceof Error ? err.message : String(err);
-        console.info("[apple-pay]", msg);
-        // TODO: remove after debugging — surface Apple Pay init errors visibly
-        setError((prev) => prev ? prev : `[apple-pay debug] ${msg}`);
+        console.info("[apple-pay]", err instanceof Error ? err.message : err);
       }
     })();
 
     return () => {
       cancelled = true;
-      applePayRef.current?.destroy().catch(() => undefined);
       applePayRef.current = null;
       setApplePayAvailable(false);
     };
   }, [sdkReady, needsCard, cardReady, subtotal]);
 
-  // Initialize Google Pay — same pattern as Apple Pay.
+  // Initialize Google Pay.
   useEffect(() => {
     if (!sdkReady || !needsCard) return;
     if (googlePayRef.current) return;
@@ -832,7 +821,10 @@ export default function CheckoutPage() {
                 {/* SDK containers: kept in the DOM so attach() works.
                     Visually hidden but NOT display:none — the SDK needs
                     a rendered element to initialise its iframe/button. */}
-                <div id="apple-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
+                {/* Google Pay SDK container: kept in the DOM so attach() works.
+                    Visually hidden but NOT display:none — the SDK needs
+                    a rendered element to initialise its iframe/button.
+                    Apple Pay has no container — it uses the native payment sheet. */}
                 <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
               </section>
 
