@@ -358,7 +358,10 @@ export default function CheckoutPage() {
       } catch (err) {
         // Apple Pay not supported on this device/browser — expected on
         // non-Safari or when HTTPS is unavailable (localhost).
-        console.info("[apple-pay]", err instanceof Error ? err.message : err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.info("[apple-pay]", msg);
+        // TODO: remove after debugging — surface Apple Pay init errors visibly
+        setError((prev) => prev ? prev : `[apple-pay debug] ${msg}`);
       }
     })();
 
