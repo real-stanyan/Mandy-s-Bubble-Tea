@@ -464,6 +464,28 @@ export default function CheckoutPage() {
 
     setSubmitting(true);
     try {
+      // 0) Tokenize wallet IMMEDIATELY — must happen in the same
+      // user-gesture frame or mobile browsers block the Google Pay
+      // pop-up (OR_BIBED_15). Card tokenization doesn't open a
+      // pop-up so it can happen later. We grab the token now and
+      // use it after order creation for verifyBuyer + payment.
+      let sourceToken: string | undefined;
+      const expectFreeOrder2 = canRedeemFully && useReward;
+      if (!expectFreeOrder2 && payMethod === "wallet") {
+        const walletInstance = applePayAvailable
+          ? applePayRef.current
+          : googlePayRef.current;
+        if (!walletInstance) throw new Error("Wallet payment is not ready.");
+        const tokenResult = await walletInstance.tokenize();
+        if (tokenResult.status !== "OK" || !tokenResult.token) {
+          const detail =
+            tokenResult.errors?.[0]?.message ??
+            `Tokenization failed (${tokenResult.status})`;
+          throw new Error(detail);
+        }
+        sourceToken = tokenResult.token;
+      }
+
       // 1) Customer lookup/create.
       const customerRes = await fetch("/api/customer", {
         method: "POST",
@@ -532,42 +554,34 @@ export default function CheckoutPage() {
         }
       }
 
-      // 4) Tokenize + verify the card, UNLESS the order is fully
-      // covered by a loyalty reward (total 0). Square rejects zero-
-      // amount Payment objects, so in that case we skip the card
-      // flow entirely and let /api/payment close the order via
-      // orders.pay with empty paymentIds.
+      // 4) Tokenize card (if not wallet — wallet was tokenized in
+      // step 0) + verify buyer, UNLESS the order is fully covered
+      // by a loyalty reward (total 0).
       const isFreeOrder = amountCents === "0" || Number(amountCents) === 0;
 
-      let sourceToken: string | undefined;
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
-        // Tokenize via the selected payment method.
-        let tokenResult: TokenizeResult;
-        if (payMethod === "wallet") {
-          const walletInstance = applePayAvailable
-            ? applePayRef.current
-            : googlePayRef.current;
-          if (!walletInstance) throw new Error("Wallet payment is not ready.");
-          tokenResult = await walletInstance.tokenize();
-        } else {
+        // Tokenize card — wallet token was already obtained above.
+        if (payMethod !== "wallet") {
           if (!cardRef.current) throw new Error("Card form is not ready yet.");
-          tokenResult = await cardRef.current.tokenize();
+          const tokenResult = await cardRef.current.tokenize();
+          if (tokenResult.status !== "OK" || !tokenResult.token) {
+            const detail =
+              tokenResult.errors?.[0]?.message ??
+              `Tokenization failed (${tokenResult.status})`;
+            throw new Error(detail);
+          }
+          sourceToken = tokenResult.token;
         }
-
-        if (tokenResult.status !== "OK" || !tokenResult.token) {
-          const detail =
-            tokenResult.errors?.[0]?.message ??
-            `Tokenization failed (${tokenResult.status})`;
-          throw new Error(detail);
-        }
-        sourceToken = tokenResult.token;
 
         // SCA/3DS is mandatory in AU for ALL payment methods —
         // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
         // verifyBuyer must be called for cards AND digital wallets.
         if (!paymentsRef.current) {
           throw new Error("Payments SDK not initialized");
+        }
+        if (!sourceToken) {
+          throw new Error("No payment token available");
         }
         const amountMajor = (Number(amountCents) / 100).toFixed(2);
         const [firstName, ...restName] = name.trim().split(/\s+/);
