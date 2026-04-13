@@ -228,11 +228,22 @@ function buildMenuItem(
 
 // --- Top-level fetch --------------------------------------------------------
 
+// Module-level cache so concurrent calls during build (17 workers
+// pre-rendering static pages) don't each fire 4 Square API requests.
+let _menuPromise: Promise<Menu> | null = null;
+
 /**
  * Fetch all ITEM, CATEGORY, MODIFIER_LIST, and IMAGE objects from Square
  * and build a Menu view model. Each list() call paginates transparently.
+ * Results are cached in-process to avoid redundant API calls during build.
  */
 export async function getMenu(): Promise<Menu> {
+  if (_menuPromise) return _menuPromise;
+  _menuPromise = _getMenuImpl();
+  return _menuPromise;
+}
+
+async function _getMenuImpl(): Promise<Menu> {
   const [itemsPage, categoriesPage, modifierListsPage, imagesPage] =
     await Promise.all([
       squareClient.catalog.list({ types: "ITEM" }),
