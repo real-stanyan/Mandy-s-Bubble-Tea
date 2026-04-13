@@ -13,6 +13,7 @@ import {
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
+import { OtpInput } from "@/components/account/OtpInput";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { customer, order, payment } through
@@ -51,6 +52,7 @@ export default function CheckoutPage() {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
@@ -74,6 +76,14 @@ export default function CheckoutPage() {
     | { status: "error"; message: string }
   >({ status: "idle" });
   const [useReward, setUseReward] = useState(false);
+
+  // OTP verification state for checkout.
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [otpPhone, setOtpPhone] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
 
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
@@ -210,6 +220,11 @@ export default function CheckoutPage() {
   // onChange/onBlur path.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // If user has a device token, they're already verified.
+    try {
+      const token = window.localStorage.getItem("mbt:account:deviceToken");
+      if (token) setPhoneVerified(true);
+    } catch { /* noop */ }
     let storedPhone: string | null = null;
     try {
       storedPhone = window.localStorage.getItem("mbt:account:phone");
@@ -224,6 +239,83 @@ export default function CheckoutPage() {
     void lookupLoyalty(storedPhone);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Resend timer countdown for OTP.
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const id = setTimeout(() => setResendTimer((t) => t - 1), 1000);
+    return () => clearTimeout(id);
+  }, [resendTimer]);
+
+  // Send OTP for checkout phone verification.
+  async function sendCheckoutOtp(phoneVal?: string) {
+    const p = (phoneVal ?? phone).trim();
+    if (!p) return;
+    setOtpLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: p }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "Failed to send code");
+      }
+      setOtpPhone(p);
+      setOtpCode("");
+      setOtpError(false);
+      setResendTimer(60);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      setOtpLoading(false);
+    }
+  }
+
+  // Verify OTP code at checkout.
+  async function verifyCheckoutOtp() {
+    if (!otpPhone) return;
+    setOtpLoading(true);
+    setError(null);
+    setOtpError(false);
+    try {
+      const res = await fetch("/api/auth/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: otpPhone, code: otpCode }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        if (res.status === 401) {
+          setOtpError(true);
+          setOtpLoading(false);
+          return;
+        }
+        throw new Error(json.error ?? "Verification failed");
+      }
+      // Store device token + phone so future visits auto-verify.
+      window.localStorage.setItem("mbt:account:deviceToken", json.deviceToken);
+      window.localStorage.setItem("mbt:account:phone", otpPhone);
+      if (json.givenName || json.familyName) {
+        const fullName = [json.givenName, json.familyName].filter(Boolean).join(" ");
+        setName((cur) => (cur.trim() === "" ? fullName : cur));
+      }
+      const verifiedPhone = otpPhone;
+      setPhoneVerified(true);
+      setOtpPhone(null);
+      setOtpCode("");
+      // Refresh loyalty lookup now that phone is verified.
+      void lookupLoyalty(verifiedPhone);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      setOtpLoading(false);
+    }
+  }
 
   // Whether the payment card section is currently rendered in the DOM.
   const needsCard = !(canRedeemFully && useReward);
@@ -398,8 +490,17 @@ export default function CheckoutPage() {
     if (submitting) return;
     setError(null);
 
-    if (!name.trim() || !phone.trim()) {
-      setError("Please enter your name and phone.");
+    const missingName = !name.trim();
+    const missingPhone = !phone.trim();
+    if (missingName || missingPhone) {
+      setShowFieldErrors(true);
+      const missing = [missingName && "name", missingPhone && "phone"].filter(Boolean).join(" and ");
+      setError(`Please enter your ${missing}.`);
+      return;
+    }
+    if (!phoneVerified) {
+      setShowFieldErrors(true);
+      setError("Please verify your phone number first.");
       return;
     }
     const expectFreeOrder = canRedeemFully && useReward;
@@ -605,6 +706,7 @@ export default function CheckoutPage() {
 
       <form
         onSubmit={handleSubmit}
+        noValidate
         className="grid gap-6 sm:gap-8 lg:grid-cols-[1fr_380px]"
       >
         {/* ── Left column ── */}
@@ -688,16 +790,16 @@ export default function CheckoutPage() {
               {/* Name field — still needed for order recipient */}
               <label className="mt-4 block">
                 <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Name
+                  Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
                 </span>
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
                   placeholder="Your name"
                   autoComplete="name"
                   required
-                  className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                  className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
                 />
               </label>
             </section>
@@ -767,27 +869,30 @@ export default function CheckoutPage() {
               >
                 <label className="mb-4 block">
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Name
+                    Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
                   </span>
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
                     placeholder="Your name"
                     autoComplete="name"
-                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                    className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
                   />
                 </label>
-                {!phone && (
+                {!phoneVerified && (
                   <label className="mb-4 block">
                     <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Phone
+                      Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
                     </span>
                     <input
                       type="tel"
                       value={phone}
                       onChange={(v) => {
                         setPhone(v.target.value);
+                        setShowFieldErrors(false);
+                        setPhoneVerified(false);
+                        setOtpPhone(null);
                         if (loyaltyLookup.status !== "idle") {
                           setLoyaltyLookup({ status: "idle" });
                           setUseReward(false);
@@ -796,10 +901,23 @@ export default function CheckoutPage() {
                       onBlur={() => lookupLoyalty()}
                       placeholder="0404 123 456"
                       autoComplete="tel"
-                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                      className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
                     />
                   </label>
                 )}
+                <CheckoutOtpSection
+                  phone={phone}
+                  phoneVerified={phoneVerified}
+                  otpPhone={otpPhone}
+                  otpCode={otpCode}
+                  otpError={otpError}
+                  otpLoading={otpLoading}
+                  resendTimer={resendTimer}
+                  onSend={() => sendCheckoutOtp()}
+                  onVerify={verifyCheckoutOtp}
+                  onCodeChange={setOtpCode}
+                  onResend={() => sendCheckoutOtp()}
+                />
                 <p className="mb-3 text-xs text-zinc-400">
                   Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
@@ -820,28 +938,31 @@ export default function CheckoutPage() {
               >
                 <label className="mb-4 block">
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Cardholder Name
+                    Cardholder Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
                   </span>
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
                     placeholder="Your name"
                     autoComplete="name"
                     required
-                    className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                    className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
                   />
                 </label>
-                {!phone && (
+                {!phoneVerified && (
                   <label className="mb-4 block">
                     <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Phone
+                      Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
                     </span>
                     <input
                       type="tel"
                       value={phone}
                       onChange={(v) => {
                         setPhone(v.target.value);
+                        setShowFieldErrors(false);
+                        setPhoneVerified(false);
+                        setOtpPhone(null);
                         if (loyaltyLookup.status !== "idle") {
                           setLoyaltyLookup({ status: "idle" });
                           setUseReward(false);
@@ -851,10 +972,23 @@ export default function CheckoutPage() {
                       placeholder="0404 123 456"
                       autoComplete="tel"
                       required
-                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                      className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
                     />
                   </label>
                 )}
+                <CheckoutOtpSection
+                  phone={phone}
+                  phoneVerified={phoneVerified}
+                  otpPhone={otpPhone}
+                  otpCode={otpCode}
+                  otpError={otpError}
+                  otpLoading={otpLoading}
+                  resendTimer={resendTimer}
+                  onSend={() => sendCheckoutOtp()}
+                  onVerify={verifyCheckoutOtp}
+                  onCodeChange={setOtpCode}
+                  onResend={() => sendCheckoutOtp()}
+                />
                 <div>
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                     Card Details
@@ -1006,6 +1140,127 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  Checkout OTP verification section                                  */
+/* ------------------------------------------------------------------ */
+
+function CheckoutOtpSection({
+  phone,
+  phoneVerified,
+  otpPhone,
+  otpCode,
+  otpError,
+  otpLoading,
+  resendTimer,
+  onSend,
+  onVerify,
+  onCodeChange,
+  onResend,
+}: {
+  phone: string;
+  phoneVerified: boolean;
+  otpPhone: string | null;
+  otpCode: string;
+  otpError: boolean;
+  otpLoading: boolean;
+  resendTimer: number;
+  onSend: () => void;
+  onVerify: () => void;
+  onCodeChange: (code: string) => void;
+  onResend: () => void;
+}) {
+  // Need at least 10 digits (AU mobile: 0404123456) before showing verify.
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+
+  // Already verified — green badge.
+  if (phoneVerified) {
+    return (
+      <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+        Phone verified
+      </div>
+    );
+  }
+
+  // OTP has been sent — show code input + verify button.
+  if (otpPhone) {
+    return (
+      <div className="mb-4 space-y-3">
+        <p className="text-xs text-zinc-500">
+          Enter the 6-digit code sent to <span className="font-semibold">{otpPhone}</span>
+        </p>
+        <OtpInput
+          value={otpCode}
+          onChange={onCodeChange}
+          error={otpError}
+        />
+        {otpError && (
+          <p className="text-xs text-red-600">Invalid code. Please try again.</p>
+        )}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onVerify}
+            disabled={otpLoading || otpCode.length < 6}
+            className="rounded-full px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: BRAND.primaryColor }}
+          >
+            {otpLoading ? "Verifying…" : "Verify"}
+          </button>
+          {resendTimer > 0 ? (
+            <span className="text-xs text-zinc-400">
+              Resend in {resendTimer}s
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={otpLoading}
+              className="text-xs font-medium underline"
+              style={{ color: BRAND.primaryColor }}
+            >
+              Resend code
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Phone entered but not yet verified — show verify button.
+  return (
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={onSend}
+        disabled={otpLoading}
+        className="rounded-full px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+        style={{ backgroundColor: BRAND.primaryColor }}
+      >
+        {otpLoading ? "Sending…" : "Verify Phone"}
+      </button>
+      <p className="mt-1.5 text-[11px] text-zinc-400">
+        We&apos;ll send a verification code to confirm your number.
+      </p>
+    </div>
+  );
+}
 
 function SummaryRow({ line }: { line: CartLine }) {
   const details = [

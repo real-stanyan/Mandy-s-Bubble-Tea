@@ -1,0 +1,100 @@
+<h2>SMS OTP Architecture</h2>
+<p class="subtitle">Overall data flow and components</p>
+
+<div class="mockup">
+  <div class="mockup-header">Authentication Flow</div>
+  <div class="mockup-body" style="padding: 24px; font-family: monospace; font-size: 13px; line-height: 2.2;">
+    <div style="text-align: center;">
+      <span style="background: #F5E6C8; color: #C43A10; padding: 6px 16px; border-radius: 20px; font-weight: bold;">User enters phone number</span>
+      <div style="margin: 8px 0; color: #999;">&darr;</div>
+
+      <span style="background: #e8f4e8; padding: 6px 16px; border-radius: 8px;">POST /api/auth/send-code</span>
+      <div style="margin: 4px 0; color: #999;">&darr;</div>
+      <div style="display: flex; justify-content: center; gap: 40px; margin: 8px 0;">
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Generate 6-digit OTP</span>
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Store in Upstash Redis (TTL 5min)</span>
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Twilio SMS send</span>
+      </div>
+      <div style="margin: 8px 0; color: #999;">&darr;</div>
+
+      <span style="background: #F5E6C8; color: #C43A10; padding: 6px 16px; border-radius: 20px; font-weight: bold;">User enters 6-digit code</span>
+      <div style="margin: 8px 0; color: #999;">&darr;</div>
+
+      <span style="background: #e8f4e8; padding: 6px 16px; border-radius: 8px;">POST /api/auth/verify-code</span>
+      <div style="margin: 4px 0; color: #999;">&darr;</div>
+      <div style="display: flex; justify-content: center; gap: 40px; margin: 8px 0;">
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Check OTP match</span>
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Delete OTP from Redis</span>
+        <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Generate deviceToken (UUID)</span>
+      </div>
+      <div style="margin: 4px 0; color: #999;">&darr;</div>
+      <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Store deviceToken &rarr; phone mapping in Redis (no TTL)</span>
+      <div style="margin: 8px 0; color: #999;">&darr;</div>
+
+      <span style="background: #F5E6C8; color: #C43A10; padding: 6px 16px; border-radius: 20px; font-weight: bold;">Frontend stores deviceToken in localStorage</span>
+      <div style="margin: 8px 0; color: #999;">&darr;</div>
+
+      <span style="background: #e8f4e8; padding: 6px 16px; border-radius: 8px;">Subsequent visits: POST /api/auth/check-token</span>
+      <div style="margin: 4px 0; color: #999;">&darr;</div>
+      <span style="background: #fff3e0; padding: 4px 12px; border-radius: 6px;">Redis lookup: deviceToken &rarr; phone &rarr; auto-login</span>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 24px;">
+  <h3>New API Routes</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-weight: bold; width: 35%;">POST /api/auth/send-code</td>
+      <td style="padding: 10px; color: #666;">Accepts phone, generates OTP, stores in Redis, sends via Twilio</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-weight: bold;">POST /api/auth/verify-code</td>
+      <td style="padding: 10px; color: #666;">Accepts phone + code, verifies, returns deviceToken</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-weight: bold;">POST /api/auth/check-token</td>
+      <td style="padding: 10px; color: #666;">Accepts deviceToken, returns phone if valid (for auto-login)</td>
+    </tr>
+  </table>
+</div>
+
+<div style="margin-top: 24px;">
+  <h3>New Dependencies</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-weight: bold; width: 35%;">twilio</td>
+      <td style="padding: 10px; color: #666;">SMS sending</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-weight: bold;">@upstash/redis</td>
+      <td style="padding: 10px; color: #666;">Serverless Redis for OTP + deviceToken storage (free tier: 10K cmd/day)</td>
+    </tr>
+  </table>
+</div>
+
+<div style="margin-top: 24px;">
+  <h3>New Env Vars</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-family: monospace; width: 40%;">TWILIO_ACCOUNT_SID</td>
+      <td style="padding: 10px; color: #666;">Twilio account</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-family: monospace;">TWILIO_AUTH_TOKEN</td>
+      <td style="padding: 10px; color: #666;">Twilio auth</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-family: monospace;">TWILIO_PHONE_NUMBER</td>
+      <td style="padding: 10px; color: #666;">Sender number (AU or toll-free)</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-family: monospace;">UPSTASH_REDIS_REST_URL</td>
+      <td style="padding: 10px; color: #666;">Upstash REST endpoint</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #eee;">
+      <td style="padding: 10px; font-family: monospace;">UPSTASH_REDIS_REST_TOKEN</td>
+      <td style="padding: 10px; color: #666;">Upstash auth token</td>
+    </tr>
+  </table>
+</div>

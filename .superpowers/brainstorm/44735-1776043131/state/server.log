@@ -1,0 +1,5 @@
+{"type":"server-started","port":54447,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:54447","screen_dir":"/Users/stanyan/Github/mandys_bubble_tea/.superpowers/brainstorm/44735-1776043131/content","state_dir":"/Users/stanyan/Github/mandys_bubble_tea/.superpowers/brainstorm/44735-1776043131/state"}
+{"type":"screen-added","file":"/Users/stanyan/Github/mandys_bubble_tea/.superpowers/brainstorm/44735-1776043131/content/architecture.html"}
+{"type":"screen-added","file":"/Users/stanyan/Github/mandys_bubble_tea/.superpowers/brainstorm/44735-1776043131/content/ui-flow.html"}
+{"type":"screen-added","file":"/Users/stanyan/Github/mandys_bubble_tea/.superpowers/brainstorm/44735-1776043131/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

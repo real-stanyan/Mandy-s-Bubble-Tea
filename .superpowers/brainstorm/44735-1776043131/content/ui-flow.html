@@ -1,0 +1,129 @@
+<h2>UI Flow - Account Page States</h2>
+<p class="subtitle">How the sign-in form changes with OTP verification</p>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+
+  <!-- Step 1: Phone Input -->
+  <div class="mockup">
+    <div class="mockup-header">Step 1: Enter Phone</div>
+    <div class="mockup-body" style="padding: 24px; max-width: 360px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 20px; font-weight: bold; color: #1a1a1a;">Login or Sign Up</div>
+        <div style="font-size: 13px; color: #888; margin-top: 6px;">Enter your mobile number to continue</div>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px;">Mobile Number</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="background: #F5E6C8; color: #C43A10; padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;">+61</span>
+          <div style="flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 8px 14px; font-size: 13px; color: #aaa;">400 000 000</div>
+        </div>
+      </div>
+      <div style="background: #C43A10; color: white; text-align: center; padding: 12px; border-radius: 20px; font-size: 13px; font-weight: 600;">
+        Send Verification Code &rarr;
+      </div>
+      <div style="text-align: center; margin-top: 12px; font-size: 11px; color: #bbb;">
+        We'll send a 6-digit code to verify your number
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: OTP Input -->
+  <div class="mockup">
+    <div class="mockup-header">Step 2: Enter Code</div>
+    <div class="mockup-body" style="padding: 24px; max-width: 360px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 20px; font-weight: bold; color: #1a1a1a;">Enter Verification Code</div>
+        <div style="font-size: 13px; color: #888; margin-top: 6px;">Sent to +61 400 000 000</div>
+      </div>
+      <div style="display: flex; justify-content: center; gap: 8px; margin-bottom: 16px;">
+        <div style="width: 44px; height: 52px; border: 2px solid #C43A10; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold;">3</div>
+        <div style="width: 44px; height: 52px; border: 2px solid #C43A10; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold;">8</div>
+        <div style="width: 44px; height: 52px; border: 2px solid #C43A10; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold;">5</div>
+        <div style="width: 44px; height: 52px; border: 2px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #ccc;">-</div>
+        <div style="width: 44px; height: 52px; border: 2px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #ccc;">-</div>
+        <div style="width: 44px; height: 52px; border: 2px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #ccc;">-</div>
+      </div>
+      <div style="background: #C43A10; color: white; text-align: center; padding: 12px; border-radius: 20px; font-size: 13px; font-weight: 600;">
+        Verify &rarr;
+      </div>
+      <div style="text-align: center; margin-top: 12px;">
+        <span style="font-size: 12px; color: #888;">Didn't receive it? </span>
+        <span style="font-size: 12px; color: #C43A10; font-weight: 600; cursor: pointer;">Resend Code</span>
+        <span style="font-size: 12px; color: #aaa;"> (available in 60s)</span>
+      </div>
+      <div style="text-align: center; margin-top: 8px;">
+        <span style="font-size: 11px; color: #999; cursor: pointer;">&larr; Use a different number</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3a: New User - Name Input -->
+  <div class="mockup">
+    <div class="mockup-header">Step 3a: New User - Enter Name</div>
+    <div class="mockup-body" style="padding: 24px; max-width: 360px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 20px; font-weight: bold; color: #1a1a1a;">Finish Signing Up</div>
+        <div style="font-size: 13px; color: #888; margin-top: 6px;">Looks like you're new here! What should we call you?</div>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px;">Your Name</div>
+        <div style="border: 1px solid #ddd; border-radius: 20px; padding: 8px 14px; font-size: 13px; color: #333;">Mandy</div>
+      </div>
+      <div style="background: #C43A10; color: white; text-align: center; padding: 12px; border-radius: 20px; font-size: 13px; font-weight: 600;">
+        Create Account &rarr;
+      </div>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 10px; margin-top: 12px; text-align: center;">
+        <span style="font-size: 12px; color: #16a34a;">&#10003; Phone verified: +61 400 000 000</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3b: Existing User - Dashboard -->
+  <div class="mockup">
+    <div class="mockup-header">Step 3b: Existing User - Dashboard</div>
+    <div class="mockup-body" style="padding: 24px; max-width: 360px; margin: 0 auto;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <div style="width: 48px; height: 48px; background: #C43A10; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; font-weight: bold;">M</div>
+        <div>
+          <div style="font-size: 18px; font-weight: bold;">Mandy</div>
+          <div style="font-size: 12px; color: #888;">+61 400 000 000</div>
+        </div>
+      </div>
+      <div style="background: #fafafa; border-radius: 12px; padding: 16px; text-align: center;">
+        <div style="font-size: 12px; color: #C43A10; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Loyalty Rewards</div>
+        <div style="font-size: 28px; font-weight: bold; margin-top: 4px;">5 / 9 Stars</div>
+        <div style="display: flex; justify-content: center; gap: 6px; margin-top: 8px;">
+          <span style="color: #C43A10; font-size: 18px;">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+          <span style="color: #ddd; font-size: 18px;">&#9734;&#9734;&#9734;&#9734;</span>
+        </div>
+      </div>
+      <div style="color: #aaa; font-size: 11px; text-align: center; margin-top: 12px;">Logged in &middot; Device trusted</div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top: 32px;">
+  <h3>State Machine</h3>
+  <div style="font-family: monospace; font-size: 13px; line-height: 2; padding: 16px; background: #fafafa; border-radius: 12px;">
+    <div><strong>PHONE_INPUT</strong> &rarr; send code &rarr; <strong>OTP_INPUT</strong></div>
+    <div><strong>OTP_INPUT</strong> &rarr; verify success + existing user &rarr; <strong>DASHBOARD</strong></div>
+    <div><strong>OTP_INPUT</strong> &rarr; verify success + new user &rarr; <strong>SIGNUP_NAME</strong></div>
+    <div><strong>OTP_INPUT</strong> &rarr; wrong code &rarr; <strong>OTP_INPUT</strong> (show error)</div>
+    <div><strong>OTP_INPUT</strong> &rarr; back &rarr; <strong>PHONE_INPUT</strong></div>
+    <div><strong>SIGNUP_NAME</strong> &rarr; submit name &rarr; <strong>DASHBOARD</strong></div>
+    <div><strong>AUTO_LOGIN</strong> &rarr; has deviceToken &rarr; check-token &rarr; <strong>DASHBOARD</strong></div>
+    <div><strong>AUTO_LOGIN</strong> &rarr; token invalid &rarr; <strong>PHONE_INPUT</strong></div>
+  </div>
+</div>
+
+<div style="margin-top: 24px;">
+  <h3>Key UI Details</h3>
+  <ul style="font-size: 14px; color: #555; line-height: 2;">
+    <li><strong>OTP 输入框</strong>：6 个独立方框，自动跳到下一格，支持粘贴整串</li>
+    <li><strong>重发倒计时</strong>：60 秒冷却，倒计时结束后 "Resend Code" 变为可点击</li>
+    <li><strong>错误状态</strong>：输入框变红 + "Invalid code, please try again"</li>
+    <li><strong>Rate limit</strong>：同一号码 5 分钟内最多发 3 次，超过显示 "Too many attempts, try later"</li>
+    <li><strong>按钮文案变化</strong>：原来的 "View My Account" 改为 "Send Verification Code"</li>
+  </ul>
+</div>
