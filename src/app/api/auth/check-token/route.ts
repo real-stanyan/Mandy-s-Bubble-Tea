@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
+import { verifyDeviceToken } from "@/lib/twilio";
 import { squareClient, ensureReferenceId } from "@/lib/square";
 
 export async function POST(request: Request) {
@@ -18,7 +18,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, valid: false });
   }
 
-  const e164 = await redis.get<string>(`device:${deviceToken}`);
+  // Verify HMAC signature — no database lookup needed.
+  const e164 = verifyDeviceToken(deviceToken);
   if (!e164) {
     return NextResponse.json({ ok: true, valid: false });
   }
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Token valid but customer not in Square (edge case: deleted from Square).
+    // Token valid but customer not in Square.
     return NextResponse.json({
       ok: true,
       valid: true,

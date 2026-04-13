@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeAuPhone } from "@/lib/phone";
-import { redis } from "@/lib/redis";
-import { sendOtp } from "@/lib/twilio";
-
-const OTP_TTL = 300; // 5 minutes
-const RATE_LIMIT = 3; // max sends per window
-const RATE_TTL = 300; // 5-minute window
+import { sendVerification } from "@/lib/twilio";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -34,30 +29,17 @@ export async function POST(request: Request) {
     );
   }
 
-  // Rate limit: max 3 sends per 5-minute window per phone.
-  const rateKey = `otp:rate:${e164}`;
-  const currentCount = await redis.incr(rateKey);
-  if (currentCount === 1) {
-    await redis.expire(rateKey, RATE_TTL);
-  }
-  if (currentCount > RATE_LIMIT) {
-    return NextResponse.json(
-      { ok: false, error: "Too many attempts, please try again later" },
-      { status: 429 },
-    );
-  }
-
-  // Generate 6-digit code.
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-
-  // Store in Redis with TTL.
-  await redis.set(`otp:${e164}`, code, { ex: OTP_TTL });
-
-  // Send SMS via Twilio.
   try {
-    await sendOtp(e164, code);
+    await sendVerification(e164);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Twilio Verify has built-in rate limiting.
+    if (message.includes("Max send attempts reached")) {
+      return NextResponse.json(
+        { ok: false, error: "Too many attempts, please try again later" },
+        { status: 429 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: `SMS send failed: ${message}` },
       { status: 502 },

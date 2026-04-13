@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeAuPhone } from "@/lib/phone";
-import { redis } from "@/lib/redis";
+import { checkVerification, createDeviceToken } from "@/lib/twilio";
 import { squareClient, ensureReferenceId } from "@/lib/square";
 
 export async function POST(request: Request) {
@@ -40,27 +40,33 @@ export async function POST(request: Request) {
     );
   }
 
-  // Look up stored OTP.
-  const storedCode = await redis.get<string>(`otp:${e164}`);
-  if (!storedCode) {
+  // Verify via Twilio Verify Service.
+  let approved: boolean;
+  try {
+    approved = await checkVerification(e164, code.trim());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("not found") || message.includes("expired")) {
+      return NextResponse.json(
+        { ok: false, error: "Code expired, please request a new one" },
+        { status: 410 },
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: "Code expired, please request a new one" },
-      { status: 410 },
+      { ok: false, error: message },
+      { status: 502 },
     );
   }
-  if (storedCode !== code.trim()) {
+
+  if (!approved) {
     return NextResponse.json(
       { ok: false, error: "Invalid code" },
       { status: 401 },
     );
   }
 
-  // Code matches — delete it so it can't be reused.
-  await redis.del(`otp:${e164}`);
-
-  // Generate device token for trusted-device flow.
-  const deviceToken = crypto.randomUUID();
-  await redis.set(`device:${deviceToken}`, e164);
+  // Code approved — create signed device token (no storage needed).
+  const deviceToken = createDeviceToken(e164);
 
   // Look up customer in Square.
   try {
