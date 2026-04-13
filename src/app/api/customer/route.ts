@@ -18,17 +18,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, phone } = (body ?? {}) as {
+  const { name, firstName, lastName, phone } = (body ?? {}) as {
     name?: unknown;
+    firstName?: unknown;
+    lastName?: unknown;
     phone?: unknown;
   };
 
-  if (typeof name !== "string" || !name.trim()) {
+  // Support both {firstName, lastName} and legacy {name} format.
+  let givenName: string;
+  let familyName: string | undefined;
+
+  if (typeof firstName === "string" && firstName.trim()) {
+    givenName = firstName.trim();
+    familyName = typeof lastName === "string" && lastName.trim()
+      ? lastName.trim()
+      : undefined;
+  } else if (typeof name === "string" && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    givenName = parts[0];
+    familyName = parts.slice(1).join(" ") || undefined;
+  } else {
     return NextResponse.json(
       { ok: false, error: "Name is required" },
       { status: 400 },
     );
   }
+
   if (typeof phone !== "string") {
     return NextResponse.json(
       { ok: false, error: "Phone is required" },
@@ -43,9 +59,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-
-  const [givenName, ...rest] = name.trim().split(/\s+/);
-  const familyName = rest.join(" ") || undefined;
 
   try {
     // Exact phone lookup first.
