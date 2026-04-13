@@ -1,8 +1,16 @@
+import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getMenu, type Menu, type MenuItem } from "@/lib/catalog";
 import { BRAND } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import ScrollStrip from "@/components/menu/ScrollStrip";
+
+export const metadata: Metadata = {
+  title: "Menu",
+  description:
+    "Browse our full menu — milky teas, fruity teas, fresh brews, frozen drinks and more at Mandy's Bubble Tea.",
+};
 
 // Menu landing page — each category shown as a horizontal section
 // with up to 3 preview items and a "See More" link to the full
@@ -93,14 +101,14 @@ function ItemCard({
       className="group block overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm transition hover:shadow-md"
     >
       {/* Image */}
-      <div className="aspect-square w-full overflow-hidden">
+      <div className="relative aspect-square w-full overflow-hidden">
         {item.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={item.imageUrl}
             alt={item.name}
-            className="h-full w-full object-contain transition group-hover:scale-105"
-            loading="lazy"
+            fill
+            sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 200px"
+            className="object-contain transition group-hover:scale-105"
           />
         ) : (
           <div

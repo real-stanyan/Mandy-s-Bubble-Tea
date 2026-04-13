@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
-import { MemberQrCard } from "@/components/account/MemberQrCard";
+const MemberQrCard = dynamic(
+  () => import("@/components/account/MemberQrCard").then((m) => m.MemberQrCard),
+  { ssr: false },
+);
 import { OtpInput } from "@/components/account/OtpInput";
 
 import { formatPrice } from "@/lib/utils";

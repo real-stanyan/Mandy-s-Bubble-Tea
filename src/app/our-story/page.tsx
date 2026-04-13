@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { BRAND, BUSINESS } from "@/lib/constants";
@@ -43,10 +44,12 @@ export default function OurStoryPage() {
       {/* Origin */}
       <section className="px-4 py-12 sm:px-6 sm:py-20">
         <div className="mx-auto grid max-w-5xl items-center gap-8 sm:gap-12 sm:grid-cols-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/image/image_1.webp"
             alt="Mandy's Bubble Tea shop"
+            width={384}
+            height={384}
+            sizes="(max-width: 640px) 256px, (max-width: 1024px) 320px, 384px"
             className="mx-auto h-64 w-64 rounded-2xl object-contain sm:h-80 sm:w-80 lg:h-96 lg:w-96"
           />
           <div className="flex flex-col gap-4">
@@ -159,10 +162,12 @@ export default function OurStoryPage() {
               </div>
             </div>
           </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/image/image_2.webp"
             alt="Bubble tea preparation"
+            width={384}
+            height={384}
+            sizes="(max-width: 640px) 256px, (max-width: 1024px) 320px, 384px"
             className="order-1 sm:order-2 mx-auto h-64 w-64 rounded-2xl object-contain sm:h-80 sm:w-80 lg:h-96 lg:w-96"
           />
         </div>

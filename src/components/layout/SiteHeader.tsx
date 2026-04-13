@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRAND } from "@/lib/constants";
 import { CartIcon } from "@/components/cart/CartIcon";
 import { AccountLink } from "@/components/layout/AccountLink";
@@ -31,6 +31,8 @@ export function SiteHeader() {
     };
   }, [menuOpen]);
 
+  const activeStyle = useMemo(() => ({ color: BRAND.primaryColor }), []);
+
   function navClass(href: string) {
     const active =
       href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -42,7 +44,7 @@ export function SiteHeader() {
   function navStyle(href: string) {
     const active =
       href === "/" ? pathname === "/" : pathname.startsWith(href);
-    return active ? { color: BRAND.primaryColor } : undefined;
+    return active ? activeStyle : undefined;
   }
 
   return (

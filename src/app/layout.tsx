@@ -16,8 +16,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mandy's Bubble Tea",
-  description: "Fresh bubble tea in Southport QLD",
+  title: {
+    default: "Mandy's Bubble Tea",
+    template: "%s | Mandy's Bubble Tea",
+  },
+  description:
+    "Fresh bubble tea in Southport QLD — order online for pickup at 34 Davenport St, Southport.",
+  openGraph: {
+    type: "website",
+    siteName: "Mandy's Bubble Tea",
+    locale: "en_AU",
+  },
 };
 
 export const viewport: Viewport = {
@@ -25,6 +34,26 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   themeColor: "#C43A10",
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Restaurant",
+  name: "Mandy's Bubble Tea",
+  description:
+    "Fresh bubble tea in Southport QLD — milky teas, fruity teas, fresh brews, frozen drinks and more.",
+  url: "https://mandybubbletea.com",
+  telephone: "+61404978238",
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: "34 Davenport St",
+    addressLocality: "Southport",
+    addressRegion: "QLD",
+    postalCode: "4215",
+    addressCountry: "AU",
+  },
+  servesCuisine: "Bubble Tea",
+  currenciesAccepted: "AUD",
 };
 
 export default function RootLayout({
@@ -37,6 +66,12 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <SiteHeaderGate />
         {children}

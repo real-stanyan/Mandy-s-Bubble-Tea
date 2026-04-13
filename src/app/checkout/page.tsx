@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
@@ -1274,9 +1275,11 @@ function SummaryRow({ line }: { line: CartLine }) {
     <li className="flex items-start gap-3">
       {/* Item image */}
       {line.itemImageUrl ? (
-        <img
+        <Image
           src={line.itemImageUrl}
           alt={line.itemName}
+          width={56}
+          height={56}
           className="h-14 w-14 shrink-0 rounded-lg object-cover"
         />
       ) : (

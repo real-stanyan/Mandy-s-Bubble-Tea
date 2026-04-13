@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getMenu, getItemDetail } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
@@ -13,6 +15,33 @@ import {
 } from "@/components/ui/breadcrumb";
 
 export const revalidate = 300;
+
+export async function generateStaticParams() {
+  const menu = await getMenu();
+  const params: { category: string; item: string }[] = [];
+  for (const cat of menu.categories) {
+    const items = menu.itemsBySlug.get(cat.slug) ?? [];
+    for (const item of items) {
+      params.push({ category: cat.slug, item: item.id });
+    }
+  }
+  return params;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { category: categorySlug, item: itemId } = await params;
+  const menu = await getMenu();
+  const detail = getItemDetail(menu, categorySlug, itemId);
+  if (!detail) return { title: "Not Found" };
+  const { item } = detail;
+  return {
+    title: item.name,
+    description:
+      item.description ??
+      `Order ${item.name} from Mandy's Bubble Tea — pickup at Southport.`,
+    openGraph: item.imageUrl ? { images: [{ url: item.imageUrl }] } : undefined,
+  };
+}
 
 type PageProps = {
   params: Promise<{ category: string; item: string }>;
@@ -70,13 +99,16 @@ export default async function ItemDetailPage({ params }: PageProps) {
         <div className="relative">
           <div className="overflow-hidden rounded-2xl">
             {item.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.imageUrl}
-                alt={item.name}
-                className="aspect-square w-full object-contain"
-                style={{ backgroundColor: BRAND.accentColor }}
-              />
+              <div className="relative aspect-square w-full" style={{ backgroundColor: BRAND.accentColor }}>
+                <Image
+                  src={item.imageUrl}
+                  alt={item.name}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  className="object-contain"
+                  priority
+                />
+              </div>
             ) : (
               <div
                 className="flex aspect-square w-full items-center justify-center text-7xl"

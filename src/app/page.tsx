@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { getMenu, type MenuItem } from "@/lib/catalog";
 import { BRAND, BUSINESS } from "@/lib/constants";
@@ -213,11 +214,14 @@ function Hero({
         {/* Right — product image + review badge */}
         <div className="relative flex items-center justify-center">
           {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={imageUrl}
               alt="Bubble tea"
+              width={384}
+              height={384}
+              sizes="(max-width: 640px) 224px, (max-width: 768px) 288px, (max-width: 1024px) 320px, 384px"
               className="h-56 w-56 rounded-2xl object-cover shadow-lg sm:h-72 sm:w-72 md:h-80 md:w-80 lg:h-96 lg:w-96"
+              priority
             />
           ) : (
             <div
@@ -271,12 +275,12 @@ function FeaturedProducts({ items }: { items: FeaturedItem[] }) {
                 >
                   <div className="relative mx-auto aspect-square w-full overflow-hidden rounded-xl">
                     {item.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Image
                         src={item.imageUrl}
                         alt={item.name}
-                        className="h-full w-full object-cover transition group-hover:scale-105"
-                        loading="lazy"
+                        fill
+                        sizes="(max-width: 640px) 40vw, 200px"
+                        className="object-cover transition group-hover:scale-105"
                       />
                     ) : (
                       <div
@@ -339,10 +343,12 @@ function OurStory() {
       <div className="mx-auto grid max-w-5xl items-center gap-8 sm:gap-10 sm:grid-cols-2">
         {/* Left — image */}
         <div className="flex items-center justify-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/image/image_1.webp"
             alt="Bubble tea illustration"
+            width={384}
+            height={384}
+            sizes="(max-width: 640px) 224px, (max-width: 768px) 288px, (max-width: 1024px) 320px, 384px"
             className="h-56 w-56 rounded-2xl object-contain sm:h-72 sm:w-72 md:h-80 md:w-80 lg:h-96 lg:w-96"
           />
         </div>

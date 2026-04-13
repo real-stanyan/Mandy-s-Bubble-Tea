@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
@@ -18,6 +20,22 @@ import {
 // per-category query to avoid loading everything.
 
 export const revalidate = 300;
+
+export async function generateStaticParams() {
+  const menu = await getMenu();
+  return menu.categories.map((c) => ({ category: c.slug }));
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { category: slug } = await params;
+  const menu = await getMenu();
+  const found = getCategoryBySlug(menu, slug);
+  const name = found?.category.squareName ?? "Menu";
+  return {
+    title: name,
+    description: `Browse ${name} drinks at Mandy's Bubble Tea — order online for pickup.`,
+  };
+}
 
 type PageProps = {
   params: Promise<{ category: string }>;
@@ -127,13 +145,15 @@ function ItemCard({ item }: { item: MenuItem }) {
   return (
     <div className="overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md">
       {item.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.imageUrl}
-          alt={item.name}
-          className="aspect-square w-full object-cover"
-          loading="lazy"
-        />
+        <div className="relative aspect-square w-full">
+          <Image
+            src={item.imageUrl}
+            alt={item.name}
+            fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
+            className="object-cover"
+          />
+        </div>
       ) : (
         <div
           className="flex aspect-square w-full items-center justify-center bg-zinc-100 text-xs text-zinc-400"

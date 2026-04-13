@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
@@ -13,6 +14,7 @@ import {
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
+import { cachedPost } from "@/lib/api-cache";
 
 const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
 
@@ -141,7 +143,7 @@ function CartBody({
   removeLine: (id: string) => void;
 }) {
   const [balance, setBalance] = useState<number | null>(null);
-  const [starsPerReward, setStarsPerReward] = useState(LOYALTY.starsPerReward);
+  const [starsPerReward, setStarsPerReward] = useState<number>(LOYALTY.starsPerReward);
   const [useReward, setUseReward] = useState(false);
   const [savedPhone, setSavedPhone] = useState<string | null>(null);
   const [savedName, setSavedName] = useState<string | null>(null);
@@ -154,6 +156,11 @@ function CartBody({
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
+  // Defer SDK loading until the drawer has been opened at least once.
+  const [everOpened, setEverOpened] = useState(false);
+  useEffect(() => {
+    if (isOpen && !everOpened) setEverOpened(true);
+  }, [isOpen, everOpened]);
 
   // Re-read saved user info every time the drawer opens (catches sign-out).
   useEffect(() => {
@@ -174,13 +181,11 @@ function CartBody({
 
     (async () => {
       try {
-        const custRes = await fetch("/api/customer/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: savedPhone }),
-        });
-        const custJson = await custRes.json();
-        if (!custRes.ok || !custJson.ok || !custJson.found) return;
+        const { ok: custOk, data: custJson } = await cachedPost<{
+          ok: boolean; found: boolean; customerId: string;
+          givenName?: string; familyName?: string; phoneE164: string;
+        }>("/api/customer/lookup", { phone: savedPhone });
+        if (!custOk || !custJson.ok || !custJson.found) return;
 
         setLoyaltyCustomerId(custJson.customerId);
         // Pre-fill name from Square if not already saved.
@@ -192,16 +197,13 @@ function CartBody({
           if (fullName) setSavedName(fullName);
         }
 
-        const loyaltyRes = await fetch("/api/loyalty/account", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: custJson.customerId,
-            phone: custJson.phoneE164,
-          }),
+        const { ok: loyaltyOk, data: loyaltyJson } = await cachedPost<{
+          ok: boolean; balance?: number; starsPerReward?: number;
+        }>("/api/loyalty/account", {
+          customerId: custJson.customerId,
+          phone: custJson.phoneE164,
         });
-        const loyaltyJson = await loyaltyRes.json();
-        if (loyaltyRes.ok && loyaltyJson.ok) {
+        if (loyaltyOk && loyaltyJson.ok) {
           setBalance(loyaltyJson.balance ?? 0);
           if (loyaltyJson.starsPerReward) {
             setStarsPerReward(loyaltyJson.starsPerReward);
@@ -317,12 +319,14 @@ function CartBody({
 
   return (
     <>
-      {/* Load Square SDK for wallet quick-pay */}
-      <Script
-        src={WEB_SDK_SRC}
-        strategy="afterInteractive"
-        onReady={() => setSdkReady(true)}
-      />
+      {/* Load Square SDK for wallet quick-pay — deferred until first drawer open */}
+      {everOpened && (
+        <Script
+          src={WEB_SDK_SRC}
+          strategy="afterInteractive"
+          onReady={() => setSdkReady(true)}
+        />
+      )}
       {/* Hidden Google Pay SDK container */}
       <div id="cart-google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
 
@@ -377,7 +381,7 @@ function CartBody({
 /*  Tea Journey (loyalty progress)                                     */
 /* ------------------------------------------------------------------ */
 
-function TeaJourneyCard({
+const TeaJourneyCard = memo(function TeaJourneyCard({
   stars,
   starsPerReward,
   canRedeem,
@@ -459,7 +463,7 @@ function TeaJourneyCard({
       )}
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Empty state                                                        */
@@ -485,7 +489,7 @@ function EmptyState({ onClose }: { onClose: () => void }) {
 /*  Cart line row                                                      */
 /* ------------------------------------------------------------------ */
 
-function CartLineRow({
+const CartLineRow = memo(function CartLineRow({
   line,
   onQuantityChange,
   onRemove,
@@ -506,9 +510,11 @@ function CartLineRow({
     <div className="flex gap-3">
       {/* Image */}
       {line.itemImageUrl ? (
-        <img
+        <Image
           src={line.itemImageUrl}
           alt=""
+          width={64}
+          height={64}
           className="h-16 w-16 shrink-0 rounded-xl object-cover"
         />
       ) : (
@@ -551,7 +557,7 @@ function CartLineRow({
       </div>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Quantity stepper                                                    */
