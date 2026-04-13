@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { squareClient } from "@/lib/square";
+import { getMenu } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -11,45 +11,92 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const res = await squareClient.catalog.batchGet({
-      objectIds: [id],
-      includeRelatedObjects: true,
-    });
+    const menu = await getMenu();
 
-    const obj = res.objects?.[0];
-    if (!obj) {
+    // Find the item across all categories
+    let foundItem = null;
+    for (const [, items] of menu.itemsBySlug) {
+      const item = items.find((i) => i.id === id);
+      if (item) {
+        foundItem = item;
+        break;
+      }
+    }
+    if (!foundItem) {
+      // Check uncategorized
+      foundItem = menu.uncategorizedItems.find((i) => i.id === id) ?? null;
+    }
+
+    if (!foundItem) {
       return NextResponse.json(
         { ok: false, error: "Item not found" },
         { status: 404 },
       );
     }
 
-    // Resolve image URL from related objects
-    let imageUrl: string | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const itemData = (obj as any).itemData;
-    const imageIds: string[] | undefined = itemData?.imageIds;
+    // Resolve modifier lists with per-item overrides
+    const modifierLists = foundItem.modifierListRefs
+      .map((ref) => {
+        const base = menu.modifierLists.get(ref.id);
+        if (!base) return null;
 
-    if (imageIds?.length && res.relatedObjects) {
-      for (const rel of res.relatedObjects) {
-        if (rel.type === "IMAGE" && rel.id && imageIds.includes(rel.id)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const imgUrl = (rel as any).imageData?.url as string | undefined;
-          if (imgUrl) {
-            imageUrl = imgUrl;
-            break;
-          }
-        }
-      }
-    }
+        const overrideMap = new Map(
+          ref.modifierOverrides.map((o) => [o.modifierId, o.onByDefault]),
+        );
+        const modifiers = base.modifiers.map((mod) => {
+          const override = overrideMap.get(mod.id);
+          if (override == null) return mod;
+          return { ...mod, onByDefault: override };
+        });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const serialized = serializeSquareResponse(obj) as any;
-    if (imageUrl) {
-      serialized.imageUrl = imageUrl;
-    }
+        return {
+          ...base,
+          modifiers,
+          minSelected:
+            ref.minOverride != null && ref.minOverride >= 0
+              ? ref.minOverride
+              : base.minSelected,
+          maxSelected:
+            ref.maxOverride != null && ref.maxOverride >= 0
+              ? ref.maxOverride === 0
+                ? null
+                : ref.maxOverride
+              : base.maxSelected,
+        };
+      })
+      .filter((ml) => ml != null);
 
-    return NextResponse.json({ ok: true, item: serialized });
+    const item = {
+      id: foundItem.id,
+      type: "ITEM",
+      imageUrl: foundItem.imageUrl,
+      itemData: {
+        name: foundItem.name,
+        description: foundItem.description,
+        categories: foundItem.categoryIds.map((catId) => {
+          const cat = menu.categories.find((c) => c.id === catId);
+          return { id: catId, name: cat?.squareName ?? "" };
+        }),
+        variations: foundItem.variations.map((v) => ({
+          id: v.id,
+          itemVariationData: {
+            name: v.name,
+            priceMoney:
+              v.priceCents != null
+                ? { amount: v.priceCents, currency: "AUD" }
+                : undefined,
+          },
+        })),
+      },
+    };
+
+    return NextResponse.json(
+      serializeSquareResponse({
+        ok: true,
+        item,
+        modifierLists,
+      }),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
