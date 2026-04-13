@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient, ensureReferenceId } from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
+import { createDeviceToken } from "@/lib/twilio";
 
 // Phone-only lookup, no create. Used by the account page so someone
 // who types a phone number that isn't in Square doesn't silently get a
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
       givenName: existing.givenName ?? null,
       familyName: existing.familyName ?? null,
       phoneE164: e164,
+      deviceToken: createDeviceToken(e164),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

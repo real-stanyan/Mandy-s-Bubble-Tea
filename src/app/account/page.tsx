@@ -103,6 +103,54 @@ export default function AccountPage() {
     [],
   );
 
+  // Login: look up phone in Square first. If found, go straight to dashboard.
+  // If not found (new user), send OTP for verification before signup.
+  const loadAccount = useCallback(async (phone: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const lookupRes = await fetch("/api/customer/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const lookupJson = await lookupRes.json();
+      if (!lookupRes.ok || !lookupJson.ok) {
+        throw new Error(lookupJson.error ?? "Lookup failed");
+      }
+
+      if (lookupJson.found) {
+        // Existing customer — store device token and go to dashboard.
+        if (lookupJson.deviceToken) {
+          window.localStorage.setItem(DEVICE_TOKEN_KEY, lookupJson.deviceToken);
+        }
+        const { customerId, givenName, familyName, phoneE164 } = lookupJson;
+        await hydrateDashboard(customerId, phoneE164, givenName, familyName);
+        return;
+      }
+
+      // New user — send OTP for verification before signup.
+      const sendRes = await fetch("/api/auth/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const sendJson = await sendRes.json();
+      if (!sendRes.ok || !sendJson.ok) {
+        throw new Error(sendJson.error ?? "Failed to send code");
+      }
+      setOtpPhone(phone);
+      setOtpCode("");
+      setOtpError(false);
+      setResendTimer(RESEND_COOLDOWN);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [hydrateDashboard]);
+
   const sendCode = useCallback(async (phone: string) => {
     setLoading(true);
     setError(null);
@@ -116,9 +164,6 @@ export default function AccountPage() {
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Failed to send code");
       }
-      setOtpPhone(phone);
-      setOtpCode("");
-      setOtpError(false);
       setResendTimer(RESEND_COOLDOWN);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -264,7 +309,7 @@ export default function AccountPage() {
       return;
     }
     if (!phoneInput.trim()) return;
-    void sendCode(phoneInput.trim());
+    void loadAccount(phoneInput.trim());
   }
 
   function handleSignOut() {
@@ -449,17 +494,17 @@ function SignInForm({
           {loading
             ? signupMode
               ? "Creating account..."
-              : "Sending code..."
+              : "Looking up..."
             : signupMode
               ? "Create Account \u2192"
-              : "Send Verification Code \u2192"}
+              : "View My Account \u2192"}
         </button>
       </form>
 
       <p className="mt-3 text-center text-xs text-zinc-400">
         {signupMode
           ? ""
-          : "We\u2019ll send a 6-digit code to verify your number"}
+          : "Enter your mobile number to view your loyalty stars and orders"}
       </p>
 
       {error && (
