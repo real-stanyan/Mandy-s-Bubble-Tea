@@ -26,26 +26,25 @@ export async function GET(
 
     // Resolve image URL from related objects
     let imageUrl: string | undefined;
-    const imageIds =
-      obj.type === "ITEM"
-        ? ((obj as Record<string, unknown>).itemData as Record<string, unknown> | undefined)?.imageIds as string[] | undefined
-        : undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemData = (obj as any).itemData;
+    const imageIds: string[] | undefined = itemData?.imageIds;
 
     if (imageIds?.length && res.relatedObjects) {
       for (const rel of res.relatedObjects) {
         if (rel.type === "IMAGE" && rel.id && imageIds.includes(rel.id)) {
-          const imgData = (rel as Record<string, unknown>).imageData as
-            | { url?: string }
-            | undefined;
-          if (imgData?.url) {
-            imageUrl = imgData.url;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const imgUrl = (rel as any).imageData?.url as string | undefined;
+          if (imgUrl) {
+            imageUrl = imgUrl;
             break;
           }
         }
       }
     }
 
-    const serialized = serializeSquareResponse(obj);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const serialized = serializeSquareResponse(obj) as any;
     if (imageUrl) {
       serialized.imageUrl = imageUrl;
     }
