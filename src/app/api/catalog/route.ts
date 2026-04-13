@@ -1,29 +1,83 @@
 import { NextResponse } from "next/server";
-import { squareClient } from "@/lib/square";
+import { getMenu } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
-
-// Smoke-test handler for the Square connection.
-// Lists catalog ITEMs and returns the first few so we can verify the
-// token, environment, and BigInt serialization all work end-to-end.
-// Will be replaced by the real catalog endpoint during feature work.
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const page = await squareClient.catalog.list({ types: "ITEM" });
+    const menu = await getMenu();
 
-    const items = [];
-    for await (const item of page) {
-      items.push(item);
-      if (items.length >= 5) break;
+    // Flatten all items across categories for the app
+    const allItems: Record<string, unknown>[] = [];
+    const seenIds = new Set<string>();
+
+    for (const [, items] of menu.itemsBySlug) {
+      for (const item of items) {
+        if (seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+        allItems.push({
+          id: item.id,
+          type: "ITEM",
+          imageUrl: item.imageUrl,
+          itemData: {
+            name: item.name,
+            description: item.description,
+            categories: item.categoryIds.map((catId) => {
+              const cat = menu.categories.find((c) => c.id === catId);
+              return { id: catId, name: cat?.squareName ?? "" };
+            }),
+            variations: item.variations.map((v) => ({
+              id: v.id,
+              itemVariationData: {
+                name: v.name,
+                priceMoney: v.priceCents != null
+                  ? { amount: v.priceCents, currency: "AUD" }
+                  : undefined,
+              },
+            })),
+          },
+        });
+      }
     }
 
-    return NextResponse.json({
-      ok: true,
-      count: items.length,
-      items: serializeSquareResponse(items),
-    });
+    // Also include uncategorized items
+    for (const item of menu.uncategorizedItems) {
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      allItems.push({
+        id: item.id,
+        type: "ITEM",
+        imageUrl: item.imageUrl,
+        itemData: {
+          name: item.name,
+          description: item.description,
+          categories: [],
+          variations: item.variations.map((v) => ({
+            id: v.id,
+            itemVariationData: {
+              name: v.name,
+              priceMoney: v.priceCents != null
+                ? { amount: v.priceCents, currency: "AUD" }
+                : undefined,
+            },
+          })),
+        },
+      });
+    }
+
+    const categories = menu.categories.map((c) => ({
+      id: c.id,
+      name: c.squareName,
+    }));
+
+    return NextResponse.json(
+      serializeSquareResponse({
+        ok: true,
+        items: allItems,
+        categories,
+      }),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
