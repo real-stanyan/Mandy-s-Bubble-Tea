@@ -315,6 +315,7 @@ export default function AccountPage() {
   function handleSignOut() {
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(DEVICE_TOKEN_KEY);
+    window.localStorage.removeItem("mbt:account:name");
     setData(null);
     setPhoneInput("");
     setNameInput({ firstName: "", lastName: "" });

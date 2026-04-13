@@ -113,6 +113,7 @@ export function CartDrawer() {
 
         <CartBody
           lines={lines}
+          isOpen={isOpen}
           closeDrawer={closeDrawer}
           setQuantity={setQuantity}
           removeLine={removeLine}
@@ -128,11 +129,13 @@ export function CartDrawer() {
 
 function CartBody({
   lines,
+  isOpen,
   closeDrawer,
   setQuantity,
   removeLine,
 }: {
   lines: CartLine[];
+  isOpen: boolean;
   closeDrawer: () => void;
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
@@ -152,13 +155,18 @@ function CartBody({
   const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
 
-  // Read saved user info.
+  // Re-read saved user info every time the drawer opens (catches sign-out).
   useEffect(() => {
     const phone = window.localStorage.getItem(PHONE_STORAGE_KEY);
     const name = window.localStorage.getItem(NAME_STORAGE_KEY);
     setSavedPhone(phone);
     setSavedName(name);
-  }, []);
+    if (!phone) {
+      setBalance(null);
+      setLoyaltyCustomerId(null);
+      setUseReward(false);
+    }
+  }, [isOpen]);
 
   // Fetch loyalty balance once.
   useEffect(() => {
