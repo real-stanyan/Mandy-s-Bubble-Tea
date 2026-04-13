@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 import { MemberQrCard } from "@/components/account/MemberQrCard";
+import { OtpInput } from "@/components/account/OtpInput";
 
 import { formatPrice } from "@/lib/utils";
 
@@ -14,6 +15,8 @@ import { formatPrice } from "@/lib/utils";
 // localStorage so returning visitors land straight on their dashboard.
 
 const STORAGE_KEY = "mbt:account:phone";
+const DEVICE_TOKEN_KEY = "mbt:account:deviceToken";
+const RESEND_COOLDOWN = 60; // seconds
 
 type LoyaltyInfo = {
   accountId: string;
@@ -42,12 +45,16 @@ type AccountData = {
 
 export default function AccountPage() {
   const [phoneInput, setPhoneInput] = useState("");
-  const [nameInput, setNameInput] = useState("");
+  const [nameInput, setNameInput] = useState({ firstName: "", lastName: "" });
   const [signupPhone, setSignupPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AccountData | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [otpPhone, setOtpPhone] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
 
   const hydrateDashboard = useCallback(
     async (customerId: string, phoneE164: string, givenName: string | null, familyName: string | null) => {
@@ -96,61 +103,106 @@ export default function AccountPage() {
     [],
   );
 
-  const loadAccount = useCallback(async (phone: string) => {
+  const sendCode = useCallback(async (phone: string) => {
     setLoading(true);
     setError(null);
     try {
-      const lookupRes = await fetch("/api/customer/lookup", {
+      const res = await fetch("/api/auth/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone }),
       });
-      const lookupJson = await lookupRes.json();
-      if (!lookupRes.ok || !lookupJson.ok) {
-        throw new Error(lookupJson.error ?? "Lookup failed");
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "Failed to send code");
       }
-      if (!lookupJson.found) {
-        // No existing customer — switch the form into sign-up mode so the
-        // user can finish by entering their name. /api/customer will then
-        // create the Square customer and we load the (empty) dashboard.
-        setSignupPhone(phone);
-        setLoading(false);
-        return;
-      }
-
-      const { customerId, givenName, familyName, phoneE164 } = lookupJson;
-      await hydrateDashboard(customerId, phoneE164, givenName, familyName);
+      setOtpPhone(phone);
+      setOtpCode("");
+      setOtpError(false);
+      setResendTimer(RESEND_COOLDOWN);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      setData(null);
     } finally {
       setLoading(false);
     }
-  }, [hydrateDashboard]);
+  }, []);
 
   const signUp = useCallback(
-    async (name: string, phone: string) => {
+    async (name: { firstName: string; lastName: string }, phone: string) => {
       setLoading(true);
       setError(null);
       try {
         const res = await fetch("/api/customer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, phone }),
+          body: JSON.stringify({
+            firstName: name.firstName,
+            lastName: name.lastName,
+            phone,
+          }),
         });
         const json = await res.json();
         if (!res.ok || !json.ok) {
           throw new Error(json.error ?? "Sign up failed");
         }
 
-        const [givenName, ...rest] = name.trim().split(/\s+/);
-        const familyName = rest.join(" ") || null;
-        const phoneE164 = json.phoneE164 ?? phone;
-
-        await hydrateDashboard(json.customerId, phoneE164, givenName, familyName);
+        await hydrateDashboard(
+          json.customerId,
+          json.phoneE164 ?? phone,
+          name.firstName,
+          name.lastName,
+        );
         setSignupPhone(null);
-        setNameInput("");
+        setNameInput({ firstName: "", lastName: "" });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [hydrateDashboard],
+  );
+
+  const verifyCode = useCallback(
+    async (phone: string, code: string) => {
+      setLoading(true);
+      setError(null);
+      setOtpError(false);
+      try {
+        const res = await fetch("/api/auth/verify-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, code }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          if (res.status === 401) {
+            setOtpError(true);
+            setLoading(false);
+            return;
+          }
+          throw new Error(json.error ?? "Verification failed");
+        }
+
+        // Store device token.
+        window.localStorage.setItem(DEVICE_TOKEN_KEY, json.deviceToken);
+
+        if (json.found) {
+          // Existing customer — go straight to dashboard.
+          await hydrateDashboard(
+            json.customerId,
+            json.phoneE164,
+            json.givenName,
+            json.familyName,
+          );
+          setOtpPhone(null);
+        } else {
+          // New user — need name.
+          setSignupPhone(json.phoneE164);
+          setOtpPhone(null);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
@@ -162,45 +214,93 @@ export default function AccountPage() {
   );
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      setPhoneInput(stored);
+    if (resendTimer <= 0) return;
+    const id = setTimeout(() => setResendTimer((t) => t - 1), 1000);
+    return () => clearTimeout(id);
+  }, [resendTimer]);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem(DEVICE_TOKEN_KEY);
+    if (token) {
       setLoading(true);
-      void loadAccount(stored);
+      fetch("/api/auth/check-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceToken: token }),
+      })
+        .then((res) => res.json())
+        .then(async (json) => {
+          if (json.ok && json.valid && json.customerId) {
+            await hydrateDashboard(
+              json.customerId,
+              json.phoneE164,
+              json.givenName,
+              json.familyName,
+            );
+          } else {
+            // Token invalid — clear it.
+            window.localStorage.removeItem(DEVICE_TOKEN_KEY);
+            window.localStorage.removeItem(STORAGE_KEY);
+          }
+        })
+        .catch(() => {
+          window.localStorage.removeItem(DEVICE_TOKEN_KEY);
+          window.localStorage.removeItem(STORAGE_KEY);
+        })
+        .finally(() => {
+          setLoading(false);
+          setHydrated(true);
+        });
+    } else {
+      setHydrated(true);
     }
-    setHydrated(true);
-  }, [loadAccount]);
+  }, [hydrateDashboard]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (signupPhone) {
-      if (!nameInput.trim()) return;
-      void signUp(nameInput.trim(), signupPhone);
+      if (!nameInput.firstName.trim() || !nameInput.lastName.trim()) return;
+      void signUp(nameInput, signupPhone);
       return;
     }
     if (!phoneInput.trim()) return;
-    void loadAccount(phoneInput.trim());
-  }
-
-  function handleBackToPhone() {
-    setSignupPhone(null);
-    setNameInput("");
-    setError(null);
+    void sendCode(phoneInput.trim());
   }
 
   function handleSignOut() {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(DEVICE_TOKEN_KEY);
     setData(null);
     setPhoneInput("");
-    setNameInput("");
+    setNameInput({ firstName: "", lastName: "" });
     setSignupPhone(null);
+    setOtpPhone(null);
+    setOtpCode("");
     setError(null);
   }
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
-      {!hydrated || (!data && loading) ? (
+      {!hydrated || (!data && loading && !otpPhone) ? (
         <LoadingSpinner />
+      ) : otpPhone ? (
+        <OtpScreen
+          phone={otpPhone}
+          code={otpCode}
+          onCodeChange={setOtpCode}
+          onVerify={() => verifyCode(otpPhone, otpCode)}
+          onResend={() => sendCode(otpPhone)}
+          onBack={() => {
+            setOtpPhone(null);
+            setOtpCode("");
+            setError(null);
+            setOtpError(false);
+          }}
+          resendTimer={resendTimer}
+          loading={loading}
+          error={error}
+          otpError={otpError}
+        />
       ) : !data ? (
         <SignInForm
           phone={phoneInput}
@@ -208,7 +308,11 @@ export default function AccountPage() {
           name={nameInput}
           onNameChange={setNameInput}
           signupMode={signupPhone !== null}
-          onBackToPhone={handleBackToPhone}
+          onBackToPhone={() => {
+            setSignupPhone(null);
+            setNameInput({ firstName: "", lastName: "" });
+            setError(null);
+          }}
           onSubmit={handleSubmit}
           loading={loading}
           error={error}
@@ -242,8 +346,8 @@ function SignInForm({
 }: {
   phone: string;
   onPhoneChange: (v: string) => void;
-  name: string;
-  onNameChange: (v: string) => void;
+  name: { firstName: string; lastName: string };
+  onNameChange: (v: { firstName: string; lastName: string }) => void;
   signupMode: boolean;
   onBackToPhone: () => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -262,26 +366,51 @@ function SignInForm({
       </p>
       <form onSubmit={onSubmit} className="space-y-5">
         {signupMode ? (
-          <div>
-            <span className="mb-2 block text-sm font-semibold text-zinc-800">
-              Your Name
-            </span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              placeholder="e.g. Mandy"
-              autoComplete="given-name"
-              autoFocus
-              required
-              className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
-            />
+          <div className="space-y-3">
+            <div
+              className="mb-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700"
+            >
+              <span>&#10003;</span> Phone verified
+            </div>
+            <div>
+              <span className="mb-2 block text-sm font-semibold text-zinc-800">
+                First Name
+              </span>
+              <input
+                type="text"
+                value={name.firstName}
+                onChange={(e) =>
+                  onNameChange({ ...name, firstName: e.target.value })
+                }
+                placeholder="First name"
+                autoComplete="given-name"
+                autoFocus
+                required
+                className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
+              />
+            </div>
+            <div>
+              <span className="mb-2 block text-sm font-semibold text-zinc-800">
+                Last Name
+              </span>
+              <input
+                type="text"
+                value={name.lastName}
+                onChange={(e) =>
+                  onNameChange({ ...name, lastName: e.target.value })
+                }
+                placeholder="Last name"
+                autoComplete="family-name"
+                required
+                className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
+              />
+            </div>
             <button
               type="button"
               onClick={onBackToPhone}
-              className="mt-2 text-xs text-zinc-500 underline-offset-2 hover:underline"
+              className="text-xs text-zinc-500 underline-offset-2 hover:underline"
             >
-              ← Use a different phone number
+              &larr; Use a different phone number
             </button>
           </div>
         ) : (
@@ -319,13 +448,19 @@ function SignInForm({
         >
           {loading
             ? signupMode
-              ? "Creating account…"
-              : "Looking up…"
+              ? "Creating account..."
+              : "Sending code..."
             : signupMode
-              ? "Create Account →"
-              : "View My Account →"}
+              ? "Create Account \u2192"
+              : "Send Verification Code \u2192"}
         </button>
       </form>
+
+      <p className="mt-3 text-center text-xs text-zinc-400">
+        {signupMode
+          ? ""
+          : "We\u2019ll send a 6-digit code to verify your number"}
+      </p>
 
       {error && (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -358,6 +493,103 @@ function SignInForm({
         <PhoneIcon />
         Contact Support
       </a>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  OTP screen                                                         */
+/* ------------------------------------------------------------------ */
+
+function OtpScreen({
+  phone,
+  code,
+  onCodeChange,
+  onVerify,
+  onResend,
+  onBack,
+  resendTimer,
+  loading,
+  error,
+  otpError,
+}: {
+  phone: string;
+  code: string;
+  onCodeChange: (code: string) => void;
+  onVerify: () => void;
+  onResend: () => void;
+  onBack: () => void;
+  resendTimer: number;
+  loading: boolean;
+  error: string | null;
+  otpError: boolean;
+}) {
+  return (
+    <div className="mx-auto max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8">
+      <h2 className="mb-2 text-2xl font-bold text-zinc-900">
+        Enter Verification Code
+      </h2>
+      <p className="mb-6 text-sm leading-relaxed text-zinc-600">
+        Sent to{" "}
+        <span className="font-medium text-zinc-800">{phone}</span>
+      </p>
+
+      <div className="mb-5">
+        <OtpInput
+          value={code}
+          onChange={onCodeChange}
+          disabled={loading}
+          error={otpError}
+        />
+        {otpError && (
+          <p className="mt-2 text-center text-sm text-red-600">
+            Invalid code, please try again
+          </p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onVerify}
+        disabled={loading || code.replace(/\s/g, "").length < 6}
+        className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ backgroundColor: BRAND.primaryColor }}
+      >
+        {loading ? "Verifying\u2026" : "Verify \u2192"}
+      </button>
+
+      <div className="mt-4 text-center text-sm">
+        <span className="text-zinc-500">Didn&apos;t receive it? </span>
+        {resendTimer > 0 ? (
+          <span className="text-zinc-400">
+            Resend in {resendTimer}s
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onResend}
+            disabled={loading}
+            className="font-semibold transition hover:opacity-80"
+            style={{ color: BRAND.primaryColor }}
+          >
+            Resend Code
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-3 block w-full text-center text-xs text-zinc-500 underline-offset-2 hover:underline"
+      >
+        &larr; Use a different number
+      </button>
+
+      {error && !otpError && (
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
