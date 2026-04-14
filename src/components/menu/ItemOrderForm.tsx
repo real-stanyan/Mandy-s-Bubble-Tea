@@ -81,7 +81,38 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
 
   const totalCents = unitPriceCents * BigInt(quantity);
 
+  // Cheese Cream and Brulee are mutually exclusive — selecting one deselects the other.
+  const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
+
+  function getExclusivePartner(
+    list: ModifierList,
+    modifierId: string,
+  ): string | null {
+    const mod = list.modifiers.find((m) => m.id === modifierId);
+    if (!mod || !EXCLUSIVE_TOPPINGS.includes(mod.name)) return null;
+    const partner = list.modifiers.find(
+      (m) => m.id !== modifierId && EXCLUSIVE_TOPPINGS.includes(m.name),
+    );
+    return partner?.id ?? null;
+  }
+
+  function isModifierDisabled(list: ModifierList, modifierId: string): boolean {
+    const selected = selectedByList[list.id] ?? new Set();
+    // Already selected → always allow deselect
+    if (selected.has(modifierId)) return false;
+    // Single-select lists swap on click — never disable
+    if (list.maxSelected === 1) return false;
+    // At max capacity → disable unselected items
+    if (list.maxSelected != null && selected.size >= list.maxSelected)
+      return true;
+    // Exclusive partner is selected → disable this one
+    const partnerId = getExclusivePartner(list, modifierId);
+    if (partnerId && selected.has(partnerId)) return true;
+    return false;
+  }
+
   function toggleModifier(list: ModifierList, modifierId: string) {
+    if (isModifierDisabled(list, modifierId)) return;
     setSelectedByList((prev) => {
       const current = new Set(prev[list.id] ?? []);
       const isSingleSelect = list.maxSelected === 1;
@@ -89,6 +120,9 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
         current.delete(modifierId);
       } else {
         if (isSingleSelect) current.clear();
+        // Remove exclusive partner if present
+        const partnerId = getExclusivePartner(list, modifierId);
+        if (partnerId) current.delete(partnerId);
         current.add(modifierId);
       }
       return { ...prev, [list.id]: current };
@@ -176,15 +210,19 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
           <div className="flex flex-wrap gap-2">
             {ml.modifiers.map((mod) => {
               const selected = selectedByList[ml.id]?.has(mod.id) ?? false;
+              const disabled = isModifierDisabled(ml, mod.id);
               return (
                 <button
                   key={mod.id}
                   type="button"
                   onClick={() => toggleModifier(ml, mod.id)}
+                  disabled={disabled}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition ${
                     selected
                       ? "border-transparent text-white"
-                      : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
+                      : disabled
+                        ? "cursor-not-allowed border-black/5 bg-zinc-50 text-zinc-300"
+                        : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
                   }`}
                   style={
                     selected
@@ -192,23 +230,22 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                       : undefined
                   }
                 >
-                  {selected && (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={selected ? "" : "invisible"}
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
                   {mod.name}
                   {priceLabel(mod) && (
-                    <span className={selected ? "opacity-80" : "text-zinc-400"}>
+                    <span className={selected ? "opacity-80" : disabled ? "text-zinc-300" : "text-zinc-400"}>
                       {priceLabel(mod)}
                     </span>
                   )}

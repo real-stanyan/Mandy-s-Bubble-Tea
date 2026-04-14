@@ -383,11 +383,20 @@ export function getItemDetail(
       return { ...mod, onByDefault: override };
     });
 
+    let minSelected = resolveMin(ref.minOverride, base.minSelected);
+    let maxSelected = resolveMax(ref.maxOverride, base.maxSelected);
+
+    // TOPPING list: allow up to 3 selections
+    if (base.name.toUpperCase() === "TOPPING") {
+      maxSelected = 3;
+      minSelected = 0;
+    }
+
     modifierLists.push({
       ...base,
       modifiers,
-      minSelected: resolveMin(ref.minOverride, base.minSelected),
-      maxSelected: resolveMax(ref.maxOverride, base.maxSelected),
+      minSelected,
+      maxSelected,
     });
   }
 

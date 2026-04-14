@@ -49,19 +49,28 @@ export async function GET(
           return { ...mod, onByDefault: override };
         });
 
+        let minSelected =
+          ref.minOverride != null && ref.minOverride >= 0
+            ? ref.minOverride
+            : base.minSelected;
+        let maxSelected =
+          ref.maxOverride != null && ref.maxOverride >= 0
+            ? ref.maxOverride === 0
+              ? null
+              : ref.maxOverride
+            : base.maxSelected;
+
+        // TOPPING list: allow up to 3 selections
+        if (base.name.toUpperCase() === "TOPPING") {
+          maxSelected = 3;
+          minSelected = 0;
+        }
+
         return {
           ...base,
           modifiers,
-          minSelected:
-            ref.minOverride != null && ref.minOverride >= 0
-              ? ref.minOverride
-              : base.minSelected,
-          maxSelected:
-            ref.maxOverride != null && ref.maxOverride >= 0
-              ? ref.maxOverride === 0
-                ? null
-                : ref.maxOverride
-              : base.maxSelected,
+          minSelected,
+          maxSelected,
         };
       })
       .filter((ml) => ml != null);
