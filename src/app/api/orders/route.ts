@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
+import { nextOnlineOrderNumber } from "@/lib/supabase";
 
 // Creates a Square order from the client cart. Prices are trusted to
 // Square via catalogObjectId references — we send variation IDs (and
@@ -94,11 +95,18 @@ export async function POST(request: Request) {
    // so we use "now" as a reasonable approximation.
   const pickupAt = new Date().toISOString();
 
-  // 3-digit pickup number (100–999) shown to the customer on the
-  // confirmation page AND written to Square's ticketName so staff see
-  // the same number on the POS / Dashboard / kitchen printer when
-  // matching orders at the counter.
-  const pickupNumber = String(Math.floor(Math.random() * 900) + 100);
+  // Daily online order number (OL800, OL801, …) shown to the customer
+  // on the confirmation page AND written to Square's ticketName so
+  // staff see the same number on the POS / Dashboard / kitchen printer.
+  let pickupNumber: string;
+  try {
+    pickupNumber = await nextOnlineOrderNumber();
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: "Failed to generate order number" },
+      { status: 500 },
+    );
+  }
 
   try {
     // Note: loyalty rewards are NOT attached here. Square's order
@@ -111,7 +119,8 @@ export async function POST(request: Request) {
       order: {
         locationId: SQUARE_LOCATION_ID,
         customerId: body.customerId,
-        ticketName: `#${pickupNumber}`,
+        referenceId: pickupNumber,
+        ticketName: pickupNumber,
         lineItems,
         fulfillments: [
           {
@@ -125,7 +134,7 @@ export async function POST(request: Request) {
                 displayName: body.recipientName,
                 phoneNumber: body.recipientPhone,
               },
-              note: body.note || undefined,
+              note: [pickupNumber, body.note].filter(Boolean).join(" — "),
             },
           },
         ],

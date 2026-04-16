@@ -171,7 +171,16 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
 
   return (
     <div>
-      {/* Variations — pill toggle */}
+      {/* Size — single fixed option */}
+      <Section title="Size">
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-400">
+            Large 700ml
+          </span>
+        </div>
+      </Section>
+
+      {/* Variations — pill toggle (hidden when single variation) */}
       {item.variations.length > 1 && (
         <Section title="Select Size">
           <div className="flex flex-wrap gap-2">

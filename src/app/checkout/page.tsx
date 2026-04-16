@@ -90,6 +90,8 @@ export default function CheckoutPage() {
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applePayRequestRef = useRef<any>(null);
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
 
@@ -374,28 +376,24 @@ export default function CheckoutPage() {
 
   // Initialize Apple Pay. The SDK checks device/browser support
   // internally — if not available, applePay() throws and we just
-  // leave the button hidden. We need the payments instance to exist
-  // first (created in the card init above).
+  // leave the button hidden. We wait for cardReady so that
+  // paymentsRef is guaranteed to be populated.
   useEffect(() => {
-    if (!sdkReady || !needsCard) return;
+    if (!cardReady || !needsCard) return;
     if (applePayRef.current) return;
 
     let cancelled = false;
     (async () => {
       try {
-        // Wait for paymentsRef to be populated by the card init effect.
-        // If it's not ready yet, the next render cycle will retry.
         const payments = paymentsRef.current;
         if (!payments) return;
 
         const paymentRequest = payments.paymentRequest({
           countryCode: "AU",
           currencyCode: "AUD",
-          total: {
-            amount: (Number(subtotal) / 100).toFixed(2),
-            label: BRAND.name,
-          },
+          total: { amount: "1.00", label: BRAND.name },
         });
+        applePayRequestRef.current = paymentRequest;
         const ap = await payments.applePay(paymentRequest);
         if (cancelled) return;
         // Apple Pay has no attach() — it uses the native iOS/Safari
@@ -412,9 +410,10 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true;
       applePayRef.current = null;
+      applePayRequestRef.current = null;
       setApplePayAvailable(false);
     };
-  }, [sdkReady, needsCard, cardReady, subtotal]);
+  }, [cardReady, needsCard]);
 
   // Initialize Google Pay.
   useEffect(() => {
@@ -536,6 +535,16 @@ export default function CheckoutPage() {
           ? applePayRef.current
           : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet payment is not ready.");
+        // Update Apple Pay payment request with the real amount before
+        // tokenizing so the native payment sheet shows the correct total.
+        if (payMethod === "apple" && applePayRequestRef.current?.update) {
+          applePayRequestRef.current.update({
+            total: {
+              amount: (Number(subtotal) / 100).toFixed(2),
+              label: BRAND.name,
+            },
+          });
+        }
         const tokenResult = await walletInstance.tokenize();
         if (tokenResult.status !== "OK" || !tokenResult.token) {
           const detail =

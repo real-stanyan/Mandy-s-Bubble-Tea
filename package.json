@@ -10,6 +10,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.103.2",
     "next": "16.2.3",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",
