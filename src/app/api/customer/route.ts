@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient, ensureReferenceId } from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
+import { grantWelcomeDiscount } from "@/lib/supabase";
 
 // Phone-based customer lookup. Given {name, phone}, finds an existing
 // Square customer by exact phone match, or creates a new one.
@@ -97,6 +98,10 @@ export async function POST(request: Request) {
         { status: 502 },
       );
     }
+
+    // Fire-and-forget grant. grantWelcomeDiscount swallows its own
+    // errors so signup never fails because of Supabase.
+    await grantWelcomeDiscount(newId);
 
     return NextResponse.json({
       ok: true,
