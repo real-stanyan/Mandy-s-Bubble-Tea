@@ -720,6 +720,13 @@ function AccountDashboard({
           </div>
 
           <div className="flex items-center gap-2">
+            <a
+              href="/menu"
+              className="rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+              style={{ backgroundColor: BRAND.primaryColor }}
+            >
+              Order
+            </a>
             <button
               type="button"
               onClick={onSignOut}
