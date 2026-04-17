@@ -22,3 +22,70 @@ export async function nextOnlineOrderNumber(): Promise<string> {
   if (error) throw new Error(`Supabase order counter failed: ${error.message}`);
   return data as string;
 }
+
+/**
+ * Insert a welcome_discounts row for a newly-created customer.
+ * Idempotent via upsert with ignoreDuplicates. Called after a fresh
+ * Square customer is created in /api/customer. Swallows errors — must
+ * never block signup.
+ */
+export async function grantWelcomeDiscount(customerId: string): Promise<void> {
+  try {
+    const { error } = await getSupabase()
+      .from("welcome_discounts")
+      .upsert(
+        { customer_id: customerId },
+        { onConflict: "customer_id", ignoreDuplicates: true },
+      );
+    if (error) throw error;
+  } catch (err) {
+    console.error("[welcome-discount] grant failed:", err);
+  }
+}
+
+/**
+ * Returns whether the customer has an unused welcome-discount row.
+ * Returns { available: false, percentage: 0 } on any error (fail safe).
+ */
+export async function getWelcomeDiscountStatus(
+  customerId: string,
+): Promise<{ available: boolean; percentage: number }> {
+  try {
+    const { data, error } = await getSupabase()
+      .from("welcome_discounts")
+      .select("state,percentage")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return { available: false, percentage: 0 };
+    return {
+      available: data.state === "unused",
+      percentage: data.percentage ?? 30,
+    };
+  } catch (err) {
+    console.error("[welcome-discount] status failed:", err);
+    return { available: false, percentage: 0 };
+  }
+}
+
+/**
+ * Atomic consume via SQL function. Returns true iff this call was the
+ * one that flipped the row from unused to used. Already-used, missing,
+ * or errored → false (callers must not double-credit).
+ */
+export async function consumeWelcomeDiscount(
+  customerId: string,
+  orderId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await getSupabase().rpc(
+      "consume_welcome_discount",
+      { p_customer_id: customerId, p_order_id: orderId },
+    );
+    if (error) throw error;
+    return Array.isArray(data) && data.length > 0 && data[0]?.consumed === true;
+  } catch (err) {
+    console.error("[welcome-discount] consume failed:", err);
+    return false;
+  }
+}
