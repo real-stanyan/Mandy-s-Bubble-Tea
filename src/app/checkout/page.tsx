@@ -57,7 +57,6 @@ export default function CheckoutPage() {
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
-  const [applePayDebug, setApplePayDebug] = useState<string | null>(null);
   const [googlePayAvailable, setGooglePayAvailable] = useState(false);
   const walletAvailable = applePayAvailable || googlePayAvailable;
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
@@ -404,9 +403,7 @@ export default function CheckoutPage() {
       } catch (err) {
         // Apple Pay not supported on this device/browser — expected on
         // non-Safari or when HTTPS is unavailable (localhost).
-        const msg = err instanceof Error ? err.message : String(err);
-        console.info("[apple-pay]", msg);
-        setApplePayDebug(msg);
+        console.info("[apple-pay]", err instanceof Error ? err.message : err);
       }
     })();
 
@@ -825,18 +822,6 @@ export default function CheckoutPage() {
                 <h3 className="mb-3 text-base font-bold text-zinc-900 sm:mb-4 sm:text-lg">
                   Payment Method
                 </h3>
-
-                {/* DEBUG: Apple Pay init status — remove after debugging */}
-                {applePayDebug && (
-                  <p className="mb-3 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-800 break-all">
-                    [Apple Pay debug] {applePayDebug}
-                  </p>
-                )}
-                {!applePayAvailable && !applePayDebug && cardReady && (
-                  <p className="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-                    [Apple Pay debug] Initializing…
-                  </p>
-                )}
 
                 {/* Apple Pay — official-style black button */}
                 {applePayAvailable && (
