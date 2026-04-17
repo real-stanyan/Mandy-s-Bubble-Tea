@@ -10,6 +10,7 @@ const MemberQrCard = dynamic(
   { ssr: false },
 );
 import { OtpInput } from "@/components/account/OtpInput";
+import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
 
 import { formatPrice } from "@/lib/utils";
 
@@ -33,9 +34,43 @@ type OrderHistoryItem = {
   id: string;
   createdAt: string | null;
   state: string | null;
+  fulfillmentState: string | null;
   totalCents: string;
   itemSummary: string;
   lineCount: number;
+};
+
+// Staff move an order to "Ready" by flipping the pickup fulfillment to
+// PREPARED; the order's own state stays OPEN. Promote that combo so the
+// customer sees a green "Ready" badge.
+function effectiveState(
+  state: string | null,
+  fulfillmentState: string | null,
+): string {
+  if (state === "OPEN" && fulfillmentState === "PREPARED") return "READY";
+  return state ?? "";
+}
+
+const STATE_STYLES: Record<
+  string,
+  { label: string; className: string }
+> = {
+  OPEN: {
+    label: "In Progress",
+    className: "bg-orange-50 text-orange-700 border-orange-200",
+  },
+  READY: {
+    label: "Ready",
+    className: "bg-green-50 text-green-700 border-green-200",
+  },
+  COMPLETED: {
+    label: "Completed",
+    className: "bg-zinc-50 text-zinc-600 border-zinc-200",
+  },
+  CANCELED: {
+    label: "Cancelled",
+    className: "bg-red-50 text-red-700 border-red-200",
+  },
 };
 
 type AccountData = {
@@ -45,6 +80,7 @@ type AccountData = {
   phoneE164: string;
   loyalty: LoyaltyInfo;
   orders: OrderHistoryItem[];
+  welcomeDiscount: { available: boolean; percentage: number };
 };
 
 export default function AccountPage() {
@@ -62,7 +98,7 @@ export default function AccountPage() {
 
   const hydrateDashboard = useCallback(
     async (customerId: string, phoneE164: string, givenName: string | null, familyName: string | null) => {
-      const [loyaltyRes, ordersRes] = await Promise.all([
+      const [loyaltyRes, ordersRes, welcomeRes] = await Promise.all([
         fetch("/api/loyalty/account", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -73,10 +109,14 @@ export default function AccountPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ customerId }),
         }),
+        fetch(
+          `/api/welcome-discount/status?customerId=${encodeURIComponent(customerId)}`,
+        ),
       ]);
 
       const loyaltyJson = await loyaltyRes.json();
       const ordersJson = await ordersRes.json();
+      const welcomeJson = await welcomeRes.json().catch(() => null);
       if (!loyaltyRes.ok || !loyaltyJson.ok) {
         throw new Error(loyaltyJson.error ?? "Loyalty lookup failed");
       }
@@ -96,6 +136,10 @@ export default function AccountPage() {
           starsPerReward: loyaltyJson.starsPerReward ?? LOYALTY.starsPerReward,
         },
         orders: ordersJson.orders ?? [],
+        welcomeDiscount: {
+          available: !!welcomeJson?.available,
+          percentage: welcomeJson?.percentage ?? 0,
+        },
       });
 
       window.localStorage.setItem(STORAGE_KEY, phoneE164);
@@ -727,6 +771,20 @@ function AccountDashboard({
             >
               Order
             </a>
+            <a
+              href="/account/promotions"
+              className="relative rounded-full border border-black/15 px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+            >
+              Promotions
+              {rewardsAvailable > 0 && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: BRAND.primaryColor }}
+                >
+                  {rewardsAvailable}
+                </span>
+              )}
+            </a>
             <button
               type="button"
               onClick={onSignOut}
@@ -743,6 +801,10 @@ function AccountDashboard({
         customerId={data.customerId}
         phoneE164={data.phoneE164}
       />
+
+      {data.welcomeDiscount.available && (
+        <WelcomeDiscountCard percentage={data.welcomeDiscount.percentage} />
+      )}
 
       {/* ── Loyalty card ── */}
       <div>
@@ -803,47 +865,106 @@ function AccountDashboard({
 
 
       {/* ── Order history ── */}
-      <section>
-        <div className="mb-5 flex items-baseline justify-between">
-          <h2 className="text-2xl font-bold tracking-tight text-zinc-900">
-            {showAllOrders ? "Order History" : "Recent Order History"}
-          </h2>
-          {data.orders.length > RECENT_ORDER_LIMIT && (
-            <button
-              type="button"
-              onClick={() => setShowAllOrders((prev) => !prev)}
-              className="text-sm font-semibold transition hover:opacity-80"
-              style={{ color: BRAND.primaryColor }}
-            >
-              {showAllOrders ? "Show Recent" : "View All Orders"}
-            </button>
-          )}
-        </div>
+      <OrderHistorySections
+        orders={data.orders}
+        showAllPast={showAllOrders}
+        onToggleShowAll={() => setShowAllOrders((prev) => !prev)}
+        refreshing={refreshing}
+      />
+    </div>
+  );
+}
 
-        {refreshing && data.orders.length === 0 ? (
-          <p className="text-sm text-zinc-500">Loading orders…</p>
-        ) : data.orders.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-black/15 p-10 text-center text-sm text-zinc-500">
-            No orders yet.{" "}
-            <Link
-              href="/menu"
-              className="font-medium underline"
-              style={{ color: BRAND.primaryColor }}
-            >
-              Browse the menu
-            </Link>
-          </div>
-        ) : (
+/* ------------------------------------------------------------------ */
+/*  Order history sections (In Progress / Past Orders)                 */
+/* ------------------------------------------------------------------ */
+
+function OrderHistorySections({
+  orders,
+  showAllPast,
+  onToggleShowAll,
+  refreshing,
+}: {
+  orders: OrderHistoryItem[];
+  showAllPast: boolean;
+  onToggleShowAll: () => void;
+  refreshing: boolean;
+}) {
+  const inProgress = orders.filter((o) => o.state === "OPEN");
+  const past = orders.filter((o) => o.state !== "OPEN");
+
+  if (refreshing && orders.length === 0) {
+    return (
+      <section>
+        <h2 className="mb-5 text-2xl font-bold tracking-tight text-zinc-900">
+          Orders
+        </h2>
+        <p className="text-sm text-zinc-500">Loading orders…</p>
+      </section>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <section>
+        <h2 className="mb-5 text-2xl font-bold tracking-tight text-zinc-900">
+          Orders
+        </h2>
+        <div className="rounded-2xl border border-dashed border-black/15 p-10 text-center text-sm text-zinc-500">
+          No orders yet.{" "}
+          <Link
+            href="/menu"
+            className="font-medium underline"
+            style={{ color: BRAND.primaryColor }}
+          >
+            Browse the menu
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  const visiblePast = showAllPast ? past : past.slice(0, RECENT_ORDER_LIMIT);
+
+  return (
+    <div className="space-y-8">
+      {inProgress.length > 0 && (
+        <section>
+          <h2 className="mb-5 text-2xl font-bold tracking-tight text-zinc-900">
+            In Progress
+          </h2>
           <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-            {(showAllOrders
-              ? data.orders
-              : data.orders.slice(0, RECENT_ORDER_LIMIT)
-            ).map((order) => (
+            {inProgress.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {past.length > 0 && (
+        <section>
+          <div className="mb-5 flex items-baseline justify-between">
+            <h2 className="text-2xl font-bold tracking-tight text-zinc-900">
+              Past Orders
+            </h2>
+            {past.length > RECENT_ORDER_LIMIT && (
+              <button
+                type="button"
+                onClick={onToggleShowAll}
+                className="text-sm font-semibold transition hover:opacity-80"
+                style={{ color: BRAND.primaryColor }}
+              >
+                {showAllPast ? "Show Recent" : "View All Orders"}
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+            {visiblePast.map((order) => (
+              <OrderCard key={order.id} order={order} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -853,10 +974,8 @@ function AccountDashboard({
 /* ------------------------------------------------------------------ */
 
 function OrderCard({ order }: { order: OrderHistoryItem }) {
-  const stateBadgeColor =
-    order.state === "COMPLETED"
-      ? "bg-green-50 text-green-700 border-green-200"
-      : "bg-zinc-50 text-zinc-600 border-zinc-200";
+  const stateKey = effectiveState(order.state, order.fulfillmentState);
+  const stateInfo = STATE_STYLES[stateKey];
 
   return (
     <Link
@@ -869,11 +988,11 @@ function OrderCard({ order }: { order: OrderHistoryItem }) {
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
             {formatDate(order.createdAt)}
           </p>
-          {order.state && (
+          {stateInfo && (
             <span
-              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeColor}`}
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateInfo.className}`}
             >
-              {order.state.charAt(0) + order.state.slice(1).toLowerCase()}
+              {stateInfo.label}
             </span>
           )}
         </div>
