@@ -48,7 +48,7 @@ export async function POST(request: Request) {
             // Square dashboard hides DRAFT orders (abandoned carts that
             // never completed payment). Match that by only returning
             // OPEN (in-progress) and COMPLETED (fulfilled) orders.
-            stateFilter: { states: ["OPEN", "COMPLETED"] },
+            stateFilter: { states: ["OPEN", "COMPLETED", "CANCELED"] },
           },
           sort: {
             sortField: "CREATED_AT",
@@ -90,13 +90,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // Square dashboard hides orders that never got a payment (e.g. the
-    // app/web created an order but the customer bailed before Apple Pay
-    // / Google Pay / card charged). Those still come back from the
-    // search with state=OPEN; filter by tender presence instead of
-    // state to match what the shop owner sees.
+    // Hide abandoned orders: orders in OPEN state with no tenders are
+    // carts where the customer bailed before paying. COMPLETED orders
+    // without tenders are valid — they were fully covered by a loyalty
+    // reward (orders.pay with empty paymentIds). CANCELED orders are
+    // also shown so users can see their full history.
     const paidOrders = (response.orders ?? []).filter(
-      (o) => (o.tenders ?? []).length > 0,
+      (o) =>
+        (o.tenders ?? []).length > 0 ||
+        o.state === "COMPLETED" ||
+        o.state === "CANCELED",
     );
 
     const orders = paidOrders.map((order) => {
@@ -133,6 +136,7 @@ export async function POST(request: Request) {
 
       return {
         id: order.id,
+        referenceId: order.referenceId ?? order.ticketName ?? null,
         createdAt: order.createdAt ?? null,
         state: order.state ?? null,
         fulfillmentState: pickup?.state ?? null,
