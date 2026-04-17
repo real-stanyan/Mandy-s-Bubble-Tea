@@ -90,17 +90,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Hide abandoned orders: orders in OPEN state with no tenders are
-    // carts where the customer bailed before paying. COMPLETED orders
-    // without tenders are valid — they were fully covered by a loyalty
-    // reward (orders.pay with empty paymentIds). CANCELED orders are
-    // also shown so users can see their full history.
-    const paidOrders = (response.orders ?? []).filter(
-      (o) =>
-        (o.tenders ?? []).length > 0 ||
-        o.state === "COMPLETED" ||
-        o.state === "CANCELED",
-    );
+    // Hide abandoned orders. The only reliable "was this paid?" signal
+    // across all payment paths is netAmountDueMoney:
+    // - Card payment: due=0, tenders present
+    // - Loyalty reward covers full amount: due=0, tenders=[], state stays
+    //   OPEN with closedAt=null until staff complete the fulfillment
+    //   (so tenders/closedAt/state alone all miss this case)
+    // - Partial loyalty + card: due=0, tenders present
+    // - Abandoned cart: due > 0, tenders=[]
+    // Also keep CANCELED orders so users see their full history.
+    const paidOrders = (response.orders ?? []).filter((o) => {
+      if (o.state === "CANCELED") return true;
+      const total = o.totalMoney?.amount ?? 0n;
+      const due = o.netAmountDueMoney?.amount ?? total;
+      return due === 0n;
+    });
 
     const orders = paidOrders.map((order) => {
       const rawLines = order.lineItems ?? [];
