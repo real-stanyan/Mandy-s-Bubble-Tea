@@ -6,6 +6,7 @@ import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { normalizeAuPhone } from "@/lib/phone";
+import { consumeWelcomeDiscount } from "@/lib/supabase";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -196,11 +197,27 @@ export async function POST(request: Request) {
       }
     }
 
+    // Consume the welcome discount if this order had one applied.
+    // We inspect the order we already fetched (orderResponse.order.discounts)
+    // instead of trusting the client, so this runs for every paid order
+    // whose Square order carries the "welcome-discount" uid.
+    let welcomeDiscountConsumed = false;
+    const hadWelcomeDiscount = (order.discounts ?? []).some(
+      (d) => d.uid === "welcome-discount",
+    );
+    if (hadWelcomeDiscount && body.customerId) {
+      welcomeDiscountConsumed = await consumeWelcomeDiscount(
+        body.customerId,
+        body.orderId,
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       paymentId,
       status: paymentStatus,
       loyaltyAccrued,
+      welcomeDiscountConsumed,
       payment: paymentForResponse,
     });
   } catch (error) {
