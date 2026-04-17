@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
-import { nextOnlineOrderNumber } from "@/lib/supabase";
+import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 
 // Creates a Square order from the client cart. Prices are trusted to
 // Square via catalogObjectId references — we send variation IDs (and
@@ -30,6 +30,7 @@ type CreateOrderBody = {
   recipientName: string;
   recipientPhone: string; // already E.164-ish (from /api/customer flow)
   note?: string;
+  applyWelcomeDiscount?: boolean;
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -109,6 +110,26 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Server-verify welcome discount before attaching it. Client is NOT
+    // trusted — a request with applyWelcomeDiscount:true but no unused
+    // row in Supabase is silently treated as "no discount".
+    let welcomeDiscounts:
+      | Array<{ uid: string; name: string; percentage: string; scope: "ORDER" }>
+      | undefined;
+    if (body.applyWelcomeDiscount) {
+      const status = await getWelcomeDiscountStatus(body.customerId);
+      if (status.available) {
+        welcomeDiscounts = [
+          {
+            uid: "welcome-discount",
+            name: "Welcome 30% Off",
+            percentage: String(status.percentage || 30),
+            scope: "ORDER",
+          },
+        ];
+      }
+    }
+
     // Note: loyalty rewards are NOT attached here. Square's order
     // create request has no loyaltyRewards field — the discount is
     // applied by calling CreateLoyaltyReward with this orderId
@@ -122,6 +143,7 @@ export async function POST(request: Request) {
         referenceId: pickupNumber,
         ticketName: pickupNumber,
         lineItems,
+        discounts: welcomeDiscounts,
         fulfillments: [
           {
             type: "PICKUP",
