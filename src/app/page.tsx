@@ -4,6 +4,7 @@ import { getMenu, type MenuItem } from "@/lib/catalog";
 import { BRAND, BUSINESS } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
+import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
 
 // Branded home page for Mandy's Bubble Tea. Server-rendered so
 // featured categories come straight from Square without any client
@@ -151,6 +152,7 @@ export default async function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
+      <WelcomeDiscountBanner />
       <Hero imageUrl={heroImageUrl} review={review} />
       <FeaturedProducts items={featuredItems} />
       <OurStory />
