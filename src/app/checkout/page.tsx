@@ -715,37 +715,38 @@ export default function CheckoutPage() {
       />
 
       <form
+        id="checkout-form"
         onSubmit={handleSubmit}
         noValidate
-        className="grid gap-6 sm:gap-8 lg:grid-cols-[1fr_380px]"
+        className="grid gap-5 sm:gap-8 lg:grid-cols-[1fr_380px] pb-24 lg:pb-0"
       >
         {/* ── Left column ── */}
-        <div className="space-y-6">
-          {/* Rewards Progress */}
+        <div className="space-y-5 sm:space-y-6">
+          {/* Rewards Progress — compact on mobile */}
           <section
-            className="relative overflow-hidden rounded-2xl p-5"
+            className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
             style={{ backgroundColor: BRAND.accentColor }}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-base font-bold text-zinc-900">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-zinc-900 sm:text-base">
                   Rewards Progress
                 </h3>
-                <p className="mt-1 text-sm text-zinc-600">
+                <p className="mt-0.5 text-xs text-zinc-600 sm:mt-1 sm:text-sm">
                   {loyaltyBalance > 0
-                    ? `You have ${loyaltyBalance} stars. This order will earn you ${starsThisOrder} more star${starsThisOrder !== 1 ? "s" : ""}!`
-                    : `This order will earn you ${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""}!`}
+                    ? `${loyaltyBalance} stars · +${starsThisOrder} this order`
+                    : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} this order`}
                 </p>
               </div>
               <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white sm:h-9 sm:w-9"
                 style={{ backgroundColor: BRAND.primaryColor }}
               >
                 <StarIcon />
               </span>
             </div>
             {/* Progress bar */}
-            <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-white/60">
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 sm:mt-4 sm:h-2.5">
               <div
                 className="h-full rounded-full transition-all"
                 style={{
@@ -754,28 +755,59 @@ export default function CheckoutPage() {
                 }}
               />
             </div>
-            <div className="mt-2 flex justify-between text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:mt-2 sm:text-[11px]">
               <span>{loyaltyBalance} Stars</span>
-              <span>{loyaltyTotal} Stars for Free Drink</span>
+              <span>{loyaltyTotal} for Free Drink</span>
             </div>
 
             {/* Redeem checkbox */}
             {canRedeem && (
-                <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-3">
-                  <input
-                    type="checkbox"
-                    checked={useReward}
-                    onChange={(e) => setUseReward(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  <span
-                    className="text-sm font-semibold"
-                    style={{ color: BRAND.primaryColor }}
-                  >
-                    Redeem free drink ({loyaltyLookup.starsPerReward} stars)
-                  </span>
-                </label>
-              )}
+              <label className="mt-2.5 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-2.5 sm:mt-3 sm:p-3">
+                <input
+                  type="checkbox"
+                  checked={useReward}
+                  onChange={(e) => setUseReward(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: BRAND.primaryColor }}
+                >
+                  Redeem free drink ({loyaltyLookup.starsPerReward} stars)
+                </span>
+              </label>
+            )}
+          </section>
+
+          {/* ── Mobile: Order Summary (collapsible) ── */}
+          <section className="lg:hidden">
+            <details className="rounded-2xl border border-black/10 bg-white" open>
+              <summary className="flex cursor-pointer items-center justify-between p-4 text-sm font-bold text-zinc-900">
+                <span>Order Summary ({lines.length} item{lines.length !== 1 ? "s" : ""})</span>
+                <span className="font-bold" style={{ color: BRAND.primaryColor }}>
+                  {canRedeem && useReward
+                    ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
+                    : formatPrice(subtotal)}
+                </span>
+              </summary>
+              <div className="border-t border-black/10 p-4">
+                <ul className="space-y-4">
+                  {lines.map((line) => (
+                    <SummaryRow key={line.id} line={line} />
+                  ))}
+                </ul>
+                {canRedeem && useReward && (
+                  <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm">
+                    <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                      Free Drink Reward
+                    </span>
+                    <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                      −{formatPrice(rewardDiscount)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </details>
           </section>
 
           {/* Hidden phone field — auto-filled from localStorage */}
@@ -784,221 +816,156 @@ export default function CheckoutPage() {
           {/* Free drink banner — shown when reward fully covers the order */}
           {canRedeemFully && useReward && (
             <section
-              className="rounded-2xl border-2 p-5"
+              className="rounded-2xl border-2 p-4 sm:p-5"
               style={{ borderColor: BRAND.primaryColor }}
             >
               <p
-                className="text-center text-lg font-bold"
+                className="text-center text-base font-bold sm:text-lg"
                 style={{ color: BRAND.primaryColor }}
               >
                 This drink is on us! 🎉
               </p>
-              <p className="mt-1 text-center text-sm text-zinc-600">
-                Your {loyaltyTotal} stars will be redeemed for a free drink — no payment needed.
+              <p className="mt-1 text-center text-xs text-zinc-600 sm:text-sm">
+                Your {loyaltyTotal} stars will be redeemed — no payment needed.
               </p>
-
-              {/* Name field — still needed for order recipient */}
-              <label className="mt-4 block">
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
-                </span>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
-                  placeholder="Your name"
-                  autoComplete="name"
-                  required
-                  className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
-                />
-              </label>
             </section>
           )}
+
+          {/* ── Your Details — shared Name / Phone / OTP ── */}
+          <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+            <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
+              Your Details
+            </h3>
+            <label className="mb-3 block sm:mb-4">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
+              </span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
+                placeholder="Your name"
+                autoComplete="name"
+                required
+                className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
+              />
+            </label>
+            {!phoneVerified && (
+              <label className="mb-3 block sm:mb-4">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
+                </span>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(v) => {
+                    setPhone(v.target.value);
+                    setShowFieldErrors(false);
+                    setPhoneVerified(false);
+                    setOtpPhone(null);
+                    if (loyaltyLookup.status !== "idle") {
+                      setLoyaltyLookup({ status: "idle" });
+                      setUseReward(false);
+                    }
+                  }}
+                  onBlur={() => lookupLoyalty()}
+                  placeholder="0404 123 456"
+                  autoComplete="tel"
+                  required
+                  className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
+                />
+              </label>
+            )}
+            <CheckoutOtpSection
+              phone={phone}
+              phoneVerified={phoneVerified}
+              otpPhone={otpPhone}
+              otpCode={otpCode}
+              otpError={otpError}
+              otpLoading={otpLoading}
+              resendTimer={resendTimer}
+              onSend={() => sendCheckoutOtp()}
+              onVerify={verifyCheckoutOtp}
+              onCodeChange={setOtpCode}
+              onResend={() => sendCheckoutOtp()}
+            />
+          </section>
 
           {/* Payment Method — hidden when the reward fully covers the order */}
           {!(canRedeemFully && useReward) && (
             <>
               <section>
-                <h3 className="mb-3 text-base font-bold text-zinc-900 sm:mb-4 sm:text-lg">
+                <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
                   Payment Method
                 </h3>
 
-                {/* Apple Pay — official-style black button */}
-                {applePayAvailable && (
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("apple")}
-                    className={`mb-3 flex w-full items-center justify-center gap-0.5 rounded-xl py-3.5 text-base transition sm:mb-4 ${
-                      payMethod === "apple"
-                        ? "bg-black text-white ring-2 ring-black ring-offset-2"
-                        : "bg-black/85 text-white/90 hover:bg-black"
-                    }`}
-                  >
-                    Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span>
-                  </button>
-                )}
+                <div className="flex flex-col gap-2.5 sm:gap-3">
+                  {/* Apple Pay — official-style black button */}
+                  {applePayAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("apple")}
+                      className={`flex w-full items-center justify-center gap-0.5 rounded-xl py-3 text-sm transition sm:py-3.5 sm:text-base ${
+                        payMethod === "apple"
+                          ? "bg-black text-white ring-2 ring-black ring-offset-2"
+                          : "bg-black/85 text-white/90 hover:bg-black"
+                      }`}
+                    >
+                      Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span>
+                    </button>
+                  )}
 
-                {/* Google Pay — official-style dark button */}
-                {googlePayAvailable && (
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("google")}
-                    className={`mb-3 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition sm:mb-4 ${
-                      payMethod === "google"
-                        ? "bg-[#3c4043] text-white ring-2 ring-[#3c4043] ring-offset-2"
-                        : "bg-[#3c4043]/85 text-white/90 hover:bg-[#3c4043]"
-                    }`}
-                  >
-                    Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span>
-                  </button>
-                )}
+                  {/* Google Pay — official-style dark button */}
+                  {googlePayAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("google")}
+                      className={`flex w-full items-center justify-center gap-1 rounded-xl py-3 text-sm transition sm:py-3.5 sm:text-base ${
+                        payMethod === "google"
+                          ? "bg-[#3c4043] text-white ring-2 ring-[#3c4043] ring-offset-2"
+                          : "bg-[#3c4043]/85 text-white/90 hover:bg-[#3c4043]"
+                      }`}
+                    >
+                      Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span>
+                    </button>
+                  )}
 
-                {/* Card tab */}
-                {walletAvailable && (
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("card")}
-                    className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-full border-2 py-3 text-sm font-semibold transition sm:mb-5"
-                    style={
-                      payMethod === "card"
-                        ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
-                        : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
-                    }
-                  >
-                    <CardIcon /> Pay with Card
-                  </button>
-                )}
+                  {/* Card tab */}
+                  {walletAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("card")}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-full border-2 py-2.5 text-sm font-semibold transition sm:py-3"
+                      style={
+                        payMethod === "card"
+                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
+                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
+                      }
+                    >
+                      <CardIcon /> Pay with Card
+                    </button>
+                  )}
+                </div>
               </section>
 
-              {/* Wallet panel — SDK-rendered button(s).
-                  Containers stay in the DOM always so attach() survives
-                  tab switches; we toggle visibility with style. */}
-              <section
-                className="relative rounded-2xl border border-black/10 bg-white p-5"
-                style={{ display: (payMethod === "apple" || payMethod === "google") && walletAvailable ? undefined : "none" }}
-              >
-                <label className="mb-4 block">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
-                  </span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
-                    placeholder="Your name"
-                    autoComplete="name"
-                    className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
-                  />
-                </label>
-                {!phoneVerified && (
-                  <label className="mb-4 block">
-                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
-                    </span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(v) => {
-                        setPhone(v.target.value);
-                        setShowFieldErrors(false);
-                        setPhoneVerified(false);
-                        setOtpPhone(null);
-                        if (loyaltyLookup.status !== "idle") {
-                          setLoyaltyLookup({ status: "idle" });
-                          setUseReward(false);
-                        }
-                      }}
-                      onBlur={() => lookupLoyalty()}
-                      placeholder="0404 123 456"
-                      autoComplete="tel"
-                      className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
-                    />
-                  </label>
-                )}
-                <CheckoutOtpSection
-                  phone={phone}
-                  phoneVerified={phoneVerified}
-                  otpPhone={otpPhone}
-                  otpCode={otpCode}
-                  otpError={otpError}
-                  otpLoading={otpLoading}
-                  resendTimer={resendTimer}
-                  onSend={() => sendCheckoutOtp()}
-                  onVerify={verifyCheckoutOtp}
-                  onCodeChange={setOtpCode}
-                  onResend={() => sendCheckoutOtp()}
-                />
-                <p className="mb-3 text-xs text-zinc-400">
+              {/* Wallet hint — shown when Apple/Google Pay is selected */}
+              {(payMethod === "apple" || payMethod === "google") && walletAvailable && (
+                <p className="text-xs text-zinc-400">
                   Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
-                {/* SDK containers: kept in the DOM so attach() works.
-                    Visually hidden but NOT display:none — the SDK needs
-                    a rendered element to initialise its iframe/button. */}
-                {/* Google Pay SDK container: kept in the DOM so attach() works.
-                    Visually hidden but NOT display:none — the SDK needs
-                    a rendered element to initialise its iframe/button.
-                    Apple Pay has no container — it uses the native payment sheet. */}
-                <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
-              </section>
+              )}
 
-              {/* Card form */}
+              {/* Google Pay SDK container: kept in the DOM so attach() works.
+                  Visually hidden but NOT display:none — the SDK needs
+                  a rendered element to initialise its iframe/button.
+                  Apple Pay has no container — it uses the native payment sheet. */}
+              <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
+
+              {/* Card form — only shown when card is selected */}
               <section
-                className="rounded-2xl border border-black/10 bg-white p-5"
+                className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5"
                 style={{ display: payMethod === "card" ? undefined : "none" }}
               >
-                <label className="mb-4 block">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Cardholder Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
-                  </span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
-                    placeholder="Your name"
-                    autoComplete="name"
-                    required
-                    className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
-                  />
-                </label>
-                {!phoneVerified && (
-                  <label className="mb-4 block">
-                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
-                    </span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(v) => {
-                        setPhone(v.target.value);
-                        setShowFieldErrors(false);
-                        setPhoneVerified(false);
-                        setOtpPhone(null);
-                        if (loyaltyLookup.status !== "idle") {
-                          setLoyaltyLookup({ status: "idle" });
-                          setUseReward(false);
-                        }
-                      }}
-                      onBlur={() => lookupLoyalty()}
-                      placeholder="0404 123 456"
-                      autoComplete="tel"
-                      required
-                      className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
-                    />
-                  </label>
-                )}
-                <CheckoutOtpSection
-                  phone={phone}
-                  phoneVerified={phoneVerified}
-                  otpPhone={otpPhone}
-                  otpCode={otpCode}
-                  otpError={otpError}
-                  otpLoading={otpLoading}
-                  resendTimer={resendTimer}
-                  onSend={() => sendCheckoutOtp()}
-                  onVerify={verifyCheckoutOtp}
-                  onCodeChange={setOtpCode}
-                  onResend={() => sendCheckoutOtp()}
-                />
                 <div>
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                     Card Details
@@ -1029,8 +996,8 @@ export default function CheckoutPage() {
           )}
         </div>
 
-        {/* ── Right column: Order Summary ── */}
-        <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-6 lg:self-start">
+        {/* ── Right column: Order Summary (desktop) ── */}
+        <section className="hidden rounded-2xl border border-black/10 bg-white p-4 sm:p-6 lg:block lg:self-start">
           <h3 className="mb-4 text-lg font-bold text-zinc-900 sm:mb-5 sm:text-xl">
             Order Summary
           </h3>
@@ -1111,7 +1078,57 @@ export default function CheckoutPage() {
             .
           </p>
         </section>
+
       </form>
+
+      {/* ── Mobile sticky bottom bar ── */}
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-black/10 bg-white px-4 py-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
+        <div className="mx-auto flex max-w-lg items-center gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-zinc-500">Total</p>
+            <p className="text-lg font-bold text-zinc-900">
+              {canRedeem && useReward
+                ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
+                : formatPrice(subtotal)}
+            </p>
+          </div>
+          <button
+            type="submit"
+            form="checkout-form"
+            disabled={
+              submitting ||
+              (!(canRedeemFully && useReward) &&
+                (payMethod === "card" ? !cardReady
+                  : payMethod === "apple" ? !applePayAvailable
+                  : !googlePayAvailable))
+            }
+            className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+              payMethod === "apple"
+                ? "bg-black"
+                : payMethod === "google"
+                  ? "bg-[#3c4043]"
+                  : ""
+            }`}
+            style={
+              payMethod !== "apple" && payMethod !== "google"
+                ? { backgroundColor: BRAND.primaryColor }
+                : undefined
+            }
+          >
+            {submitting
+              ? "Processing…"
+              : canRedeemFully && useReward
+                ? "Redeem Free Drink"
+                : payMethod === "apple"
+                  ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                  : payMethod === "google"
+                    ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                    : cardReady
+                      ? <><CardIcon /> Place Order</>
+                      : "Loading…"}
+          </button>
+        </div>
+      </div>
     </CheckoutFrame>
   );
 }
