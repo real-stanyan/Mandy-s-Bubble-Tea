@@ -1082,7 +1082,7 @@ export default function CheckoutPage() {
       </form>
 
       {/* ── Mobile sticky bottom bar ── */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-black/10 bg-white px-4 py-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-black/10 bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <div className="min-w-0">
             <p className="text-xs text-zinc-500">Total</p>
