@@ -148,6 +148,9 @@ function CartBody({
   const [savedPhone, setSavedPhone] = useState<string | null>(null);
   const [savedName, setSavedName] = useState<string | null>(null);
   const [loyaltyCustomerId, setLoyaltyCustomerId] = useState<string | null>(null);
+  const [welcomeDiscount, setWelcomeDiscount] = useState<
+    { available: false } | { available: true; percentage: number }
+  >({ available: false });
 
   // SDK state for wallet quick-pay.
   const [sdkReady, setSdkReady] = useState(false);
@@ -209,6 +212,24 @@ function CartBody({
             setStarsPerReward(loyaltyJson.starsPerReward);
           }
         }
+
+        // Welcome discount lookup (piggybacks on the same customerId).
+        try {
+          const wdRes = await fetch(
+            `/api/welcome-discount/status?customerId=${encodeURIComponent(custJson.customerId)}`,
+          );
+          const wdJson = await wdRes.json();
+          if (wdJson?.available) {
+            setWelcomeDiscount({
+              available: true,
+              percentage: wdJson.percentage ?? 30,
+            });
+          } else {
+            setWelcomeDiscount({ available: false });
+          }
+        } catch {
+          setWelcomeDiscount({ available: false });
+        }
       } catch {
         // Silently fail — loyalty is optional
       }
@@ -217,6 +238,12 @@ function CartBody({
 
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+
+  const welcomeDiscountAmount = useMemo(() => {
+    if (!welcomeDiscount.available) return 0n;
+    const pct = BigInt(welcomeDiscount.percentage);
+    return (subtotal * pct) / 100n;
+  }, [subtotal, welcomeDiscount]);
 
   useEffect(() => {
     if (!sdkReady || lines.length === 0) return;
@@ -362,6 +389,9 @@ function CartBody({
           lines={lines}
           useReward={useReward}
           rewardDiscount={rewardDiscount}
+          welcomeDiscount={welcomeDiscount}
+          welcomeDiscountAmount={welcomeDiscountAmount}
+          onWelcomeDiscountConsumed={() => setWelcomeDiscount({ available: false })}
           hasUserInfo={hasUserInfo}
           savedPhone={savedPhone}
           savedName={savedName}
@@ -601,6 +631,9 @@ function CartFooter({
   lines,
   useReward,
   rewardDiscount,
+  welcomeDiscount,
+  welcomeDiscountAmount,
+  onWelcomeDiscountConsumed,
   hasUserInfo,
   savedPhone,
   savedName,
@@ -614,6 +647,11 @@ function CartFooter({
   lines: CartLine[];
   useReward: boolean;
   rewardDiscount: bigint;
+  welcomeDiscount:
+    | { available: false }
+    | { available: true; percentage: number };
+  welcomeDiscountAmount: bigint;
+  onWelcomeDiscountConsumed: () => void;
   hasUserInfo: boolean;
   savedPhone: string | null;
   savedName: string | null;
@@ -633,11 +671,18 @@ function CartFooter({
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Reward and welcome display are mutually exclusive in the total math
+  // (matches /checkout). Square still applies both at charge time — the
+  // server-trusted totalMoney is authoritative.
   const discountedTotal = useReward
     ? subtotal - rewardDiscount > 0n
       ? subtotal - rewardDiscount
       : 0n
-    : subtotal;
+    : welcomeDiscount.available
+      ? subtotal - welcomeDiscountAmount > 0n
+        ? subtotal - welcomeDiscountAmount
+        : 0n
+      : subtotal;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -686,6 +731,7 @@ function CartFooter({
             customerId: customerJson.customerId,
             recipientName: savedName.trim(),
             recipientPhone: savedPhone.trim(),
+            applyWelcomeDiscount: welcomeDiscount.available,
             lines: lines.map((l) => ({
               itemName: l.itemName,
               variationId: l.variationId,
@@ -769,6 +815,23 @@ function CartFooter({
           throw new Error(paymentJson.error ?? "Payment failed");
         }
 
+        // If the server consumed our welcome discount, refresh local state
+        // so banner/card/line disappear on next render and drop any cached
+        // "available: true" response.
+        if (paymentJson.welcomeDiscountConsumed) {
+          onWelcomeDiscountConsumed();
+          try {
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+              const k = sessionStorage.key(i);
+              if (k?.includes("welcome-discount:status")) {
+                sessionStorage.removeItem(k);
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         // Success — clear cart and go to confirmation.
         clear();
         closeDrawer();
@@ -783,6 +846,7 @@ function CartFooter({
       paying, hasUserInfo, savedPhone, savedName, loyaltyCustomerId,
       useReward, lines, applePayRef, googlePayRef, paymentsRef,
       clear, closeDrawer, router,
+      welcomeDiscount.available, onWelcomeDiscountConsumed,
     ],
   );
 
@@ -810,6 +874,20 @@ function CartFooter({
             <span className="text-green-600">Free drink reward</span>
             <span className="font-semibold text-green-600">
               −{formatPrice(rewardDiscount)}
+            </span>
+          </div>
+        )}
+        {!useReward && welcomeDiscount.available && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: BRAND.primaryColor }}
+              />
+              Welcome {welcomeDiscount.percentage}% Off
+            </span>
+            <span style={{ color: BRAND.primaryColor }}>
+              −{formatPrice(welcomeDiscountAmount)}
             </span>
           </div>
         )}
