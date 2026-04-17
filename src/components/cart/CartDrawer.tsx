@@ -15,6 +15,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { cachedPost } from "@/lib/api-cache";
+import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 
 const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
 
@@ -670,6 +671,7 @@ function CartFooter({
 
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastMethod, setLastMethod] = useState<"apple" | "google" | null>(null);
 
   // Reward and welcome display are mutually exclusive in the total math
   // (matches /checkout). Square still applies both at charge time — the
@@ -689,6 +691,7 @@ function CartFooter({
     async (method: "apple" | "google") => {
       if (paying) return;
       setError(null);
+      setLastMethod(method);
 
       if (!hasUserInfo || !savedPhone || !savedName) {
         // No saved user info — fall back to checkout page.
@@ -856,11 +859,15 @@ function CartFooter({
 
   return (
     <footer className="border-t border-black/10 px-5 pb-6 pt-5">
-      {error && (
-        <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-          {error}
-        </div>
-      )}
+      <PaymentErrorDialog
+        open={!!error}
+        message={error}
+        onCancel={() => setError(null)}
+        onRetry={() => {
+          setError(null);
+          if (lastMethod) handleWalletPay(lastMethod);
+        }}
+      />
 
       <div className="space-y-2">
         <div className="flex justify-between text-sm text-zinc-600">

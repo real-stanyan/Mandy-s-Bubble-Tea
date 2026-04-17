@@ -15,6 +15,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { OtpInput } from "@/components/account/OtpInput";
+import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { customer, order, payment } through
@@ -53,6 +54,7 @@ export default function CheckoutPage() {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [showFieldErrors, setShowFieldErrors] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
@@ -523,6 +525,7 @@ export default function CheckoutPage() {
     e.preventDefault();
     if (submitting) return;
     setError(null);
+    setPaymentError(null);
 
     const missingName = !name.trim();
     const missingPhone = !phone.trim();
@@ -753,7 +756,7 @@ export default function CheckoutPage() {
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setPaymentError(message);
       setSubmitting(false);
     }
   }
@@ -764,6 +767,16 @@ export default function CheckoutPage() {
         src={WEB_SDK_SRC}
         strategy="afterInteractive"
         onReady={() => setSdkReady(true)}
+      />
+
+      <PaymentErrorDialog
+        open={!!paymentError}
+        message={paymentError}
+        onCancel={() => setPaymentError(null)}
+        onRetry={() => {
+          setPaymentError(null);
+          handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+        }}
       />
 
       <form

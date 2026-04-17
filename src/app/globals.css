@@ -45,3 +45,19 @@ body {
     font-size: 16px;
   }
 }
+
+/* Alert dialog open/close transitions (driven by radix data-state) */
+@keyframes mbt-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes mbt-fade-out { from { opacity: 1 } to { opacity: 0 } }
+@keyframes mbt-scale-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.95) }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1) }
+}
+@keyframes mbt-scale-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1) }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(0.95) }
+}
+.mbt-dialog-overlay[data-state="open"]  { animation: mbt-fade-in 150ms ease-out }
+.mbt-dialog-overlay[data-state="closed"]{ animation: mbt-fade-out 100ms ease-in }
+.mbt-dialog-content[data-state="open"]  { animation: mbt-scale-in 180ms ease-out }
+.mbt-dialog-content[data-state="closed"]{ animation: mbt-scale-out 120ms ease-in }
