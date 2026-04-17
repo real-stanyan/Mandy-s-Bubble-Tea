@@ -77,6 +77,9 @@ export default function CheckoutPage() {
     | { status: "error"; message: string }
   >({ status: "idle" });
   const [useReward, setUseReward] = useState(false);
+  const [welcomeDiscount, setWelcomeDiscount] = useState<
+    { available: false } | { available: true; percentage: number }
+  >({ available: false });
 
   // OTP verification state for checkout.
   const [phoneVerified, setPhoneVerified] = useState(false);
@@ -106,6 +109,17 @@ export default function CheckoutPage() {
     }
     return cheapest;
   }, [lines]);
+
+  // Welcome discount display amount. Square recomputes the real total
+  // server-side; this is only for showing the "−$X.XX" line while the
+  // user is reviewing the cart.
+  const welcomeDiscountAmount = useMemo(() => {
+    if (!welcomeDiscount.available) return 0n;
+    // 30% off subtotal, rounded to nearest cent (matches Square's math
+    // for ORDER-scope percentage discounts closely enough for display).
+    const pct = BigInt(welcomeDiscount.percentage);
+    return (subtotal * pct) / 100n;
+  }, [subtotal, welcomeDiscount]);
 
   // Whether the user can redeem (enough stars).
   const canRedeem =
@@ -210,6 +224,26 @@ export default function CheckoutPage() {
         balance: loyaltyJson.balance,
         starsPerReward: loyaltyJson.starsPerReward,
       });
+
+      // Welcome discount lookup (piggybacks on the same customerId).
+      if (customerJson.customerId) {
+        try {
+          const wdRes = await fetch(
+            `/api/welcome-discount/status?customerId=${encodeURIComponent(customerJson.customerId)}`,
+          );
+          const wdJson = await wdRes.json();
+          if (wdJson?.available) {
+            setWelcomeDiscount({
+              available: true,
+              percentage: wdJson.percentage ?? 30,
+            });
+          } else {
+            setWelcomeDiscount({ available: false });
+          }
+        } catch {
+          setWelcomeDiscount({ available: false });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setLoyaltyLookup({ status: "error", message });
@@ -577,6 +611,7 @@ export default function CheckoutPage() {
           recipientName: name.trim(),
           recipientPhone: phone.trim(),
           note: note.trim() || undefined,
+          applyWelcomeDiscount: welcomeDiscount.available,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -692,6 +727,23 @@ export default function CheckoutPage() {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
+      // If the server consumed our welcome discount, refresh local state
+      // so banner/card/line disappear on next render and drop any cached
+      // "available: true" response.
+      if (paymentJson.welcomeDiscountConsumed) {
+        setWelcomeDiscount({ available: false });
+        try {
+          for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k?.includes("welcome-discount:status")) {
+              sessionStorage.removeItem(k);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       // Success — save user info for next time, clear cart, go to confirmation.
       try {
         window.localStorage.setItem("mbt:account:phone", phone.trim());
@@ -787,7 +839,13 @@ export default function CheckoutPage() {
                 <span className="font-bold" style={{ color: BRAND.primaryColor }}>
                   {canRedeem && useReward
                     ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                    : formatPrice(subtotal)}
+                    : formatPrice(
+                        welcomeDiscount.available
+                          ? (subtotal - welcomeDiscountAmount > 0n
+                              ? subtotal - welcomeDiscountAmount
+                              : 0n)
+                          : subtotal,
+                      )}
                 </span>
               </summary>
               <div className="border-t border-black/10 p-4">
@@ -796,6 +854,20 @@ export default function CheckoutPage() {
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
+                {welcomeDiscount.available && (
+                  <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: BRAND.primaryColor }}
+                      />
+                      Welcome 30% Off
+                    </span>
+                    <span style={{ color: BRAND.primaryColor }}>
+                      −{formatPrice(welcomeDiscountAmount)}
+                    </span>
+                  </div>
+                )}
                 {canRedeem && useReward && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm">
                     <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
@@ -1015,6 +1087,20 @@ export default function CheckoutPage() {
                 {formatPrice(subtotal)}
               </span>
             </div>
+            {welcomeDiscount.available && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: BRAND.primaryColor }}
+                  />
+                  Welcome 30% Off
+                </span>
+                <span style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(welcomeDiscountAmount)}
+                </span>
+              </div>
+            )}
             {canRedeem && useReward && (
               <div className="flex justify-between text-sm">
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
@@ -1036,7 +1122,13 @@ export default function CheckoutPage() {
               <span className="text-lg font-bold text-zinc-900">
                 {canRedeem && useReward
                   ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                  : formatPrice(subtotal)}
+                  : formatPrice(
+                      welcomeDiscount.available
+                        ? (subtotal - welcomeDiscountAmount > 0n
+                            ? subtotal - welcomeDiscountAmount
+                            : 0n)
+                        : subtotal,
+                    )}
               </span>
             </div>
           </div>
@@ -1089,8 +1181,19 @@ export default function CheckoutPage() {
             <p className="text-lg font-bold text-zinc-900">
               {canRedeem && useReward
                 ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                : formatPrice(subtotal)}
+                : formatPrice(
+                    welcomeDiscount.available
+                      ? (subtotal - welcomeDiscountAmount > 0n
+                          ? subtotal - welcomeDiscountAmount
+                          : 0n)
+                      : subtotal,
+                  )}
             </p>
+            {welcomeDiscount.available && (
+              <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
+                Welcome 30% Off · −{formatPrice(welcomeDiscountAmount)}
+              </p>
+            )}
           </div>
           <button
             type="submit"
