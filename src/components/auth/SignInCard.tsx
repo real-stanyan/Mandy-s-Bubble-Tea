@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { BRAND } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { OtpInput } from "@/components/account/OtpInput";
@@ -30,6 +31,40 @@ function normalizePhone(raw: string): string | null {
   return null;
 }
 
+/**
+ * Pull a first/last name out of the Supabase session's user_metadata
+ * when the OAuth provider already told us who this person is. Google
+ * returns `given_name` + `family_name` (and a `full_name`); Apple
+ * returns `full_name` / `name` on the first sign-in only if the user
+ * chose to share it. Phone-OTP sign-ins have no metadata, so this
+ * returns null and the UI falls back to the name-capture form.
+ */
+function extractNameFromMetadata(
+  user: User | null,
+): { firstName: string; lastName?: string } | null {
+  if (!user) return null;
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const given =
+    typeof meta.given_name === "string" ? meta.given_name.trim() : "";
+  const family =
+    typeof meta.family_name === "string" ? meta.family_name.trim() : "";
+  if (given) return { firstName: given, lastName: family || undefined };
+  const full =
+    typeof meta.full_name === "string"
+      ? meta.full_name.trim()
+      : typeof meta.name === "string"
+        ? meta.name.trim()
+        : "";
+  if (full) {
+    const parts = full.split(/\s+/);
+    return {
+      firstName: parts[0] ?? "",
+      lastName: parts.slice(1).join(" ") || undefined,
+    };
+  }
+  return null;
+}
+
 export function SignInCard({
   heading = "Sign in to Mandy's",
   subheading = "Loyalty stars, orders, and your welcome discount — all in one place.",
@@ -47,6 +82,7 @@ export function SignInCard({
   const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoSignupRef = useRef(false);
 
   // After verifying OTP / finishing OAuth, Supabase gives us a session
   // but the user may still need to complete signup. OAuth (Apple/Google)
@@ -66,6 +102,30 @@ export function SignInCard({
     // name form orphaned on screen.
     setStage({ kind: "chooser" });
   }
+
+  // Google and (first-time) Apple sign-ins give us the user's name
+  // straight from the ID token. When we have it, POST to
+  // complete-signup immediately and skip the name form entirely.
+  // Phone-OTP users have no metadata here → they still see the form.
+  useEffect(() => {
+    if (autoSignupRef.current) return;
+    if (stage.kind !== "name") return;
+    if (auth.profile) return;
+    const metaName = extractNameFromMetadata(auth.user);
+    if (!metaName) return;
+    autoSignupRef.current = true;
+    setLoading(true);
+    setError(null);
+    auth
+      .completeSignup(metaName)
+      .then(() => onComplete?.())
+      .catch((err) => {
+        // Let the user fix it manually on retry.
+        autoSignupRef.current = false;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setLoading(false));
+  }, [stage.kind, auth, onComplete]);
 
   async function handleApple() {
     setError(null);
@@ -183,8 +243,8 @@ export function SignInCard({
       )}
 
       {stage.kind === "phone" && (
-        <div className="space-y-4">
-          <label>
+        <div className="space-y-5">
+          <label className="block">
             <span className="mb-2 block text-sm font-semibold text-zinc-800">
               Mobile Number
             </span>
@@ -213,7 +273,7 @@ export function SignInCard({
             type="button"
             onClick={handleSendOtp}
             disabled={loading}
-            className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-2 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {loading ? "Sending code..." : "Send verification code"}
@@ -221,7 +281,7 @@ export function SignInCard({
           <button
             type="button"
             onClick={() => setStage({ kind: "chooser" })}
-            className="text-xs text-zinc-500 underline-offset-2 hover:underline"
+            className="block pt-1 text-xs text-zinc-500 underline-offset-2 hover:underline"
           >
             ← Back
           </button>
@@ -229,7 +289,7 @@ export function SignInCard({
       )}
 
       {stage.kind === "otp" && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <p className="text-sm text-zinc-600">
             Sent to <span className="font-medium text-zinc-800">{stage.phone}</span>
           </p>
@@ -238,7 +298,7 @@ export function SignInCard({
             type="button"
             onClick={handleVerifyOtp}
             disabled={loading || otpCode.replace(/\s/g, "").length < 6}
-            className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-2 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {loading ? "Verifying..." : "Verify →"}
@@ -246,19 +306,29 @@ export function SignInCard({
           <button
             type="button"
             onClick={() => setStage({ kind: "phone" })}
-            className="text-xs text-zinc-500 underline-offset-2 hover:underline"
+            className="block pt-1 text-xs text-zinc-500 underline-offset-2 hover:underline"
           >
             ← Use a different number
           </button>
         </div>
       )}
 
-      {stage.kind === "name" && (
-        <div className="space-y-4">
+      {stage.kind === "name" && extractNameFromMetadata(auth.user) && (
+        <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-600">
+          <span
+            className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-700"
+            aria-hidden
+          />
+          Setting up your account…
+        </div>
+      )}
+
+      {stage.kind === "name" && !extractNameFromMetadata(auth.user) && (
+        <div className="space-y-5">
           <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
             ✓ Signed in. What should we call you?
           </div>
-          <label>
+          <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-zinc-800">
               First Name
             </span>
@@ -271,7 +341,7 @@ export function SignInCard({
               className="w-full rounded-full border border-black/15 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/40"
             />
           </label>
-          <label>
+          <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-zinc-800">
               Last Name
             </span>
@@ -287,7 +357,7 @@ export function SignInCard({
             type="button"
             onClick={handleCompleteSignup}
             disabled={loading}
-            className="w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-2 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {loading ? "Creating account..." : "Create Account →"}
