@@ -22,6 +22,30 @@ type Stage =
   | { kind: "otp"; phone: string }
   | { kind: "name" };
 
+// Sign in with Apple is only a good experience on devices that can
+// pop Apple's native AuthenticationServices sheet (Face ID / Touch ID
+// / iCloud-linked approval): iPhone, iPad, and Mac Safari. Everywhere
+// else the user gets dropped onto appleid.apple.com's password form
+// + 2FA, which is worse than Google or Phone OTP — so we hide the
+// button. iPadOS 13+ reports itself as Macintosh in the UA string,
+// but has touch points > 1; desktop Macs have touch points === 0.
+function isAppleNativeSignInDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  const platform = (navigator as unknown as { platform?: string }).platform;
+  const isMac = platform === "MacIntel" || /Macintosh/.test(ua);
+  if (!isMac) return false;
+  // iPad on iPadOS 13+ pretending to be Mac.
+  if (navigator.maxTouchPoints > 1) return true;
+  // Mac Safari only — exclude Chrome/Firefox/Edge/Opera/Chromium which
+  // also put "Safari" in their UA string.
+  const isSafariOnMac =
+    /Safari/.test(ua) &&
+    !/Chrome|Chromium|CriOS|FxiOS|Firefox|Edg\/|OPR\//.test(ua);
+  return isSafariOnMac;
+}
+
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/[^\d+]/g, "");
   if (!digits) return null;
@@ -83,6 +107,14 @@ export function SignInCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const autoSignupRef = useRef(false);
+  // Default to false so server-rendered HTML matches the first client
+  // render; flip to true after mount on devices that can use Apple's
+  // native sheet. Hiding the button is better than showing one that
+  // silently drops non-Apple users into a password-form mess.
+  const [showApple, setShowApple] = useState(false);
+  useEffect(() => {
+    setShowApple(isAppleNativeSignInDevice());
+  }, []);
 
   // After verifying OTP / finishing OAuth, Supabase gives us a session
   // but the user may still need to complete signup. OAuth (Apple/Google)
@@ -209,14 +241,16 @@ export function SignInCard({
 
       {stage.kind === "chooser" && (
         <div className="space-y-3">
-          <button
-            type="button"
-            onClick={handleApple}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-black py-3.5 text-sm font-semibold text-white transition hover:bg-black/85"
-          >
-            <AppleLogo />
-            <span>Continue with Apple</span>
-          </button>
+          {showApple && (
+            <button
+              type="button"
+              onClick={handleApple}
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-black py-3.5 text-sm font-semibold text-white transition hover:bg-black/85"
+            >
+              <AppleLogo />
+              <span>Continue with Apple</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleGoogle}
