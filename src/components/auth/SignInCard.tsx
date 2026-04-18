@@ -49,11 +49,16 @@ export function SignInCard({
   const [error, setError] = useState<string | null>(null);
 
   // After verifying OTP / finishing OAuth, Supabase gives us a session
-  // but the user may still need to complete signup (name). The parent
-  // decides how to render this — but we promote to the name stage here
-  // so the component can be used standalone.
-  if (auth.session && !auth.profile && stage.kind !== "name") {
-    setStage({ kind: "name" });
+  // but the user may still need to complete signup. OAuth (Apple/Google)
+  // leaves the session phone-less, so route those through the phone
+  // linking flow first; only after a phone is attached do we go to the
+  // name step. Phone-only sign-ins land here already with a phone.
+  if (auth.session && !auth.profile) {
+    if (!auth.user?.phone && stage.kind !== "phone" && stage.kind !== "otp") {
+      setStage({ kind: "phone" });
+    } else if (auth.user?.phone && stage.kind !== "name") {
+      setStage({ kind: "name" });
+    }
   }
 
   async function handleApple() {
