@@ -177,6 +177,24 @@ export function SignInCard({
     }
   }
 
+  // Back from phone/otp needs to drop the OAuth session, otherwise the
+  // render-time guard ("session && !profile && !user.phone → phone
+  // stage") immediately re-forwards us and the button looks dead. No
+  // session (pure phone flow) means a plain stage change is fine.
+  async function handleBackToChooser() {
+    setError(null);
+    setPhoneInput("");
+    setOtpCode("");
+    if (auth.session) {
+      try {
+        await auth.signOut();
+      } catch {
+        // Ignore — we still want to surface the chooser.
+      }
+    }
+    setStage({ kind: "chooser" });
+  }
+
   async function handleSendOtp() {
     setError(null);
     const e164 = normalizePhone(phoneInput.trim());
@@ -314,7 +332,7 @@ export function SignInCard({
           </button>
           <button
             type="button"
-            onClick={() => setStage({ kind: "chooser" })}
+            onClick={handleBackToChooser}
             className="block pt-1 text-xs text-zinc-500 underline-offset-2 hover:underline"
           >
             ← Back
