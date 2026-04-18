@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
-
-const STORAGE_KEY = "mbt:account:phone";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 type PromotionItem = {
   id: string;
@@ -15,81 +14,28 @@ type PromotionItem = {
 };
 
 export default function PromotionsPage() {
-  const [loading, setLoading] = useState(true);
-  const [promotions, setPromotions] = useState<PromotionItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { profile, loyalty, welcomeDiscount, starsPerReward, loading } = useAuth();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const phone = window.localStorage.getItem(STORAGE_KEY);
-        if (!phone) {
-          setPromotions(getGuestPromotions());
-          setLoading(false);
-          return;
-        }
+  const promotions = useMemo<PromotionItem[]>(() => {
+    if (!profile) return getGuestPromotions();
 
-        // Look up customer + loyalty to determine reward availability
-        const res = await fetch("/api/customer/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
-        });
-        if (!res.ok) {
-          setPromotions(getGuestPromotions());
-          setLoading(false);
-          return;
-        }
-        const customer = await res.json();
+    const balance = loyalty?.balance ?? 0;
+    const perReward = starsPerReward || LOYALTY.starsPerReward;
+    const rewardsAvailable = Math.floor(balance / perReward);
 
-        const loyaltyRes = await fetch("/api/loyalty/account", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: customer.customerId,
-            phone,
-          }),
-        });
-        const loyalty = await loyaltyRes.json();
-        const balance: number = loyalty.balance ?? 0;
-        const starsPerReward: number =
-          loyalty.starsPerReward ?? LOYALTY.starsPerReward;
-        const rewardsAvailable = Math.floor(balance / starsPerReward);
-
-        let welcomeDiscountAvailable = false;
-        let welcomeDiscountPct = 30;
-        try {
-          const wdRes = await fetch(
-            `/api/welcome-discount/status?customerId=${encodeURIComponent(customer.customerId)}`,
-          );
-          const wd = await wdRes.json();
-          welcomeDiscountAvailable = !!wd?.available;
-          welcomeDiscountPct = wd?.percentage ?? 30;
-        } catch {
-          // Silent — promotions page is informational only.
-        }
-
-        const base = buildPromotions(balance, starsPerReward, rewardsAvailable);
-        const list: PromotionItem[] = [];
-        if (welcomeDiscountAvailable) {
-          list.push({
-            id: "welcome-discount",
-            title: `Welcome ${welcomeDiscountPct}% Off`,
-            description: "Auto-applied at checkout on your next order.",
-            available: true,
-            tag: "ACTIVE",
-          });
-        }
-        list.push(...base);
-        setPromotions(list);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setPromotions(getGuestPromotions());
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    const list: PromotionItem[] = [];
+    if (welcomeDiscount.available) {
+      list.push({
+        id: "welcome-discount",
+        title: `Welcome ${welcomeDiscount.percentage || 30}% Off`,
+        description: "Auto-applied at checkout on your next order.",
+        available: true,
+        tag: "ACTIVE",
+      });
+    }
+    list.push(...buildPromotions(balance, perReward, rewardsAvailable));
+    return list;
+  }, [profile, loyalty, welcomeDiscount, starsPerReward]);
 
   return (
     <div className="flex min-h-screen flex-col" style={{ backgroundColor: BRAND.bgColor }}>
@@ -126,11 +72,6 @@ export default function PromotionsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {error && (
-              <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                {error}
-              </p>
-            )}
             {promotions.length === 0 ? (
               <div className="rounded-2xl border border-black/10 bg-white p-8 text-center">
                 <p className="text-sm text-zinc-500">No promotions available right now.</p>
@@ -192,7 +133,6 @@ function buildPromotions(
 ): PromotionItem[] {
   const promos: PromotionItem[] = [];
 
-  // Free drink reward(s)
   if (rewardsAvailable > 0) {
     promos.push({
       id: "reward-free-drink",
@@ -203,7 +143,6 @@ function buildPromotions(
     });
   }
 
-  // Progress toward next reward
   const starsToNext = starsPerReward - (balance % starsPerReward);
   if (starsToNext > 0 && starsToNext < starsPerReward) {
     promos.push({
@@ -214,7 +153,6 @@ function buildPromotions(
     });
   }
 
-  // Always-on welcome promo
   promos.push({
     id: "welcome-loyalty",
     title: "☕ Earn Stars with Every Order",

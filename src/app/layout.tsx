@@ -4,6 +4,7 @@ import "./globals.css";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -74,10 +75,12 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col">
-        <SiteHeaderGate />
-        {children}
-        <SiteFooterGate />
-        <CartDrawer />
+        <AuthProvider>
+          <SiteHeaderGate />
+          {children}
+          <SiteFooterGate />
+          <CartDrawer />
+        </AuthProvider>
       </body>
     </html>
   );

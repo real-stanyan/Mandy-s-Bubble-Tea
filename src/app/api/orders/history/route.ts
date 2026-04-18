@@ -2,16 +2,18 @@ import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { getMenu } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
+import { getAuthedUser } from "@/lib/auth";
 
-// Order history for the account page. Searches Square orders by
-// customerId, newest first. Returns a compact projection of each order
-// plus enough line-item detail (variation id, modifier ids + list names,
-// first-item image URL) for the app to both render thumbnails and
-// reconstruct an identical cart for "Reorder".
+// Order history for the account page. Customer is derived from the
+// Supabase session — no body required. Searches Square orders by
+// customerId, newest first. Returns a compact projection of each
+// order plus enough line-item detail (variation id, modifier ids +
+// list names, first-item image URL) for the app to both render
+// thumbnails and reconstruct an identical cart for "Reorder".
 
-type HistoryBody = { customerId?: unknown };
+export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+export async function GET(request: Request) {
   if (!SQUARE_LOCATION_ID) {
     return NextResponse.json(
       { ok: false, error: "SQUARE_LOCATION_ID is not set on the server" },
@@ -19,23 +21,14 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.square_customer_id) {
     return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 },
+      { ok: false, error: "Sign in to see your order history" },
+      { status: 401 },
     );
   }
-
-  const { customerId } = (body ?? {}) as HistoryBody;
-  if (typeof customerId !== "string" || !customerId) {
-    return NextResponse.json(
-      { ok: false, error: "customerId is required" },
-      { status: 400 },
-    );
-  }
+  const customerId = user.profile.square_customer_id;
 
   try {
     const [response, menu] = await Promise.all([

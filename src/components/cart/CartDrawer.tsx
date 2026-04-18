@@ -14,16 +14,13 @@ import {
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
-import { cachedPost } from "@/lib/api-cache";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
-
-const PHONE_STORAGE_KEY = "mbt:account:phone";
-const NAME_STORAGE_KEY = "mbt:account:name";
 
 import type {
   ApplePayInstance,
@@ -143,15 +140,9 @@ function CartBody({
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
 }) {
-  const [balance, setBalance] = useState<number | null>(null);
-  const [starsPerReward, setStarsPerReward] = useState<number>(LOYALTY.starsPerReward);
+  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward } =
+    useAuth();
   const [useReward, setUseReward] = useState(false);
-  const [savedPhone, setSavedPhone] = useState<string | null>(null);
-  const [savedName, setSavedName] = useState<string | null>(null);
-  const [loyaltyCustomerId, setLoyaltyCustomerId] = useState<string | null>(null);
-  const [welcomeDiscount, setWelcomeDiscount] = useState<
-    { available: false } | { available: true; percentage: number }
-  >({ available: false });
 
   // SDK state for wallet quick-pay.
   const [sdkReady, setSdkReady] = useState(false);
@@ -166,76 +157,9 @@ function CartBody({
     if (isOpen && !everOpened) setEverOpened(true);
   }, [isOpen, everOpened]);
 
-  // Re-read saved user info every time the drawer opens (catches sign-out).
-  useEffect(() => {
-    const phone = window.localStorage.getItem(PHONE_STORAGE_KEY);
-    const name = window.localStorage.getItem(NAME_STORAGE_KEY);
-    setSavedPhone(phone);
-    setSavedName(name);
-    if (!phone) {
-      setBalance(null);
-      setLoyaltyCustomerId(null);
-      setUseReward(false);
-    }
-  }, [isOpen]);
-
-  // Fetch loyalty balance once.
-  useEffect(() => {
-    if (!savedPhone) return;
-
-    (async () => {
-      try {
-        const { ok: custOk, data: custJson } = await cachedPost<{
-          ok: boolean; found: boolean; customerId: string;
-          givenName?: string; familyName?: string; phoneE164: string;
-        }>("/api/customer/lookup", { phone: savedPhone });
-        if (!custOk || !custJson.ok || !custJson.found) return;
-
-        setLoyaltyCustomerId(custJson.customerId);
-        // Pre-fill name from Square if not already saved.
-        if (!savedName) {
-          const fullName = [custJson.givenName, custJson.familyName]
-            .filter(Boolean)
-            .join(" ")
-            .trim();
-          if (fullName) setSavedName(fullName);
-        }
-
-        const { ok: loyaltyOk, data: loyaltyJson } = await cachedPost<{
-          ok: boolean; balance?: number; starsPerReward?: number;
-        }>("/api/loyalty/account", {
-          customerId: custJson.customerId,
-          phone: custJson.phoneE164,
-        });
-        if (loyaltyOk && loyaltyJson.ok) {
-          setBalance(loyaltyJson.balance ?? 0);
-          if (loyaltyJson.starsPerReward) {
-            setStarsPerReward(loyaltyJson.starsPerReward);
-          }
-        }
-
-        // Welcome discount lookup (piggybacks on the same customerId).
-        try {
-          const wdRes = await fetch(
-            `/api/welcome-discount/status?customerId=${encodeURIComponent(custJson.customerId)}`,
-          );
-          const wdJson = await wdRes.json();
-          if (wdJson?.available) {
-            setWelcomeDiscount({
-              available: true,
-              percentage: wdJson.percentage ?? 30,
-            });
-          } else {
-            setWelcomeDiscount({ available: false });
-          }
-        } catch {
-          setWelcomeDiscount({ available: false });
-        }
-      } catch {
-        // Silently fail — loyalty is optional
-      }
-    })();
-  }, [savedPhone, savedName]);
+  const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
+  const stars = loyalty?.balance ?? 0;
+  const canRedeem = stars >= starsPerReward && starsPerReward > 0;
 
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
@@ -312,9 +236,6 @@ function CartBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sdkReady, lines.length > 0]);
 
-  const stars = balance ?? 0;
-  const canRedeem = stars >= starsPerReward && starsPerReward > 0;
-
   // Cheapest drink unit price = reward discount amount.
   const rewardDiscount = useMemo(() => {
     if (lines.length === 0) return 0n;
@@ -341,9 +262,6 @@ function CartBody({
   useEffect(() => {
     if (!canRedeem) setUseReward(false);
   }, [canRedeem]);
-
-  // Has saved user info for quick pay?
-  const hasUserInfo = !!savedPhone && !!savedName;
 
   return (
     <>
@@ -392,11 +310,7 @@ function CartBody({
           rewardDiscount={rewardDiscount}
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
-          onWelcomeDiscountConsumed={() => setWelcomeDiscount({ available: false })}
-          hasUserInfo={hasUserInfo}
-          savedPhone={savedPhone}
-          savedName={savedName}
-          loyaltyCustomerId={loyaltyCustomerId}
+          hasProfile={!!profile}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
           applePayRef={applePayRef}
@@ -634,11 +548,7 @@ function CartFooter({
   rewardDiscount,
   welcomeDiscount,
   welcomeDiscountAmount,
-  onWelcomeDiscountConsumed,
-  hasUserInfo,
-  savedPhone,
-  savedName,
-  loyaltyCustomerId,
+  hasProfile,
   applePayReady,
   googlePayReady,
   applePayRef,
@@ -649,14 +559,10 @@ function CartFooter({
   useReward: boolean;
   rewardDiscount: bigint;
   welcomeDiscount:
-    | { available: false }
+    | { available: false; percentage: number }
     | { available: true; percentage: number };
   welcomeDiscountAmount: bigint;
-  onWelcomeDiscountConsumed: () => void;
-  hasUserInfo: boolean;
-  savedPhone: string | null;
-  savedName: string | null;
-  loyaltyCustomerId: string | null;
+  hasProfile: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
   applePayRef: React.RefObject<ApplePayInstance | null>;
@@ -668,6 +574,7 @@ function CartFooter({
   const clear = useCart((s) => s.clear);
   const router = useRouter();
   const isIOS = useIsIOS();
+  const { profile, refresh } = useAuth();
 
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -693,8 +600,8 @@ function CartFooter({
       setError(null);
       setLastMethod(method);
 
-      if (!hasUserInfo || !savedPhone || !savedName) {
-        // No saved user info — fall back to checkout page.
+      if (!hasProfile || !profile) {
+        // No signed-in user — punt to checkout where SignInCard will guide them.
         closeDrawer();
         router.push("/checkout");
         return;
@@ -715,25 +622,11 @@ function CartFooter({
         }
         const sourceToken = tokenResult.token;
 
-        // 1) Customer lookup/create.
-        const customerRes = await fetch("/api/customer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: savedName, phone: savedPhone }),
-        });
-        const customerJson = await customerRes.json();
-        if (!customerRes.ok || !customerJson.ok) {
-          throw new Error(customerJson.error ?? "Customer lookup failed");
-        }
-
-        // 2) Create order.
+        // 1) Create order — customer/phone derived server-side from session.
         const orderRes = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            customerId: customerJson.customerId,
-            recipientName: savedName.trim(),
-            recipientPhone: savedPhone.trim(),
             applyWelcomeDiscount: welcomeDiscount.available,
             lines: lines.map((l) => ({
               itemName: l.itemName,
@@ -752,17 +645,13 @@ function CartFooter({
           throw new Error(orderJson.error ?? "Order creation failed");
         }
 
-        // 3) Optionally redeem loyalty reward.
+        // 2) Optionally redeem loyalty reward.
         let amountCents: string = orderJson.amountCents;
-        if (useReward && loyaltyCustomerId) {
+        if (useReward) {
           const redeemRes = await fetch("/api/loyalty/redeem", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              customerId: loyaltyCustomerId,
-              phone: savedPhone.trim(),
-              orderId: orderJson.orderId,
-            }),
+            body: JSON.stringify({ orderId: orderJson.orderId }),
           });
           const redeemJson = await redeemRes.json();
           if (!redeemRes.ok || !redeemJson.ok) {
@@ -773,7 +662,7 @@ function CartFooter({
           }
         }
 
-        // 4) verifyBuyer (SCA required in AU for all methods).
+        // 3) verifyBuyer (SCA required in AU for all methods).
         const isFreeOrder =
           amountCents === "0" || Number(amountCents) === 0;
 
@@ -781,7 +670,8 @@ function CartFooter({
         if (!isFreeOrder) {
           if (!paymentsRef.current) throw new Error("SDK not initialized");
           const amountMajor = (Number(amountCents) / 100).toFixed(2);
-          const [firstName, ...restName] = savedName.trim().split(/\s+/);
+          const givenName = profile.first_name ?? "";
+          const familyName = profile.last_name ?? "";
           const verification = await paymentsRef.current.verifyBuyer(
             sourceToken,
             {
@@ -789,9 +679,9 @@ function CartFooter({
               currencyCode: "AUD",
               intent: "CHARGE",
               billingContact: {
-                givenName: firstName,
-                familyName: restName.join(" ") || undefined,
-                phone: savedPhone.trim(),
+                givenName,
+                familyName: familyName || undefined,
+                phone: profile.phone_e164,
                 countryCode: "AU",
               },
               customerInitiated: true,
@@ -801,15 +691,13 @@ function CartFooter({
           verificationToken = verification.token;
         }
 
-        // 5) Pay.
+        // 4) Pay.
         const paymentRes = await fetch("/api/payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sourceId: sourceToken,
             orderId: orderJson.orderId,
-            customerId: customerJson.customerId,
-            phone: savedPhone.trim(),
             verificationToken,
           }),
         });
@@ -818,21 +706,10 @@ function CartFooter({
           throw new Error(paymentJson.error ?? "Payment failed");
         }
 
-        // If the server consumed our welcome discount, refresh local state
-        // so banner/card/line disappear on next render and drop any cached
-        // "available: true" response.
+        // If the server consumed our welcome discount, refresh auth state so
+        // welcomeDiscount.available flips back to false everywhere.
         if (paymentJson.welcomeDiscountConsumed) {
-          onWelcomeDiscountConsumed();
-          try {
-            for (let i = sessionStorage.length - 1; i >= 0; i--) {
-              const k = sessionStorage.key(i);
-              if (k?.includes("welcome-discount:status")) {
-                sessionStorage.removeItem(k);
-              }
-            }
-          } catch {
-            // ignore
-          }
+          void refresh();
         }
 
         // Success — clear cart and go to confirmation.
@@ -846,10 +723,10 @@ function CartFooter({
       }
     },
     [
-      paying, hasUserInfo, savedPhone, savedName, loyaltyCustomerId,
+      paying, hasProfile, profile,
       useReward, lines, applePayRef, googlePayRef, paymentsRef,
-      clear, closeDrawer, router,
-      welcomeDiscount.available, onWelcomeDiscountConsumed,
+      clear, closeDrawer, router, refresh,
+      welcomeDiscount.available,
     ],
   );
 

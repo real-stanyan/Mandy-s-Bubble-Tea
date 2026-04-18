@@ -4,59 +4,45 @@ import {
   getActiveProgram,
   findLoyaltyAccountByPhone,
 } from "@/lib/loyalty";
-import { normalizeAuPhone } from "@/lib/phone";
 import { squareClient } from "@/lib/square";
+import { getAuthedUser } from "@/lib/auth";
 
-// Redeems a loyalty reward for a customer. Must be called AFTER the
-// order has been created — we pass Square the orderId so it can
-// apply the reward's discount to the line items. Without an orderId
+// Redeems a loyalty reward for the signed-in user. Must be called
+// AFTER the order has been created — we pass Square the orderId so it
+// can apply the reward's discount to the line items. Without an orderId
 // the reward is created in ISSUED state but no money comes off the
-// order, which is why earlier versions of this route silently
-// charged the customer full price.
+// order.
 
 type RedeemBody = {
-  customerId: string;
-  phone: string;
   orderId?: string;
 };
 
-function isValidBody(body: unknown): body is RedeemBody {
-  if (!body || typeof body !== "object") return false;
-  const b = body as Partial<RedeemBody>;
-  return (
-    typeof b.customerId === "string" &&
-    b.customerId.length > 0 &&
-    typeof b.phone === "string" &&
-    b.phone.length > 0 &&
-    (b.orderId === undefined || typeof b.orderId === "string")
-   );
-}
-
 export async function POST(request: Request) {
-  let body: unknown;
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.phone_e164) {
+    return NextResponse.json(
+      { ok: false, error: "Sign in to redeem a reward" },
+      { status: 401 },
+    );
+  }
+  const e164 = user.profile.phone_e164;
+
+  let body: RedeemBody;
   try {
-    body = await request.json();
-   } catch {
+    body = (await request.json()) as RedeemBody;
+  } catch {
     return NextResponse.json(
-       { ok: false, error: "Invalid JSON body" },
-       { status: 400 },
-      );
-   }
+      { ok: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
+  }
 
-  if (!isValidBody(body)) {
+  if (body.orderId !== undefined && typeof body.orderId !== "string") {
     return NextResponse.json(
-       { ok: false, error: "Missing customerId or phone" },
-       { status: 400 },
-      );
-   }
-
-  const e164 = normalizeAuPhone(body.phone);
-  if (!e164) {
-    return NextResponse.json(
-       { ok: false, error: "Phone number could not be parsed" },
-       { status: 400 },
-      );
-   }
+      { ok: false, error: "Invalid orderId" },
+      { status: 400 },
+    );
+  }
 
   try {
     // Lookup only — never create a zero-balance account during a

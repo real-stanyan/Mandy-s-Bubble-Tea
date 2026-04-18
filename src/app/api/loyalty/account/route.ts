@@ -4,52 +4,39 @@ import {
   findOrCreateLoyaltyAccount,
   getActiveProgram,
 } from "@/lib/loyalty";
-import { normalizeAuPhone } from "@/lib/phone";
+import { getAuthedUser } from "@/lib/auth";
 
-// Returns (or enrolls) the loyalty account for a given customer. Used
-// by the account page (slice J) to show the stars balance and, later,
-// by checkout to decide whether a reward can be redeemed.
+// Returns (or enrolls) the loyalty account for the signed-in user.
+// Phone + customerId come from the Supabase profile — never from the
+// request body. Signed-out callers get `{ account: null }` so the UI
+// can still render the program rules.
 
-// GET — look up loyalty account by phone (read-only, used by the app)
+export const dynamic = "force-dynamic";
+
+// GET — read-only lookup. Never creates an account.
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const phone = searchParams.get("phone");
-
+  const user = await getAuthedUser(request);
+  const program = await getActiveProgram();
+  const phone = user?.profile?.phone_e164;
   if (!phone) {
-    return NextResponse.json(
-      { ok: false, error: "phone query parameter is required" },
-      { status: 400 },
-    );
-  }
-
-  const e164 = normalizeAuPhone(phone);
-  if (!e164) {
-    return NextResponse.json(
-      { ok: false, error: "Phone number could not be parsed" },
-      { status: 400 },
-    );
+    return NextResponse.json({
+      ok: true,
+      account: null,
+      starsPerReward: program.starsPerReward,
+    });
   }
 
   try {
-    const [account, program] = await Promise.all([
-      findLoyaltyAccountByPhone(e164),
-      getActiveProgram(),
-    ]);
-    if (!account) {
-      return NextResponse.json({
-        ok: true,
-        account: null,
-        starsPerReward: program.starsPerReward,
-      });
-    }
-
+    const account = await findLoyaltyAccountByPhone(phone);
     return NextResponse.json({
       ok: true,
-      account: {
-        id: account.accountId,
-        balance: account.balance,
-        lifetimePoints: account.lifetimePoints,
-      },
+      account: account
+        ? {
+            id: account.accountId,
+            balance: account.balance,
+            lifetimePoints: account.lifetimePoints,
+          }
+        : null,
       starsPerReward: program.starsPerReward,
     });
   } catch (error) {
@@ -58,47 +45,23 @@ export async function GET(request: Request) {
   }
 }
 
-// POST — find or create loyalty account (used by web checkout)
+// POST — find or create. Used by checkout to ensure the account
+// exists before attaching a reward.
 export async function POST(request: Request) {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.square_customer_id || !user.profile.phone_e164) {
     return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 },
-    );
-  }
-
-  const { customerId, phone } = (body ?? {}) as {
-    customerId?: unknown;
-    phone?: unknown;
-  };
-
-  if (typeof customerId !== "string" || !customerId) {
-    return NextResponse.json(
-      { ok: false, error: "customerId is required" },
-      { status: 400 },
-    );
-  }
-  if (typeof phone !== "string" || !phone) {
-    return NextResponse.json(
-      { ok: false, error: "phone is required" },
-      { status: 400 },
-    );
-  }
-
-  const e164 = normalizeAuPhone(phone);
-  if (!e164) {
-    return NextResponse.json(
-      { ok: false, error: "Phone number could not be parsed" },
-      { status: 400 },
+      { ok: false, error: "Sign in to enroll in loyalty" },
+      { status: 401 },
     );
   }
 
   try {
     const [account, program] = await Promise.all([
-      findOrCreateLoyaltyAccount(customerId, e164),
+      findOrCreateLoyaltyAccount(
+        user.profile.square_customer_id,
+        user.profile.phone_e164,
+      ),
       getActiveProgram(),
     ]);
 

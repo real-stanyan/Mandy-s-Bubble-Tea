@@ -5,8 +5,8 @@ import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
-import { normalizeAuPhone } from "@/lib/phone";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
+import { getAuthedUser } from "@/lib/auth";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -63,9 +63,6 @@ type PaymentBody = {
    */
   sourceId?: string;
   orderId: string;
-  customerId?: string;
-  /** Phone in any format — needed for loyalty account lookup. */
-  phone?: string;
   verificationToken?: string; // from payments.verifyBuyer() for SCA
 };
 
@@ -87,6 +84,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.square_customer_id || !user.profile.phone_e164) {
+    return NextResponse.json(
+      { ok: false, error: "Sign in and complete your profile to pay" },
+      { status: 401 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -103,6 +108,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const customerId = user.profile.square_customer_id;
+  const e164 = user.profile.phone_e164;
 
   try {
     // Re-read the order so we charge the server-trusted total. This
@@ -141,7 +149,7 @@ export async function POST(request: Request) {
           currency: BUSINESS.currency,
         },
         orderId: body.orderId,
-        customerId: body.customerId,
+        customerId,
         locationId: SQUARE_LOCATION_ID,
         autocomplete: true,
         verificationToken: body.verificationToken,
@@ -183,25 +191,19 @@ export async function POST(request: Request) {
     const skipAccrual = hasLoyaltyReward && amount === 0n;
 
     let loyaltyAccrued = false;
-    if (!skipAccrual && body.customerId && body.phone) {
-      const e164 = normalizeAuPhone(body.phone);
-      if (e164) {
-        try {
-          const account = await findOrCreateLoyaltyAccount(
-            body.customerId,
-            e164,
-          );
-          await accrueForOrder(account.accountId, body.orderId);
-          loyaltyAccrued = true;
-        } catch (loyaltyError) {
-          // Log server-side and continue — payment already succeeded.
-          console.error(
-            "[payment] loyalty accrual failed:",
-            loyaltyError instanceof Error
-              ? loyaltyError.message
-              : loyaltyError,
-          );
-        }
+    if (!skipAccrual) {
+      try {
+        const account = await findOrCreateLoyaltyAccount(customerId, e164);
+        await accrueForOrder(account.accountId, body.orderId);
+        loyaltyAccrued = true;
+      } catch (loyaltyError) {
+        // Log server-side and continue — payment already succeeded.
+        console.error(
+          "[payment] loyalty accrual failed:",
+          loyaltyError instanceof Error
+            ? loyaltyError.message
+            : loyaltyError,
+        );
       }
     }
 
@@ -213,9 +215,9 @@ export async function POST(request: Request) {
     const hadWelcomeDiscount = (order.discounts ?? []).some(
       (d) => d.uid === "welcome-discount",
     );
-    if (hadWelcomeDiscount && body.customerId) {
+    if (hadWelcomeDiscount) {
       welcomeDiscountConsumed = await consumeWelcomeDiscount(
-        body.customerId,
+        customerId,
         body.orderId,
       );
     }

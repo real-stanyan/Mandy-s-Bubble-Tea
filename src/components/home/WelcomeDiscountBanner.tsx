@@ -3,50 +3,25 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BRAND } from "@/lib/constants";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const DISMISS_KEY = "mbt:welcome-discount:dismissed";
-const PHONE_KEY = "mbt:account:phone";
 
 export function WelcomeDiscountBanner() {
-  const [visible, setVisible] = useState(false);
-  const [percentage, setPercentage] = useState(30);
+  const { welcomeDiscount } = useAuth();
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (sessionStorage.getItem(DISMISS_KEY)) return;
-        const phone = localStorage.getItem(PHONE_KEY);
-        if (!phone) return;
-
-        // Resolve phone → customerId via the lookup endpoint.
-        const lookupRes = await fetch("/api/customer/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
-        });
-        const lookup = await lookupRes.json();
-        if (!lookup?.found || !lookup?.customerId) return;
-
-        const statusRes = await fetch(
-          `/api/welcome-discount/status?customerId=${encodeURIComponent(lookup.customerId)}`,
-        );
-        const status = await statusRes.json();
-        if (cancelled) return;
-        if (status?.available) {
-          setPercentage(status.percentage ?? 30);
-          setVisible(true);
-        }
-      } catch {
-        // Silent — banner is purely promotional.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    try {
+      if (sessionStorage.getItem(DISMISS_KEY)) setDismissed(true);
+    } catch {
+      // ignore — SSR or storage unavailable
+    }
   }, []);
 
-  if (!visible) return null;
+  if (dismissed || !welcomeDiscount.available) return null;
+
+  const percentage = welcomeDiscount.percentage || 30;
 
   return (
     <div
@@ -79,7 +54,7 @@ export function WelcomeDiscountBanner() {
             } catch {
               // ignore
             }
-            setVisible(false);
+            setDismissed(true);
           }}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
         >

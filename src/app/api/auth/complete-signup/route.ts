@@ -1,0 +1,141 @@
+import { NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/auth";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
+import {
+  squareClient,
+  ensureReferenceId,
+  findCustomerByPhone,
+} from "@/lib/square";
+import { grantWelcomeDiscount } from "@/lib/supabase";
+
+// Final step of OAuth / phone sign-in. By the time this is called, the
+// caller has a valid Supabase session AND has attached a phone to that
+// session (either via Phone OTP sign-in or by linking phone to an
+// Apple/Google account). We then:
+//
+//   1. Find or create a Square customer keyed on phone — existing
+//      customers (e.g. legacy in-store shoppers) get linked rather than
+//      duplicated.
+//   2. Upsert the user_profiles row that glues auth.users → Square
+//      customer + phone + name.
+//   3. Grant a welcome discount for brand-new Square customers.
+//
+// Idempotent: calling twice with the same Supabase user just re-reads
+// the profile on the second call. Safe to retry from the client.
+
+type Body = {
+  firstName?: unknown;
+  lastName?: unknown;
+};
+
+export async function POST(request: Request) {
+  const user = await getAuthedUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Not signed in" },
+      { status: 401 },
+    );
+  }
+  if (!user.phone) {
+    return NextResponse.json(
+      { ok: false, error: "Attach a phone number to your account first" },
+      { status: 400 },
+    );
+  }
+
+  let body: Body;
+  try {
+    body = (await request.json()) as Body;
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
+  }
+
+  const firstName =
+    typeof body.firstName === "string" ? body.firstName.trim() : "";
+  const lastName =
+    typeof body.lastName === "string" ? body.lastName.trim() : "";
+  if (!firstName) {
+    return NextResponse.json(
+      { ok: false, error: "First name is required" },
+      { status: 400 },
+    );
+  }
+
+  const e164 = user.phone;
+
+  try {
+    // If a profile already exists for this auth user, short-circuit.
+    const admin = getSupabaseAdmin();
+    if (user.profile?.square_customer_id) {
+      return NextResponse.json({
+        ok: true,
+        profile: user.profile,
+        customerId: user.profile.square_customer_id,
+        created: false,
+      });
+    }
+
+    // Link (or create) the Square customer by phone.
+    let customerId: string | null = null;
+    let customerCreated = false;
+    const existing = await findCustomerByPhone(e164);
+    if (existing?.id) {
+      customerId = existing.id;
+      await ensureReferenceId(existing.id, existing.referenceId, e164);
+    } else {
+      const created = await squareClient.customers.create({
+        givenName: firstName,
+        familyName: lastName || undefined,
+        phoneNumber: e164,
+        referenceId: e164,
+      });
+      customerId = created.customer?.id ?? null;
+      customerCreated = !!customerId;
+    }
+
+    if (!customerId) {
+      return NextResponse.json(
+        { ok: false, error: "Could not resolve a Square customer" },
+        { status: 502 },
+      );
+    }
+
+    const { data: upserted, error: upsertErr } = await admin
+      .from("user_profiles")
+      .upsert(
+        {
+          user_id: user.userId,
+          square_customer_id: customerId,
+          phone_e164: e164,
+          first_name: firstName,
+          last_name: lastName || null,
+        },
+        { onConflict: "user_id" },
+      )
+      .select("user_id, square_customer_id, phone_e164, first_name, last_name")
+      .single();
+    if (upsertErr) throw upsertErr;
+
+    // Only brand-new Square customers get the welcome discount. Linking
+    // to a legacy in-store customer does NOT re-grant it.
+    if (customerCreated) {
+      await grantWelcomeDiscount(customerId);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      profile: upserted,
+      customerId,
+      created: customerCreated,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { ok: false, error: message },
+      { status: 502 },
+    );
+  }
+}

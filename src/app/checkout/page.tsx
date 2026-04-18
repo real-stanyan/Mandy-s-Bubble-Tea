@@ -14,18 +14,19 @@ import {
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
-import { OtpInput } from "@/components/account/OtpInput";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { SignInCard } from "@/components/auth/SignInCard";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
-// card token on-page, then posts { customer, order, payment } through
-// our API routes. The SDK is loaded via next/script; we initialize the
-// card form once it's ready and the DOM container is mounted.
+// card token on-page, then posts { order, payment } through our API
+// routes — the customer is derived server-side from the Supabase
+// session, so no name/phone/customerId is sent from the client.
 //
 // SDK docs: https://developer.squareup.com/docs/web-payments/overview
 
 import type {
-  TokenizeResult,
   CardInstance,
   ApplePayInstance,
   GooglePayInstance,
@@ -44,18 +45,66 @@ const SQUARE_LOCATION_ID =
   process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID ?? "";
 
 export default function CheckoutPage() {
-  const router = useRouter();
   const hydrated = useCart((s) => s.hydrated);
   const lines = useCart((s) => s.lines);
-  const clear = useCart((s) => s.clear);
+  const { profile, loading: authLoading, refresh } = useAuth();
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  // Wait for cart + auth to hydrate.
+  if (!hydrated || authLoading) {
+    return (
+      <CheckoutFrame>
+        <LoadingSpinner />
+      </CheckoutFrame>
+    );
+  }
+
+  if (lines.length === 0) {
+    return (
+      <CheckoutFrame>
+        <div className="rounded-lg border border-dashed border-black/20 p-12 text-center">
+          <p className="mb-4 text-zinc-600">Your cart is empty.</p>
+          <Link
+            href="/menu"
+            className="inline-block rounded-full px-5 py-2 text-sm font-medium text-white"
+            style={{ backgroundColor: BRAND.primaryColor }}
+          >
+            Browse menu
+          </Link>
+        </div>
+      </CheckoutFrame>
+    );
+  }
+
+  // Not signed in — show the sign-in surface before any payment UI.
+  if (!profile) {
+    return (
+      <CheckoutFrame>
+        <SignInCard
+          heading="Sign in to check out"
+          subheading="We use your profile for the receipt and loyalty stars — quickest way is Apple or Google."
+          onComplete={refresh}
+        />
+      </CheckoutFrame>
+    );
+  }
+
+  return <CheckoutSignedIn lines={lines} />;
+}
+
+function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
+  const router = useRouter();
+  const clear = useCart((s) => s.clear);
+  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward, refresh } =
+    useAuth();
+  if (!profile) {
+    // Should never happen — parent gates this. But TS can't prove it.
+    throw new Error("CheckoutSignedIn rendered without profile");
+  }
+
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [showFieldErrors, setShowFieldErrors] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
@@ -63,33 +112,7 @@ export default function CheckoutPage() {
   const walletAvailable = applePayAvailable || googlePayAvailable;
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
 
-  // Loyalty reward state. We look up the buyer's star balance once
-  // they've filled in name + phone (on phone blur) and offer a free
-  // drink redemption if they have enough stars. The actual redeem call
-  // happens at submit time so users can un-check without burning stars.
-  const [loyaltyLookup, setLoyaltyLookup] = useState<
-    | { status: "idle" }
-    | { status: "loading" }
-    | {
-        status: "ready";
-        customerId: string;
-        balance: number;
-        starsPerReward: number;
-      }
-    | { status: "error"; message: string }
-  >({ status: "idle" });
   const [useReward, setUseReward] = useState(false);
-  const [welcomeDiscount, setWelcomeDiscount] = useState<
-    { available: false } | { available: true; percentage: number }
-  >({ available: false });
-
-  // OTP verification state for checkout.
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [otpPhone, setOtpPhone] = useState<string | null>(null);
-  const [otpCode, setOtpCode] = useState("");
-  const [otpError, setOtpError] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [resendTimer, setResendTimer] = useState(0);
 
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
@@ -112,37 +135,20 @@ export default function CheckoutPage() {
     return cheapest;
   }, [lines]);
 
-  // Welcome discount display amount. Square recomputes the real total
-  // server-side; this is only for showing the "−$X.XX" line while the
-  // user is reviewing the cart.
   const welcomeDiscountAmount = useMemo(() => {
     if (!welcomeDiscount.available) return 0n;
-    // 30% off subtotal, rounded to nearest cent (matches Square's math
-    // for ORDER-scope percentage discounts closely enough for display).
     const pct = BigInt(welcomeDiscount.percentage);
     return (subtotal * pct) / 100n;
   }, [subtotal, welcomeDiscount]);
 
-  // Whether the user can redeem (enough stars).
-  const canRedeem =
-    loyaltyLookup.status === "ready" &&
-    loyaltyLookup.starsPerReward > 0 &&
-    loyaltyLookup.balance >= loyaltyLookup.starsPerReward;
-
-  // Loyalty-derived values — declared early so effects can reference them.
-  const loyaltyBalance =
-    loyaltyLookup.status === "ready" ? loyaltyLookup.balance : 0;
-  const loyaltyTotal =
-    loyaltyLookup.status === "ready" && loyaltyLookup.starsPerReward > 0
-      ? loyaltyLookup.starsPerReward
-      : LOYALTY.starsPerReward;
+  const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
+  const loyaltyBalance = loyalty?.balance ?? 0;
+  const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
-  const progressPct = Math.min((loyaltyBalance / loyaltyTotal) * 100, 100);
-
-  // When the reward fully covers the order — no payment needed.
+  const progressPct = Math.min((loyaltyBalance / starsPerReward) * 100, 100);
   const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
 
-  // Pre-fill redeem toggle from cart drawer preference (localStorage).
+  // Pre-fill redeem toggle from cart drawer preference.
   useEffect(() => {
     if (!canRedeem) return;
     try {
@@ -151,221 +157,21 @@ export default function CheckoutPage() {
     } catch { /* noop */ }
   }, [canRedeem]);
 
-  // Auto-toggle reward when the order qualifies for a fully free checkout.
   useEffect(() => {
     if (canRedeemFully) setUseReward(true);
   }, [canRedeemFully]);
 
-  // Auto-select the best available wallet when it becomes available.
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
     else if (googlePayAvailable) setPayMethod("google");
   }, [applePayAvailable, googlePayAvailable]);
 
-  // Fetches the loyalty account for the current phone. Called on phone
-  // blur and on mount (if a saved phone is restored from localStorage).
-  // Uses the phone-only /api/customer/lookup (no create) so a typo
-  // doesn't leave an empty customer record behind. If the phone isn't
-  // on file yet, there's nothing to redeem — surface a friendly
-  // "new customer" state.
-  //
-  // Takes an explicit phone arg so the on-mount effect can pass the
-  // value it just restored without racing React's state update.
-  async function lookupLoyalty(phoneOverride?: string) {
-    const trimmedPhone = (phoneOverride ?? phone).trim();
-    if (!trimmedPhone) return;
-    setLoyaltyLookup({ status: "loading" });
-    try {
-      const customerRes = await fetch("/api/customer/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: trimmedPhone }),
-      });
-      const customerJson = await customerRes.json();
-      if (!customerRes.ok || !customerJson.ok) {
-        throw new Error(customerJson.error ?? "Customer lookup failed");
-      }
-
-      if (!customerJson.found) {
-        setLoyaltyLookup({
-          status: "ready",
-          customerId: "",
-          balance: 0,
-          starsPerReward: 0,
-        });
-        return;
-      }
-
-      // Pre-fill the Name field from the matched Square customer,
-      // but only if the user hasn't started typing. Functional
-      // setState avoids clobbering in-flight keystrokes.
-      const fullName = [customerJson.givenName, customerJson.familyName]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-      if (fullName) {
-        setName((current) => (current.trim() === "" ? fullName : current));
-      }
-
-      const loyaltyRes = await fetch("/api/loyalty/account", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId: customerJson.customerId,
-          phone: trimmedPhone,
-        }),
-      });
-      const loyaltyJson = await loyaltyRes.json();
-      if (!loyaltyRes.ok || !loyaltyJson.ok) {
-        throw new Error(loyaltyJson.error ?? "Loyalty lookup failed");
-      }
-
-      setLoyaltyLookup({
-        status: "ready",
-        customerId: customerJson.customerId,
-        balance: loyaltyJson.balance,
-        starsPerReward: loyaltyJson.starsPerReward,
-      });
-
-      // Welcome discount lookup (piggybacks on the same customerId).
-      if (customerJson.customerId) {
-        try {
-          const wdRes = await fetch(
-            `/api/welcome-discount/status?customerId=${encodeURIComponent(customerJson.customerId)}`,
-          );
-          const wdJson = await wdRes.json();
-          if (wdJson?.available) {
-            setWelcomeDiscount({
-              available: true,
-              percentage: wdJson.percentage ?? 30,
-            });
-          } else {
-            setWelcomeDiscount({ available: false });
-          }
-        } catch {
-          setWelcomeDiscount({ available: false });
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setLoyaltyLookup({ status: "error", message });
-    }
-  }
-
-  // On mount, pre-fill phone (and later name) from the saved account.
-  // Same localStorage key as /account and <AccountLink />: a "signed
-  // in" visitor shouldn't have to retype their details just to pay.
-  // Runs once — subsequent edits to the phone field use the normal
-  // onChange/onBlur path.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // If user has a device token, they're already verified.
-    try {
-      const token = window.localStorage.getItem("mbt:account:deviceToken");
-      if (token) setPhoneVerified(true);
-    } catch { /* noop */ }
-    let storedPhone: string | null = null;
-    try {
-      storedPhone = window.localStorage.getItem("mbt:account:phone");
-    } catch {
-      return;
-    }
-    if (!storedPhone) return;
-    setPhone(storedPhone);
-    // Pass the phone explicitly so we don't race the setPhone above.
-    // lookupLoyalty will populate the name field from Square as a
-    // side effect when the customer is found.
-    void lookupLoyalty(storedPhone);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Resend timer countdown for OTP.
-  useEffect(() => {
-    if (resendTimer <= 0) return;
-    const id = setTimeout(() => setResendTimer((t) => t - 1), 1000);
-    return () => clearTimeout(id);
-  }, [resendTimer]);
-
-  // Send OTP for checkout phone verification.
-  async function sendCheckoutOtp(phoneVal?: string) {
-    const p = (phoneVal ?? phone).trim();
-    if (!p) return;
-    setOtpLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/send-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: p }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error ?? "Failed to send code");
-      }
-      setOtpPhone(p);
-      setOtpCode("");
-      setOtpError(false);
-      setResendTimer(60);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setOtpLoading(false);
-    }
-  }
-
-  // Verify OTP code at checkout.
-  async function verifyCheckoutOtp() {
-    if (!otpPhone) return;
-    setOtpLoading(true);
-    setError(null);
-    setOtpError(false);
-    try {
-      const res = await fetch("/api/auth/verify-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: otpPhone, code: otpCode }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        if (res.status === 401) {
-          setOtpError(true);
-          setOtpLoading(false);
-          return;
-        }
-        throw new Error(json.error ?? "Verification failed");
-      }
-      // Store device token + phone so future visits auto-verify.
-      window.localStorage.setItem("mbt:account:deviceToken", json.deviceToken);
-      window.localStorage.setItem("mbt:account:phone", otpPhone);
-      if (json.givenName || json.familyName) {
-        const fullName = [json.givenName, json.familyName].filter(Boolean).join(" ");
-        setName((cur) => (cur.trim() === "" ? fullName : cur));
-      }
-      const verifiedPhone = otpPhone;
-      setPhoneVerified(true);
-      setOtpPhone(null);
-      setOtpCode("");
-      // Refresh loyalty lookup now that phone is verified.
-      void lookupLoyalty(verifiedPhone);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setOtpLoading(false);
-    }
-  }
-
-  // Whether the payment card section is currently rendered in the DOM.
   const needsCard = !(canRedeemFully && useReward);
 
   // Initialize the Square card form once the SDK has loaded AND the
-  // #card-container element is in the DOM. When the order is fully
-  // covered by a loyalty reward the container is not rendered, so we
-  // skip initialization (and tear down any existing card instance).
+  // #card-container element is in the DOM.
   useEffect(() => {
     if (!needsCard) {
-      // Card section was removed — tear down any existing instance.
       cardRef.current?.destroy().catch(() => undefined);
       cardRef.current = null;
       setCardReady(false);
@@ -410,10 +216,7 @@ export default function CheckoutPage() {
     };
   }, [sdkReady, needsCard]);
 
-  // Initialize Apple Pay. The SDK checks device/browser support
-  // internally — if not available, applePay() throws and we just
-  // leave the button hidden. We wait for cardReady so that
-  // paymentsRef is guaranteed to be populated.
+  // Initialize Apple Pay.
   useEffect(() => {
     if (!cardReady || !needsCard) return;
     if (applePayRef.current) return;
@@ -432,13 +235,9 @@ export default function CheckoutPage() {
         applePayRequestRef.current = paymentRequest;
         const ap = await payments.applePay(paymentRequest);
         if (cancelled) return;
-        // Apple Pay has no attach() — it uses the native iOS/Safari
-        // payment sheet, not a DOM-rendered button.
         applePayRef.current = ap;
         setApplePayAvailable(true);
       } catch (err) {
-        // Apple Pay not supported on this device/browser — expected on
-        // non-Safari or when HTTPS is unavailable (localhost).
         console.info("[apple-pay]", err instanceof Error ? err.message : err);
       }
     })();
@@ -495,51 +294,13 @@ export default function CheckoutPage() {
     };
   }, [sdkReady, needsCard, cardReady, subtotal]);
 
-  // Avoid SSR mismatch: render a placeholder until the cart hydrates.
-  if (!hydrated) {
-    return (
-      <CheckoutFrame>
-        <p className="text-sm text-zinc-500">Loading cart…</p>
-      </CheckoutFrame>
-    );
-  }
-
-  if (lines.length === 0) {
-    return (
-      <CheckoutFrame>
-        <div className="rounded-lg border border-dashed border-black/20 p-12 text-center">
-          <p className="mb-4 text-zinc-600">Your cart is empty.</p>
-          <Link
-            href="/menu"
-            className="inline-block rounded-full px-5 py-2 text-sm font-medium text-white"
-            style={{ backgroundColor: BRAND.primaryColor }}
-          >
-            Browse menu
-          </Link>
-        </div>
-      </CheckoutFrame>
-    );
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+    if (!profile) return;
     setError(null);
     setPaymentError(null);
 
-    const missingName = !name.trim();
-    const missingPhone = !phone.trim();
-    if (missingName || missingPhone) {
-      setShowFieldErrors(true);
-      const missing = [missingName && "name", missingPhone && "phone"].filter(Boolean).join(" and ");
-      setError(`Please enter your ${missing}.`);
-      return;
-    }
-    if (!phoneVerified) {
-      setShowFieldErrors(true);
-      setError("Please verify your phone number first.");
-      return;
-    }
     const expectFreeOrder = canRedeemFully && useReward;
     if (!expectFreeOrder) {
       if (payMethod === "apple") {
@@ -560,20 +321,13 @@ export default function CheckoutPage() {
 
     setSubmitting(true);
     try {
-      // 0) Tokenize wallet IMMEDIATELY — must happen in the same
-      // user-gesture frame or mobile browsers block the Google Pay
-      // pop-up (OR_BIBED_15). Card tokenization doesn't open a
-      // pop-up so it can happen later. We grab the token now and
-      // use it after order creation for verifyBuyer + payment.
+      // 0) Tokenize wallet IMMEDIATELY — must stay in the user-gesture frame.
       let sourceToken: string | undefined;
-      const expectFreeOrder2 = canRedeemFully && useReward;
-      if (!expectFreeOrder2 && (payMethod === "apple" || payMethod === "google")) {
+      if (!expectFreeOrder && (payMethod === "apple" || payMethod === "google")) {
         const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet payment is not ready.");
-        // Update Apple Pay payment request with the real amount before
-        // tokenizing so the native payment sheet shows the correct total.
         if (payMethod === "apple" && applePayRequestRef.current?.update) {
           applePayRequestRef.current.update({
             total: {
@@ -592,27 +346,12 @@ export default function CheckoutPage() {
         sourceToken = tokenResult.token;
       }
 
-      // 1) Customer lookup/create.
-      const customerRes = await fetch("/api/customer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone }),
-      });
-      const customerJson = await customerRes.json();
-      if (!customerRes.ok || !customerJson.ok) {
-        throw new Error(customerJson.error ?? "Customer lookup failed");
-      }
-
-      // 2) Create the order at full price. Loyalty discounts are
-      // applied by Square AFTER the order exists — we attach the
-      // reward in the next step, not here.
+      // 1) Create the order. The server derives customer/phone/name
+      // from the Supabase session — no need to send them.
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId: customerJson.customerId,
-          recipientName: name.trim(),
-          recipientPhone: phone.trim(),
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
           lines: lines.map((l) => ({
@@ -632,25 +371,13 @@ export default function CheckoutPage() {
         throw new Error(orderJson.error ?? "Order creation failed");
       }
 
-      // 3) Optionally redeem a loyalty reward against the order.
-      // Square's CreateLoyaltyReward with an orderId is the ONLY
-      // supported way to discount an order with a reward — there is
-      // no order-level loyaltyRewards field on create. If this step
-      // fails we bail out before any payment is taken; charging
-      // full price after the user opted in would be a surprise.
-      //
-      // The redeem route returns the re-fetched order total so
-      // verifyBuyer/pay both see the discounted amount.
+      // 2) Optionally redeem a loyalty reward against the order.
       let amountCents: string = orderJson.amountCents;
-      if (useReward && loyaltyLookup.status === "ready") {
+      if (useReward) {
         const redeemRes = await fetch("/api/loyalty/redeem", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: customerJson.customerId,
-            phone: phone.trim(),
-            orderId: orderJson.orderId,
-          }),
+          body: JSON.stringify({ orderId: orderJson.orderId }),
         });
         const redeemJson = await redeemRes.json();
         if (!redeemRes.ok || !redeemJson.ok) {
@@ -661,14 +388,11 @@ export default function CheckoutPage() {
         }
       }
 
-      // 4) Tokenize card (if not wallet — wallet was tokenized in
-      // step 0) + verify buyer, UNLESS the order is fully covered
-      // by a loyalty reward (total 0).
+      // 3) Tokenize card (if applicable) + verifyBuyer.
       const isFreeOrder = amountCents === "0" || Number(amountCents) === 0;
 
       let verificationToken: string | undefined;
       if (!isFreeOrder) {
-        // Tokenize card — wallet token was already obtained above.
         if (payMethod === "card") {
           if (!cardRef.current) throw new Error("Card form is not ready yet.");
           const tokenResult = await cardRef.current.tokenize();
@@ -681,9 +405,6 @@ export default function CheckoutPage() {
           sourceToken = tokenResult.token;
         }
 
-        // SCA/3DS is mandatory in AU for ALL payment methods —
-        // skipping triggers CARD_DECLINED_VERIFICATION_REQUIRED.
-        // verifyBuyer must be called for cards AND digital wallets.
         if (!paymentsRef.current) {
           throw new Error("Payments SDK not initialized");
         }
@@ -691,7 +412,8 @@ export default function CheckoutPage() {
           throw new Error("No payment token available");
         }
         const amountMajor = (Number(amountCents) / 100).toFixed(2);
-        const [firstName, ...restName] = name.trim().split(/\s+/);
+        const givenName = profile.first_name ?? "";
+        const familyName = profile.last_name ?? "";
         const verification = await paymentsRef.current.verifyBuyer(
           sourceToken,
           {
@@ -699,9 +421,9 @@ export default function CheckoutPage() {
             currencyCode: "AUD",
             intent: "CHARGE",
             billingContact: {
-              givenName: firstName,
-              familyName: restName.join(" ") || undefined,
-              phone: phone.trim(),
+              givenName,
+              familyName: familyName || undefined,
+              phone: profile.phone_e164,
               countryCode: "AU",
             },
             customerInitiated: true,
@@ -711,17 +433,13 @@ export default function CheckoutPage() {
         verificationToken = verification.token;
       }
 
-      // 5) Finalize the order — either by charging the tokenized
-      // card, or (for free orders) by closing the order with an
-      // empty payment set. Same endpoint handles both.
+      // 4) Finalize the order.
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceId: sourceToken,
           orderId: orderJson.orderId,
-          customerId: customerJson.customerId,
-          phone: phone.trim(),
           verificationToken,
         }),
       });
@@ -730,28 +448,10 @@ export default function CheckoutPage() {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
-      // If the server consumed our welcome discount, refresh local state
-      // so banner/card/line disappear on next render and drop any cached
-      // "available: true" response.
       if (paymentJson.welcomeDiscountConsumed) {
-        setWelcomeDiscount({ available: false });
-        try {
-          for (let i = sessionStorage.length - 1; i >= 0; i--) {
-            const k = sessionStorage.key(i);
-            if (k?.includes("welcome-discount:status")) {
-              sessionStorage.removeItem(k);
-            }
-          }
-        } catch {
-          // ignore
-        }
+        void refresh();
       }
 
-      // Success — save user info for next time, clear cart, go to confirmation.
-      try {
-        window.localStorage.setItem("mbt:account:phone", phone.trim());
-        window.localStorage.setItem("mbt:account:name", name.trim());
-      } catch { /* noop */ }
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
@@ -760,6 +460,10 @@ export default function CheckoutPage() {
       setSubmitting(false);
     }
   }
+
+  const displayName =
+    [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
+    "Signed-in customer";
 
   return (
     <CheckoutFrame>
@@ -787,7 +491,7 @@ export default function CheckoutPage() {
       >
         {/* ── Left column ── */}
         <div className="space-y-5 sm:space-y-6">
-          {/* Rewards Progress — compact on mobile */}
+          {/* Rewards Progress */}
           <section
             className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
             style={{ backgroundColor: BRAND.accentColor }}
@@ -810,7 +514,6 @@ export default function CheckoutPage() {
                 <StarIcon />
               </span>
             </div>
-            {/* Progress bar */}
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 sm:mt-4 sm:h-2.5">
               <div
                 className="h-full rounded-full transition-all"
@@ -822,10 +525,9 @@ export default function CheckoutPage() {
             </div>
             <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:mt-2 sm:text-[11px]">
               <span>{loyaltyBalance} Stars</span>
-              <span>{loyaltyTotal} for Free Drink</span>
+              <span>{starsPerReward} for Free Drink</span>
             </div>
 
-            {/* Redeem checkbox */}
             {canRedeem && (
               <label className="mt-2.5 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-2.5 sm:mt-3 sm:p-3">
                 <input
@@ -838,7 +540,7 @@ export default function CheckoutPage() {
                   className="text-sm font-semibold"
                   style={{ color: BRAND.primaryColor }}
                 >
-                  Redeem free drink ({loyaltyLookup.starsPerReward} stars)
+                  Redeem free drink ({starsPerReward} stars)
                 </span>
               </label>
             )}
@@ -874,7 +576,7 @@ export default function CheckoutPage() {
                         className="inline-block h-1.5 w-1.5 rounded-full"
                         style={{ backgroundColor: BRAND.primaryColor }}
                       />
-                      Welcome 30% Off
+                      Welcome {welcomeDiscount.percentage}% Off
                     </span>
                     <span style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(welcomeDiscountAmount)}
@@ -895,10 +597,7 @@ export default function CheckoutPage() {
             </details>
           </section>
 
-          {/* Hidden phone field — auto-filled from localStorage */}
-          <input type="hidden" value={phone} />
-
-          {/* Free drink banner — shown when reward fully covers the order */}
+          {/* Free drink banner */}
           {canRedeemFully && useReward && (
             <section
               className="rounded-2xl border-2 p-4 sm:p-5"
@@ -911,69 +610,42 @@ export default function CheckoutPage() {
                 This drink is on us! 🎉
               </p>
               <p className="mt-1 text-center text-xs text-zinc-600 sm:text-sm">
-                Your {loyaltyTotal} stars will be redeemed — no payment needed.
+                Your {starsPerReward} stars will be redeemed — no payment needed.
               </p>
             </section>
           )}
 
-          {/* ── Your Details — shared Name / Phone / OTP ── */}
+          {/* ── Your Details — signed-in summary + optional note ── */}
           <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
-            <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
-              Your Details
-            </h3>
-            <label className="mb-3 block sm:mb-4">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                Name {showFieldErrors && !name.trim() && <span className="text-red-500">*</span>}
+            <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-zinc-900 sm:text-base">
+                  Your Details
+                </h3>
+                <p className="mt-0.5 truncate text-sm text-zinc-700">
+                  {displayName}
+                </p>
+                <p className="text-xs text-zinc-500">{profile.phone_e164}</p>
+              </div>
+              <span
+                className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
+                style={{ backgroundColor: BRAND.primaryColor }}
+              >
+                Signed In
               </span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => { setName(e.target.value); setShowFieldErrors(false); }}
-                placeholder="Your name"
-                autoComplete="name"
-                required
-                className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !name.trim() ? "border-red-400" : "border-black/15"}`}
+            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                Order note (optional)
+              </span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Any special requests? e.g. less ice, extra boba"
+                rows={2}
+                className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
               />
             </label>
-            {!phoneVerified && (
-              <label className="mb-3 block sm:mb-4">
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Phone {showFieldErrors && !phone.trim() && <span className="text-red-500">*</span>}
-                </span>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(v) => {
-                    setPhone(v.target.value);
-                    setShowFieldErrors(false);
-                    setPhoneVerified(false);
-                    setOtpPhone(null);
-                    if (loyaltyLookup.status !== "idle") {
-                      setLoyaltyLookup({ status: "idle" });
-                      setUseReward(false);
-                    }
-                  }}
-                  onBlur={() => lookupLoyalty()}
-                  placeholder="0404 123 456"
-                  autoComplete="tel"
-                  required
-                  className={`w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-black/40 ${showFieldErrors && !phone.trim() ? "border-red-400" : "border-black/15"}`}
-                />
-              </label>
-            )}
-            <CheckoutOtpSection
-              phone={phone}
-              phoneVerified={phoneVerified}
-              otpPhone={otpPhone}
-              otpCode={otpCode}
-              otpError={otpError}
-              otpLoading={otpLoading}
-              resendTimer={resendTimer}
-              onSend={() => sendCheckoutOtp()}
-              onVerify={verifyCheckoutOtp}
-              onCodeChange={setOtpCode}
-              onResend={() => sendCheckoutOtp()}
-            />
           </section>
 
           {/* Payment Method — hidden when the reward fully covers the order */}
@@ -985,7 +657,6 @@ export default function CheckoutPage() {
                 </h3>
 
                 <div className="flex flex-col gap-2.5 sm:gap-3">
-                  {/* Apple Pay — official-style black button */}
                   {applePayAvailable && (
                     <button
                       type="button"
@@ -1000,7 +671,6 @@ export default function CheckoutPage() {
                     </button>
                   )}
 
-                  {/* Google Pay — official-style dark button */}
                   {googlePayAvailable && (
                     <button
                       type="button"
@@ -1015,7 +685,6 @@ export default function CheckoutPage() {
                     </button>
                   )}
 
-                  {/* Card tab */}
                   {walletAvailable && (
                     <button
                       type="button"
@@ -1033,20 +702,14 @@ export default function CheckoutPage() {
                 </div>
               </section>
 
-              {/* Wallet hint — shown when Apple/Google Pay is selected */}
               {(payMethod === "apple" || payMethod === "google") && walletAvailable && (
                 <p className="text-xs text-zinc-400">
                   Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
               )}
 
-              {/* Google Pay SDK container: kept in the DOM so attach() works.
-                  Visually hidden but NOT display:none — the SDK needs
-                  a rendered element to initialise its iframe/button.
-                  Apple Pay has no container — it uses the native payment sheet. */}
               <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
 
-              {/* Card form — only shown when card is selected */}
               <section
                 className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5"
                 style={{ display: payMethod === "card" ? undefined : "none" }}
@@ -1107,7 +770,7 @@ export default function CheckoutPage() {
                     className="inline-block h-1.5 w-1.5 rounded-full"
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
-                  Welcome 30% Off
+                  Welcome {welcomeDiscount.percentage}% Off
                 </span>
                 <span style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(welcomeDiscountAmount)}
@@ -1173,17 +836,10 @@ export default function CheckoutPage() {
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
             By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
-            <a href="#" className="underline">
-              Terms of Service
-            </a>{" "}
-            and{" "}
-            <a href="#" className="underline">
-              Privacy Policy
-            </a>
-            .
+            <a href="#" className="underline">Terms of Service</a>{" "}
+            and <a href="#" className="underline">Privacy Policy</a>.
           </p>
         </section>
-
       </form>
 
       {/* ── Mobile sticky bottom bar ── */}
@@ -1204,7 +860,7 @@ export default function CheckoutPage() {
             </p>
             {welcomeDiscount.available && (
               <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
-                Welcome 30% Off · −{formatPrice(welcomeDiscountAmount)}
+                Welcome {welcomeDiscount.percentage}% Off · −{formatPrice(welcomeDiscountAmount)}
               </p>
             )}
           </div>
@@ -1283,128 +939,6 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-
-/* ------------------------------------------------------------------ */
-/*  Checkout OTP verification section                                  */
-/* ------------------------------------------------------------------ */
-
-function CheckoutOtpSection({
-  phone,
-  phoneVerified,
-  otpPhone,
-  otpCode,
-  otpError,
-  otpLoading,
-  resendTimer,
-  onSend,
-  onVerify,
-  onCodeChange,
-  onResend,
-}: {
-  phone: string;
-  phoneVerified: boolean;
-  otpPhone: string | null;
-  otpCode: string;
-  otpError: boolean;
-  otpLoading: boolean;
-  resendTimer: number;
-  onSend: () => void;
-  onVerify: () => void;
-  onCodeChange: (code: string) => void;
-  onResend: () => void;
-}) {
-  // Need at least 10 digits (AU mobile: 0404123456) before showing verify.
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 10) return null;
-
-  // Already verified — green badge.
-  if (phoneVerified) {
-    return (
-      <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-          <polyline points="22 4 12 14.01 9 11.01" />
-        </svg>
-        Phone verified
-      </div>
-    );
-  }
-
-  // OTP has been sent — show code input + verify button.
-  if (otpPhone) {
-    return (
-      <div className="mb-4 space-y-3">
-        <p className="text-xs text-zinc-500">
-          Enter the 6-digit code sent to <span className="font-semibold">{otpPhone}</span>
-        </p>
-        <OtpInput
-          value={otpCode}
-          onChange={onCodeChange}
-          error={otpError}
-        />
-        {otpError && (
-          <p className="text-xs text-red-600">Invalid code. Please try again.</p>
-        )}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onVerify}
-            disabled={otpLoading || otpCode.length < 6}
-            className="rounded-full px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: BRAND.primaryColor }}
-          >
-            {otpLoading ? "Verifying…" : "Verify"}
-          </button>
-          {resendTimer > 0 ? (
-            <span className="text-xs text-zinc-400">
-              Resend in {resendTimer}s
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={onResend}
-              disabled={otpLoading}
-              className="text-xs font-medium underline"
-              style={{ color: BRAND.primaryColor }}
-            >
-              Resend code
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Phone entered but not yet verified — show verify button.
-  return (
-    <div className="mb-4">
-      <button
-        type="button"
-        onClick={onSend}
-        disabled={otpLoading}
-        className="rounded-full px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        {otpLoading ? "Sending…" : "Verify Phone"}
-      </button>
-      <p className="mt-1.5 text-[11px] text-zinc-400">
-        We&apos;ll send a verification code to confirm your number.
-      </p>
-    </div>
-  );
-}
-
 function SummaryRow({ line }: { line: CartLine }) {
   const details = [
     line.variationName,
@@ -1415,7 +949,6 @@ function SummaryRow({ line }: { line: CartLine }) {
 
   return (
     <li className="flex items-start gap-3">
-      {/* Item image */}
       {line.itemImageUrl ? (
         <Image
           src={line.itemImageUrl}
@@ -1492,7 +1025,6 @@ function CardIcon() {
   );
 }
 
-/** Apple logo () for the Apple Pay button. */
 function AppleLogo({ className }: { className?: string }) {
   return (
     <svg
@@ -1509,7 +1041,6 @@ function AppleLogo({ className }: { className?: string }) {
   );
 }
 
-/** Official Google "G" logo (4-color). */
 function GoogleGLogo() {
   return (
     <svg

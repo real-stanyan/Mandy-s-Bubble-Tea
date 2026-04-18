@@ -3,20 +3,16 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
-
-const PHONE_KEY = "mbt:account:phone";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 export function LoyaltyPopup() {
+  const { profile, loading } = useAuth();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try {
-      const phone = window.localStorage.getItem(PHONE_KEY);
-      if (!phone) setVisible(true);
-    } catch {
-      // localStorage unavailable — don't show
-    }
-  }, []);
+    if (!loading && !profile) setVisible(true);
+    else setVisible(false);
+  }, [loading, profile]);
 
   if (!visible) return null;
 

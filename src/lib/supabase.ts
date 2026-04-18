@@ -1,24 +1,14 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import "server-only";
+import { getSupabaseAdmin } from "./supabase-server";
 
-// Server-only Supabase client. Uses the service role key, which bypasses
-// RLS — safe because every importer lives under src/app/api/* and never
-// ships to the browser. Do NOT import this module from client components.
+// Business-logic helpers built on top of the service-role Supabase
+// client. The client itself lives in supabase-server.ts; this module
+// keeps domain helpers (order counter, welcome discount) separate so
+// API routes don't import setup code and setup code doesn't know about
+// domain logic.
 
-let _supabase: SupabaseClient | null = null;
-
-function getSupabase(): SupabaseClient {
-  if (_supabase) return _supabase;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      "Supabase env vars are not configured (need NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)",
-    );
-  }
-  _supabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return _supabase;
+function getSupabase() {
+  return getSupabaseAdmin();
 }
 
 /**

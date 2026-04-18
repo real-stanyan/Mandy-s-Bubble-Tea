@@ -1,26 +1,33 @@
 import { NextResponse } from "next/server";
 import { squareClient } from "@/lib/square";
 import { serializeSquareResponse } from "@/lib/utils";
+import { findLoyaltyAccountByPhone } from "@/lib/loyalty";
+import { getAuthedUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// GET — fetch loyalty events for an account (used by the app)
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const accountId = searchParams.get("accountId");
+// Loyalty event log for the account page. Returns the 30 most recent
+// accumulate/redeem events for the signed-in user's loyalty account.
+// Account id is resolved server-side from the phone on the user's
+// profile — callers can't peek at someone else's events by guessing an
+// accountId.
 
-  if (!accountId) {
-    return NextResponse.json(
-      { ok: false, error: "accountId query parameter is required" },
-      { status: 400 },
-    );
+export async function GET(request: Request) {
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.phone_e164) {
+    return NextResponse.json({ ok: true, events: [] });
   }
 
   try {
+    const account = await findLoyaltyAccountByPhone(user.profile.phone_e164);
+    if (!account) {
+      return NextResponse.json({ ok: true, events: [] });
+    }
+
     const response = await squareClient.loyalty.searchEvents({
       query: {
         filter: {
-          loyaltyAccountFilter: { loyaltyAccountId: accountId },
+          loyaltyAccountFilter: { loyaltyAccountId: account.accountId },
         },
       },
       limit: 30,

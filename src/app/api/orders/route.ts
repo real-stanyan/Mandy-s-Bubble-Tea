@@ -4,21 +4,23 @@ import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
+import { getAuthedUser } from "@/lib/auth";
 
-// Creates a Square order from the client cart. Prices are trusted to
-// Square via catalogObjectId references — we send variation IDs (and
-// modifier IDs) rather than loose amounts so Square recomputes pricing
-// against the current catalog. This also means tax/loyalty rules
-// configured in the Square Dashboard apply automatically.
+// Creates a Square order from the client cart. Identity is derived
+// entirely from the Supabase session — the client does NOT send a
+// customerId or phone. Prices are trusted to Square via
+// catalogObjectId references so Square recomputes pricing against the
+// current catalog. This also means tax/loyalty rules configured in the
+// Square Dashboard apply automatically.
 
 type ClientLineModifier = {
-  id: string; // catalog modifier id
+  id: string;
   name?: string;
 };
 
 type ClientLine = {
   itemName: string;
-  variationId: string; // catalog item variation id
+  variationId: string;
   variationName?: string;
   modifiers: ClientLineModifier[];
   quantity: number;
@@ -26,9 +28,6 @@ type ClientLine = {
 
 type CreateOrderBody = {
   lines: ClientLine[];
-  customerId: string;
-  recipientName: string;
-  recipientPhone: string; // already E.164-ish (from /api/customer flow)
   note?: string;
   applyWelcomeDiscount?: boolean;
 };
@@ -36,64 +35,72 @@ type CreateOrderBody = {
 function isValidBody(body: unknown): body is CreateOrderBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<CreateOrderBody>;
-  return (
-    Array.isArray(b.lines) &&
-    b.lines.length > 0 &&
-    typeof b.customerId === "string" &&
-    typeof b.recipientName === "string" &&
-    typeof b.recipientPhone === "string"
-   );
+  return Array.isArray(b.lines) && b.lines.length > 0;
 }
 
 export async function POST(request: Request) {
   if (!SQUARE_LOCATION_ID) {
     return NextResponse.json(
-       { ok: false, error: "SQUARE_LOCATION_ID is not set on the server" },
-       { status: 500 },
-     );
-   }
+      { ok: false, error: "SQUARE_LOCATION_ID is not set on the server" },
+      { status: 500 },
+    );
+  }
+
+  const user = await getAuthedUser(request);
+  if (!user?.profile?.square_customer_id || !user.profile.phone_e164) {
+    return NextResponse.json(
+      { ok: false, error: "Sign in and complete your profile to place an order" },
+      { status: 401 },
+    );
+  }
 
   let body: unknown;
   try {
     body = await request.json();
-   } catch {
+  } catch {
     return NextResponse.json(
-       { ok: false, error: "Invalid JSON body" },
-       { status: 400 },
-     );
-   }
+      { ok: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
+  }
 
   if (!isValidBody(body)) {
     return NextResponse.json(
-       { ok: false, error: "Missing or invalid fields" },
-       { status: 400 },
-     );
-   }
+      { ok: false, error: "Missing or invalid fields" },
+      { status: 400 },
+    );
+  }
 
-   // Basic per-line sanity check so we fail fast on bad client state.
   for (const line of body.lines) {
     if (
-       !line.variationId ||
+      !line.variationId ||
       typeof line.quantity !== "number" ||
       line.quantity < 1
-     ) {
+    ) {
       return NextResponse.json(
-         { ok: false, error: "Invalid line item" },
-         { status: 400 },
-       );
-     }
-   }
+        { ok: false, error: "Invalid line item" },
+        { status: 400 },
+      );
+    }
+  }
+
+  const customerId = user.profile.square_customer_id;
+  const recipientPhone = user.profile.phone_e164;
+  const recipientName = [user.profile.first_name, user.profile.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim() || "Customer";
 
   const lineItems = body.lines.map((line) => ({
     quantity: String(line.quantity),
     catalogObjectId: line.variationId,
     modifiers: line.modifiers.map((m) => ({
       catalogObjectId: m.id,
-     })),
-   }));
+    })),
+  }));
 
-   // Pickup ASAP — pickupAt is required by Square even for ASAP orders,
-   // so we use "now" as a reasonable approximation.
+  // Pickup ASAP — pickupAt is required by Square even for ASAP orders,
+  // so we use "now" as a reasonable approximation.
   const pickupAt = new Date().toISOString();
 
   // Daily online order number (OL800, OL801, …) shown to the customer
@@ -102,7 +109,7 @@ export async function POST(request: Request) {
   let pickupNumber: string;
   try {
     pickupNumber = await nextOnlineOrderNumber();
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { ok: false, error: "Failed to generate order number" },
       { status: 500 },
@@ -117,7 +124,7 @@ export async function POST(request: Request) {
       | Array<{ uid: string; name: string; percentage: string; scope: "ORDER" }>
       | undefined;
     if (body.applyWelcomeDiscount) {
-      const status = await getWelcomeDiscountStatus(body.customerId);
+      const status = await getWelcomeDiscountStatus(customerId);
       if (status.available) {
         welcomeDiscounts = [
           {
@@ -139,7 +146,7 @@ export async function POST(request: Request) {
       idempotencyKey: randomUUID(),
       order: {
         locationId: SQUARE_LOCATION_ID,
-        customerId: body.customerId,
+        customerId,
         referenceId: pickupNumber,
         ticketName: pickupNumber,
         lineItems,
@@ -152,16 +159,14 @@ export async function POST(request: Request) {
               scheduleType: "ASAP",
               pickupAt,
               recipient: {
-                customerId: body.customerId,
-                displayName: body.recipientName,
-                phoneNumber: body.recipientPhone,
+                customerId,
+                displayName: recipientName,
+                phoneNumber: recipientPhone,
               },
               note: [pickupNumber, body.note].filter(Boolean).join(" — "),
             },
           },
         ],
-        // Metadata helps us trace orders back to this web app in the
-        // Square Dashboard and is safe to include (no PII).
         metadata: {
           source: "web",
           site: BUSINESS.domain,
@@ -172,13 +177,11 @@ export async function POST(request: Request) {
     const orderId = response.order?.id;
     if (!orderId) {
       return NextResponse.json(
-         { ok: false, error: "Square did not return an order id" },
-         { status: 502 },
-       );
-     }
+        { ok: false, error: "Square did not return an order id" },
+        { status: 502 },
+      );
+    }
 
-     // Return the server-computed total as a plain string so the client
-     // can feed it into payments.verifyBuyer() for SCA/3DS.
     const amountCents = response.order?.totalMoney?.amount?.toString() ?? "0";
 
     return NextResponse.json({
@@ -186,9 +189,9 @@ export async function POST(request: Request) {
       orderId,
       amountCents,
       order: serializeSquareResponse(response.order),
-     });
-   } catch (error) {
+    });
+  } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
-   }
+  }
 }
