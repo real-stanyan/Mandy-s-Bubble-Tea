@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { squareClient, ensureReferenceId } from "@/lib/square";
+import { ensureReferenceId, findCustomerByPhone } from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
 import { createDeviceToken } from "@/lib/twilio";
 
@@ -37,16 +37,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const search = await squareClient.customers.search({
-      limit: BigInt(1),
-      query: {
-        filter: {
-          phoneNumber: { exact: e164 },
-        },
-      },
-    });
-
-    const existing = search.customers?.[0];
+    const existing = await findCustomerByPhone(e164);
     if (!existing?.id) {
       return NextResponse.json({ ok: true, found: false });
     }

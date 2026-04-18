@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { verifyDeviceToken } from "@/lib/twilio";
-import { squareClient, ensureReferenceId } from "@/lib/square";
+import {
+  squareClient,
+  ensureReferenceId,
+  findCustomerByPhone,
+} from "@/lib/square";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -26,16 +30,27 @@ export async function POST(request: Request) {
 
   // Token is valid — look up customer in Square.
   try {
-    const search = await squareClient.customers.search({
-      limit: BigInt(1),
-      query: {
-        filter: {
-          phoneNumber: { exact: e164 },
-        },
-      },
-    });
+    let existing = await findCustomerByPhone(e164);
 
-    const existing = search.customers?.[0];
+    // Phone lookup missed. This happens when the merchant edits the
+    // customer's phone in Square Dashboard after signup — the device
+    // token still validates (it's HMAC of the original phone) but the
+    // current phoneNumber field no longer matches. Fall back to a
+    // referenceId search: ensureReferenceId has been seeding the
+    // customer's reference_id with the signup phone on every login, so
+    // it doubles as a stable identity pointer that survives phone edits.
+    if (!existing?.id) {
+      try {
+        const byRef = await squareClient.customers.search({
+          limit: BigInt(1),
+          query: { filter: { referenceId: { exact: e164 } } },
+        });
+        existing = byRef.customers?.[0] ?? null;
+      } catch {
+        // Non-fatal — fall through to the "no customer" response.
+      }
+    }
+
     if (existing?.id) {
       await ensureReferenceId(existing.id, existing.referenceId, e164);
       return NextResponse.json({

@@ -49,3 +49,33 @@ export async function ensureReferenceId(
     );
   }
 }
+
+/**
+ * Look up a Square Customer by E.164 phone. Fetches up to two matches
+ * so we can log a warning when the merchant has accidentally created
+ * duplicate records for the same phone (happens on POS imports or
+ * manual entry). The returned customer is deterministically the first
+ * one Square hands back — same as before — but callers now get a
+ * visible signal in the logs instead of silently picking one.
+ */
+type SquareCustomer = NonNullable<
+  Awaited<ReturnType<typeof squareClient.customers.search>>["customers"]
+>[number];
+
+export async function findCustomerByPhone(
+  e164: string,
+): Promise<SquareCustomer | null> {
+  const search = await squareClient.customers.search({
+    limit: BigInt(2),
+    query: { filter: { phoneNumber: { exact: e164 } } },
+  });
+  const customers = search.customers ?? [];
+  if (customers.length > 1) {
+    console.warn(
+      `[square] multiple Square customer records share phone ${e164}: ${customers
+        .map((c) => c.id)
+        .join(", ")}. Merge them in Square Dashboard to avoid stars going to the wrong account.`,
+    );
+  }
+  return customers[0] ?? null;
+}

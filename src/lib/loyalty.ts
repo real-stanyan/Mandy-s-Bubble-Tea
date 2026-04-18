@@ -1,6 +1,10 @@
 import "server-only";
 import { randomUUID } from "crypto";
-import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
+import {
+  squareClient,
+  SQUARE_LOCATION_ID,
+  findCustomerByPhone,
+} from "@/lib/square";
 
 // Thin helpers around the Square Loyalty API. Squared away in one
 // place so API routes don't re-fetch the active program on every call
@@ -142,11 +146,7 @@ export async function findLoyaltyAccountByPhone(
     };
   }
 
-  const customerSearch = await squareClient.customers.search({
-    limit: BigInt(1),
-    query: { filter: { phoneNumber: { exact: phoneE164 } } },
-  });
-  const customer = customerSearch.customers?.[0];
+  const customer = await findCustomerByPhone(phoneE164);
   if (!customer?.id) return null;
 
   const byCustomer = await squareClient.loyalty.accounts.search({
@@ -165,8 +165,16 @@ export async function findLoyaltyAccountByPhone(
 
 /**
  * Look up the loyalty account for a customer by their phone number,
- * or create one if missing. Phone is the canonical mapping key for
- * loyalty accounts — `customerId` alone isn't searchable.
+ * or create one if missing.
+ *
+ * Historically the phone mapping was the first-class key, but POS-
+ * created accounts sometimes carry a stale or missing phone mapping
+ * while still being correctly linked to the Square customer by id.
+ * If we went straight to create on a phone miss, Square would happily
+ * create a second, empty account for a loyalty-account-less customer
+ * even when a legitimate account was floating with a bad mapping — so
+ * we now try both identity axes (phone mapping + customerId) first and
+ * only fall through to create when neither turns anything up.
  */
 export async function findOrCreateLoyaltyAccount(
   customerId: string,
@@ -174,14 +182,12 @@ export async function findOrCreateLoyaltyAccount(
 ): Promise<LoyaltyAccountSummary> {
   const { programId } = await getActiveProgram();
 
-   // Search by phone first. Square's loyalty search query is phone-
-   // based; there's no customerId-based lookup endpoint.
   const search = await squareClient.loyalty.accounts.search({
     query: {
       mappings: [{ phoneNumber: phoneE164 }],
-      },
+    },
     limit: 1,
-   });
+  });
 
   const existing = search.loyaltyAccounts?.[0];
   if (existing?.id) {
@@ -189,12 +195,31 @@ export async function findOrCreateLoyaltyAccount(
       accountId: existing.id,
       balance: Number(existing.balance ?? 0),
       lifetimePoints: Number(existing.lifetimePoints ?? 0),
-      };
-    }
+    };
+  }
 
-   // Not found by phone — try creating. If the customer already has a
-   // loyalty account (created via POS or with a different phone), the
-   // create call throws. In that case, fall back to a customerIds search.
+  // Phone miss — check whether the customer already owns a loyalty
+  // account via a different (or missing) phone mapping. Doing this
+  // BEFORE create is what prevents orphaned-mapping accounts from
+  // silently being duplicated into fresh zero-balance ones.
+  const byCustomer = await squareClient.loyalty.accounts.search({
+    query: { customerIds: [customerId] },
+    limit: 1,
+  });
+  const owned = byCustomer.loyaltyAccounts?.[0];
+  if (owned?.id) {
+    return {
+      accountId: owned.id,
+      balance: Number(owned.balance ?? 0),
+      lifetimePoints: Number(owned.lifetimePoints ?? 0),
+    };
+  }
+
+  // Neither the phone nor the customerId found an account — safe to
+  // create. The catch block is still required: if another concurrent
+  // request created the account in between our search and create call,
+  // Square throws "already has a loyalty account" and we fall back to
+  // the customerIds search one more time.
   try {
     const created = await squareClient.loyalty.accounts.create({
       idempotencyKey: randomUUID(),
@@ -216,10 +241,6 @@ export async function findOrCreateLoyaltyAccount(
       lifetimePoints: Number(account.lifetimePoints ?? 0),
     };
   } catch (createErr) {
-    // "The customer referenced already has a loyalty account." —
-    // the account exists but wasn't found by phone (phone mismatch
-    // between Square customer record and loyalty mapping). Search
-    // by customerId instead.
     const msg = createErr instanceof Error ? createErr.message : String(createErr);
     if (!msg.includes("already has a loyalty account")) throw createErr;
 

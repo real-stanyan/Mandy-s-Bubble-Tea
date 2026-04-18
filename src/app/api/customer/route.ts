@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { squareClient, ensureReferenceId } from "@/lib/square";
+import {
+  squareClient,
+  ensureReferenceId,
+  findCustomerByPhone,
+} from "@/lib/square";
 import { normalizeAuPhone } from "@/lib/phone";
 import { grantWelcomeDiscount } from "@/lib/supabase";
 
@@ -63,16 +67,7 @@ export async function POST(request: Request) {
 
   try {
     // Exact phone lookup first.
-    const search = await squareClient.customers.search({
-      limit: BigInt(1),
-      query: {
-        filter: {
-          phoneNumber: { exact: e164 },
-        },
-      },
-    });
-
-    const existing = search.customers?.[0];
+    const existing = await findCustomerByPhone(e164);
     if (existing?.id) {
       await ensureReferenceId(existing.id, existing.referenceId, e164);
       return NextResponse.json({

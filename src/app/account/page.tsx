@@ -11,6 +11,7 @@ const MemberQrCard = dynamic(
 );
 import { OtpInput } from "@/components/account/OtpInput";
 import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
+import { clearApiCache } from "@/lib/api-cache";
 
 import { formatPrice } from "@/lib/utils";
 
@@ -364,6 +365,7 @@ export default function AccountPage() {
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(DEVICE_TOKEN_KEY);
     window.localStorage.removeItem("mbt:account:name");
+    clearApiCache();
     setData(null);
     setPhoneInput("");
     setNameInput({ firstName: "", lastName: "" });
