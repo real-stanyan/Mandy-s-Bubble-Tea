@@ -59,6 +59,12 @@ export function SignInCard({
     } else if (auth.user?.phone && stage.kind !== "name") {
       setStage({ kind: "name" });
     }
+  } else if (!auth.session && stage.kind === "name") {
+    // Session dropped while we were on the name step (e.g. server-side
+    // self-heal purged the account because its Square customer was
+    // deleted). Pull the UI back to the chooser instead of leaving the
+    // name form orphaned on screen.
+    setStage({ kind: "chooser" });
   }
 
   async function handleApple() {

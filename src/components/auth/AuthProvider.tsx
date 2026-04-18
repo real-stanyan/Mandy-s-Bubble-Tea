@@ -122,6 +122,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch("/api/me", { cache: "no-store" });
         const json = (await res.json()) as MeResponse;
         if (!json.ok) return;
+        if (!json.authed) {
+          // Server says we're not signed in. If we still hold a local
+          // session, the auth user was removed upstream (Square customer
+          // deleted → webhook purged the Supabase user, or /api/me's
+          // self-heal just ran). Clear the stale cookie/localStorage so
+          // the UI falls back to the sign-in surface.
+          const { data } = await supabase.auth.getSession();
+          if (data.session) {
+            await supabase.auth.signOut();
+          }
+          setProfile(null);
+          setLoyalty(null);
+          setWelcomeDiscount(DEFAULT_WELCOME);
+          setStarsPerReward(json.starsPerReward);
+          return;
+        }
         setProfile(json.profile);
         setLoyalty(json.loyalty);
         setWelcomeDiscount(json.welcomeDiscount);
@@ -136,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       inFlight.current = null;
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     let mounted = true;
@@ -248,6 +264,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
+        // Server says session is no longer valid (user deleted upstream
+        // while browser held a stale cookie, or account was purged by
+        // self-heal). Clear the local session so the UI snaps back to
+        // the sign-in chooser instead of looping on this name stage.
+        if (res.status === 401) {
+          await supabase.auth.signOut();
+          setProfile(null);
+          setLoyalty(null);
+          setWelcomeDiscount(DEFAULT_WELCOME);
+        }
         throw new Error(json.error ?? "Sign up failed");
       }
       const next = json.profile as AuthProfile;
@@ -257,7 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await fetchMe();
       return next;
     },
-    [fetchMe],
+    [fetchMe, supabase],
   );
 
   const signOut = useCallback(async () => {
