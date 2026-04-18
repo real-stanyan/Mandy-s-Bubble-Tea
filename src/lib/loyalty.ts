@@ -117,6 +117,11 @@ type LoyaltyAccountSummary = {
  * treating the user as a brand-new customer with 0 stars).
  *
  * Returns `null` when no account is mapped to the phone.
+ *
+ * Falls back to a customer-lookup + customerIds search when the phone
+ * mapping lookup misses: POS-created loyalty accounts sometimes have a
+ * differently-formatted (or missing) phone mapping even though they're
+ * correctly linked to the Square Customer record.
  */
 export async function findLoyaltyAccountByPhone(
   phoneE164: string,
@@ -129,12 +134,32 @@ export async function findLoyaltyAccountByPhone(
   });
 
   const existing = search.loyaltyAccounts?.[0];
-  if (!existing?.id) return null;
+  if (existing?.id) {
+    return {
+      accountId: existing.id,
+      balance: Number(existing.balance ?? 0),
+      lifetimePoints: Number(existing.lifetimePoints ?? 0),
+    };
+  }
+
+  const customerSearch = await squareClient.customers.search({
+    limit: BigInt(1),
+    query: { filter: { phoneNumber: { exact: phoneE164 } } },
+  });
+  const customer = customerSearch.customers?.[0];
+  if (!customer?.id) return null;
+
+  const byCustomer = await squareClient.loyalty.accounts.search({
+    query: { customerIds: [customer.id] },
+    limit: 1,
+  });
+  const found = byCustomer.loyaltyAccounts?.[0];
+  if (!found?.id) return null;
 
   return {
-    accountId: existing.id,
-    balance: Number(existing.balance ?? 0),
-    lifetimePoints: Number(existing.lifetimePoints ?? 0),
+    accountId: found.id,
+    balance: Number(found.balance ?? 0),
+    lifetimePoints: Number(found.lifetimePoints ?? 0),
   };
 }
 
