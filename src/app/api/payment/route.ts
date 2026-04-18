@@ -174,8 +174,16 @@ export async function POST(request: Request) {
     // failure (no program configured, API down, etc.) never masks a
     // successful payment — stars can be adjusted manually later if
     // something goes wrong here.
+    // Skip accrual when the order was fully comped by a loyalty reward
+    // — otherwise the user earns a star on the drink they just spent
+    // 9 stars to redeem (net cost 8 stars instead of 9). Partial
+    // redemptions (reward on a multi-drink cart with $ still owing)
+    // still accrue so the paid drinks earn their stars normally.
+    const hasLoyaltyReward = (order.rewards?.length ?? 0) > 0;
+    const skipAccrual = hasLoyaltyReward && amount === 0n;
+
     let loyaltyAccrued = false;
-    if (body.customerId && body.phone) {
+    if (!skipAccrual && body.customerId && body.phone) {
       const e164 = normalizeAuPhone(body.phone);
       if (e164) {
         try {

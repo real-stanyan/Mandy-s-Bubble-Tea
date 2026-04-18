@@ -31,12 +31,18 @@ export async function GET(request: Request) {
   }
 
   try {
-    const account = await findLoyaltyAccountByPhone(e164);
+    const [account, program] = await Promise.all([
+      findLoyaltyAccountByPhone(e164),
+      getActiveProgram(),
+    ]);
     if (!account) {
-      return NextResponse.json({ ok: true, account: null });
+      return NextResponse.json({
+        ok: true,
+        account: null,
+        starsPerReward: program.starsPerReward,
+      });
     }
 
-    const program = await getActiveProgram();
     return NextResponse.json({
       ok: true,
       account: {
