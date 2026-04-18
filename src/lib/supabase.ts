@@ -67,6 +67,56 @@ export async function getWelcomeDiscountStatus(
 }
 
 /**
+ * Tear down every Supabase-side trace of an account when the Square
+ * customer is gone (deleted in Square Dashboard, or detected missing on
+ * session resume). Deletes the auth.users row (user_profiles cascades
+ * via FK) and the welcome_discounts row (not FK-linked). Pass whichever
+ * handle you have; we look up the missing one.
+ *
+ * Idempotent and swallows errors — callers must not block on cleanup.
+ */
+export async function purgeAccount(args: {
+  userId?: string;
+  customerId?: string;
+}): Promise<void> {
+  const admin = getSupabase();
+  let { userId, customerId } = args;
+
+  try {
+    if (!userId && customerId) {
+      const { data } = await admin
+        .from("user_profiles")
+        .select("user_id")
+        .eq("square_customer_id", customerId)
+        .maybeSingle();
+      userId = data?.user_id ?? undefined;
+    } else if (userId && !customerId) {
+      const { data } = await admin
+        .from("user_profiles")
+        .select("square_customer_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+      customerId = data?.square_customer_id ?? undefined;
+    }
+
+    if (customerId) {
+      const { error } = await admin
+        .from("welcome_discounts")
+        .delete()
+        .eq("customer_id", customerId);
+      if (error) console.error("[purge] welcome_discounts delete", error);
+    }
+
+    if (userId) {
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error) console.error("[purge] auth.admin.deleteUser", error);
+    }
+  } catch (err) {
+    console.error("[purge] failed", err);
+  }
+}
+
+/**
  * Atomic consume via SQL function. Returns true iff this call was the
  * one that flipped the row from unused to used. Already-used, missing,
  * or errored → false (callers must not double-credit).

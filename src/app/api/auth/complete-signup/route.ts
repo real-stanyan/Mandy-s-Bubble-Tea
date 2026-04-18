@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SquareError } from "square";
 import { getAuthedUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import {
@@ -6,7 +7,7 @@ import {
   ensureReferenceId,
   findCustomerByPhone,
 } from "@/lib/square";
-import { grantWelcomeDiscount } from "@/lib/supabase";
+import { grantWelcomeDiscount, purgeAccount } from "@/lib/supabase";
 
 // Final step of OAuth / phone sign-in. By the time this is called, the
 // caller has a valid Supabase session AND has attached a phone to that
@@ -67,15 +68,41 @@ export async function POST(request: Request) {
   const e164 = user.phone;
 
   try {
-    // If a profile already exists for this auth user, short-circuit.
+    // If a profile already exists, confirm the Square customer is
+    // still there before returning it. A missing customer (404) means
+    // the merchant deleted the record in Dashboard and the
+    // customer.deleted webhook hadn't reached us yet — purge the stale
+    // Supabase state and fall through to the create path so this
+    // returning user gets a brand-new customer + welcome discount.
     const admin = getSupabaseAdmin();
     if (user.profile?.square_customer_id) {
-      return NextResponse.json({
-        ok: true,
-        profile: user.profile,
-        customerId: user.profile.square_customer_id,
-        created: false,
-      });
+      try {
+        await squareClient.customers.get({
+          customerId: user.profile.square_customer_id,
+        });
+        return NextResponse.json({
+          ok: true,
+          profile: user.profile,
+          customerId: user.profile.square_customer_id,
+          created: false,
+        });
+      } catch (err) {
+        if (!(err instanceof SquareError) || err.statusCode !== 404) throw err;
+        await purgeAccount({
+          userId: user.userId,
+          customerId: user.profile.square_customer_id,
+        });
+        // Purge removed the auth user; this request's session is now
+        // invalid. Tell the client to re-auth.
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Your account was removed. Please sign in again.",
+            code: "account_purged",
+          },
+          { status: 401 },
+        );
+      }
     }
 
     // Link (or create) the Square customer by phone.
@@ -90,6 +117,7 @@ export async function POST(request: Request) {
         givenName: firstName,
         familyName: lastName || undefined,
         phoneNumber: e164,
+        emailAddress: user.email ?? undefined,
         referenceId: e164,
       });
       customerId = created.customer?.id ?? null;

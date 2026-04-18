@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { SquareError } from "square";
 import { getAuthedUser } from "@/lib/auth";
-import { getWelcomeDiscountStatus } from "@/lib/supabase";
+import { getWelcomeDiscountStatus, purgeAccount } from "@/lib/supabase";
+import { squareClient } from "@/lib/square";
 import {
   findLoyaltyAccountByPhone,
   getActiveProgram,
@@ -54,6 +56,36 @@ export async function GET(request: Request) {
       welcomeDiscount: { available: false, percentage: 0 },
       starsPerReward,
     });
+  }
+
+  // Defence-in-depth for Square Dashboard deletions. The customer.deleted
+  // webhook is the primary signal, but if it misfires (endpoint down,
+  // signature mismatch, retries exhausted) a user's Supabase profile
+  // still points at a Square customer that no longer exists. Detect
+  // here, purge the Supabase-side state, and hand the client back an
+  // unauthed shell so the sign-in UI takes over.
+  try {
+    await squareClient.customers.get({
+      customerId: user.profile.square_customer_id,
+    });
+  } catch (err) {
+    if (err instanceof SquareError && err.statusCode === 404) {
+      await purgeAccount({
+        userId: user.userId,
+        customerId: user.profile.square_customer_id,
+      });
+      return NextResponse.json({
+        ok: true,
+        authed: false,
+        profile: null,
+        loyalty: null,
+        welcomeDiscount: { available: false, percentage: 0 },
+        starsPerReward,
+      });
+    }
+    // Transient / non-404 Square error: log and carry on with the
+    // cached profile so we don't sign people out on blips.
+    console.error("[me] Square customer verify failed", err);
   }
 
   const [loyaltyAccount, welcomeDiscount] = await Promise.all([
