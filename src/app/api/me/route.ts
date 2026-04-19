@@ -88,12 +88,16 @@ export async function GET(request: Request) {
         customerId: user.profile.square_customer_id,
       });
       // Stamp the verdict so the next N minutes of requests skip this.
-      // Fire-and-forget — a failed stamp just means we'll re-verify
-      // sooner, which is harmless.
-      void getSupabaseAdmin()
+      // Must be awaited — Vercel serverless may freeze the lambda the
+      // instant NextResponse.json returns, killing any in-flight
+      // promises we haven't awaited. A missed stamp means /api/me
+      // pays the Square round-trip on every hydration, defeating the
+      // whole optimisation.
+      const { error: stampErr } = await getSupabaseAdmin()
         .from("user_profiles")
         .update({ square_verified_at: new Date().toISOString() })
         .eq("user_id", user.userId);
+      if (stampErr) console.error("[me] stamp verified_at failed", stampErr);
     } catch (err) {
       if (err instanceof SquareError && err.statusCode === 404) {
         await purgeAccount({
