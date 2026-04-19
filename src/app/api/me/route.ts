@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { SquareError } from "square";
 import { getAuthedUser } from "@/lib/auth";
 import { getWelcomeDiscountStatus, purgeAccount } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { squareClient } from "@/lib/square";
 import {
   findLoyaltyAccountByPhone,
   getActiveProgram,
 } from "@/lib/loyalty";
+
+// How long a successful Square customers.get verdict is trusted before
+// we re-check. The customer.deleted webhook is the primary self-heal
+// path, so this polling fallback can be coarse — 10 minutes keeps the
+// worst-case "stale-but-still-authed" window small without hammering
+// Square on every page view.
+const SQUARE_VERIFY_TTL_MS = 10 * 60 * 1000;
 
 // Hydration endpoint. One call to learn everything the app UI shell
 // needs: whether the visitor is signed in, whether they've completed
@@ -64,28 +72,47 @@ export async function GET(request: Request) {
   // still points at a Square customer that no longer exists. Detect
   // here, purge the Supabase-side state, and hand the client back an
   // unauthed shell so the sign-in UI takes over.
-  try {
-    await squareClient.customers.get({
-      customerId: user.profile.square_customer_id,
-    });
-  } catch (err) {
-    if (err instanceof SquareError && err.statusCode === 404) {
-      await purgeAccount({
-        userId: user.userId,
+  //
+  // Rate-limited by square_verified_at: if we checked recently we trust
+  // that verdict and skip the Square round-trip. Webhook delivery
+  // makes this safe — deletes are near-instant on the happy path and
+  // this TTL only gates the fallback.
+  const verifiedAtMs = user.profile.square_verified_at
+    ? new Date(user.profile.square_verified_at).getTime()
+    : 0;
+  const shouldVerify = Date.now() - verifiedAtMs > SQUARE_VERIFY_TTL_MS;
+
+  if (shouldVerify) {
+    try {
+      await squareClient.customers.get({
         customerId: user.profile.square_customer_id,
       });
-      return NextResponse.json({
-        ok: true,
-        authed: false,
-        profile: null,
-        loyalty: null,
-        welcomeDiscount: { available: false, percentage: 0 },
-        starsPerReward,
-      });
+      // Stamp the verdict so the next N minutes of requests skip this.
+      // Fire-and-forget — a failed stamp just means we'll re-verify
+      // sooner, which is harmless.
+      void getSupabaseAdmin()
+        .from("user_profiles")
+        .update({ square_verified_at: new Date().toISOString() })
+        .eq("user_id", user.userId);
+    } catch (err) {
+      if (err instanceof SquareError && err.statusCode === 404) {
+        await purgeAccount({
+          userId: user.userId,
+          customerId: user.profile.square_customer_id,
+        });
+        return NextResponse.json({
+          ok: true,
+          authed: false,
+          profile: null,
+          loyalty: null,
+          welcomeDiscount: { available: false, percentage: 0 },
+          starsPerReward,
+        });
+      }
+      // Transient / non-404 Square error: log and carry on with the
+      // cached profile so we don't sign people out on blips.
+      console.error("[me] Square customer verify failed", err);
     }
-    // Transient / non-404 Square error: log and carry on with the
-    // cached profile so we don't sign people out on blips.
-    console.error("[me] Square customer verify failed", err);
   }
 
   const [loyaltyAccount, welcomeDiscount] = await Promise.all([

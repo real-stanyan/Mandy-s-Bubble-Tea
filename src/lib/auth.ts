@@ -28,6 +28,7 @@ export type UserProfile = {
   phone_e164: string | null;
   first_name: string | null;
   last_name: string | null;
+  square_verified_at: string | null;
 };
 
 /**
@@ -61,7 +62,9 @@ async function toAuthedUser(
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("user_profiles")
-    .select("user_id, square_customer_id, phone_e164, first_name, last_name")
+    .select(
+      "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at",
+    )
     .eq("user_id", userId)
     .maybeSingle();
   return {

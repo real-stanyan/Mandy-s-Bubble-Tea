@@ -131,6 +131,10 @@ export async function POST(request: Request) {
       );
     }
 
+    // Stamp square_verified_at on write. Either we just created the
+    // Square customer (it exists by definition) or we just linked an
+    // existing one we retrieved from Square — both imply the customer
+    // is live right now. Skip the first /api/me Square round-trip.
     const { data: upserted, error: upsertErr } = await admin
       .from("user_profiles")
       .upsert(
@@ -140,10 +144,13 @@ export async function POST(request: Request) {
           phone_e164: e164,
           first_name: firstName,
           last_name: lastName || null,
+          square_verified_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },
       )
-      .select("user_id, square_customer_id, phone_e164, first_name, last_name")
+      .select(
+        "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at",
+      )
       .single();
     if (upsertErr) throw upsertErr;
 
