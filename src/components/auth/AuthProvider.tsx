@@ -91,6 +91,30 @@ const DEFAULT_WELCOME: WelcomeDiscountInfo = {
   percentage: 0,
 };
 
+// Rewrites Supabase auth errors to friendly copy when the failure is
+// actually a phone-number conflict — i.e. the caller is trying to link
+// a number that already belongs to a different auth.users row (someone
+// signed up with Apple first and is now trying to attach the same
+// phone via Google, or similar). The raw Supabase message is
+// technical and confusing; we swap it for something the user can act
+// on. Non-conflict errors are returned as-is.
+function rewritePhoneConflict(error: unknown): Error {
+  if (!(error instanceof Error)) return new Error(String(error));
+  const msg = error.message.toLowerCase();
+  const status = (error as { status?: number }).status;
+  const looksLikeConflict =
+    (status === 409 || status === 422 || status === 400) &&
+    msg.includes("phone") &&
+    (msg.includes("already") ||
+      msg.includes("exist") ||
+      msg.includes("taken") ||
+      msg.includes("registered"));
+  if (!looksLikeConflict) return error;
+  return new Error(
+    "This phone number is already linked to another account. Please sign in with the method you used last time (Apple, Google, or Phone), or use a different number.",
+  );
+}
+
 function getRedirectUrl(redirectTo?: string): string {
   const next = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/account";
   if (typeof window !== "undefined") {
@@ -213,7 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // OTP for the verify step.
       if (session?.user && !session.user.phone) {
         const { error } = await supabase.auth.updateUser({ phone: phoneE164 });
-        if (error) throw error;
+        if (error) throw rewritePhoneConflict(error);
         return;
       }
 
@@ -235,7 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           token,
           type: "phone_change",
         });
-        if (error) throw error;
+        if (error) throw rewritePhoneConflict(error);
         return;
       }
 
