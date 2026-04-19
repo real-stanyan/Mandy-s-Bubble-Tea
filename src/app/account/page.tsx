@@ -253,7 +253,7 @@ function AccountDashboard({
       />
 
       {welcomeDiscount.available && (
-        <WelcomeDiscountCard percentage={welcomeDiscount.percentage} />
+        <WelcomeDiscountCard />
       )}
 
       {/* ── Loyalty card ── */}

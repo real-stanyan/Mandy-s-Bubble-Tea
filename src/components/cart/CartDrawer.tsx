@@ -164,11 +164,26 @@ function CartBody({
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
 
-  const welcomeDiscountAmount = useMemo(() => {
-    if (!welcomeDiscount.available) return 0n;
-    const pct = BigInt(welcomeDiscount.percentage);
-    return (subtotal * pct) / 100n;
-  }, [subtotal, welcomeDiscount]);
+  const welcomeCoverage = useMemo(() => {
+    if (!welcomeDiscount.available || lines.length === 0) {
+      return { coveredCount: 0, discountCents: 0n };
+    }
+    const unitPrices: bigint[] = [];
+    for (const line of lines) {
+      const unit = lineUnitPrice(line);
+      for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
+    }
+    unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const K = Math.min(welcomeDiscount.drinksRemaining, unitPrices.length);
+    if (K === 0) return { coveredCount: 0, discountCents: 0n };
+    const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
+    return {
+      coveredCount: K,
+      discountCents:
+        (coveredSum * BigInt(welcomeDiscount.percentage)) / 100n,
+    };
+  }, [lines, welcomeDiscount]);
+  const welcomeDiscountAmount = welcomeCoverage.discountCents;
 
   useEffect(() => {
     if (!sdkReady || lines.length === 0) return;
@@ -310,6 +325,7 @@ function CartBody({
           rewardDiscount={rewardDiscount}
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
+          welcomeCoveredCount={welcomeCoverage.coveredCount}
           hasProfile={!!profile}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
@@ -548,6 +564,7 @@ function CartFooter({
   rewardDiscount,
   welcomeDiscount,
   welcomeDiscountAmount,
+  welcomeCoveredCount,
   hasProfile,
   applePayReady,
   googlePayReady,
@@ -558,10 +575,13 @@ function CartFooter({
   lines: CartLine[];
   useReward: boolean;
   rewardDiscount: bigint;
-  welcomeDiscount:
-    | { available: false; percentage: number }
-    | { available: true; percentage: number };
+  welcomeDiscount: {
+    available: boolean;
+    percentage: number;
+    drinksRemaining: number;
+  };
   welcomeDiscountAmount: bigint;
+  welcomeCoveredCount: number;
   hasProfile: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
@@ -632,9 +652,11 @@ function CartFooter({
               itemName: l.itemName,
               variationId: l.variationId,
               variationName: l.variationName,
+              variationPriceCents: Number(l.variationPriceCents),
               modifiers: l.modifiers.map((m) => ({
                 id: m.id,
                 name: m.name,
+                priceCents: Number(m.priceCents),
               })),
               quantity: l.quantity,
             })),
@@ -761,20 +783,26 @@ function CartFooter({
             </span>
           </div>
         )}
-        {!useReward && welcomeDiscount.available && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: BRAND.primaryColor }}
-              />
-              Welcome {welcomeDiscount.percentage}% Off
-            </span>
-            <span style={{ color: BRAND.primaryColor }}>
-              −{formatPrice(welcomeDiscountAmount)}
-            </span>
-          </div>
-        )}
+        {!useReward &&
+          welcomeDiscount.available &&
+          welcomeCoveredCount > 0 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: BRAND.primaryColor }}
+                />
+                Welcome {welcomeDiscount.percentage}% Off
+                <span className="text-xs text-zinc-500">
+                  ({welcomeCoveredCount} drink
+                  {welcomeCoveredCount === 1 ? "" : "s"})
+                </span>
+              </span>
+              <span style={{ color: BRAND.primaryColor }}>
+                −{formatPrice(welcomeDiscountAmount)}
+              </span>
+            </div>
+          )}
         <div className="flex justify-between text-sm text-zinc-600">
           <span>Tax</span>
           <span className="font-semibold text-zinc-900">

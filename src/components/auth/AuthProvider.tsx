@@ -45,6 +45,7 @@ export type LoyaltyInfo = {
 export type WelcomeDiscountInfo = {
   available: boolean;
   percentage: number;
+  drinksRemaining: number;
 };
 
 export type MeResponse = {
@@ -89,6 +90,7 @@ export function useAuth(): AuthContextValue {
 const DEFAULT_WELCOME: WelcomeDiscountInfo = {
   available: false,
   percentage: 0,
+  drinksRemaining: 0,
 };
 
 // Rewrites Supabase auth errors to friendly copy when the failure is

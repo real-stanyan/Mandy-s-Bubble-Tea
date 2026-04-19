@@ -25,10 +25,12 @@ export default function PromotionsPage() {
 
     const list: PromotionItem[] = [];
     if (welcomeDiscount.available) {
+      const remaining = welcomeDiscount.drinksRemaining;
+      const drinkWord = remaining === 1 ? "drink" : "drinks";
       list.push({
         id: "welcome-discount",
         title: `Welcome ${welcomeDiscount.percentage || 30}% Off`,
-        description: "Auto-applied at checkout on your next order.",
+        description: `${remaining} ${drinkWord} left — auto-applied to your cheapest drinks at checkout.`,
         available: true,
         tag: "ACTIVE",
       });

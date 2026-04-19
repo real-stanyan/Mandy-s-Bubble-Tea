@@ -34,7 +34,10 @@ export function WelcomeDiscountBanner() {
           Your Welcome Gift
         </p>
         <p className="mt-0.5 text-sm font-semibold sm:text-base">
-          {percentage}% off your first order — auto-applied at checkout
+          {percentage}% off your first 2 drinks
+          {welcomeDiscount.drinksRemaining < 2
+            ? ` — ${welcomeDiscount.drinksRemaining} drink${welcomeDiscount.drinksRemaining === 1 ? "" : "s"} left, auto-applied at checkout`
+            : " — auto-applied at checkout"}
         </p>
       </div>
       <div className="flex items-center gap-2">

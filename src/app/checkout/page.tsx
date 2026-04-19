@@ -44,6 +44,36 @@ const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID ?? "";
 const SQUARE_LOCATION_ID =
   process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID ?? "";
 
+/**
+ * Mirrors the server-side cheapest-K algorithm in /api/orders. Expands
+ * each cart line into `quantity` unit-price entries, sorts ascending,
+ * picks the cheapest `K = min(drinksRemaining, totalUnits)`, and returns
+ * both K and the 30%-discount amount. Kept in sync with the server by
+ * hand — if the server algorithm changes, update this too.
+ */
+function computeWelcomeDiscount(
+  lines: CartLine[],
+  drinksRemaining: number,
+  percentage: number,
+): { coveredCount: number; discountCents: bigint } {
+  if (drinksRemaining <= 0 || lines.length === 0 || percentage <= 0) {
+    return { coveredCount: 0, discountCents: 0n };
+  }
+  const unitPrices: bigint[] = [];
+  for (const line of lines) {
+    const unit = lineUnitPrice(line);
+    for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
+  }
+  unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const K = Math.min(drinksRemaining, unitPrices.length);
+  if (K === 0) return { coveredCount: 0, discountCents: 0n };
+  const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
+  return {
+    coveredCount: K,
+    discountCents: (coveredSum * BigInt(percentage)) / 100n,
+  };
+}
+
 export default function CheckoutPage() {
   const hydrated = useCart((s) => s.hydrated);
   const lines = useCart((s) => s.lines);
@@ -135,11 +165,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return cheapest;
   }, [lines]);
 
-  const welcomeDiscountAmount = useMemo(() => {
-    if (!welcomeDiscount.available) return 0n;
-    const pct = BigInt(welcomeDiscount.percentage);
-    return (subtotal * pct) / 100n;
-  }, [subtotal, welcomeDiscount]);
+  const welcomeCoverage = useMemo(() => {
+    if (!welcomeDiscount.available) {
+      return { coveredCount: 0, discountCents: 0n };
+    }
+    return computeWelcomeDiscount(
+      lines,
+      welcomeDiscount.drinksRemaining,
+      welcomeDiscount.percentage,
+    );
+  }, [lines, welcomeDiscount]);
+  const welcomeDiscountAmount = welcomeCoverage.discountCents;
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
@@ -358,9 +394,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             itemName: l.itemName,
             variationId: l.variationId,
             variationName: l.variationName,
+            variationPriceCents: Number(l.variationPriceCents),
             modifiers: l.modifiers.map((m) => ({
               id: m.id,
               name: m.name,
+              priceCents: Number(m.priceCents),
             })),
             quantity: l.quantity,
           })),
@@ -577,6 +615,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                         style={{ backgroundColor: BRAND.primaryColor }}
                       />
                       Welcome {welcomeDiscount.percentage}% Off
+                      {welcomeCoverage.coveredCount > 0 && (
+                        <span className="text-xs text-zinc-500">
+                          ({welcomeCoverage.coveredCount} drink
+                          {welcomeCoverage.coveredCount === 1 ? "" : "s"})
+                        </span>
+                      )}
                     </span>
                     <span style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(welcomeDiscountAmount)}
@@ -771,6 +815,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
                   Welcome {welcomeDiscount.percentage}% Off
+                  {welcomeCoverage.coveredCount > 0 && (
+                    <span className="text-xs text-zinc-500">
+                      ({welcomeCoverage.coveredCount} drink
+                      {welcomeCoverage.coveredCount === 1 ? "" : "s"})
+                    </span>
+                  )}
                 </span>
                 <span style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(welcomeDiscountAmount)}
@@ -858,9 +908,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       : subtotal,
                   )}
             </p>
-            {welcomeDiscount.available && (
+            {welcomeDiscount.available && welcomeCoverage.coveredCount > 0 && (
               <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
-                Welcome {welcomeDiscount.percentage}% Off · −{formatPrice(welcomeDiscountAmount)}
+                Welcome {welcomeDiscount.percentage}% Off ·{" "}
+                {welcomeCoverage.coveredCount} drink
+                {welcomeCoverage.coveredCount === 1 ? "" : "s"} · −
+                {formatPrice(welcomeDiscountAmount)}
               </p>
             )}
           </div>

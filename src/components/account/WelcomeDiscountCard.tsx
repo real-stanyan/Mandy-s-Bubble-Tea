@@ -2,12 +2,18 @@
 
 import Link from "next/link";
 import { BRAND } from "@/lib/constants";
+import { useAuth } from "@/components/auth/AuthProvider";
 
-type Props = {
-  percentage: number;
-};
+export function WelcomeDiscountCard() {
+  const { welcomeDiscount } = useAuth();
+  if (!welcomeDiscount.available) return null;
 
-export function WelcomeDiscountCard({ percentage }: Props) {
+  const { percentage, drinksRemaining } = welcomeDiscount;
+  const remainingLabel =
+    drinksRemaining === 1
+      ? "1 drink left"
+      : `${drinksRemaining} drinks left`;
+
   return (
     <section
       className="relative overflow-hidden rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:p-8"
@@ -29,7 +35,7 @@ export function WelcomeDiscountCard({ percentage }: Props) {
             {percentage}% OFF
           </h3>
           <p className="mt-1 text-sm text-zinc-600">
-            Your first order — auto-applied at checkout.
+            Your first 2 drinks — {remainingLabel}, auto-applied at checkout.
           </p>
         </div>
         <Link
