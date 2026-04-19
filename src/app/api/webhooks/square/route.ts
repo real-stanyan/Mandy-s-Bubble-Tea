@@ -18,13 +18,30 @@ import { purgeAccount } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+// Square's webhook payload shape varies per event family. `customer.deleted`
+// is documented as `{ data: { type: "customer", id: "<id>", deleted: true } }`
+// but other event types wrap the resource inside `data.object.<resource>`.
+// Allow either shape here so a mis-remembered contract doesn't cost us a
+// silent no-op in production; the pickCustomerId helper below probes both.
 type SquareEvent = {
   type?: string;
+  event_id?: string;
   data?: {
     id?: string;
     type?: string;
+    object?: {
+      customer?: { id?: string };
+    };
   };
 };
+
+function pickCustomerId(event: SquareEvent): string | null {
+  return (
+    event.data?.id ??
+    event.data?.object?.customer?.id ??
+    null
+  );
+}
 
 export async function POST(request: Request) {
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
@@ -71,10 +88,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // Log the full envelope once per event so the first Test Event from
+  // Square Dashboard reveals the actual payload shape we're receiving.
+  // Keep this on until we've seen a real customer.deleted event land.
+  console.log(
+    `[square-webhook] received type=${event.type} event_id=${event.event_id} data=${JSON.stringify(event.data)}`,
+  );
+
   if (event.type === "customer.deleted") {
-    const customerId = event.data?.id;
+    const customerId = pickCustomerId(event);
     if (!customerId) {
-      console.warn("[square-webhook] customer.deleted missing data.id", event);
+      console.warn(
+        "[square-webhook] customer.deleted: could not extract customer id from payload",
+        event.data,
+      );
       return NextResponse.json({ ok: true });
     }
     await purgeAccount({ customerId });
