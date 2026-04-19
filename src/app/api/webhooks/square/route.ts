@@ -88,25 +88,19 @@ export async function POST(request: Request) {
     );
   }
 
-  // Log the full envelope once per event so the first Test Event from
-  // Square Dashboard reveals the actual payload shape we're receiving.
-  // Keep this on until we've seen a real customer.deleted event land.
-  console.log(
-    `[square-webhook] received type=${event.type} event_id=${event.event_id} data=${JSON.stringify(event.data)}`,
-  );
-
   if (event.type === "customer.deleted") {
     const customerId = pickCustomerId(event);
     if (!customerId) {
+      // Full dump only when we hit the unexpected shape branch, so the
+      // happy path stays quiet.
       console.warn(
-        "[square-webhook] customer.deleted: could not extract customer id from payload",
-        event.data,
+        `[square-webhook] customer.deleted missing customer id. event_id=${event.event_id} data=${JSON.stringify(event.data)}`,
       );
       return NextResponse.json({ ok: true });
     }
     await purgeAccount({ customerId });
     console.log(
-      `[square-webhook] purged Supabase account linked to Square customer ${customerId}`,
+      `[square-webhook] purged Supabase account for Square customer ${customerId} event_id=${event.event_id}`,
     );
   }
 
