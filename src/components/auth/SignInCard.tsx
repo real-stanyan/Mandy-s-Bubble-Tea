@@ -5,6 +5,9 @@ import type { User } from "@supabase/supabase-js";
 import { BRAND } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { OtpInput } from "@/components/account/OtpInput";
+import { PhoneConflictDialog } from "@/components/auth/PhoneConflictDialog";
+
+const PHONE_CONFLICT_PREFIX = "This phone number is already linked";
 
 // Single reusable sign-in surface. Renders three entry points —
 // Continue with Apple, Continue with Google, Enter phone number —
@@ -112,6 +115,7 @@ export function SignInCard({
   // native sheet. Hiding the button is better than showing one that
   // silently drops non-Apple users into a password-form mess.
   const [showApple, setShowApple] = useState(false);
+  const [phoneConflictOpen, setPhoneConflictOpen] = useState(false);
   useEffect(() => {
     setShowApple(isAppleNativeSignInDevice());
   }, []);
@@ -208,7 +212,12 @@ export function SignInCard({
       setStage({ kind: "otp", phone: e164 });
       setOtpCode("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith(PHONE_CONFLICT_PREFIX)) {
+        setPhoneConflictOpen(true);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -226,7 +235,12 @@ export function SignInCard({
       // exists (returning customer), close the dialog.
       if (auth.profile) onComplete?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith(PHONE_CONFLICT_PREFIX)) {
+        setPhoneConflictOpen(true);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -428,6 +442,11 @@ export function SignInCard({
           {error}
         </p>
       )}
+
+      <PhoneConflictDialog
+        open={phoneConflictOpen}
+        onClose={() => setPhoneConflictOpen(false)}
+      />
     </div>
   );
 }
