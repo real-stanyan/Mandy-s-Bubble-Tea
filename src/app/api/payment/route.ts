@@ -211,15 +211,29 @@ export async function POST(request: Request) {
     // We inspect the order we already fetched (orderResponse.order.discounts)
     // instead of trusting the client, so this runs for every paid order
     // whose Square order carries the "welcome-discount" uid.
-    let welcomeDiscountConsumed = false;
+    // Decrement the welcome-drinks counter by exactly the number of drinks
+    // this order consumed (stamped into metadata by /api/orders). Missing or
+    // malformed metadata defaults to 0 — we never consume more than /api/orders
+    // asked us to, so a client-side tamper can't drain a user's allowance.
+    let welcomeDiscountConsumedCount = 0;
+    let welcomeDrinksRemaining: number | null = null;
     const hadWelcomeDiscount = (order.discounts ?? []).some(
       (d) => d.uid === "welcome-discount",
     );
     if (hadWelcomeDiscount) {
-      welcomeDiscountConsumed = await consumeWelcomeDiscount(
-        customerId,
-        body.orderId,
-      );
+      const rawCovered = order.metadata?.welcomeDiscountDrinksCovered;
+      const parsedCovered = rawCovered ? parseInt(rawCovered, 10) : 0;
+      const coveredCount =
+        Number.isFinite(parsedCovered) && parsedCovered > 0 ? parsedCovered : 0;
+      if (coveredCount > 0) {
+        const result = await consumeWelcomeDiscount(
+          customerId,
+          body.orderId,
+          coveredCount,
+        );
+        welcomeDiscountConsumedCount = result.consumedCount;
+        welcomeDrinksRemaining = result.drinksRemaining;
+      }
     }
 
     return NextResponse.json({
@@ -227,7 +241,11 @@ export async function POST(request: Request) {
       paymentId,
       status: paymentStatus,
       loyaltyAccrued,
-      welcomeDiscountConsumed,
+      welcomeDiscountConsumedCount,
+      welcomeDrinksRemaining,
+      // Preserve the old boolean flag so existing clients still have a truthy
+      // signal to refresh auth. They can upgrade to the count at their own pace.
+      welcomeDiscountConsumed: welcomeDiscountConsumedCount > 0,
       payment: paymentForResponse,
     });
   } catch (error) {
