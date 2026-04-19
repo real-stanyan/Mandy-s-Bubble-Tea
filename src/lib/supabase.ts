@@ -42,27 +42,34 @@ export async function grantWelcomeDiscount(customerId: string): Promise<void> {
 }
 
 /**
- * Returns whether the customer has an unused welcome-discount row.
- * Returns { available: false, percentage: 0 } on any error (fail safe).
+ * Returns the customer's welcome discount state: whether any drinks
+ * remain under their allowance (`available`), the 30% rate, and the
+ * raw `drinksRemaining` count (0, 1, or 2) so the UI can say "1 drink
+ * left on your welcome discount".
+ *
+ * Returns a disabled shape on any error — callers must never 500 on
+ * status lookups.
  */
 export async function getWelcomeDiscountStatus(
   customerId: string,
-): Promise<{ available: boolean; percentage: number }> {
+): Promise<{ available: boolean; percentage: number; drinksRemaining: number }> {
   try {
     const { data, error } = await getSupabase()
       .from("welcome_discounts")
-      .select("state,percentage")
+      .select("drinks_remaining,percentage")
       .eq("customer_id", customerId)
       .maybeSingle();
     if (error) throw error;
-    if (!data) return { available: false, percentage: 0 };
+    if (!data) return { available: false, percentage: 0, drinksRemaining: 0 };
+    const remaining = data.drinks_remaining ?? 0;
     return {
-      available: data.state === "unused",
+      available: remaining > 0,
       percentage: data.percentage ?? 30,
+      drinksRemaining: remaining,
     };
   } catch (err) {
     console.error("[welcome-discount] status failed:", err);
-    return { available: false, percentage: 0 };
+    return { available: false, percentage: 0, drinksRemaining: 0 };
   }
 }
 
@@ -117,23 +124,35 @@ export async function purgeAccount(args: {
 }
 
 /**
- * Atomic consume via SQL function. Returns true iff this call was the
- * one that flipped the row from unused to used. Already-used, missing,
- * or errored → false (callers must not double-credit).
+ * Atomically decrements drinks_remaining by at most `count`. Returns
+ * `{ consumedCount, drinksRemaining }` reflecting the post-call state.
+ * Already-zero or missing rows return `{ consumedCount: 0, drinksRemaining: 0 }`.
+ * Callers must not treat any partial consumption as "fully used" — the
+ * row is only terminal when drinksRemaining hits 0.
  */
 export async function consumeWelcomeDiscount(
   customerId: string,
   orderId: string,
-): Promise<boolean> {
+  count: number,
+): Promise<{ consumedCount: number; drinksRemaining: number }> {
   try {
     const { data, error } = await getSupabase().rpc(
       "consume_welcome_discount",
-      { p_customer_id: customerId, p_order_id: orderId },
+      {
+        p_customer_id: customerId,
+        p_order_id: orderId,
+        p_count: count,
+      },
     );
     if (error) throw error;
-    return Array.isArray(data) && data.length > 0 && data[0]?.consumed === true;
+    const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    if (!row) return { consumedCount: 0, drinksRemaining: 0 };
+    return {
+      consumedCount: Number(row.consumed_count ?? 0),
+      drinksRemaining: Number(row.drinks_remaining ?? 0),
+    };
   } catch (err) {
     console.error("[welcome-discount] consume failed:", err);
-    return false;
+    return { consumedCount: 0, drinksRemaining: 0 };
   }
 }

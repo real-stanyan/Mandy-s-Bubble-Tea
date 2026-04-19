@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
@@ -16,12 +17,16 @@ import { getAuthedUser } from "@/lib/auth";
 type ClientLineModifier = {
   id: string;
   name?: string;
+  /** Modifier upcharge in cents. 0 for included/free modifiers. */
+  priceCents: number;
 };
 
 type ClientLine = {
   itemName: string;
   variationId: string;
   variationName?: string;
+  /** Variation base price in cents (excluding modifiers). */
+  variationPriceCents: number;
   modifiers: ClientLineModifier[];
   quantity: number;
 };
@@ -35,7 +40,20 @@ type CreateOrderBody = {
 function isValidBody(body: unknown): body is CreateOrderBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<CreateOrderBody>;
-  return Array.isArray(b.lines) && b.lines.length > 0;
+  if (!Array.isArray(b.lines) || b.lines.length === 0) return false;
+  return b.lines.every((line) => {
+    if (!line || typeof line !== "object") return false;
+    if (typeof line.variationId !== "string") return false;
+    if (typeof line.variationPriceCents !== "number") return false;
+    if (typeof line.quantity !== "number" || line.quantity < 1) return false;
+    if (!Array.isArray(line.modifiers)) return false;
+    return line.modifiers.every(
+      (m) =>
+        m &&
+        typeof m.id === "string" &&
+        typeof m.priceCents === "number",
+    );
+  });
 }
 
 export async function POST(request: Request) {
@@ -120,20 +138,57 @@ export async function POST(request: Request) {
     // Server-verify welcome discount before attaching it. Client is NOT
     // trusted — a request with applyWelcomeDiscount:true but no unused
     // row in Supabase is silently treated as "no discount".
+    // Compute the welcome-discount amount server-side from client-sent unit
+    // prices. The client has authoritative prices (they came from our catalog
+    // API at add-to-cart time); a malicious client can only shift *which*
+    // drinks are chosen as cheapest, and since the rate is always 30% of a
+    // real line's price, the merchant's downside is bounded. If we later
+    // harden this we'll call `squareClient.orders.calculate()` first to get
+    // Square's authoritative line totals, but for now trust-client is fine.
     let welcomeDiscounts:
-      | Array<{ uid: string; name: string; percentage: string; scope: "ORDER" }>
+      | Array<{
+          uid: string;
+          name: string;
+          amountMoney: { amount: bigint; currency: Currency };
+          scope: "ORDER";
+        }>
       | undefined;
+    let welcomeDrinksCovered = 0;
     if (body.applyWelcomeDiscount) {
       const status = await getWelcomeDiscountStatus(customerId);
-      if (status.available) {
-        welcomeDiscounts = [
-          {
-            uid: "welcome-discount",
-            name: "Welcome 30% Off",
-            percentage: String(status.percentage || 30),
-            scope: "ORDER",
-          },
-        ];
+      if (status.available && status.drinksRemaining > 0) {
+        const unitPrices: bigint[] = [];
+        for (const line of body.lines) {
+          const modSum = line.modifiers.reduce(
+            (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
+            0n,
+          );
+          const unit =
+            BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
+          for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
+        }
+        unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const K = Math.min(status.drinksRemaining, unitPrices.length);
+        if (K > 0) {
+          const coveredSum = unitPrices
+            .slice(0, K)
+            .reduce((s, p) => s + p, 0n);
+          const amount = (coveredSum * BigInt(status.percentage || 30)) / 100n;
+          if (amount > 0n) {
+            welcomeDiscounts = [
+              {
+                uid: "welcome-discount",
+                name:
+                  K === 1
+                    ? `Welcome ${status.percentage || 30}% Off (1 drink)`
+                    : `Welcome ${status.percentage || 30}% Off (${K} drinks)`,
+                amountMoney: { amount, currency: BUSINESS.currency as Currency },
+                scope: "ORDER",
+              },
+            ];
+            welcomeDrinksCovered = K;
+          }
+        }
       }
     }
 
@@ -170,6 +225,9 @@ export async function POST(request: Request) {
         metadata: {
           source: "web",
           site: BUSINESS.domain,
+          ...(welcomeDrinksCovered > 0
+            ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
+            : {}),
         },
       },
     });

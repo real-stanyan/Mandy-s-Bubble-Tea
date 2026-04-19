@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       authed: false,
       profile: null,
       loyalty: null,
-      welcomeDiscount: { available: false, percentage: 0 },
+      welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       starsPerReward,
     });
   }
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
       email: user.email,
       phone: user.phone,
       loyalty: null,
-      welcomeDiscount: { available: false, percentage: 0 },
+      welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       starsPerReward,
     });
   }
@@ -109,7 +109,7 @@ export async function GET(request: Request) {
           authed: false,
           profile: null,
           loyalty: null,
-          welcomeDiscount: { available: false, percentage: 0 },
+          welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
           starsPerReward,
         });
       }
