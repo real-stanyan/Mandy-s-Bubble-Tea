@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/lib/auth";
-import { upsertDevicePushToken, deleteDevicePushToken } from "@/lib/push-tokens";
+import { upsertDevicePushToken, deleteOwnDevicePushToken } from "@/lib/push-tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +36,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  if (body.token.length > 512) {
+    return NextResponse.json(
+      { ok: false, error: "Token too long" },
+      { status: 400 },
+    );
+  }
   if (!isValidPlatform(body.platform)) {
     return NextResponse.json(
       { ok: false, error: "Invalid platform" },
@@ -51,7 +57,8 @@ export async function POST(request: Request) {
       appVersion: body.appVersion ?? null,
     });
   } catch (err) {
-    console.error("[device-push-token] upsert failed:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[device-push-token] upsert failed for user=${user.userId}: ${message}`);
     return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 
@@ -74,9 +81,10 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await deleteDevicePushToken(token);
+    await deleteOwnDevicePushToken(token, user.userId);
   } catch (err) {
-    console.error("[device-push-token] delete failed:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[device-push-token] delete failed for user=${user.userId}: ${message}`);
     return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 

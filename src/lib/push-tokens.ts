@@ -46,6 +46,27 @@ export async function deleteDevicePushToken(token: string): Promise<void> {
 }
 
 /**
+ * Ownership-scoped delete — for user-initiated revocation via the
+ * API. Only removes the row if (token, user_id) match, so one authed
+ * user can't revoke another user's token by guessing the value.
+ * Silent no-op if the row doesn't match (returns without error so the
+ * API can still respond 200 — deletion is idempotent from the caller's
+ * perspective).
+ */
+export async function deleteOwnDevicePushToken(
+  token: string,
+  userId: string,
+): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { error } = await admin
+    .from("device_push_tokens")
+    .delete()
+    .eq("token", token)
+    .eq("user_id", userId);
+  if (error) throw new Error(`deleteOwnDevicePushToken: ${error.message}`);
+}
+
+/**
  * All active push tokens for a user. Returns [] if the user has none.
  */
 export async function getDevicePushTokensForUser(
