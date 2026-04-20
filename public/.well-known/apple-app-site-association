@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["HV982TTRNP.com.mandysbubbletea.app"],
+        "components": [
+          { "/": "/menu" },
+          { "/": "/menu/*" },
+          { "/": "/account" },
+          { "/": "/account/*" },
+          { "/": "/order-confirmation/*" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["HV982TTRNP.com.mandysbubbletea.app"]
+  }
+}
