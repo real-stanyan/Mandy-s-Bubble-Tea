@@ -23,6 +23,9 @@ function checkSiteGate(request: NextRequest): Response | null {
   const expected = process.env.SITE_ACCESS_PASSWORD;
   if (!expected) return null;
 
+  const appKey = process.env.SITE_ACCESS_APP_KEY;
+  if (appKey && request.headers.get("x-mbt-app-key") === appKey) return null;
+
   const { pathname } = request.nextUrl;
   if (isOpenPath(pathname)) return null;
 
