@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { WebhooksHelper } from "square";
-import { purgeAccount } from "@/lib/supabase";
+import { getUserIdBySquareCustomer, purgeAccount } from "@/lib/supabase";
+import { squareClient } from "@/lib/square";
+import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
+import { sendExpoPush } from "@/lib/push";
 
 // Square Webhook endpoint. Subscribed events (configured in Square
 // Developer Dashboard):
@@ -69,6 +72,67 @@ function pickReadyOrderId(event: SquareEvent): string | null {
   return payload.order_id ?? null;
 }
 
+/**
+ * Called when an order.fulfillment.updated event transitions at least
+ * one fulfillment to PREPARED. Fetches the Square order to find the
+ * customer id, maps to a Supabase user, claims the dedup slot, and
+ * sends the push. All errors are logged; the webhook still ACKs 2xx
+ * so Square doesn't spin on retries.
+ */
+async function handleOrderReady(orderId: string, eventId?: string): Promise<void> {
+  const claimed = await claimOrderPushSlot(orderId, "ready");
+  if (!claimed) {
+    console.log(
+      `[square-webhook] order ${orderId} ready push already sent (event_id=${eventId})`,
+    );
+    return;
+  }
+
+  let customerId: string | null = null;
+  let ticketName: string | null = null;
+  try {
+    const resp = await squareClient.orders.get({ orderId });
+    customerId = resp.order?.customerId ?? null;
+    ticketName = resp.order?.ticketName ?? null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[square-webhook] orders.get ${orderId} failed: ${message}`);
+    return;
+  }
+
+  if (!customerId) {
+    console.log(`[square-webhook] order ${orderId} has no customer_id — skipping push`);
+    return;
+  }
+
+  const userId = await getUserIdBySquareCustomer(customerId);
+  if (!userId) {
+    console.log(
+      `[square-webhook] Square customer ${customerId} has no Supabase profile — skipping push`,
+    );
+    return;
+  }
+
+  const tokens = await getDevicePushTokensForUser(userId);
+  if (tokens.length === 0) {
+    console.log(`[square-webhook] user ${userId} has no registered devices`);
+    return;
+  }
+
+  const displayNumber = ticketName ?? `#${orderId.slice(-4).toUpperCase()}`;
+  const accepted = await sendExpoPush(
+    tokens.map((t) => t.token),
+    {
+      title: "Your order is ready 🧋",
+      body: `Order ${displayNumber} is ready for pickup at Mandy's Bubble Tea.`,
+      data: { orderId, kind: "ready" },
+    },
+  );
+  console.log(
+    `[square-webhook] sent ready push for order ${orderId} to ${accepted}/${tokens.length} devices`,
+  );
+}
+
 export async function POST(request: Request) {
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const notificationUrl = process.env.SQUARE_WEBHOOK_NOTIFICATION_URL;
@@ -128,6 +192,20 @@ export async function POST(request: Request) {
     console.log(
       `[square-webhook] purged Supabase account for Square customer ${customerId} event_id=${event.event_id}`,
     );
+  }
+
+  if (event.type === "order.fulfillment.updated") {
+    const orderId = pickReadyOrderId(event);
+    if (orderId) {
+      try {
+        await handleOrderReady(orderId, event.event_id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[square-webhook] handleOrderReady failed for order ${orderId} event_id=${event.event_id}: ${message}`,
+        );
+      }
+    }
   }
 
   // Always ack 2xx for recognised or ignored events so Square stops
