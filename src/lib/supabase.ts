@@ -124,6 +124,23 @@ export async function purgeAccount(args: {
 }
 
 /**
+ * Look up the Supabase user_id that owns a given Square customer id.
+ * Returns null if no profile links this Square customer yet.
+ */
+export async function getUserIdBySquareCustomer(
+  squareCustomerId: string,
+): Promise<string | null> {
+  const admin = getSupabase();
+  const { data, error } = await admin
+    .from("user_profiles")
+    .select("user_id")
+    .eq("square_customer_id", squareCustomerId)
+    .maybeSingle();
+  if (error) throw new Error(`getUserIdBySquareCustomer: ${error.message}`);
+  return (data?.user_id as string | undefined) ?? null;
+}
+
+/**
  * Atomically decrements drinks_remaining by at most `count`. Returns
  * `{ consumedCount, drinksRemaining }` reflecting the post-call state.
  * Already-zero or missing rows return `{ consumedCount: 0, drinksRemaining: 0 }`.

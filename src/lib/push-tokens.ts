@@ -61,23 +61,6 @@ export async function getDevicePushTokensForUser(
 }
 
 /**
- * Look up the Supabase user_id that owns a given Square customer id.
- * Returns null if no profile links this Square customer yet.
- */
-export async function getUserIdBySquareCustomer(
-  squareCustomerId: string,
-): Promise<string | null> {
-  const admin = getSupabaseAdmin();
-  const { data, error } = await admin
-    .from("user_profiles")
-    .select("user_id")
-    .eq("square_customer_id", squareCustomerId)
-    .maybeSingle();
-  if (error) throw new Error(`getUserIdBySquareCustomer: ${error.message}`);
-  return (data?.user_id as string | undefined) ?? null;
-}
-
-/**
  * Atomically record that we sent a given notification kind for an
  * order. Returns true if this is the first record (caller should send
  * the push), false if Square already delivered this webhook and we
@@ -90,16 +73,14 @@ export async function claimOrderPushSlot(
   kind: "ready",
 ): Promise<boolean> {
   const admin = getSupabaseAdmin();
-  const { data, error } = await admin
+  const { error } = await admin
     .from("order_push_notifications")
-    .insert({ order_id: orderId, kind })
-    .select("order_id");
+    .insert({ order_id: orderId, kind });
   if (error) {
-    // Unique-key conflict surfaces as Postgres code 23505. supabase-js
-    // returns it as an error with `code: '23505'`.
-    const code = (error as { code?: string }).code;
-    if (code === "23505") return false;
+    // Unique-key conflict surfaces as Postgres code 23505 — treat as
+    // "already claimed, someone else will send the push".
+    if (error.code === "23505") return false;
     throw new Error(`claimOrderPushSlot: ${error.message}`);
   }
-  return (data?.length ?? 0) > 0;
+  return true;
 }

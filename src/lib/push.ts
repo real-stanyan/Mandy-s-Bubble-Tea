@@ -25,16 +25,24 @@ export async function sendExpoPush(
   payload: PushPayload,
 ): Promise<number> {
   const valid: string[] = [];
+  const malformed: string[] = [];
   for (const t of tokens) {
     if (!Expo.isExpoPushToken(t)) {
-      console.warn(`[push] dropping malformed token: ${t}`);
-      // Remove malformed tokens so we don't keep trying.
-      await deleteDevicePushToken(t).catch((err) =>
-        console.error("[push] delete malformed token failed:", err),
-      );
+      const raw = t as string;
+      console.warn(`[push] dropping malformed token (prefix=${raw.slice(0, 12)}… length=${raw.length})`);
+      malformed.push(raw);
       continue;
     }
     valid.push(t);
+  }
+  if (malformed.length > 0) {
+    await Promise.all(
+      malformed.map((t) =>
+        deleteDevicePushToken(t).catch((err) =>
+          console.error("[push] delete malformed token failed:", err),
+        ),
+      ),
+    );
   }
   if (valid.length === 0) return 0;
 
@@ -61,7 +69,7 @@ export async function sendExpoPush(
         }
         if (ticket.status === "error") {
           console.error(
-            `[push] ticket error for ${token}: ${ticket.message}`,
+            `[push] ticket error for token prefix=${token.slice(0, 12)}…: ${ticket.message}`,
             ticket.details,
           );
           // Hard failures where the token is dead.
