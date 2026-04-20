@@ -80,14 +80,6 @@ function pickReadyOrderId(event: SquareEvent): string | null {
  * so Square doesn't spin on retries.
  */
 async function handleOrderReady(orderId: string, eventId?: string): Promise<void> {
-  const claimed = await claimOrderPushSlot(orderId, "ready");
-  if (!claimed) {
-    console.log(
-      `[square-webhook] order ${orderId} ready push already sent (event_id=${eventId})`,
-    );
-    return;
-  }
-
   let customerId: string | null = null;
   let ticketName: string | null = null;
   try {
@@ -116,6 +108,14 @@ async function handleOrderReady(orderId: string, eventId?: string): Promise<void
   const tokens = await getDevicePushTokensForUser(userId);
   if (tokens.length === 0) {
     console.log(`[square-webhook] user ${userId} has no registered devices`);
+    return;
+  }
+
+  const claimed = await claimOrderPushSlot(orderId, "ready");
+  if (!claimed) {
+    console.log(
+      `[square-webhook] order ${orderId} ready push already sent (event_id=${eventId})`,
+    );
     return;
   }
 
