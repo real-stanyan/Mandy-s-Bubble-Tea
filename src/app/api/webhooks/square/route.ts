@@ -23,6 +23,12 @@ export const dynamic = "force-dynamic";
 // but other event types wrap the resource inside `data.object.<resource>`.
 // Allow either shape here so a mis-remembered contract doesn't cost us a
 // silent no-op in production; the pickCustomerId helper below probes both.
+type SquareFulfillmentUpdate = {
+  fulfillment_uid?: string;
+  old_state?: string;
+  new_state?: string;
+};
+
 type SquareEvent = {
   type?: string;
   event_id?: string;
@@ -31,6 +37,11 @@ type SquareEvent = {
     type?: string;
     object?: {
       customer?: { id?: string };
+      order_fulfillment_updated?: {
+        order_id?: string;
+        state?: string;
+        fulfillment_update?: SquareFulfillmentUpdate[];
+      };
     };
   };
 };
@@ -41,6 +52,21 @@ function pickCustomerId(event: SquareEvent): string | null {
     event.data?.object?.customer?.id ??
     null
   );
+}
+
+/**
+ * Returns the order id when an order.fulfillment.updated event
+ * includes at least one fulfillment transitioning to PREPARED
+ * (Square's "ready for pickup" state). Returns null for any other
+ * event or transition so the caller can skip cheaply.
+ */
+function pickReadyOrderId(event: SquareEvent): string | null {
+  const payload = event.data?.object?.order_fulfillment_updated;
+  if (!payload) return null;
+  const updates = payload.fulfillment_update ?? [];
+  const toPrepared = updates.some((u) => u.new_state === "PREPARED");
+  if (!toPrepared) return null;
+  return payload.order_id ?? null;
 }
 
 export async function POST(request: Request) {
