@@ -76,3 +76,30 @@ export async function getUserIdBySquareCustomer(
   if (error) throw new Error(`getUserIdBySquareCustomer: ${error.message}`);
   return (data?.user_id as string | undefined) ?? null;
 }
+
+/**
+ * Atomically record that we sent a given notification kind for an
+ * order. Returns true if this is the first record (caller should send
+ * the push), false if Square already delivered this webhook and we
+ * acted on it previously (caller should skip).
+ *
+ * Uses insert + unique-constraint violation as a silent skip.
+ */
+export async function claimOrderPushSlot(
+  orderId: string,
+  kind: "ready",
+): Promise<boolean> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("order_push_notifications")
+    .insert({ order_id: orderId, kind })
+    .select("order_id");
+  if (error) {
+    // Unique-key conflict surfaces as Postgres code 23505. supabase-js
+    // returns it as an error with `code: '23505'`.
+    const code = (error as { code?: string }).code;
+    if (code === "23505") return false;
+    throw new Error(`claimOrderPushSlot: ${error.message}`);
+  }
+  return (data?.length ?? 0) > 0;
+}
