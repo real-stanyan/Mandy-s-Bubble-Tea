@@ -8,7 +8,7 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 // flow has its own focused chrome. Add more prefixes here if future
 // routes need a clean canvas.
 
-const HIDE_PREFIXES = ["/checkout"];
+const HIDE_PREFIXES = ["/checkout", "/access"];
 
 export function SiteHeaderGate() {
   const pathname = usePathname() ?? "";
