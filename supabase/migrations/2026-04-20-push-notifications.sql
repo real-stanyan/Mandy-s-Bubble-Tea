@@ -1,6 +1,8 @@
 -- Device push tokens + idempotent order-ready send ledger.
 -- See docs/superpowers/plans/2026-04-20-order-ready-push-notifications.md
 
+-- No RLS: accessed exclusively via service-role client (getSupabaseAdmin).
+-- Do not wire client-side queries to this table without adding policies.
 create table if not exists device_push_tokens (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
