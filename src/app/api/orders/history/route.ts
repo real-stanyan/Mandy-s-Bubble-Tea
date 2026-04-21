@@ -135,6 +135,7 @@ export async function GET(request: Request) {
         id: order.id,
         referenceId: order.referenceId ?? order.ticketName ?? null,
         createdAt: order.createdAt ?? null,
+        updatedAt: order.updatedAt ?? null,
         state: order.state ?? null,
         fulfillmentState: pickup?.state ?? null,
         totalCents: order.totalMoney?.amount?.toString() ?? "0",
