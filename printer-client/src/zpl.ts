@@ -14,13 +14,16 @@ export type CupForZPL = {
 
 /**
  * Render one cup sticker as a ZPL string for Zebra ZD411 at 203 dpi.
- * Label: 50 mm wide x 30 mm tall -> 400 x 240 dots.
+ * Label: 40 mm wide x 30 mm tall -> 320 x 240 dots.
  *
  * Layout (top to bottom):
  *   1. Order number (left, large) + time (right, medium)
- *   2. Drink name (medium, auto-wrap)
- *   3. Toppings -> Ice -> Sugar (small, auto-wrap)
+ *   2. Drink name (medium, auto-wrap up to 2 lines)
+ *   3. Toppings -> Ice -> Sugar (small, auto-wrap up to 2 lines)
  *   4. Cup index/total (left) + price (right)
+ *
+ * Right-aligned items use ^FB with the R justifier so they always
+ * land flush against the right margin regardless of text length.
  */
 export function renderStickerZPL(cup: CupForZPL): string {
   const dollars = (cup.priceCents / 100).toFixed(2);
@@ -30,44 +33,58 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const sugar = cup.sugar ?? "";
   const modifierLine = `${toppings} -> ${ice} -> ${sugar}`.trim();
 
-  // Font sizes (dots). Font 0 is scalable height x width.
-  const H_NUM = 45;     // order number
-  const H_TIME = 32;    // time
-  const H_DRINK = 30;   // drink name
-  const H_MOD = 24;     // modifier line
-  const H_FOOT = 26;    // footer
+  // Label geometry (40x30mm @ 203dpi).
+  const PW = 320;
+  const LL = 240;
+  const LEFT = 15;
+  const RIGHT_PAD = 15;
+  const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
 
-  // Vertical cursor. Leave 10 dots padding top.
-  let y = 10;
+  // Font heights in dots (font 0, scalable).
+  const H_NUM = 40;
+  const H_TIME = 24;
+  const H_DRINK = 26;
+  const H_MOD = 22;
+  const H_FOOT = 24;
+
+  let y = 8;
 
   const parts: string[] = [];
-  parts.push("^XA");           // start
-  parts.push("^PW400");        // print width (50mm @ 203dpi)
-  parts.push("^LL240");        // label length (30mm @ 203dpi)
+  parts.push("^XA");
+  parts.push(`^PW${PW}`);
+  parts.push(`^LL${LL}`);
   parts.push("^CI28");         // UTF-8
 
-  // Row 1: sticker number (left) + time (right, top-right)
-  parts.push(`^FO15,${y}^A0N,${H_NUM},${H_NUM}^FD${escapeZpl(cup.stickerNumber)}^FS`);
-  parts.push(`^FO270,${y + 10}^A0N,${H_TIME},${H_TIME}^FD${escapeZpl(cup.orderTime)}^FS`);
-  y += H_NUM + 6;
-
-  // Row 2: drink name, auto-wrap up to 2 lines at ~22 chars per line
+  // Row 1: sticker number (left, big) + time (right, smaller, vertically centered-ish)
   parts.push(
-    `^FO15,${y}^A0N,${H_DRINK},${H_DRINK}^FB370,2,4,L,0^FD${escapeZpl(cup.drinkName)}^FS`,
+    `^FO${LEFT},${y}^A0N,${H_NUM},${H_NUM}^FD${escapeZpl(cup.stickerNumber)}^FS`,
   );
-  y += H_DRINK * 2 + 4;
-
-  // Row 3: modifiers, auto-wrap up to 2 lines
   parts.push(
-    `^FO15,${y}^A0N,${H_MOD},${H_MOD}^FB370,2,2,L,0^FD${escapeZpl(modifierLine)}^FS`,
+    `^FO${LEFT},${y + (H_NUM - H_TIME) / 2}^A0N,${H_TIME},${H_TIME}^FB${W},1,0,R,0^FD${escapeZpl(cup.orderTime)}^FS`,
   );
-  y += H_MOD * 2 + 4;
+  y += H_NUM + 4;
+
+  // Row 2: drink name, wrap up to 2 lines
+  parts.push(
+    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,3,L,0^FD${escapeZpl(cup.drinkName)}^FS`,
+  );
+  y += H_DRINK * 2 + 2;
+
+  // Row 3: modifiers, wrap up to 2 lines
+  parts.push(
+    `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},2,2,L,0^FD${escapeZpl(modifierLine)}^FS`,
+  );
+  y += H_MOD * 2 + 2;
 
   // Row 4: cup fraction (left) + price (right)
-  parts.push(`^FO15,${y}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`);
-  parts.push(`^FO280,${y}^A0N,${H_FOOT},${H_FOOT}^FD$${escapeZpl(dollars)}^FS`);
+  parts.push(
+    `^FO${LEFT},${y}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`,
+  );
+  parts.push(
+    `^FO${LEFT},${y}^A0N,${H_FOOT},${H_FOOT}^FB${W},1,0,R,0^FD$${escapeZpl(dollars)}^FS`,
+  );
 
-  parts.push("^XZ");           // end
+  parts.push("^XZ");
   return parts.join("\n");
 }
 
