@@ -7,6 +7,7 @@ import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
+import { enqueuePrintJob } from "@/lib/print-jobs";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -176,6 +177,24 @@ export async function POST(request: Request) {
         idempotencyKey: randomUUID(),
         paymentIds: [],
       });
+
+      // Square does not fire an order.updated webhook when an order
+      // closes via orders.pay with empty paymentIds, so the normal
+      // webhook → enqueuePrintJob path never runs for $0 loyalty
+      // redemptions. Enqueue directly. The print_jobs table has a
+      // unique constraint on square_order_id, so if a webhook ever
+      // does arrive later the duplicate insert is silently swallowed.
+      try {
+        const refreshed = await squareClient.orders.get({ orderId: body.orderId });
+        if (refreshed.order) {
+          await enqueuePrintJob({ order: refreshed.order });
+        }
+      } catch (printError) {
+        console.error(
+          "[payment] inline print enqueue for $0 order failed:",
+          printError instanceof Error ? printError.message : printError,
+        );
+      }
     }
 
     // Accrue loyalty stars. Wrapped in its own try/catch so a loyalty
