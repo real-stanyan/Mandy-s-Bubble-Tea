@@ -45,6 +45,11 @@ type SquareEvent = {
         state?: string;
         fulfillment_update?: SquareFulfillmentUpdate[];
       };
+      loyalty_account?: {
+        id?: string;
+        customer_id?: string;
+        balance?: number;
+      };
     };
   };
 };
@@ -133,6 +138,45 @@ async function handleOrderReady(orderId: string, eventId?: string): Promise<void
   );
 }
 
+/**
+ * Loyalty balance changed — if the customer has a wallet pass,
+ * enqueue a QStash job to bump updated_at + push to APNs. The worker
+ * route does the heavy lifting; the webhook just fans out the signal
+ * and ACKs Square fast.
+ */
+async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
+  const customerId = event.data?.object?.loyalty_account?.customer_id;
+  if (!customerId) {
+    console.log(
+      `[square-webhook] loyalty.points.updated missing customer_id event_id=${event.event_id}`,
+    );
+    return;
+  }
+
+  const { getPassByCustomerId } = await import("@/lib/wallet/db");
+  const pass = await getPassByCustomerId(customerId);
+  if (!pass) {
+    // Customer has no wallet pass yet — nothing to push.
+    return;
+  }
+
+  const { Client: QStashClient } = await import("@upstash/qstash");
+  const { walletEnv } = await import("@/lib/wallet/env");
+  const env = walletEnv();
+  const qstash = new QStashClient({ token: env.qstashToken, baseUrl: env.qstashUrl });
+  const workerUrl = `${env.webServiceUrl.replace(/\/api\/wallet\/?$/, "")}/api/wallet/worker/push`;
+
+  await qstash.publishJSON({
+    url: workerUrl,
+    body: { serialNumber: pass.serial_number },
+    retries: 3,
+  });
+
+  console.log(
+    `[square-webhook] enqueued wallet push for customer ${customerId} serial=${pass.serial_number} event_id=${event.event_id}`,
+  );
+}
+
 export async function POST(request: Request) {
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const notificationUrl = process.env.SQUARE_WEBHOOK_NOTIFICATION_URL;
@@ -205,6 +249,17 @@ export async function POST(request: Request) {
           `[square-webhook] handleOrderReady failed for order ${orderId} event_id=${event.event_id}: ${message}`,
         );
       }
+    }
+  }
+
+  if (event.type === "loyalty.points.updated") {
+    try {
+      await handleLoyaltyBalanceUpdate(event);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[square-webhook] handleLoyaltyBalanceUpdate failed event_id=${event.event_id}: ${message}`,
+      );
     }
   }
 
