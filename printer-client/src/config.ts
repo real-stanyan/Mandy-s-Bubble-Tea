@@ -1,5 +1,9 @@
 // printer-client/src/config.ts
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+import path from "path";
+
+loadEnv({ path: path.resolve(__dirname, "../.env.local") });
+loadEnv();
 
 function requireEnv(name: string): string {
   const v = process.env[name];
