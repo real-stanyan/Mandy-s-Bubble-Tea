@@ -11,10 +11,6 @@ type CupRow = {
   ice: string | null;
   sugar: string | null;
   priceCents: number;
-  // Customer first name, carried per-cup so the printer doesn't need
-  // to join back to the job row. Web orders populate this from
-  // Square metadata.customerFirstName; POS orders leave it null.
-  customerName: string | null;
 };
 
 type EnqueueArgs = {
@@ -70,13 +66,11 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     stickerNumber = encodeStoreStickerNumber(Number(data));
   }
 
-  const customerName = order.metadata?.customerFirstName ?? null;
-
   // Expand lineItems into cups.
   const cups: CupRow[] = [];
   for (const line of lineItems) {
     const q = Number(line.quantity ?? "1");
-    const cup = { ...cupFromLineItem(line), customerName };
+    const cup = cupFromLineItem(line);
     for (let i = 0; i < q; i++) cups.push(cup);
   }
 
@@ -129,7 +123,6 @@ function cupFromLineItem(line: OrderLineItem): CupRow {
     ice,
     sugar,
     priceCents,
-    customerName: null,
   };
 }
 

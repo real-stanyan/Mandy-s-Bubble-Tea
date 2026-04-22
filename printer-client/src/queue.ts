@@ -18,7 +18,6 @@ type PrintJobRow = {
     ice: string | null;
     sugar: string | null;
     priceCents: number;
-    customerName: string | null;
   }>;
   status: "pending" | "printing" | "printed" | "failed" | "stale";
   attempts: number;
@@ -205,7 +204,6 @@ export async function handleJob(job: PrintJobRow): Promise<void> {
         cupIndex: i + 1,
         cupTotal: claimed.cups.length,
         priceCents: c.priceCents,
-        customerName: c.customerName,
       } satisfies CupForZPL);
       await printZPL(zpl);
       // Persist per-cup progress so a crash between cups doesn't

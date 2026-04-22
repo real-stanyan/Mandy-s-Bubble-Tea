@@ -18,7 +18,6 @@ async function main() {
     cupIndex: 1,
     cupTotal: 1,
     priceCents: 0,
-    customerName: null,
   });
   console.log(zpl);
   await printZPL(zpl);

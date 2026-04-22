@@ -221,12 +221,6 @@ export async function POST(request: Request) {
         metadata: {
           source: "web",
           site: BUSINESS.domain,
-          // Customer first name, stamped so the cup-sticker printer
-          // can show it under the pickup number without a second API
-          // hop. Square metadata values must be strings ≤ 255 chars.
-          ...(user.profile.first_name
-            ? { customerFirstName: user.profile.first_name.slice(0, 64) }
-            : {}),
           ...(welcomeDrinksCovered > 0
             ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
             : {}),

@@ -13,7 +13,6 @@ describe("renderStickerZPL", () => {
     cupIndex: 1,
     cupTotal: 2,
     priceCents: 700,
-    customerName: null,
   };
 
   it("produces a ZPL string with ^XA start and ^XZ end", () => {
@@ -67,68 +66,21 @@ describe("renderStickerZPL", () => {
     expect(z).toContain("^FB");
   });
 
-  it("renders customer first name when provided (web orders)", () => {
-    const z = renderStickerZPL({ ...base, customerName: "Stan" });
-    expect(z).toContain("Stan");
-  });
-
-  it("omits customer name row when null (POS orders)", () => {
-    const withName = renderStickerZPL({ ...base, customerName: "Stan" });
-    const noName = renderStickerZPL({ ...base, customerName: null });
-    const foCount = (s: string) => (s.match(/\^FO/g) ?? []).length;
-    // Name row adds exactly one ^FO to the label.
-    expect(foCount(withName) - foCount(noName)).toBe(1);
-  });
-
-  it("renders short names at max height (48)", () => {
-    const z = renderStickerZPL({ ...base, customerName: "Stan" });
-    expect(z).toContain("^A0N,48,48");
-    expect(z).toContain("Stan");
-    expect(z).not.toContain("…");
-  });
-
-  it("shrinks medium-length names so they fit on one line without ellipsis", () => {
-    const z = renderStickerZPL({ ...base, customerName: "Alexandrina" });
-    // Should not be max height (too wide for 48), not be min (still fits
-    // comfortably above 22). Any height between min+1 and max-1 is fine.
-    const match = z.match(/\^A0N,(\d+),\1\^FDAlexandrina/);
-    expect(match).not.toBeNull();
-    const h = Number(match![1]);
-    expect(h).toBeGreaterThan(22);
-    expect(h).toBeLessThan(48);
-    expect(z).not.toContain("…");
-  });
-
   it("bottom-anchors the footer so cup count + price always print", () => {
     // Label is 240 dots tall. The footer (H_FOOT=22) must land in the
     // bottom strip regardless of what goes above it. Pull the ^FO Y
     // coordinate of the two footer fields from the emitted ZPL and
     // assert they are within the last ~30 dots of the label.
-    const render = (customerName: string | null) =>
-      renderStickerZPL({ ...base, customerName });
-    for (const cn of [null, "Stan", "Bartholomew-Christopher-Maximilian"] as const) {
-      const z = render(cn);
-      // Footer rows have the cup fraction ("1/2") and the dollar amount.
-      const cupFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD1\/2/);
-      const priceFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FB[^^]+\^FD\$7\.00/);
-      expect(cupFo, `cup fraction missing for customerName=${cn}`).not.toBeNull();
-      expect(priceFo, `price missing for customerName=${cn}`).not.toBeNull();
-      const cupY = Number(cupFo![1]);
-      const priceY = Number(priceFo![1]);
-      expect(cupY).toBe(priceY);
-      // Within the bottom ~35 dots of a 240-dot label.
-      expect(cupY).toBeGreaterThan(205);
-      expect(cupY).toBeLessThan(225);
-    }
-  });
-
-  it("truncates only when even the min height cannot fit the full name", () => {
-    const z = renderStickerZPL({
-      ...base,
-      customerName: "Bartholomew-Christopher-Maximilian",
-    });
-    expect(z).toContain("^A0N,22,22");
-    expect(z).toContain("…");
+    const z = renderStickerZPL(base);
+    const cupFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD1\/2/);
+    const priceFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FB[^^]+\^FD\$7\.00/);
+    expect(cupFo).not.toBeNull();
+    expect(priceFo).not.toBeNull();
+    const cupY = Number(cupFo![1]);
+    const priceY = Number(priceFo![1]);
+    expect(cupY).toBe(priceY);
+    expect(cupY).toBeGreaterThan(205);
+    expect(cupY).toBeLessThan(225);
   });
 
   it("appends an ellipsis when drink name is too long to fit", () => {

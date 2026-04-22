@@ -10,10 +10,6 @@ export type CupForZPL = {
   cupIndex: number;        // 1-based
   cupTotal: number;
   priceCents: number;      // e.g. 700 -> '$7.00'
-  // Customer first name — rendered below the sticker number so
-  // staff can call it out. Only populated for web (OL...) orders;
-  // null for POS walk-ins.
-  customerName: string | null;
 };
 
 /**
@@ -28,6 +24,8 @@ export type CupForZPL = {
  *
  * Right-aligned items use ^FB with the R justifier so they always
  * land flush against the right margin regardless of text length.
+ * The footer (row 4) is bottom-anchored so price+cup-count always
+ * print even if the drink/modifier rows need extra space.
  */
 // Rough max characters that fit in 2 wrapped lines on our 290-dot
 // usable width at the given font heights. These are conservative
@@ -39,26 +37,6 @@ const MAX_MOD_CHARS = 52;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
-}
-
-// Customer name auto-sizing. Short names render big and readable from
-// across the counter; long names shrink so they don't crowd the drink
-// row or force ugly ellipses. Glyph-width-to-height ratio for font 0
-// is ~0.6. We pick the biggest height that keeps the full name on one
-// line, clamped to [MIN, MAX] for visual consistency. If even the min
-// height can't fit the name, the name is truncated with an ellipsis.
-const NAME_MAX_HEIGHT = 48;
-const NAME_MIN_HEIGHT = 22;
-const NAME_GLYPH_RATIO = 0.6;
-
-function pickNameHeight(len: number, usableWidth: number): number {
-  if (len <= 0) return NAME_MAX_HEIGHT;
-  const byWidth = Math.floor(usableWidth / (NAME_GLYPH_RATIO * len));
-  return Math.max(NAME_MIN_HEIGHT, Math.min(NAME_MAX_HEIGHT, byWidth));
-}
-
-function maxCharsAtHeight(height: number, usableWidth: number): number {
-  return Math.max(1, Math.floor(usableWidth / (NAME_GLYPH_RATIO * height)));
 }
 
 export function renderStickerZPL(cup: CupForZPL): string {
@@ -91,9 +69,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const H_FOOT = 22;
 
   // Bottom-anchor the footer so the price+cup-count row ALWAYS lands
-  // on the label regardless of how tall the rows above end up. The
-  // body (drink, modifiers) is rendered top-down and capped at this
-  // y so it can't bleed into or past the footer area.
+  // on the label regardless of how tall the rows above end up.
   const FOOTER_Y = LL - BOTTOM - H_FOOT;
   const BODY_MAX_Y = FOOTER_Y - ROW_GAP;
 
@@ -113,24 +89,6 @@ export function renderStickerZPL(cup: CupForZPL): string {
     `^FO${LEFT},${y + (H_NUM - H_TIME) / 2}^A0N,${H_TIME},${H_TIME}^FB${W},1,0,R,0^FD${escapeZpl(cup.orderTime)}^FS`,
   );
   y += H_NUM + ROW_GAP;
-
-  // Row 1b: customer first name (web orders only). POS walk-ins
-  // don't supply a name, so skip the row entirely and keep the
-  // layout compact. The name is capped by the vertical space left
-  // after reserving room for the drink row, modifier row, and the
-  // bottom-anchored footer, so it never pushes other fields off
-  // the label.
-  if (cup.customerName) {
-    const reservedBody = H_DRINK * 2 + ROW_GAP + H_MOD * 2 + ROW_GAP;
-    const maxByVertical = BODY_MAX_Y - y - reservedBody;
-    const maxByWidth = pickNameHeight(cup.customerName.length, W);
-    const h = Math.max(NAME_MIN_HEIGHT, Math.min(maxByWidth, maxByVertical));
-    const name = truncate(cup.customerName, maxCharsAtHeight(h, W));
-    parts.push(
-      `^FO${LEFT},${y}^A0N,${h},${h}^FD${escapeZpl(name)}^FS`,
-    );
-    y += h + ROW_GAP;
-  }
 
   // Row 2: drink name, wrap up to 2 lines
   parts.push(
