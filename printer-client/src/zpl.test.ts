@@ -13,6 +13,7 @@ describe("renderStickerZPL", () => {
     cupIndex: 1,
     cupTotal: 2,
     priceCents: 700,
+    customerName: null,
   };
 
   it("produces a ZPL string with ^XA start and ^XZ end", () => {
@@ -64,6 +65,27 @@ describe("renderStickerZPL", () => {
     });
     expect(z.startsWith("^XA")).toBe(true);
     expect(z).toContain("^FB");
+  });
+
+  it("renders customer first name when provided (web orders)", () => {
+    const z = renderStickerZPL({ ...base, customerName: "Stan" });
+    expect(z).toContain("Stan");
+  });
+
+  it("omits customer name row when null (POS orders)", () => {
+    const withName = renderStickerZPL({ ...base, customerName: "Stan" });
+    const noName = renderStickerZPL({ ...base, customerName: null });
+    const foCount = (s: string) => (s.match(/\^FO/g) ?? []).length;
+    // Name row adds exactly one ^FO to the label.
+    expect(foCount(withName) - foCount(noName)).toBe(1);
+  });
+
+  it("truncates long customer names with ellipsis", () => {
+    const z = renderStickerZPL({
+      ...base,
+      customerName: "Bartholomew-Christopher-Maximilian",
+    });
+    expect(z).toContain("…");
   });
 
   it("appends an ellipsis when drink name is too long to fit", () => {

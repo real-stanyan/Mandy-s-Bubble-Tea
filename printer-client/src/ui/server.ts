@@ -71,6 +71,7 @@ export function startUi(): void {
       cupIndex: 1,
       cupTotal: 1,
       priceCents: 0,
+      customerName: null,
     });
     try {
       await printZPL(zpl);

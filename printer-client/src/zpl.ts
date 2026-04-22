@@ -10,6 +10,10 @@ export type CupForZPL = {
   cupIndex: number;        // 1-based
   cupTotal: number;
   priceCents: number;      // e.g. 700 -> '$7.00'
+  // Customer first name — rendered below the sticker number so
+  // staff can call it out. Only populated for web (OL...) orders;
+  // null for POS walk-ins.
+  customerName: string | null;
 };
 
 /**
@@ -32,6 +36,7 @@ export type CupForZPL = {
 // having ZPL silently drop characters.
 const MAX_DRINK_CHARS = 44;
 const MAX_MOD_CHARS = 52;
+const MAX_NAME_CHARS = 18;   // fits on one line at H_NAME
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -59,6 +64,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // Font heights in dots (font 0, scalable).
   const H_NUM = 40;
   const H_TIME = 24;
+  const H_NAME = 22;   // customer first name, web orders only
   const H_DRINK = 26;
   const H_MOD = 22;
   const H_FOOT = 24;
@@ -78,7 +84,18 @@ export function renderStickerZPL(cup: CupForZPL): string {
   parts.push(
     `^FO${LEFT},${y + (H_NUM - H_TIME) / 2}^A0N,${H_TIME},${H_TIME}^FB${W},1,0,R,0^FD${escapeZpl(cup.orderTime)}^FS`,
   );
-  y += H_NUM + 4;
+  y += H_NUM + 2;
+
+  // Row 1b: customer first name (web orders only). POS walk-ins
+  // don't supply a name, so skip the row entirely and keep the
+  // layout compact.
+  if (cup.customerName) {
+    const name = truncate(cup.customerName, MAX_NAME_CHARS);
+    parts.push(
+      `^FO${LEFT},${y}^A0N,${H_NAME},${H_NAME}^FD${escapeZpl(name)}^FS`,
+    );
+    y += H_NAME + 2;
+  }
 
   // Row 2: drink name, wrap up to 2 lines
   parts.push(
