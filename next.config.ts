@@ -6,6 +6,7 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@napi-rs/canvas", "passkit-generator", "sharp"],
   images: {
     remotePatterns: [
       {

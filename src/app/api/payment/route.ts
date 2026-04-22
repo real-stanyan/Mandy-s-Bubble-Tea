@@ -7,6 +7,8 @@ import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
+import { enqueuePrintJob } from "@/lib/print-jobs";
+import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -171,11 +173,49 @@ export async function POST(request: Request) {
       // close the order via orders.pay with an empty paymentIds list
       // instead. Square accepts that because the order total (0) is
       // satisfied by the sum of payments (0).
-      await squareClient.orders.pay({
+      const payResp = await squareClient.orders.pay({
         orderId: body.orderId,
         idempotencyKey: randomUUID(),
         paymentIds: [],
       });
+
+      // Square does not fire an order.updated webhook when an order
+      // closes via orders.pay with empty paymentIds, so the normal
+      // webhook → enqueuePrintJob path never runs for $0 loyalty
+      // redemptions. Enqueue directly. The print_jobs table has a
+      // unique constraint on square_order_id, so if a webhook ever
+      // does arrive later the duplicate insert is silently swallowed.
+      // Use the order returned by orders.pay (state=COMPLETED) rather
+      // than re-fetching, to avoid any read-your-writes lag.
+      try {
+        const paidOrder = payResp.order;
+        if (!paidOrder) {
+          console.error("[payment] $0 orders.pay returned no order");
+          void notifyOwnersPrinterAlert(
+            "vercel",
+            `$0 order ${body.orderId}: orders.pay returned no order, sticker NOT queued`,
+          );
+        } else {
+          // orders.pay succeeded, so we know the order is closed even
+          // though Square's returned object still shows state=OPEN and
+          // no tenders. Tell enqueuePrintJob to trust us.
+          const result = await enqueuePrintJob({ order: paidOrder, assumeSettled: true });
+          console.log("[payment] $0 enqueue result:", JSON.stringify(result));
+          if (!result.queued && result.reason !== "conflict") {
+            void notifyOwnersPrinterAlert(
+              "vercel",
+              `$0 order ${body.orderId} NOT queued: ${result.reason}${result.detail ? ` (${result.detail})` : ""}`,
+            );
+          }
+        }
+      } catch (printError) {
+        const msg = printError instanceof Error ? printError.message : String(printError);
+        console.error("[payment] inline print enqueue for $0 order failed:", msg);
+        void notifyOwnersPrinterAlert(
+          "vercel",
+          `$0 order ${body.orderId} enqueue threw: ${msg}`,
+        );
+      }
     }
 
     // Accrue loyalty stars. Wrapped in its own try/catch so a loyalty

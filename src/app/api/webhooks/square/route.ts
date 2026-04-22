@@ -4,6 +4,7 @@ import { getUserIdBySquareCustomer, purgeAccount } from "@/lib/supabase";
 import { squareClient } from "@/lib/square";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
+import { enqueuePrintJob } from "@/lib/print-jobs";
 
 // Square Webhook endpoint. Subscribed events (configured in Square
 // Developer Dashboard):
@@ -50,6 +51,11 @@ type SquareEvent = {
         customer_id?: string;
         balance?: number;
       };
+      order_updated?: {
+        order_id?: string;
+        state?: string;
+        version?: number;
+      };
     };
   };
 };
@@ -74,6 +80,16 @@ function pickReadyOrderId(event: SquareEvent): string | null {
   const updates = payload.fulfillment_update ?? [];
   const toPrepared = updates.some((u) => u.new_state === "PREPARED");
   if (!toPrepared) return null;
+  return payload.order_id ?? null;
+}
+
+/**
+ * Returns the order_id on an order.updated event, regardless of state.
+ * The caller will gate on payment presence after fetching the full order.
+ */
+function pickUpdatedOrderId(event: SquareEvent): string | null {
+  const payload = event.data?.object?.order_updated;
+  if (!payload) return null;
   return payload.order_id ?? null;
 }
 
@@ -156,7 +172,6 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
   const { getPassByCustomerId } = await import("@/lib/wallet/db");
   const pass = await getPassByCustomerId(customerId);
   if (!pass) {
-    // Customer has no wallet pass yet — nothing to push.
     return;
   }
 
@@ -175,6 +190,44 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
   console.log(
     `[square-webhook] enqueued wallet push for customer ${customerId} serial=${pass.serial_number} event_id=${event.event_id}`,
   );
+}
+
+/**
+ * Called on order.updated. Fetches the full order, checks it is paid,
+ * then enqueues a cup-sticker print job. Idempotent via
+ * unique(square_order_id) on print_jobs.
+ */
+async function handleOrderPaid(orderId: string, eventId?: string): Promise<void> {
+  let order;
+  try {
+    const resp = await squareClient.orders.get({ orderId });
+    order = resp.order;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[print] orders.get ${orderId} failed: ${message}`);
+    return;
+  }
+  if (!order) {
+    console.log(`[print] orders.get returned no order for ${orderId}`);
+    return;
+  }
+
+  const result = await enqueuePrintJob({ order });
+  if (result.queued) {
+    console.log(
+      `[print] queued order ${orderId} as ${result.stickerNumber} event_id=${eventId}`,
+    );
+  } else if (result.reason === "conflict") {
+    // Expected on the 2nd+ order.updated event for the same order.
+  } else if (result.reason === "not_paid") {
+    // Expected for order.updated events before payment posts.
+  } else {
+    console.error(
+      `[print] enqueue skipped order=${orderId} reason=${result.reason}${
+        result.detail ? ` detail=${result.detail}` : ""
+      } event_id=${eventId}`,
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -260,6 +313,20 @@ export async function POST(request: Request) {
       console.error(
         `[square-webhook] handleLoyaltyBalanceUpdate failed event_id=${event.event_id}: ${message}`,
       );
+    }
+  }
+
+  if (event.type === "order.updated") {
+    const orderId = pickUpdatedOrderId(event);
+    if (orderId) {
+      try {
+        await handleOrderPaid(orderId, event.event_id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[print] handleOrderPaid threw for order ${orderId} event_id=${event.event_id}: ${message}`,
+        );
+      }
     }
   }
 

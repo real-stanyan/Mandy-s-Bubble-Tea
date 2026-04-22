@@ -6,7 +6,7 @@ import path from 'node:path'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'printer-client/src/**/*.test.ts'],
   },
   resolve: {
     alias: {
