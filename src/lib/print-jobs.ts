@@ -15,9 +15,19 @@ type CupRow = {
 
 type EnqueueArgs = {
   order: Order;
+  /**
+   * Skip the "is settled" gate. Set this only when the caller has
+   * already confirmed the order is fully paid/closed but the order
+   * object it holds hasn't caught up yet. Specifically: after a
+   * successful `orders.pay({ paymentIds: [] })` for a $0 loyalty
+   * redemption, Square returns the order still in state=OPEN with
+   * zero tenders even though it's closed. The /api/payment route
+   * knows it just succeeded, so it can bypass the gate.
+   */
+  assumeSettled?: boolean;
 };
 
-export async function enqueuePrintJob({ order }: EnqueueArgs): Promise<
+export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueArgs): Promise<
   | { queued: true; stickerNumber: string }
   | { queued: false; reason: "not_paid" | "no_line_items" | "conflict" | "error"; detail?: string }
 > {
@@ -30,7 +40,7 @@ export async function enqueuePrintJob({ order }: EnqueueArgs): Promise<
   const tenders = order.tenders ?? [];
   const totalCents = order.totalMoney?.amount ?? 0n;
   const isCompleted = order.state === "COMPLETED";
-  if (tenders.length === 0 && !isCompleted) {
+  if (!assumeSettled && tenders.length === 0 && !isCompleted) {
     return { queued: false, reason: "not_paid" };
   }
   const lineItems = order.lineItems ?? [];

@@ -191,17 +191,11 @@ export async function POST(request: Request) {
         if (!paidOrder) {
           console.error("[payment] $0 orders.pay returned no order");
         } else {
-          const result = await enqueuePrintJob({ order: paidOrder });
-          console.log(
-            "[payment] $0 enqueue result:",
-            JSON.stringify(result),
-            "state=",
-            paidOrder.state,
-            "tenders=",
-            paidOrder.tenders?.length ?? 0,
-            "lineItems=",
-            paidOrder.lineItems?.length ?? 0,
-          );
+          // orders.pay succeeded, so we know the order is closed even
+          // though Square's returned object still shows state=OPEN and
+          // no tenders. Tell enqueuePrintJob to trust us.
+          const result = await enqueuePrintJob({ order: paidOrder, assumeSettled: true });
+          console.log("[payment] $0 enqueue result:", JSON.stringify(result));
         }
       } catch (printError) {
         console.error(
