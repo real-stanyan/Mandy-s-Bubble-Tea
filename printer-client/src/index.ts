@@ -1,6 +1,7 @@
 // printer-client/src/index.ts
 import { replayOnStart, subscribePrintJobs } from "./queue";
 import { startHeartbeat, startPendingAgeWatch } from "./heartbeat";
+import { startUi } from "./ui/server";
 
 async function main() {
   console.log("[main] starting Mandy's printer client");
@@ -8,6 +9,7 @@ async function main() {
   const channel = subscribePrintJobs();
   const hbTimer = startHeartbeat();
   const ageTimer = startPendingAgeWatch();
+  startUi();
 
   const shutdown = (sig: string) => {
     console.log(`[main] ${sig} received, shutting down`);
