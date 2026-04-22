@@ -1,12 +1,17 @@
-import { defineConfig } from "vitest/config";
-import path from "node:path";
+import { config } from 'dotenv'
+config({ path: '.env.test' })
+import { defineConfig } from 'vitest/config'
+import path from 'node:path'
 
 export default defineConfig({
-  resolve: {
-    alias: { "@": path.resolve(__dirname, "src") },
-  },
   test: {
-    include: ["src/**/*.test.ts", "printer-client/src/**/*.test.ts"],
-    environment: "node",
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'printer-client/src/**/*.test.ts'],
   },
-});
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+      'server-only': path.resolve(__dirname, 'src/__mocks__/server-only.ts'),
+    },
+  },
+})
