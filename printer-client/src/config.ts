@@ -1,15 +1,15 @@
 // printer-client/src/config.ts
 import "dotenv/config";
 
-function require(name: string): string {
+function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing required env var ${name}`);
   return v;
 }
 
 export const config = {
-  supabaseUrl: require("SUPABASE_URL"),
-  supabaseServiceRoleKey: require("SUPABASE_SERVICE_ROLE_KEY"),
+  supabaseUrl: requireEnv("SUPABASE_URL"),
+  supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
   printerName: process.env.PRINTER_NAME ?? "Zebra_ZD411",
   deviceId: process.env.DEVICE_ID ?? "mac-mini-unknown",
   adminAlertEndpoint: process.env.ADMIN_ALERT_ENDPOINT,
