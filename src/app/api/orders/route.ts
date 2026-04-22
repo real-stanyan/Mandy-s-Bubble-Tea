@@ -104,10 +104,6 @@ export async function POST(request: Request) {
 
   const customerId = user.profile.square_customer_id;
   const recipientPhone = user.profile.phone_e164;
-  const recipientName = [user.profile.first_name, user.profile.last_name]
-    .filter(Boolean)
-    .join(" ")
-    .trim() || "Customer";
 
   const lineItems = body.lines.map((line) => ({
     quantity: String(line.quantity),
@@ -215,7 +211,7 @@ export async function POST(request: Request) {
               pickupAt,
               recipient: {
                 customerId,
-                displayName: recipientName,
+                displayName: pickupNumber,
                 phoneNumber: recipientPhone,
               },
               note: [pickupNumber, body.note].filter(Boolean).join(" — "),
