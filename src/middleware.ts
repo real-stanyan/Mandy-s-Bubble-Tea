@@ -11,7 +11,10 @@ const GATE_COOKIE = "mbt_access";
 // - /access:           the gate page itself
 // - /api/site-access:  endpoint that validates the password
 // - /api/webhooks:     Square / Supabase server-to-server hits that can't send cookies
-const OPEN_PREFIXES = ["/access", "/api/site-access", "/api/webhooks"];
+// - /api/wallet:       Apple PassKit servers + QStash + token-gated pass download —
+//                      each route enforces its own auth (ApplePass header,
+//                      QStash signature, exchange token, Supabase session).
+const OPEN_PREFIXES = ["/access", "/api/site-access", "/api/webhooks", "/api/wallet"];
 
 function isOpenPath(pathname: string) {
   return OPEN_PREFIXES.some(
