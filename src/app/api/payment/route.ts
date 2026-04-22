@@ -172,7 +172,7 @@ export async function POST(request: Request) {
       // close the order via orders.pay with an empty paymentIds list
       // instead. Square accepts that because the order total (0) is
       // satisfied by the sum of payments (0).
-      await squareClient.orders.pay({
+      const payResp = await squareClient.orders.pay({
         orderId: body.orderId,
         idempotencyKey: randomUUID(),
         paymentIds: [],
@@ -184,10 +184,24 @@ export async function POST(request: Request) {
       // redemptions. Enqueue directly. The print_jobs table has a
       // unique constraint on square_order_id, so if a webhook ever
       // does arrive later the duplicate insert is silently swallowed.
+      // Use the order returned by orders.pay (state=COMPLETED) rather
+      // than re-fetching, to avoid any read-your-writes lag.
       try {
-        const refreshed = await squareClient.orders.get({ orderId: body.orderId });
-        if (refreshed.order) {
-          await enqueuePrintJob({ order: refreshed.order });
+        const paidOrder = payResp.order;
+        if (!paidOrder) {
+          console.error("[payment] $0 orders.pay returned no order");
+        } else {
+          const result = await enqueuePrintJob({ order: paidOrder });
+          console.log(
+            "[payment] $0 enqueue result:",
+            JSON.stringify(result),
+            "state=",
+            paidOrder.state,
+            "tenders=",
+            paidOrder.tenders?.length ?? 0,
+            "lineItems=",
+            paidOrder.lineItems?.length ?? 0,
+          );
         }
       } catch (printError) {
         console.error(
