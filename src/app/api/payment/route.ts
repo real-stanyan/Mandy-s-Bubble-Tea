@@ -8,6 +8,7 @@ import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
+import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -190,17 +191,29 @@ export async function POST(request: Request) {
         const paidOrder = payResp.order;
         if (!paidOrder) {
           console.error("[payment] $0 orders.pay returned no order");
+          void notifyOwnersPrinterAlert(
+            "vercel",
+            `$0 order ${body.orderId}: orders.pay returned no order, sticker NOT queued`,
+          );
         } else {
           // orders.pay succeeded, so we know the order is closed even
           // though Square's returned object still shows state=OPEN and
           // no tenders. Tell enqueuePrintJob to trust us.
           const result = await enqueuePrintJob({ order: paidOrder, assumeSettled: true });
           console.log("[payment] $0 enqueue result:", JSON.stringify(result));
+          if (!result.queued && result.reason !== "conflict") {
+            void notifyOwnersPrinterAlert(
+              "vercel",
+              `$0 order ${body.orderId} NOT queued: ${result.reason}${result.detail ? ` (${result.detail})` : ""}`,
+            );
+          }
         }
       } catch (printError) {
-        console.error(
-          "[payment] inline print enqueue for $0 order failed:",
-          printError instanceof Error ? printError.message : printError,
+        const msg = printError instanceof Error ? printError.message : String(printError);
+        console.error("[payment] inline print enqueue for $0 order failed:", msg);
+        void notifyOwnersPrinterAlert(
+          "vercel",
+          `$0 order ${body.orderId} enqueue threw: ${msg}`,
         );
       }
     }

@@ -4,17 +4,35 @@ import { config } from "./config";
 
 /**
  * Send a ZPL string to the Zebra ZD411 via CUPS (`lp -o raw`).
- * Resolves on lp exit 0, rejects on non-zero or spawn error.
+ * Resolves on lp exit 0, rejects on non-zero, spawn error, or
+ * timeout. The timeout guards against CUPS hanging — without it,
+ * one stuck `lp` would freeze the entire queue forever.
  */
 export function printZPL(zpl: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const lp = spawn("lp", ["-d", config.printerName, "-o", "raw"]);
     let stderr = "";
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      try {
+        lp.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      done(() => reject(new Error(`lp timeout after ${config.lpTimeoutMs}ms`)));
+    }, config.lpTimeoutMs);
+
     lp.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    lp.on("error", reject);
+    lp.on("error", (err) => done(() => reject(err)));
     lp.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`lp exit ${code}: ${stderr.trim() || "no stderr"}`));
+      if (code === 0) done(() => resolve());
+      else done(() => reject(new Error(`lp exit ${code}: ${stderr.trim() || "no stderr"}`)));
     });
     lp.stdin.end(zpl);
   });
@@ -23,19 +41,36 @@ export function printZPL(zpl: string): Promise<void> {
 /**
  * Query CUPS for the printer status. Returns 'idle', 'printing',
  * 'offline' (disabled / stopped / not present), or 'unknown'.
+ * Bounded by a 5s timeout so a stuck lpstat can't block the tick.
  */
 export async function getPrinterStatus(): Promise<"idle" | "printing" | "offline" | "unknown"> {
   return new Promise((resolve) => {
     const lpstat = spawn("lpstat", ["-p", config.printerName]);
     let stdout = "";
+    let settled = false;
+    const done = (value: "idle" | "printing" | "offline" | "unknown") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        lpstat.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      done("unknown");
+    }, 5000);
+
     lpstat.stdout.on("data", (c) => (stdout += c.toString()));
-    lpstat.on("error", () => resolve("offline"));
+    lpstat.on("error", () => done("offline"));
     lpstat.on("exit", () => {
       const s = stdout.toLowerCase();
-      if (s.includes("is idle")) resolve("idle");
-      else if (s.includes("printing") || s.includes("now printing")) resolve("printing");
-      else if (s.includes("disabled") || s.includes("stopped")) resolve("offline");
-      else resolve("unknown");
+      if (s.includes("is idle")) done("idle");
+      else if (s.includes("printing") || s.includes("now printing")) done("printing");
+      else if (s.includes("disabled") || s.includes("stopped")) done("offline");
+      else done("unknown");
     });
   });
 }

@@ -1,7 +1,6 @@
 // src/app/api/admin/print-alert/route.ts
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-server";
-import { sendExpoPush } from "@/lib/push";
+import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -27,43 +26,10 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
-  const message = String(body.message ?? "").slice(0, 280) || "printer alert";
+  const message = String(body.message ?? "") || "printer alert";
   const deviceId = String(body.deviceId ?? "unknown");
 
-  const admin = getSupabaseAdmin();
-
-  // Find all owner user_ids, then their device push tokens.
-  const { data: owners, error: ownerErr } = await admin
-    .from("admin_users")
-    .select("user_id")
-    .eq("role", "owner");
-  if (ownerErr) {
-    console.error("[print-alert] admin_users query failed:", ownerErr.message);
-    return NextResponse.json({ ok: false }, { status: 500 });
-  }
-  const ownerIds = (owners ?? []).map((r: { user_id: string }) => r.user_id);
-  if (ownerIds.length === 0) {
-    console.warn("[print-alert] no owners configured");
-    return NextResponse.json({ ok: true, delivered: 0 });
-  }
-  const { data: tokens, error: tokensErr } = await admin
-    .from("device_push_tokens")
-    .select("token")
-    .in("user_id", ownerIds);
-  if (tokensErr) {
-    console.error("[print-alert] push tokens query failed:", tokensErr.message);
-    return NextResponse.json({ ok: false }, { status: 500 });
-  }
-  const pushTokens = (tokens ?? []).map((t: { token: string }) => t.token);
-  if (pushTokens.length === 0) {
-    return NextResponse.json({ ok: true, delivered: 0 });
-  }
-
-  const delivered = await sendExpoPush(pushTokens, {
-    title: "Printer alert",
-    body: `${deviceId}: ${message}`,
-    data: { kind: "printer-alert", deviceId, message },
-  });
-  console.log(`[print-alert] delivered ${delivered}/${pushTokens.length} device=${deviceId}`);
+  const delivered = await notifyOwnersPrinterAlert(deviceId, message);
+  console.log(`[print-alert] delivered ${delivered} device=${deviceId}`);
   return NextResponse.json({ ok: true, delivered });
 }
