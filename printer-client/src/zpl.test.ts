@@ -99,6 +99,29 @@ describe("renderStickerZPL", () => {
     expect(z).not.toContain("…");
   });
 
+  it("bottom-anchors the footer so cup count + price always print", () => {
+    // Label is 240 dots tall. The footer (H_FOOT=22) must land in the
+    // bottom strip regardless of what goes above it. Pull the ^FO Y
+    // coordinate of the two footer fields from the emitted ZPL and
+    // assert they are within the last ~30 dots of the label.
+    const render = (customerName: string | null) =>
+      renderStickerZPL({ ...base, customerName });
+    for (const cn of [null, "Stan", "Bartholomew-Christopher-Maximilian"] as const) {
+      const z = render(cn);
+      // Footer rows have the cup fraction ("1/2") and the dollar amount.
+      const cupFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD1\/2/);
+      const priceFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FB[^^]+\^FD\$7\.00/);
+      expect(cupFo, `cup fraction missing for customerName=${cn}`).not.toBeNull();
+      expect(priceFo, `price missing for customerName=${cn}`).not.toBeNull();
+      const cupY = Number(cupFo![1]);
+      const priceY = Number(priceFo![1]);
+      expect(cupY).toBe(priceY);
+      // Within the bottom ~35 dots of a 240-dot label.
+      expect(cupY).toBeGreaterThan(205);
+      expect(cupY).toBeLessThan(225);
+    }
+  });
+
   it("truncates only when even the min height cannot fit the full name", () => {
     const z = renderStickerZPL({
       ...base,

@@ -79,15 +79,25 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const LEFT = 15;
   const RIGHT_PAD = 15;
   const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
+  const TOP = 6;
+  const BOTTOM = 4;
+  const ROW_GAP = 2;
 
   // Font heights in dots (font 0, scalable).
-  const H_NUM = 40;
-  const H_TIME = 24;
-  const H_DRINK = 26;
-  const H_MOD = 22;
-  const H_FOOT = 24;
+  const H_NUM = 38;
+  const H_TIME = 22;
+  const H_DRINK = 24;
+  const H_MOD = 20;
+  const H_FOOT = 22;
 
-  let y = 8;
+  // Bottom-anchor the footer so the price+cup-count row ALWAYS lands
+  // on the label regardless of how tall the rows above end up. The
+  // body (drink, modifiers) is rendered top-down and capped at this
+  // y so it can't bleed into or past the footer area.
+  const FOOTER_Y = LL - BOTTOM - H_FOOT;
+  const BODY_MAX_Y = FOOTER_Y - ROW_GAP;
+
+  let y = TOP;
 
   const parts: string[] = [];
   parts.push("^XA");
@@ -102,38 +112,46 @@ export function renderStickerZPL(cup: CupForZPL): string {
   parts.push(
     `^FO${LEFT},${y + (H_NUM - H_TIME) / 2}^A0N,${H_TIME},${H_TIME}^FB${W},1,0,R,0^FD${escapeZpl(cup.orderTime)}^FS`,
   );
-  y += H_NUM + 2;
+  y += H_NUM + ROW_GAP;
 
   // Row 1b: customer first name (web orders only). POS walk-ins
   // don't supply a name, so skip the row entirely and keep the
-  // layout compact.
+  // layout compact. The name is capped by the vertical space left
+  // after reserving room for the drink row, modifier row, and the
+  // bottom-anchored footer, so it never pushes other fields off
+  // the label.
   if (cup.customerName) {
-    const h = pickNameHeight(cup.customerName.length, W);
+    const reservedBody = H_DRINK * 2 + ROW_GAP + H_MOD * 2 + ROW_GAP;
+    const maxByVertical = BODY_MAX_Y - y - reservedBody;
+    const maxByWidth = pickNameHeight(cup.customerName.length, W);
+    const h = Math.max(NAME_MIN_HEIGHT, Math.min(maxByWidth, maxByVertical));
     const name = truncate(cup.customerName, maxCharsAtHeight(h, W));
     parts.push(
       `^FO${LEFT},${y}^A0N,${h},${h}^FD${escapeZpl(name)}^FS`,
     );
-    y += h + 2;
+    y += h + ROW_GAP;
   }
 
   // Row 2: drink name, wrap up to 2 lines
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,3,L,0^FD${escapeZpl(drinkName)}^FS`,
+    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,2,L,0^FD${escapeZpl(drinkName)}^FS`,
   );
-  y += H_DRINK * 2 + 2;
+  y += H_DRINK * 2 + ROW_GAP;
 
-  // Row 3: modifiers, wrap up to 2 lines
+  // Row 3: modifiers, wrap up to 2 lines (but never bleed into the
+  // footer strip — if the modifier row would overlap the price, drop
+  // it to a single line rather than losing the price).
+  const modLines = y + H_MOD * 2 > BODY_MAX_Y ? 1 : 2;
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},2,2,L,0^FD${escapeZpl(modifierLine)}^FS`,
+    `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},${modLines},2,L,0^FD${escapeZpl(modifierLine)}^FS`,
   );
-  y += H_MOD * 2 + 2;
 
-  // Row 4: cup fraction (left) + price (right)
+  // Row 4: cup fraction (left) + price (right) — bottom-anchored.
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`,
+    `^FO${LEFT},${FOOTER_Y}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`,
   );
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_FOOT},${H_FOOT}^FB${W},1,0,R,0^FD$${escapeZpl(dollars)}^FS`,
+    `^FO${LEFT},${FOOTER_Y}^A0N,${H_FOOT},${H_FOOT}^FB${W},1,0,R,0^FD$${escapeZpl(dollars)}^FS`,
   );
 
   parts.push("^XZ");
