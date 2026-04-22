@@ -36,7 +36,7 @@ export type CupForZPL = {
 // having ZPL silently drop characters.
 const MAX_DRINK_CHARS = 44;
 const MAX_MOD_CHARS = 52;
-const MAX_NAME_CHARS = 13;   // fits on one line at H_NAME
+const MAX_NAME_CHARS = 10;   // fits on one line at H_NAME
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -64,7 +64,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // Font heights in dots (font 0, scalable).
   const H_NUM = 40;
   const H_TIME = 24;
-  const H_NAME = 36;   // customer first name, web orders only
+  const H_NAME = 48;   // customer first name, web orders only
   const H_DRINK = 26;
   const H_MOD = 22;
   const H_FOOT = 24;
