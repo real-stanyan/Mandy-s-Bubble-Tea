@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { getSupabaseAdmin, getSupabaseRoute } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
 async function assertOwner(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const ssr = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } },
-  );
+  const ssr = await getSupabaseRoute();
   const { data: { user } } = await ssr.auth.getUser();
   if (!user) return null;
   const admin = getSupabaseAdmin();
