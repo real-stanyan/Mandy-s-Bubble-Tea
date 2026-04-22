@@ -21,10 +21,16 @@ export async function enqueuePrintJob({ order }: EnqueueArgs): Promise<
   | { queued: true; stickerNumber: string }
   | { queued: false; reason: "not_paid" | "no_line_items" | "conflict" | "error"; detail?: string }
 > {
-  // Gate: must be paid.
+  // Gate: must be settled. "Settled" is either:
+  //   - has ≥1 tender (a real payment was applied), or
+  //   - state is COMPLETED (covers $0 loyalty redemptions that close
+  //     the order without ever creating a tender).
+  // Raw `totalCents` alone cannot gate this: a free-drink redemption
+  // legitimately totals $0 and still needs a sticker.
   const tenders = order.tenders ?? [];
   const totalCents = order.totalMoney?.amount ?? 0n;
-  if (tenders.length === 0 || totalCents <= 0n) {
+  const isCompleted = order.state === "COMPLETED";
+  if (tenders.length === 0 && !isCompleted) {
     return { queued: false, reason: "not_paid" };
   }
   const lineItems = order.lineItems ?? [];
