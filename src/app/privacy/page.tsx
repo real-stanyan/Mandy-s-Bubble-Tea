@@ -64,7 +64,7 @@ export default function PrivacyPage() {
         <p className="text-sm text-gray-500 mb-2">
           MANDY&rsquo;S BEVERAGE CO PTY LTD
         </p>
-        <p className="text-sm text-gray-400 mb-8">Last Updated: April 2026</p>
+        <p className="text-sm text-gray-400 mb-8">Last Updated: 22 April 2026</p>
 
         <Section number="1" title="Introduction">
           <p>
@@ -113,6 +113,31 @@ export default function PrivacyPage() {
             <li>Device information</li>
             <li>Cookies and usage data</li>
           </ul>
+
+          <h3 className="font-semibold text-gray-800 mt-4">
+            2.4 Mobile App Data
+          </h3>
+          <p>When you use our iOS or Android app, we additionally collect:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>
+              Push notification token (issued by Apple APNs or Google FCM via
+              Expo) — used solely to notify you when your order is ready for
+              pickup
+            </li>
+            <li>
+              App version and platform (iOS or Android) — for support and
+              diagnostics
+            </li>
+            <li>
+              Anonymous sign-in identifiers from Apple Sign In or Google Sign In,
+              when you choose those login methods
+            </li>
+          </ul>
+          <p className="mt-2">
+            We do not collect precise location, contacts, photos, or any data
+            not listed above. The app does not use third-party advertising or
+            analytics SDKs.
+          </p>
         </Section>
 
         <Section number="3" title="How We Use Your Information">
@@ -137,16 +162,65 @@ export default function PrivacyPage() {
 
         <Section number="5" title="Sharing of Information">
           <p>
-            We do not sell your personal information. We may share your
-            information with:
+            We do not sell your personal information. We share only the minimum
+            data required with the following trusted service providers:
           </p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Payment service providers</li>
-            <li>Delivery partners</li>
-            <li>IT and system service providers</li>
+            <li>
+              <strong>Square, Inc.</strong> (payments, catalog, order
+              management, loyalty stars) — receives your name, phone number,
+              order details, and payment information. See{" "}
+              <a
+                href="https://squareup.com/au/en/legal/general/privacy"
+                className="underline"
+                style={{ color: BRAND.primaryColor }}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Square&rsquo;s Privacy Notice
+              </a>
+              .
+            </li>
+            <li>
+              <strong>Supabase, Inc.</strong> (authentication, account database)
+              — stores your phone number, name, and account metadata. See{" "}
+              <a
+                href="https://supabase.com/privacy"
+                className="underline"
+                style={{ color: BRAND.primaryColor }}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Supabase Privacy Policy
+              </a>
+              .
+            </li>
+            <li>
+              <strong>Expo / Apple APNs / Google FCM</strong> (push notification
+              delivery) — receives your anonymous device push token and the
+              notification payload (e.g., &ldquo;Your order is ready&rdquo;).
+            </li>
+            <li>
+              <strong>Apple Inc.</strong> and <strong>Google LLC</strong> — if
+              you choose Sign in with Apple or Sign in with Google, they provide
+              us with an anonymous user identifier and, if you consent, your
+              name.
+            </li>
+            <li>
+              <strong>Twilio Inc.</strong> (SMS delivery for one-time login
+              codes, via Supabase) — receives your phone number and the OTP
+              message body.
+            </li>
+            <li>
+              <strong>Vercel Inc.</strong> (web hosting) — processes incoming
+              web requests; does not retain personal data beyond standard server
+              logs.
+            </li>
           </ul>
           <p>
-            All third parties are required to comply with privacy obligations.
+            All third parties are contractually or legally required to comply
+            with privacy obligations and use your data only for the services
+            they provide to us.
           </p>
         </Section>
 
@@ -180,7 +254,40 @@ export default function PrivacyPage() {
           <p>Please contact us using the details below.</p>
         </Section>
 
-        <Section number="9" title="Contact Us">
+        <Section number="9" title="Account Deletion">
+          <p>
+            You may delete your Mandy&rsquo;s account at any time. This
+            permanently removes:
+          </p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Your phone number, name, and login credentials</li>
+            <li>Your device push notification tokens</li>
+            <li>
+              Your linked Square customer record (loyalty stars balance,
+              promotion eligibility)
+            </li>
+          </ul>
+          <p className="mt-2 font-medium text-gray-800">How to delete:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>
+              <strong>In the mobile app:</strong> open the Account tab, scroll
+              to the bottom, and tap &ldquo;Delete Account&rdquo;. Confirm the
+              prompt. Your account is deleted immediately.
+            </li>
+            <li>
+              <strong>Alternatively:</strong> email or call us using the contact
+              details below and we will delete your account within 7 days.
+            </li>
+          </ul>
+          <p className="mt-2">
+            Past order records (including amounts and items) are retained in
+            anonymised form for up to 7 years to comply with Australian tax and
+            accounting law. These records no longer contain your name, phone
+            number, or any information that can identify you.
+          </p>
+        </Section>
+
+        <Section number="10" title="Contact Us">
           <p>MANDY&rsquo;S BEVERAGE CO PTY LTD</p>
           <p>
             Address:{" "}
