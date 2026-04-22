@@ -164,7 +164,7 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
   const customerId = event.data?.object?.loyalty_account?.customer_id;
   if (!customerId) {
     console.log(
-      `[square-webhook] loyalty.points.updated missing customer_id event_id=${event.event_id}`,
+      `[square-webhook] loyalty.account.updated missing customer_id event_id=${event.event_id}`,
     );
     return;
   }
@@ -305,7 +305,7 @@ export async function POST(request: Request) {
     }
   }
 
-  if (event.type === "loyalty.points.updated") {
+  if (event.type === "loyalty.account.updated") {
     try {
       await handleLoyaltyBalanceUpdate(event);
     } catch (err) {
