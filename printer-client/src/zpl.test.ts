@@ -80,11 +80,31 @@ describe("renderStickerZPL", () => {
     expect(foCount(withName) - foCount(noName)).toBe(1);
   });
 
-  it("truncates long customer names with ellipsis", () => {
+  it("renders short names at max height (48)", () => {
+    const z = renderStickerZPL({ ...base, customerName: "Stan" });
+    expect(z).toContain("^A0N,48,48");
+    expect(z).toContain("Stan");
+    expect(z).not.toContain("…");
+  });
+
+  it("shrinks medium-length names so they fit on one line without ellipsis", () => {
+    const z = renderStickerZPL({ ...base, customerName: "Alexandrina" });
+    // Should not be max height (too wide for 48), not be min (still fits
+    // comfortably above 22). Any height between min+1 and max-1 is fine.
+    const match = z.match(/\^A0N,(\d+),\1\^FDAlexandrina/);
+    expect(match).not.toBeNull();
+    const h = Number(match![1]);
+    expect(h).toBeGreaterThan(22);
+    expect(h).toBeLessThan(48);
+    expect(z).not.toContain("…");
+  });
+
+  it("truncates only when even the min height cannot fit the full name", () => {
     const z = renderStickerZPL({
       ...base,
       customerName: "Bartholomew-Christopher-Maximilian",
     });
+    expect(z).toContain("^A0N,22,22");
     expect(z).toContain("…");
   });
 

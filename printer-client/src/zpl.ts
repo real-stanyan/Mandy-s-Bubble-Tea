@@ -36,10 +36,29 @@ export type CupForZPL = {
 // having ZPL silently drop characters.
 const MAX_DRINK_CHARS = 44;
 const MAX_MOD_CHARS = 52;
-const MAX_NAME_CHARS = 10;   // fits on one line at H_NAME
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+// Customer name auto-sizing. Short names render big and readable from
+// across the counter; long names shrink so they don't crowd the drink
+// row or force ugly ellipses. Glyph-width-to-height ratio for font 0
+// is ~0.6. We pick the biggest height that keeps the full name on one
+// line, clamped to [MIN, MAX] for visual consistency. If even the min
+// height can't fit the name, the name is truncated with an ellipsis.
+const NAME_MAX_HEIGHT = 48;
+const NAME_MIN_HEIGHT = 22;
+const NAME_GLYPH_RATIO = 0.6;
+
+function pickNameHeight(len: number, usableWidth: number): number {
+  if (len <= 0) return NAME_MAX_HEIGHT;
+  const byWidth = Math.floor(usableWidth / (NAME_GLYPH_RATIO * len));
+  return Math.max(NAME_MIN_HEIGHT, Math.min(NAME_MAX_HEIGHT, byWidth));
+}
+
+function maxCharsAtHeight(height: number, usableWidth: number): number {
+  return Math.max(1, Math.floor(usableWidth / (NAME_GLYPH_RATIO * height)));
 }
 
 export function renderStickerZPL(cup: CupForZPL): string {
@@ -64,7 +83,6 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // Font heights in dots (font 0, scalable).
   const H_NUM = 40;
   const H_TIME = 24;
-  const H_NAME = 48;   // customer first name, web orders only
   const H_DRINK = 26;
   const H_MOD = 22;
   const H_FOOT = 24;
@@ -90,11 +108,12 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // don't supply a name, so skip the row entirely and keep the
   // layout compact.
   if (cup.customerName) {
-    const name = truncate(cup.customerName, MAX_NAME_CHARS);
+    const h = pickNameHeight(cup.customerName.length, W);
+    const name = truncate(cup.customerName, maxCharsAtHeight(h, W));
     parts.push(
-      `^FO${LEFT},${y}^A0N,${H_NAME},${H_NAME}^FD${escapeZpl(name)}^FS`,
+      `^FO${LEFT},${y}^A0N,${h},${h}^FD${escapeZpl(name)}^FS`,
     );
-    y += H_NAME + 2;
+    y += h + 2;
   }
 
   // Row 2: drink name, wrap up to 2 lines
