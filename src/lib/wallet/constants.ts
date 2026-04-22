@@ -9,7 +9,8 @@ export const PASS_BRAND = {
 
 export const PASS_BG_RGB = 'rgb(141, 85, 36)'
 export const PASS_FG_RGB = 'rgb(255, 255, 255)'
-export const PASS_LABEL_RGBA = 'rgba(255, 255, 255, 0.72)'
+// PassKit only accepts rgb() or #hex (no alpha). Using opaque white for labels.
+export const PASS_LABEL_RGB = 'rgb(255, 255, 255)'
 
 export const LOYALTY_REWARD_THRESHOLD = 9
 

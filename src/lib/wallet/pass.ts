@@ -7,6 +7,7 @@ import { renderStrip } from "./strip"
 import {
   PASS_BG_RGB,
   PASS_FG_RGB,
+  PASS_LABEL_RGB,
   PASS_TERMS,
   STORE_INFO,
 } from "./constants"
@@ -57,8 +58,6 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
   }
 
   // Pass type must be set before pass.json is added (addBuffer triggers import).
-  // passkit-generator rejects rgba() in labelColor — we use rgb() in pass.json
-  // and the constant PASS_LABEL_RGBA is documented for non-wallet use.
   const pass = new PKPass({}, certs)
   pass.type = 'storeCard'
 
@@ -89,9 +88,7 @@ function buildPassJson(i: BuildPassInput, env: ReturnType<typeof walletEnv>) {
     authenticationToken: i.authToken,
     backgroundColor: PASS_BG_RGB,
     foregroundColor: PASS_FG_RGB,
-    // passkit-generator only accepts rgb() or #hex — PASS_LABEL_RGBA uses rgba()
-    // which the library rejects. Use the equivalent rgb() value.
-    labelColor: 'rgb(255, 255, 255)',
+    labelColor: PASS_LABEL_RGB,
     logoText: "Mandy's",
     storeCard: {
       headerFields: [
