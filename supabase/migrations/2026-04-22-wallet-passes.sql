@@ -32,3 +32,12 @@ CREATE TABLE IF NOT EXISTS wallet_exchange_tokens (
   consumed_at  timestamptz
 );
 CREATE INDEX IF NOT EXISTS wallet_exchange_tokens_customer_idx ON wallet_exchange_tokens (customer_id);
+
+-- Wrapper so Supabase JS client can reserve the next member number via rpc()
+CREATE OR REPLACE FUNCTION next_member_number()
+RETURNS bigint
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  SELECT nextval('mandy_member_seq');
+$$;
