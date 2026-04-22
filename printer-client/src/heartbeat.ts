@@ -20,6 +20,9 @@ export function startHeartbeat(): NodeJS.Timeout {
         last_seen_at: new Date().toISOString(),
         printer_status: printerStatus,
         pending_count: pendingCount,
+        // Reset the stale-alert debounce so a future outage re-alerts
+        // cleanly. If we never got alerted, this is a no-op.
+        stale_alert_sent_at: null,
       });
     } catch (err) {
       console.error("[heartbeat] tick failed:", err);

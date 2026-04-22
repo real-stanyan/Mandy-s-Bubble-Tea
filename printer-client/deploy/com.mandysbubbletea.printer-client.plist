@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      launchd job for the Mandy's Bubble Tea printer client.
+      Install:
+        1. Edit the paths below to match the absolute paths on this Mac.
+        2. cp this file to ~/Library/LaunchAgents/
+        3. launchctl load -w ~/Library/LaunchAgents/com.mandysbubbletea.printer-client.plist
+        4. tail -f ~/Library/Logs/mandy-printer-client.out.log
+
+      Uninstall:
+        launchctl unload -w ~/Library/LaunchAgents/com.mandysbubbletea.printer-client.plist
+    -->
+    <key>Label</key>
+    <string>com.mandysbubbletea.printer-client</string>
+
+    <!--
+      Run via node (not tsx) to keep this production-stable. You must
+      run `npm run build` in the printer-client dir first so dist/
+      exists. Update WorkingDirectory and paths below.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>/Users/REPLACE_ME/Github/mandys_bubble_tea/printer-client/dist/index.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/REPLACE_ME/Github/mandys_bubble_tea/printer-client</string>
+
+    <!--
+      Auto-restart on crash. ThrottleInterval avoids a crash loop
+      eating CPU if something is fundamentally broken.
+    -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Start as soon as the user logs in. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE_ME/Library/Logs/mandy-printer-client.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE_ME/Library/Logs/mandy-printer-client.err.log</string>
+
+    <!--
+      Environment. Either set these here, or point to your .env.local
+      via the existing dotenv loader in src/config.ts (recommended;
+      keeps secrets out of plists checked into git).
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>

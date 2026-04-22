@@ -30,6 +30,21 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
       setBusyId(null);
     }
   }
+  async function dismiss(id: string) {
+    if (!confirm("Mark this job handled and remove it from the list?")) return;
+    setBusyId(id);
+    try {
+      const r = await fetch("/api/admin/prints/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!r.ok) alert("Dismiss failed: " + (await r.text()));
+      else location.reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
   return (
     <table className="w-full text-sm border-collapse">
       <thead>
@@ -59,7 +74,7 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
             </td>
             <td className="p-2">{new Date(j.created_at).toLocaleString("en-AU", { timeZone: "Australia/Brisbane" })}</td>
             <td className="p-2">{j.cups.map((c) => c.drinkName).join(", ")}</td>
-            <td className="p-2">
+            <td className="p-2 space-x-2 whitespace-nowrap">
               <button
                 disabled={busyId === j.id}
                 onClick={() => reprint(j.id)}
@@ -67,6 +82,15 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
               >
                 {busyId === j.id ? "..." : "Reprint"}
               </button>
+              {(j.status === "failed" || j.status === "stale") && (
+                <button
+                  disabled={busyId === j.id}
+                  onClick={() => dismiss(j.id)}
+                  className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+              )}
             </td>
           </tr>
         ))}

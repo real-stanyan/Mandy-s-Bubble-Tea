@@ -25,13 +25,29 @@ export type CupForZPL = {
  * Right-aligned items use ^FB with the R justifier so they always
  * land flush against the right margin regardless of text length.
  */
+// Rough max characters that fit in 2 wrapped lines on our 290-dot
+// usable width at the given font heights. These are conservative
+// (proportional font 0, widest glyph ~ height). If over, we append
+// an ellipsis so staff can tell the label was truncated rather than
+// having ZPL silently drop characters.
+const MAX_DRINK_CHARS = 44;
+const MAX_MOD_CHARS = 52;
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
 export function renderStickerZPL(cup: CupForZPL): string {
   const dollars = (cup.priceCents / 100).toFixed(2);
   const cupFrac = `${cup.cupIndex}/${cup.cupTotal}`;
   const toppings = cup.toppings.length > 0 ? cup.toppings.join("+") : "";
   const ice = cup.ice ?? "";
   const sugar = cup.sugar ?? "";
-  const modifierLine = `${toppings} -> ${ice} -> ${sugar}`.trim();
+  const modifierLine = truncate(
+    `${toppings} -> ${ice} -> ${sugar}`.trim(),
+    MAX_MOD_CHARS,
+  );
+  const drinkName = truncate(cup.drinkName, MAX_DRINK_CHARS);
 
   // Label geometry (40x30mm @ 203dpi).
   const PW = 320;
@@ -66,7 +82,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
 
   // Row 2: drink name, wrap up to 2 lines
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,3,L,0^FD${escapeZpl(cup.drinkName)}^FS`,
+    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,3,L,0^FD${escapeZpl(drinkName)}^FS`,
   );
   y += H_DRINK * 2 + 2;
 

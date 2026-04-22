@@ -65,4 +65,12 @@ describe("renderStickerZPL", () => {
     expect(z.startsWith("^XA")).toBe(true);
     expect(z).toContain("^FB");
   });
+
+  it("appends an ellipsis when drink name is too long to fit", () => {
+    const z = renderStickerZPL({
+      ...base,
+      drinkName: "Extra Large Brown Sugar Boba Milk Tea Deluxe Edition",
+    });
+    expect(z).toContain("…");
+  });
 });
