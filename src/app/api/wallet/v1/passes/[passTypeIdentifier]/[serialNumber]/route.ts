@@ -32,6 +32,7 @@ export async function GET(request: Request, ctx: Ctx) {
     memberNumber: pass.member_number,
     memberName: data.memberName,
     memberSince: data.memberSince,
+    phoneE164: data.phoneE164,
     stars: data.stars,
     totalStars: data.totalStars,
     availableRewards: data.availableRewards,

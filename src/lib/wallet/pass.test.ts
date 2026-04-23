@@ -9,6 +9,7 @@ describe('buildPass', () => {
     memberNumber: 'MB-4182',
     memberName: 'Stan Yan',
     memberSince: 'May 2024',
+    phoneE164: '+61404978238',
     stars: 7,
     totalStars: 71,
     availableRewards: 0,
@@ -43,6 +44,16 @@ describe('buildPass', () => {
     const passJson = JSON.parse(zip.readAsText('pass.json'))
     const starsField = passJson.storeCard.headerFields.find((f: any) => f.key === 'stars')
     expect(starsField.value).toBe('30/9')
+  })
+
+  it('QR barcode encodes phoneE164 so POS lookup matches app/web', async () => {
+    const buf = await buildPass({ ...baseInput, phoneE164: '+61400111222' })
+    const zip = new AdmZip(buf)
+    const passJson = JSON.parse(zip.readAsText('pass.json'))
+    const barcode = passJson.barcodes[0]
+    expect(barcode.format).toBe('PKBarcodeFormatQR')
+    expect(barcode.message).toBe('+61400111222')
+    expect(barcode.altText).toBe(baseInput.memberNumber)
   })
 
   it('secondaryFields reward says "Ready to redeem!" when availableRewards > 0', async () => {

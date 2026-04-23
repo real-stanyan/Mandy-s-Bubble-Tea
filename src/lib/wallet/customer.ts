@@ -6,6 +6,7 @@ export interface CustomerPassData {
   customerId: string
   memberName: string
   memberSince: string       // "MMM YYYY"
+  phoneE164: string         // drives QR — POS looks up Square customer by phone
   stars: number             // balance % starsPerReward, progress toward next reward (drives strip)
   totalStars: number        // lifetime balance, drives header "N/9"
   availableRewards: number  // floor(balance / starsPerReward)
@@ -43,5 +44,13 @@ export async function fetchCustomerPassData(
   const stars = balance % starsPerReward
   const availableRewards = Math.floor(balance / starsPerReward)
 
-  return { customerId, memberName, memberSince, stars, totalStars: balance, availableRewards }
+  return {
+    customerId,
+    memberName,
+    memberSince,
+    phoneE164: phone,
+    stars,
+    totalStars: balance,
+    availableRewards,
+  }
 }

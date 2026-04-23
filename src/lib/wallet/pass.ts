@@ -18,6 +18,7 @@ export interface BuildPassInput {
   memberNumber: string
   memberName: string
   memberSince: string
+  phoneE164: string      // QR payload — matches app/web so POS reads any card
   stars: number          // current cycle progress (drives strip)
   totalStars: number     // lifetime stars (drives header "N/9")
   availableRewards: number
@@ -73,6 +74,13 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
   pass.addBuffer('strip@2x.png', strip2x)
   pass.addBuffer('strip@3x.png', strip3x)
 
+  pass.setBarcodes({
+    format: 'PKBarcodeFormatQR',
+    message: input.phoneE164,
+    messageEncoding: 'iso-8859-1',
+    altText: input.memberNumber,
+  })
+
   return pass.getAsBuffer()
 }
 
@@ -109,14 +117,6 @@ function buildPassJson(i: BuildPassInput, env: ReturnType<typeof walletEnv>) {
         { key: 'phone', label: 'Phone', value: STORE_INFO.phone },
         { key: 'hours', label: 'Hours', value: STORE_INFO.hours },
         { key: 'website', label: 'Website', value: STORE_INFO.website },
-      ],
-      barcodes: [
-        {
-          format: 'PKBarcodeFormatQR',
-          message: i.serialNumber,
-          messageEncoding: 'iso-8859-1',
-          altText: i.memberNumber,
-        },
       ],
     },
   }
