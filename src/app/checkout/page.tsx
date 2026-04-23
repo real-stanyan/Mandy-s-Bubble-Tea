@@ -15,6 +15,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
@@ -510,6 +511,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         strategy="afterInteractive"
         onReady={() => setSdkReady(true)}
       />
+
+      <PickupReminderDialog />
 
       <PaymentErrorDialog
         open={!!paymentError}
