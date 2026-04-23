@@ -39,17 +39,16 @@ export function SectionHeader({ title }: SectionHeaderProps) {
         {title}
       </h2>
       {banner && (
-        <div className="relative w-full overflow-hidden rounded-tile bg-sage" style={{ height: 96 }}>
+        <div
+          className="relative w-full overflow-hidden rounded-tile bg-sage"
+          style={{ aspectRatio: "1600 / 678" }}
+        >
           <Image
             src={banner}
             alt={title}
             fill
-            sizes="(max-width: 768px) 100vw, 768px"
+            sizes="(max-width: 768px) 100vw, 900px"
             className="object-cover"
-          />
-          <div
-            className="absolute inset-0"
-            style={{ backgroundColor: "rgba(42,30,20,0.06)" }}
           />
         </div>
       )}
