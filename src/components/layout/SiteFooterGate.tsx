@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 
-const HIDE_PREFIXES = ["/checkout", "/access"];
+const HIDE_PREFIXES = ["/checkout"];
 
 export function SiteFooterGate() {
   const pathname = usePathname() ?? "";
