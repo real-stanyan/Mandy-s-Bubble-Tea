@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
-import { getMenu, type Menu, type MenuItem } from "@/lib/catalog";
-import { BRAND } from "@/lib/constants";
-import { formatPrice } from "@/lib/utils";
-import ScrollStrip from "@/components/menu/ScrollStrip";
+import { getMenu, type Menu } from "@/lib/catalog";
+import {
+  MenuBrowser,
+  type MenuBrowserSection,
+} from "@/components/menu/MenuBrowser";
+import type { ProductRowData } from "@/components/menu/ProductRow";
 
 export const metadata: Metadata = {
   title: "Menu",
@@ -12,13 +12,7 @@ export const metadata: Metadata = {
     "Browse our full menu — milky teas, fruity teas, fresh brews, frozen drinks and more at Mandy's Bubble Tea.",
 };
 
-// Menu landing page — each category shown as a horizontal section
-// with up to 3 preview items and a "See More" link to the full
-// category page.
-
 export const revalidate = 10;
-
-// Show all items per category in a horizontal scroll strip
 
 async function loadMenu(): Promise<
   { ok: true; menu: Menu } | { ok: false; error: string }
@@ -32,128 +26,64 @@ async function loadMenu(): Promise<
   }
 }
 
+function toSections(menu: Menu): MenuBrowserSection[] {
+  const out: MenuBrowserSection[] = [];
+  for (const cat of menu.categories) {
+    const items = menu.itemsBySlug.get(cat.slug) ?? [];
+    if (items.length === 0) continue;
+    const rows: ProductRowData[] = items.map((item) => {
+      const firstVariation = item.variations[0] ?? null;
+      return {
+        id: item.id,
+        name: item.name,
+        imageUrl: item.imageUrl,
+        priceCents: item.priceCents == null ? null : Number(item.priceCents),
+        variationLabel: item.variationLabel,
+        soldOut: item.soldOut,
+        categorySlug: cat.slug,
+        defaultVariation: firstVariation
+          ? {
+              id: firstVariation.id,
+              name: firstVariation.name,
+              priceCents: Number(firstVariation.priceCents ?? 0n),
+            }
+          : null,
+      };
+    });
+    out.push({ slug: cat.slug, squareName: cat.squareName, items: rows });
+  }
+  return out;
+}
+
 export default async function MenuPage() {
   const result = await loadMenu();
 
   return (
     <div className="flex flex-1 flex-col">
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-md flex-1">
         {!result.ok ? (
           <ErrorState message={result.error} />
         ) : result.menu.categories.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="space-y-14">
-            {result.menu.categories.map((cat) => {
-              const items = result.menu.itemsBySlug.get(cat.slug) ?? [];
-              if (items.length === 0) return null;
-              return (
-                <section key={cat.id}>
-                  {/* Category header */}
-                  <div className="mb-5 flex items-baseline justify-between">
-                    <h2 className="text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
-                      {cat.squareName}
-                    </h2>
-                    <Link
-                      href={`/menu/${cat.slug}`}
-                      className="text-xs font-medium hover:underline sm:text-sm"
-                      style={{ color: BRAND.primaryColor }}
-                    >
-                      See all {items.length} items →
-                    </Link>
-                  </div>
-
-                  {/* Horizontal scroll strip */}
-                  <ScrollStrip>
-                    {items.map((item) => (
-                      <li key={item.id} className="w-36 flex-shrink-0 sm:w-44">
-                        <ItemCard item={item} categorySlug={cat.slug} />
-                      </li>
-                    ))}
-                  </ScrollStrip>
-                </section>
-              );
-            })}
-          </div>
-        )}
-
-        {result.ok && result.menu.uncategorizedItems.length > 0 && (
-          <p className="mt-6 text-xs text-zinc-400">
-            {result.menu.uncategorizedItems.length} item(s) without a category
-            are hidden.
-          </p>
+          <MenuBrowser sections={toSections(result.menu)} />
         )}
       </main>
     </div>
   );
 }
 
-function ItemCard({
-  item,
-  categorySlug,
-}: {
-  item: MenuItem;
-  categorySlug: string;
-}) {
-  return (
-    <Link
-      href={`/menu/${categorySlug}/${item.id}`}
-      className="group block overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm transition hover:shadow-md"
-    >
-      {/* Image */}
-      <div className="relative aspect-square w-full overflow-hidden">
-        {item.imageUrl ? (
-          <Image
-            src={item.imageUrl}
-            alt={item.name}
-            fill
-            sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 200px"
-            className="object-contain transition group-hover:scale-105"
-          />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center text-5xl"
-            style={{ backgroundColor: BRAND.accentColor }}
-          >
-            🧋
-          </div>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="p-3 sm:p-4">
-        <h3 className="truncate text-xs font-semibold text-zinc-900 sm:text-sm">
-          {item.name}
-        </h3>
-        {item.priceCents != null && (
-          <p className="mt-0.5 text-[11px] text-zinc-500 sm:text-xs">
-            {formatPrice(item.priceCents)}
-          </p>
-        )}
-        <div className="mt-2 sm:mt-3">
-          <span
-            className="inline-flex w-full items-center justify-center rounded-full py-1.5 text-[11px] font-semibold text-white transition group-hover:opacity-90 sm:py-2 sm:text-xs"
-            style={{ backgroundColor: BRAND.primaryColor }}
-          >
-            Add to Cart
-          </span>
-        </div>
-      </div>
-    </Link>
-  );
-}
-
 function EmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-black/20 p-12 text-center">
-      <p className="text-zinc-600">No categories found.</p>
+    <div className="mx-4 mt-10 rounded-card border border-dashed border-line p-10 text-center text-ink3">
+      No categories found.
     </div>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-6">
+    <div className="mx-4 mt-10 rounded-card border border-red-200 bg-red-50 p-5">
       <p className="font-semibold text-red-800">Could not load menu</p>
       <p className="mt-2 font-mono text-sm text-red-700">{message}</p>
     </div>
