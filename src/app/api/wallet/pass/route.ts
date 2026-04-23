@@ -23,6 +23,7 @@ export async function GET(request: Request) {
     memberName: data.memberName,
     memberSince: data.memberSince,
     stars: data.stars,
+    totalStars: data.totalStars,
     availableRewards: data.availableRewards,
   })
 

@@ -10,6 +10,7 @@ describe('buildPass', () => {
     memberName: 'Stan Yan',
     memberSince: 'May 2024',
     stars: 7,
+    totalStars: 71,
     availableRewards: 0,
   }
 
@@ -36,12 +37,12 @@ describe('buildPass', () => {
     expect(passJson.passTypeIdentifier).toBe(process.env.APPLE_PASS_TYPE_ID)
   })
 
-  it('headerFields shows stars as "N/9"', async () => {
-    const buf = await buildPass({ ...baseInput, stars: 3 })
+  it('headerFields shows total lifetime stars as "N/9"', async () => {
+    const buf = await buildPass({ ...baseInput, stars: 3, totalStars: 30 })
     const zip = new AdmZip(buf)
     const passJson = JSON.parse(zip.readAsText('pass.json'))
     const starsField = passJson.storeCard.headerFields.find((f: any) => f.key === 'stars')
-    expect(starsField.value).toBe('3/9')
+    expect(starsField.value).toBe('30/9')
   })
 
   it('secondaryFields reward says "Ready to redeem!" when availableRewards > 0', async () => {

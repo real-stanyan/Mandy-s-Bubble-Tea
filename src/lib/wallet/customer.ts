@@ -6,7 +6,8 @@ export interface CustomerPassData {
   customerId: string
   memberName: string
   memberSince: string       // "MMM YYYY"
-  stars: number             // balance % starsPerReward, progress toward next reward
+  stars: number             // balance % starsPerReward, progress toward next reward (drives strip)
+  totalStars: number        // lifetime balance, drives header "N/9"
   availableRewards: number  // floor(balance / starsPerReward)
 }
 
@@ -42,5 +43,5 @@ export async function fetchCustomerPassData(
   const stars = balance % starsPerReward
   const availableRewards = Math.floor(balance / starsPerReward)
 
-  return { customerId, memberName, memberSince, stars, availableRewards }
+  return { customerId, memberName, memberSince, stars, totalStars: balance, availableRewards }
 }

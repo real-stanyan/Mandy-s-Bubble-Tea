@@ -18,7 +18,8 @@ export interface BuildPassInput {
   memberNumber: string
   memberName: string
   memberSince: string
-  stars: number
+  stars: number          // current cycle progress (drives strip)
+  totalStars: number     // lifetime stars (drives header "N/9")
   availableRewards: number
 }
 
@@ -89,18 +90,18 @@ function buildPassJson(i: BuildPassInput, env: ReturnType<typeof walletEnv>) {
     backgroundColor: PASS_BG_RGB,
     foregroundColor: PASS_FG_RGB,
     labelColor: PASS_LABEL_RGB,
-    logoText: "Mandy's",
     storeCard: {
       headerFields: [
-        { key: 'stars', label: 'STARS', value: `${i.stars}/9`, textAlignment: 'PKTextAlignmentRight' },
+        { key: 'stars', label: 'STARS', value: `${i.totalStars}/9`, textAlignment: 'PKTextAlignmentRight' },
       ],
-      primaryFields: [
-        { key: 'member', label: 'MEMBER', value: i.memberName },
-      ],
+      primaryFields: [],
       secondaryFields: [
+        { key: 'member', label: 'MEMBER', value: i.memberName },
         { key: 'reward', label: 'NEXT REWARD', value: rewardText },
-        { key: 'since', label: 'MEMBER SINCE', value: i.memberSince },
         { key: 'id', label: 'ID', value: i.memberNumber, textAlignment: 'PKTextAlignmentRight' },
+      ],
+      auxiliaryFields: [
+        { key: 'since', label: 'MEMBER SINCE', value: i.memberSince },
       ],
       backFields: [
         { key: 'terms', label: 'Terms', value: PASS_TERMS },
