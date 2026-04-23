@@ -11,12 +11,20 @@ const SLOW_SLUGS = new Set(["cheese-cream", "frozen"]);
 export const MAX_WAIT_MINUTES = 15;
 const BASE_MINUTES = 1;
 
-// Square fulfillment state isn't always closed out promptly — POS
-// tickets often linger in PROPOSED for hours or days after the drink
-// was handed over. Only orders created within this many minutes of the
-// target order actually represent "people in line ahead of you"; anything
-// older is stale queue noise.
+// Square fulfillment state is inconsistent between channels — POS
+// walk-in tickets get rung up and marked COMPLETED within ~1 second
+// of createdAt (state never reflects drink prep), while online orders
+// can sit in PROPOSED for hours after pickup because staff rarely flip
+// them. Instead of trusting state, treat every order as "still cooking"
+// until its naked prep time has naturally elapsed.
+//
+// The lookback window below just bounds the Square search cost — any
+// order older than this is long done regardless.
 const QUEUE_LOOKBACK_MINUTES = 30;
+
+// Per-order slack added to raw cup prep time before deciding the drink
+// is "done". Covers sealing, sticker print, and customer pickup delay.
+const ORDER_PREP_BUFFER_MINUTES = 1;
 
 function buildVariationSlugMap(menu: Menu): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
@@ -56,19 +64,39 @@ function collectVariations(
   }
 }
 
+// Naked prep time for a single order — unique SKUs only (staff batch
+// duplicates), summed at that SKU's perCup rate.
+function orderPrepMinutes(
+  lineItems: Square.OrderLineItem[] | null | undefined,
+  slugsByVariation: Map<string, Set<string>>,
+): number {
+  const skus = new Set<string>();
+  collectVariations(lineItems, slugsByVariation, skus);
+  let total = 0;
+  for (const id of skus) total += perCupMinutes(slugsByVariation.get(id));
+  return total;
+}
+
 /**
  * Estimated wait (minutes) until `order` is ready at the pickup counter.
  *
  *   wait = BASE_MINUTES
  *        + Σ perCup(sku) for every distinct drink SKU in the pipeline
  *
- * "Pipeline" = (this order's line items) ∪ (every OPEN order at this
- * location whose PICKUP fulfillment is still PROPOSED or RESERVED and
- * whose createdAt is strictly before this order, within the last
- * QUEUE_LOOKBACK_MINUTES). Identical SKUs across all of those orders
- * are counted once — a staff member batches duplicates in one shake,
- * so two Grapefruit Black Teas ahead of you plus your own Grapefruit
- * are one minute of prep, not three.
+ * "Pipeline" = (this order's line items) ∪ (every order at this
+ * location — POS walk-in and online alike — created strictly before
+ * this order within the lookback window AND whose naked prep time has
+ * not yet elapsed at `order.createdAt`).
+ *
+ * Whether the drink is still being made is estimated from the order's
+ * own contents (`createdAt + unique-SKU prep + buffer`), not from
+ * Square's fulfillment state — POS tickets skip PROPOSED entirely and
+ * online tickets often linger in PROPOSED for hours after pickup, so
+ * state is an unreliable signal for batch prep tracking.
+ *
+ * Identical SKUs across the pipeline are counted once — a staff member
+ * shakes duplicates together, so two Grapefruits ahead plus your own
+ * Grapefruit are one minute of prep, not three.
  *
  * Capped at MAX_WAIT_MINUTES. On any Square failure the queue
  * contribution is dropped rather than thrown — the confirmation page
@@ -94,15 +122,14 @@ export async function estimateOrderWaitMinutes(
         limit: 200,
         query: {
           filter: {
-            stateFilter: { states: ["OPEN"] },
+            // OPEN covers online tickets still mid-prep; COMPLETED covers
+            // POS walk-in tickets that Square auto-closes in ~1 second.
+            stateFilter: { states: ["OPEN", "COMPLETED"] },
             dateTimeFilter: {
               createdAt: {
                 endAt: order.createdAt,
                 ...(startAtIso ? { startAt: startAtIso } : {}),
               },
-            },
-            fulfillmentFilter: {
-              fulfillmentStates: ["PROPOSED", "RESERVED"],
             },
           },
           sort: {
@@ -113,8 +140,17 @@ export async function estimateOrderWaitMinutes(
       });
       for (const other of res.orders ?? []) {
         if (other.id === order.id) continue;
+        if (!other.createdAt) continue;
         // Square's endAt is inclusive; guard strict "before" ourselves.
-        if (other.createdAt && other.createdAt >= order.createdAt) continue;
+        if (other.createdAt >= order.createdAt) continue;
+        const otherCreatedMs = Date.parse(other.createdAt);
+        if (!Number.isFinite(otherCreatedMs)) continue;
+        const prepMin = orderPrepMinutes(other.lineItems, slugsByVariation);
+        const estDoneMs =
+          otherCreatedMs + (prepMin + ORDER_PREP_BUFFER_MINUTES) * 60_000;
+        // Naked prep time elapsed by the time this order was placed →
+        // that drink is already on the counter, not blocking us.
+        if (Number.isFinite(endAtMs) && estDoneMs <= endAtMs) continue;
         collectVariations(other.lineItems, slugsByVariation, pipeline);
       }
     } catch {
