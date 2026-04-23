@@ -76,11 +76,11 @@ export default function AccountPage() {
   const currentStars = balance % goal;
 
   return (
-    <main className="mx-auto w-full max-w-md flex-1 pt-10 pb-24">
+    <main className="mx-auto w-full max-w-6xl flex-1 pt-10 pb-24">
       {loading ? (
         <LoadingSpinner />
       ) : !profile ? (
-        <div className="px-4 pt-10">
+        <div className="mx-auto max-w-md px-4 pt-10">
           <SignInCard onComplete={refresh} />
         </div>
       ) : (
@@ -94,46 +94,54 @@ export default function AccountPage() {
             </p>
           )}
           <AccountHeader profile={profile} />
-          <WelcomeDiscountCard />
-          <LoyaltyCard balance={balance} starsPerReward={goal} />
-          <MiniStats
-            drinks={lifetime}
-            rewards={rewardsAvailable}
-            stars={currentStars}
-            onPressRewards={() => router.push("/account/promotions")}
-          />
-          <MemberQrCard
-            customerId={profile.square_customer_id}
-            phoneE164={profile.phone_e164}
-          />
-          <AddToWalletButton />
-          <PromotionsCard rewardsCount={rewardsAvailable} />
-          {orders.length === 0 ? (
-            <OrderHistory orders={[]} title="Orders" />
-          ) : (
-            <>
-              <OrderHistory
-                orders={activeOrders}
-                title="In Progress"
-                hideIfEmpty
+          <div className="sm:grid sm:grid-cols-2 sm:gap-x-6 sm:items-start">
+            <div className="flex flex-col">
+              <WelcomeDiscountCard />
+              <LoyaltyCard balance={balance} starsPerReward={goal} />
+              <MiniStats
+                drinks={lifetime}
+                rewards={rewardsAvailable}
+                stars={currentStars}
+                onPressRewards={() => router.push("/account/promotions")}
               />
-              <OrderHistory
-                orders={pastOrders.slice(0, 3)}
-                title="Past Orders"
-                hideIfEmpty
-                onSeeAll={
-                  pastOrders.length > 3
-                    ? () => router.push("/account/orders")
-                    : undefined
-                }
+              <MemberQrCard
+                customerId={profile.square_customer_id}
+                phoneE164={profile.phone_e164}
               />
-            </>
-          )}
-          <ActivityHistory />
-          <StoreInfo />
-          <LegalFooter />
-          <SignOutBtn onSignOut={signOut} />
-          <DeleteAccountBtn />
+              <AddToWalletButton />
+              <PromotionsCard rewardsCount={rewardsAvailable} />
+            </div>
+            <div className="flex flex-col">
+              {orders.length === 0 ? (
+                <OrderHistory orders={[]} title="Orders" />
+              ) : (
+                <>
+                  <OrderHistory
+                    orders={activeOrders}
+                    title="In Progress"
+                    hideIfEmpty
+                  />
+                  <OrderHistory
+                    orders={pastOrders.slice(0, 3)}
+                    title="Past Orders"
+                    hideIfEmpty
+                    onSeeAll={
+                      pastOrders.length > 3
+                        ? () => router.push("/account/orders")
+                        : undefined
+                    }
+                  />
+                </>
+              )}
+              <ActivityHistory />
+              <StoreInfo />
+            </div>
+          </div>
+          <div className="sm:mx-auto sm:w-full sm:max-w-md">
+            <LegalFooter />
+            <SignOutBtn onSignOut={signOut} />
+            <DeleteAccountBtn />
+          </div>
         </>
       )}
     </main>
