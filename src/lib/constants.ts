@@ -4,9 +4,9 @@
 
 export const BRAND = {
   name: "Mandy's Bubble Tea",
-  primaryColor: "#C43A10", // brick red
-  accentColor: "#F5E6C8", // cream
-  bgColor: "#F9F6EE", // warm off-white page background
+  primaryColor: "#8D5524", // warm brown (aligned with RN app)
+  accentColor: "#FFF3DE", // cream
+  bgColor: "#F2E8DF", // warm beige page background
 } as const;
 
 export const BUSINESS = {
