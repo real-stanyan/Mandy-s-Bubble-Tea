@@ -6,6 +6,7 @@ import { squareClient } from "@/lib/square";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
+import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
 import {
   OrderStatusHero,
   type FulfillmentState,
@@ -128,6 +129,8 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     0
   ) ?? 0;
 
+  const waitText = formatWaitRange(await estimateOrderWaitMinutes(order));
+
   // Fetch real loyalty balance for the customer (if they have a loyalty account).
   // The order's customerId → customer phone → loyalty account search.
   let loyaltyBalance: number | null = null;
@@ -193,7 +196,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             Estimated Pickup Time
           </p>
           <p className="mt-1.5 text-2xl font-bold text-zinc-900">
-            15–20 mins
+            {waitText}
           </p>
         </div>
       </div>
