@@ -165,6 +165,24 @@ export async function unregisterDevice(args: {
   if (error) throw new Error(`unregisterDevice: ${error.message}`);
 }
 
+/**
+ * How many Apple devices have registered for this customer's pass. Zero means
+ * the user clicked Add but cancelled the Wallet sheet (or never opened it).
+ * Drives the "Save your member card" UI on web/app.
+ */
+export async function countDevicesForCustomer(
+  customerId: string,
+): Promise<number> {
+  const pass = await getPassByCustomerId(customerId);
+  if (!pass) return 0;
+  const { count, error } = await db()
+    .from("wallet_pass_devices")
+    .select("device_library_id", { count: "exact", head: true })
+    .eq("serial_number", pass.serial_number);
+  if (error) throw new Error(`countDevicesForCustomer: ${error.message}`);
+  return count ?? 0;
+}
+
 export async function getDevicePushTokens(serial: string): Promise<string[]> {
   const { data, error } = await db()
     .from("wallet_pass_devices")
