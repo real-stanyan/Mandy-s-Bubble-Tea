@@ -51,19 +51,31 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   const source: "web" | "pos" = order.metadata?.source === "web" ? "web" : "pos";
 
   // Sticker number.
+  //
+  // Priority: order.ticketName (set by us for web orders as "OL…" and by
+  // Square POS Register as the customer-facing ticket number like "44"
+  // when "Assign ticket numbers" is enabled). This is what prints on the
+  // customer's receipt / ticket dispenser, so the cup sticker matches.
+  //
+  // Fallback: our own TA-series counter. Kicks in only if a POS order
+  // arrives with no ticketName (Register auto-numbering turned off,
+  // or a source we don't handle). Keeps us printing so staff isn't
+  // handed a blank cup.
   let stickerNumber: string;
   const admin = getSupabaseAdmin();
-  if (source === "web") {
-    if (!order.ticketName) {
-      return { queued: false, reason: "error", detail: "web order missing ticketName" };
-    }
+  if (order.ticketName) {
     stickerNumber = order.ticketName;
+  } else if (source === "web") {
+    return { queued: false, reason: "error", detail: "web order missing ticketName" };
   } else {
     const { data, error } = await admin.rpc("next_store_order_number");
     if (error) {
       return { queued: false, reason: "error", detail: `counter rpc failed: ${error.message}` };
     }
     stickerNumber = encodeStoreStickerNumber(Number(data));
+    console.warn(
+      `[print-jobs] POS order ${order.id} has no ticketName; fell back to TA counter (${stickerNumber}). Check Square Register "Assign ticket numbers" setting.`,
+    );
   }
 
   // Expand lineItems into cups.
