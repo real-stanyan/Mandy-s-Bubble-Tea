@@ -279,21 +279,34 @@ async function _getMenuImpl(): Promise<Menu> {
     if (url) imageUrlById.set(obj.id, url);
   }
 
-  // Categories.
+  // Categories. Square dashboard sometimes contains multiple categories
+  // with the same name (different ids) — collapse them by slug so the
+  // menu doesn't render duplicate sections. categoryIdAlias maps every
+  // raw id to the canonical id for its slug.
   const categoryById = new Map<string, MenuCategory>();
+  const categoryIdBySlug = new Map<string, string>();
+  const categoryIdAlias = new Map<string, string>();
   for (const cat of rawCategories) {
     if (!cat.id) continue;
     const name = cat.categoryData?.name ?? "(unnamed)";
+    const slug = slugify(name);
+    const existingId = categoryIdBySlug.get(slug);
+    if (existingId) {
+      categoryIdAlias.set(cat.id, existingId);
+      continue;
+    }
     const firstImageId = cat.categoryData?.imageIds?.[0] ?? null;
     categoryById.set(cat.id, {
       id: cat.id,
       squareName: name,
-      slug: slugify(name),
+      slug,
       imageUrl: firstImageId
         ? imageUrlById.get(firstImageId) ?? null
         : null,
       itemCount: 0,
     });
+    categoryIdBySlug.set(slug, cat.id);
+    categoryIdAlias.set(cat.id, cat.id);
   }
 
   // Modifier lists.
@@ -311,9 +324,16 @@ async function _getMenuImpl(): Promise<Menu> {
     const item = buildMenuItem(raw, imageUrlById);
     if (!item) continue;
 
+    // Resolve duplicate category ids to canonical, then dedup so an
+    // item attached to "CHEESE CREAM (a)" + "CHEESE CREAM (b)" only
+    // lands in the cheese-cream bucket once.
+    const seenCanonicalIds = new Set<string>();
     let placed = false;
     for (const catId of item.categoryIds) {
-      const cat = categoryById.get(catId);
+      const canonicalId = categoryIdAlias.get(catId) ?? catId;
+      if (seenCanonicalIds.has(canonicalId)) continue;
+      seenCanonicalIds.add(canonicalId);
+      const cat = categoryById.get(canonicalId);
       if (!cat) continue;
       const bucket = itemsBySlug.get(cat.slug) ?? [];
       bucket.push(item);
