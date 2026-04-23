@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { BRAND } from "@/lib/constants";
+import { ChevronRight } from "lucide-react";
 
 type MemberQrCardProps = {
   customerId: string;
@@ -9,29 +10,93 @@ type MemberQrCardProps = {
 };
 
 export function MemberQrCard({ customerId, phoneE164 }: MemberQrCardProps) {
+  const [open, setOpen] = useState(false);
   if (!customerId || !phoneE164) return null;
 
-  const shortId = customerId.slice(-6).toUpperCase();
+  const memberId = `M-${customerId.slice(-8).toUpperCase()}`;
 
   return (
-    <section className="rounded-2xl border border-black/10 bg-white p-5 text-center shadow-sm sm:p-8">
-      <h2
-        className="text-xs font-bold uppercase tracking-widest"
-        style={{ color: BRAND.primaryColor }}
-      >
-        Member Card
-      </h2>
-
-      <div className="mx-auto mt-5 inline-block rounded-xl bg-white p-3 ring-1 ring-black/5">
-        <QRCodeSVG value={phoneE164} size={160} level="M" />
+    <>
+      <div className="px-4 mt-3">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex w-full items-center gap-3.5 rounded-card border border-line bg-paper p-4 text-left transition active:opacity-90"
+          aria-label="Expand member QR"
+        >
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl border border-line bg-white p-1.5">
+            <QRCodeSVG value={phoneE164} size={84} level="M" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span
+              className="block font-mono uppercase text-brand"
+              style={{
+                fontSize: 10.5,
+                letterSpacing: 1.4,
+                fontWeight: 700,
+              }}
+            >
+              MEMBER QR
+            </span>
+            <span
+              className="mt-1 block font-serif text-ink"
+              style={{
+                fontSize: 17,
+                lineHeight: "20px",
+                letterSpacing: -0.3,
+                fontWeight: 500,
+              }}
+            >
+              Scan at the counter
+            </span>
+            <span
+              className="mt-1 block truncate font-mono text-ink3"
+              style={{ fontSize: 11.5, fontWeight: 700 }}
+            >
+              {memberId}
+            </span>
+            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5">
+              <span
+                className="text-cream"
+                style={{ fontSize: 11.5, fontWeight: 600 }}
+              >
+                Expand
+              </span>
+              <ChevronRight size={10} className="text-cream" />
+            </span>
+          </div>
+        </button>
       </div>
 
-      <p className="mt-4 font-mono text-lg tracking-widest text-zinc-900">
-        #{shortId}
-      </p>
-      <p className="mt-1 text-xs text-zinc-500">
-        Show at counter to earn stars
-      </p>
-    </section>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="flex flex-col items-center gap-3 rounded-card bg-white p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <QRCodeSVG value={phoneE164} size={260} level="M" />
+            <span
+              className="font-mono text-ink"
+              style={{ fontSize: 14, letterSpacing: 1.5, fontWeight: 700 }}
+            >
+              {memberId}
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="mt-1 rounded-full bg-ink px-5 py-2.5 text-cream transition active:opacity-80"
+              style={{ fontSize: 13, fontWeight: 600 }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
