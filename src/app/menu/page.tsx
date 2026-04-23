@@ -60,7 +60,7 @@ export default async function MenuPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <main className="mx-auto w-full max-w-md flex-1">
+      <main className="mx-auto w-full max-w-6xl flex-1">
         {!result.ok ? (
           <ErrorState message={result.error} />
         ) : result.menu.categories.length === 0 ? (

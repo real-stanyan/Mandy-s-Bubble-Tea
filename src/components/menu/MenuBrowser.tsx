@@ -65,14 +65,14 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
             No drinks match &quot;{query.trim()}&quot;
           </p>
         ) : (
-          <div className="pt-2">
+          <div className="pt-2 sm:grid sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3">
             {searchResults.map((item) => (
               <ProductRow key={item.id} item={item} />
             ))}
           </div>
         )
       ) : (
-        <div className="pb-12">
+        <div className="pb-12 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:items-start lg:grid-cols-3">
           {sections.map((section) => (
             <section key={section.slug}>
               <SectionHeader title={section.squareName} />
