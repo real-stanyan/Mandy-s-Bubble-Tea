@@ -1,32 +1,59 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F9F6EE;
-  --foreground: #171717;
+  --background: #F2E8DF;
+  --foreground: #2A1E14;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --color-bg: #F2E8DF;
+  --color-bg2: #E8DAC6;
+  --color-paper: #FFF9F0;
+  --color-card: #FFFFFF;
+  --color-ink: #2A1E14;
+  --color-ink2: #5A4330;
+  --color-ink3: rgba(42, 30, 20, 0.55);
+  --color-ink4: rgba(42, 30, 20, 0.28);
+  --color-line: rgba(42, 30, 20, 0.10);
+  --color-brand: #8D5524;
+  --color-brand-dark: #6B3E15;
+  --color-peach: #FFB380;
+  --color-cream: #FFF3DE;
+  --color-star: #F2B64A;
+  --color-sage: #A2AD91;
+  --color-green: #3CA96E;
+  --color-green-dark: #2E7F52;
+
+  --radius-card: 20px;
+  --radius-tile: 12px;
+  --radius-small: 10px;
+
+  --shadow-card: 0 2px 8px rgba(42, 30, 20, 0.04);
+  --shadow-mini-cart: 0 10px 20px rgba(107, 62, 21, 0.55);
+  --shadow-primary-cta: 0 14px 24px rgba(42, 30, 20, 0.55);
+
+  --font-serif: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #F9F6EE;
-    --foreground: #171717;
+    --background: #F2E8DF;
+    --foreground: #2A1E14;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 
-/* Hide scrollbar for horizontal scroll strips */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -35,7 +62,6 @@ body {
   display: none;
 }
 
-/* Prevent iOS zoom on input focus */
 @media (max-width: 639px) {
   input[type="text"],
   input[type="tel"],
