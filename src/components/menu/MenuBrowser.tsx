@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { MenuHeader } from "@/components/menu/MenuHeader";
 import { SectionHeader } from "@/components/menu/SectionHeader";
-import { ProductRow, type ProductRowData } from "@/components/menu/ProductRow";
+import { ProductCard } from "@/components/menu/ProductCard";
+import { CategorySidebar } from "@/components/menu/CategorySidebar";
+import type { ProductRowData } from "@/components/menu/ProductRow";
 
 export type MenuBrowserSection = {
   slug: string;
@@ -30,11 +32,18 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
     return hits;
   }, [sections, trimmed, searching]);
 
+  const sidebarItems = useMemo(
+    () => sections.map((s) => ({ slug: s.slug, label: s.squareName })),
+    [sections],
+  );
+
   return (
     <>
       <MenuHeader />
-      <div className="mx-3 mt-2 mb-1.5 flex items-center gap-2.5 rounded-full border border-line bg-paper px-3.5"
-        style={{ height: 42 }}
+
+      <div
+        className="mx-4 mt-2 mb-5 flex items-center gap-2.5 rounded-full border border-line bg-paper px-3.5 md:max-w-xl"
+        style={{ height: 44 }}
       >
         <Search size={18} className="text-ink3" />
         <input
@@ -60,27 +69,42 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
       </div>
 
       {searching ? (
-        searchResults.length === 0 ? (
-          <p className="mt-10 text-center text-ink3" style={{ fontSize: 13 }}>
-            No drinks match &quot;{query.trim()}&quot;
-          </p>
-        ) : (
-          <div className="pt-2 sm:grid sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3">
-            {searchResults.map((item) => (
-              <ProductRow key={item.id} item={item} />
+        <div className="mx-4">
+          {searchResults.length === 0 ? (
+            <p className="mt-10 text-center text-ink3" style={{ fontSize: 13 }}>
+              No drinks match &quot;{query.trim()}&quot;
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {searchResults.map((item) => (
+                <ProductCard key={item.id} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="lg:grid lg:grid-cols-[220px_1fr] lg:gap-6 lg:px-4">
+          <aside className="hidden lg:block">
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pb-6">
+              <CategorySidebar items={sidebarItems} />
+            </div>
+          </aside>
+          <div className="pb-16">
+            {sections.map((section) => (
+              <section
+                key={section.slug}
+                id={`cat-${section.slug}`}
+                className="scroll-mt-24"
+              >
+                <SectionHeader title={section.squareName} />
+                <div className="mx-4 mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:mx-0 lg:grid-cols-3 xl:grid-cols-4">
+                  {section.items.map((item) => (
+                    <ProductCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
-        )
-      ) : (
-        <div className="pb-12 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:items-start lg:grid-cols-3">
-          {sections.map((section) => (
-            <section key={section.slug}>
-              <SectionHeader title={section.squareName} />
-              {section.items.map((item) => (
-                <ProductRow key={item.id} item={item} />
-              ))}
-            </section>
-          ))}
         </div>
       )}
     </>

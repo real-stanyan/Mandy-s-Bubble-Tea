@@ -24,7 +24,7 @@ type SectionHeaderProps = {
 export function SectionHeader({ title }: SectionHeaderProps) {
   const banner = categoryBanner(title);
   return (
-    <div className="mx-4 mt-6 mb-2 rounded-card border border-line bg-paper p-3.5 shadow-card">
+    <div className="mx-4 mt-6 mb-2 rounded-card border border-line bg-paper p-3.5 shadow-card lg:mx-0">
       <h2
         className="font-serif text-ink"
         style={{
