@@ -300,8 +300,15 @@ async function _getMenuImpl(): Promise<Menu> {
 
   const rawCategories: Square.CatalogObject.Category[] = [];
   for await (const obj of categoriesPage) {
-    if (obj.type === "CATEGORY")
-      rawCategories.push(obj as Square.CatalogObject.Category);
+    if (obj.type !== "CATEGORY") continue;
+    const cat = obj as Square.CatalogObject.Category;
+    // Skip MENU_CATEGORY records — these are Square's "Menus" feature
+    // sub-categories (created by dashboard menu editor), not the real
+    // REGULAR_CATEGORY records shown on Dashboard > Categories. Both
+    // share the same item attachments, so without this filter every
+    // menu edit spawns a duplicate section on our site.
+    if (cat.categoryData?.categoryType === "MENU_CATEGORY") continue;
+    rawCategories.push(cat);
   }
 
   const rawModifierLists: Square.CatalogObject.ModifierList[] = [];
