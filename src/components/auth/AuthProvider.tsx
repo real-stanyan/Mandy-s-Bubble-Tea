@@ -76,6 +76,7 @@ type AuthContextValue = {
     lastName?: string;
   }) => Promise<AuthProfile>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
@@ -319,6 +320,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setWelcomeDiscount(DEFAULT_WELCOME);
   }, [supabase]);
 
+  const deleteAccount = useCallback(async () => {
+    const res = await fetch("/api/account/delete", { method: "POST" });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error ?? `delete failed: ${res.status}`);
+    }
+    await supabase.auth.signOut();
+    setProfile(null);
+    setLoyalty(null);
+    setWelcomeDiscount(DEFAULT_WELCOME);
+  }, [supabase]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       session,
@@ -334,6 +347,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyOtp,
       completeSignup,
       signOut,
+      deleteAccount,
       refresh: fetchMe,
     }),
     [
@@ -349,6 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyOtp,
       completeSignup,
       signOut,
+      deleteAccount,
       fetchMe,
     ],
   );
