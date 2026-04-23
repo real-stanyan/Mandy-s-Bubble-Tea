@@ -129,7 +129,7 @@ export default function AccountPage() {
 /*  Dashboard                                                          */
 /* ------------------------------------------------------------------ */
 
-const RECENT_ORDER_LIMIT = 6;
+const RECENT_ORDER_LIMIT = 3;
 
 function AccountDashboard({
   profile,
