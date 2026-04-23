@@ -40,25 +40,15 @@ async function renderIcon(sizePt: number, outName: string) {
     .toFile(path.join(OUT, outName))
 }
 
-// logo = transparent 160x50 area, white logomark (~36x36) on the left, "Mandy's" wordmark next to it
+// logo = transparent 160x50 canvas, "Mandy's" wordmark left-aligned, sized so
+// the rendered text fits inside ~100pt (Apple's effective logo slot when a
+// headerField is present is ~110pt, so we leave margin).
 async function renderLogo(widthPt: number, heightPt: number, outName: string) {
-  // Glyph box ~72% of height
-  const glyphSize = Math.round(heightPt * 0.72)
-  const glyphSvg = logomarkSvg(WHITE, glyphSize)
-  const glyphPng = await sharp(Buffer.from(glyphSvg)).png().toBuffer()
-
-  // Wordmark as SVG text
-  const fontSize = Math.round(heightPt * 0.58)
-  const wordmarkWidth = widthPt - glyphSize - Math.round(heightPt * 0.2)
-  const wordmarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${wordmarkWidth}" height="${heightPt}">
-    <text x="0" y="${Math.round(heightPt * 0.7)}" font-family="Georgia, serif" font-weight="600" font-size="${fontSize}" fill="${WHITE}" letter-spacing="-0.5">Mandy's</text>
+  const fontSize = Math.round(heightPt * 0.56) // ~28pt at 1x height 50
+  const wordmarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPt}" height="${heightPt}">
+    <text x="0" y="${Math.round(heightPt * 0.72)}" font-family="Georgia, serif" font-weight="700" font-size="${fontSize}" fill="${WHITE}">Mandy&apos;s</text>
   </svg>`
   const wordmarkPng = await sharp(Buffer.from(wordmarkSvg)).png().toBuffer()
-
-  const glyphLeft = 0
-  const glyphTop = Math.round((heightPt - glyphSize) / 2)
-  const wordmarkLeft = glyphSize + Math.round(heightPt * 0.2)
-  const wordmarkTop = 0
 
   await sharp({
     create: {
@@ -68,10 +58,7 @@ async function renderLogo(widthPt: number, heightPt: number, outName: string) {
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     },
   })
-    .composite([
-      { input: glyphPng, left: glyphLeft, top: glyphTop },
-      { input: wordmarkPng, left: wordmarkLeft, top: wordmarkTop },
-    ])
+    .composite([{ input: wordmarkPng, left: 0, top: 0 }])
     .png()
     .toFile(path.join(OUT, outName))
 }
