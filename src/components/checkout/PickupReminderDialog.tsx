@@ -44,12 +44,12 @@ export function PickupReminderDialog() {
           <AlertDialogTitle className="text-center">
             Pickup Reminder
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-center">
-            Pick Up drinks are best collected within 10 minutes of the
-            scheduled time.
-          </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-600">
+          <li>
+            Pick Up drinks are best collected within 10 minutes of the
+            scheduled time.
+          </li>
           <li>Please arrive on time to enjoy the best taste and ice level.</li>
           <li>Orders not collected promptly may affect drink quality.</li>
         </ul>
