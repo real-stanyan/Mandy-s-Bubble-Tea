@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 // with up to 3 preview items and a "See More" link to the full
 // category page.
 
-export const revalidate = 300;
+export const revalidate = 10;
 
 // Show all items per category in a horizontal scroll strip
 

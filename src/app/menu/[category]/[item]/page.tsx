@@ -14,7 +14,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-export const revalidate = 300;
+export const revalidate = 10;
 
 export async function generateStaticParams() {
   const menu = await getMenu();

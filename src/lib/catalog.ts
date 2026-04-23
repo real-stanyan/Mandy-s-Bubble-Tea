@@ -264,9 +264,9 @@ function buildMenuItem(
 
 // Module-level cache so concurrent calls during build (17 workers
 // pre-rendering static pages) don't each fire 4 Square API requests.
-// TTL keeps sold-out / price edits from Square Dashboard visible within
-// ~1 minute instead of pinning forever on a warm serverless container.
-const MENU_CACHE_TTL_MS = 60_000;
+// TTL kept short so sold-out / price edits from Square Dashboard are
+// visible within ~10s end-to-end (combined with page revalidate).
+const MENU_CACHE_TTL_MS = 5_000;
 let _menuPromise: Promise<Menu> | null = null;
 let _menuPromiseAt = 0;
 

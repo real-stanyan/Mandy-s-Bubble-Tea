@@ -12,7 +12,7 @@ import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
 // now — slice G will factor out a shared layout once we have more
 // than one page asking for the same chrome.
 
-export const revalidate = 300;
+export const revalidate = 10;
 
 const MAPS_URL = `https://maps.google.com/?q=${encodeURIComponent(
   BUSINESS.address,

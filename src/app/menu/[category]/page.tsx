@@ -19,7 +19,7 @@ import {
 // that's fine while the catalog is small; later we can add a
 // per-category query to avoid loading everything.
 
-export const revalidate = 300;
+export const revalidate = 10;
 
 export async function generateStaticParams() {
   const menu = await getMenu();
