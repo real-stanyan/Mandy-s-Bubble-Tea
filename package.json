@@ -20,6 +20,7 @@
     "@upstash/qstash": "^2.10.1",
     "expo-server-sdk": "^6.1.0",
     "jose": "^6.2.2",
+    "lucide-react": "^1.8.0",
     "next": "16.2.3",
     "passkit-generator": "^3.5.7",
     "qrcode.react": "^4.2.0",
