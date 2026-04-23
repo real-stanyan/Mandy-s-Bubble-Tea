@@ -5,6 +5,7 @@ export const PASS_BRAND = {
   brownDark: '#6E4019',
   sage: '#A2AD91',
   cream: '#FFF9F0',
+  peach: '#FFB380', // matches T.peach in the RN StarCupsRow
 } as const
 
 export const PASS_BG_RGB = 'rgb(141, 85, 36)'
