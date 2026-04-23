@@ -82,12 +82,18 @@ export default async function CategoryPage({ params }: PageProps) {
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {items.map((item) => (
             <li key={item.id}>
-              <Link
-                href={`/menu/${category.slug}/${item.id}`}
-                className="block"
-              >
-                <ItemCard item={item} />
-              </Link>
+              {item.soldOut ? (
+                <div aria-disabled="true" className="block cursor-not-allowed">
+                  <ItemCard item={item} />
+                </div>
+              ) : (
+                <Link
+                  href={`/menu/${category.slug}/${item.id}`}
+                  className="block"
+                >
+                  <ItemCard item={item} />
+                </Link>
+              )}
             </li>
           ))}
         </ul>
@@ -143,7 +149,16 @@ function MenuCrumb({ current }: { current: string }) {
 
 function ItemCard({ item }: { item: MenuItem }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md">
+    <div
+      className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
+        item.soldOut ? "opacity-50" : ""
+      }`}
+    >
+      {item.soldOut && (
+        <span className="absolute right-2 top-2 z-10 rounded-full bg-zinc-900/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+          Sold out
+        </span>
+      )}
       {item.imageUrl ? (
         <div className="relative aspect-square w-full">
           <Image
@@ -151,7 +166,7 @@ function ItemCard({ item }: { item: MenuItem }) {
             alt={item.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
-            className="object-cover"
+            className={`object-cover ${item.soldOut ? "grayscale" : ""}`}
           />
         </div>
       ) : (

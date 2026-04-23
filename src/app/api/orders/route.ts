@@ -6,6 +6,7 @@ import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
+import { getMenu } from "@/lib/catalog";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -100,6 +101,63 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+  }
+
+  // Sold-out gate. Client UI already disables sold-out items/modifiers,
+  // but an order can land here from a stale tab or parallel Square POS
+  // edit. Reject before handing the order to Square so the customer sees
+  // a clear error instead of paying for something the shop can't make.
+  try {
+    const menu = await getMenu();
+    const variationSoldOut = new Map<string, { name: string; soldOut: boolean }>();
+    const modifierSoldOut = new Map<string, { name: string; soldOut: boolean }>();
+    for (const items of menu.itemsBySlug.values()) {
+      for (const item of items) {
+        for (const v of item.variations) {
+          variationSoldOut.set(v.id, {
+            name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
+            soldOut: v.soldOut,
+          });
+        }
+      }
+    }
+    for (const item of menu.uncategorizedItems) {
+      for (const v of item.variations) {
+        variationSoldOut.set(v.id, {
+          name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
+          soldOut: v.soldOut,
+        });
+      }
+    }
+    for (const ml of menu.modifierLists.values()) {
+      for (const mod of ml.modifiers) {
+        modifierSoldOut.set(mod.id, { name: mod.name, soldOut: mod.soldOut });
+      }
+    }
+    const soldOutNames: string[] = [];
+    for (const line of body.lines) {
+      const v = variationSoldOut.get(line.variationId);
+      if (v?.soldOut) soldOutNames.push(v.name);
+      for (const m of line.modifiers) {
+        const mod = modifierSoldOut.get(m.id);
+        if (mod?.soldOut) soldOutNames.push(mod.name);
+      }
+    }
+    if (soldOutNames.length > 0) {
+      const unique = Array.from(new Set(soldOutNames));
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Sold out: ${unique.join(", ")}. Please refresh the menu.`,
+          soldOut: unique,
+        },
+        { status: 409 },
+      );
+    }
+  } catch {
+    // If the menu fetch fails we don't block the order — Square will
+    // still catch missing catalog ids. The sold-out gate is defense in
+    // depth, not the authoritative source.
   }
 
   const customerId = user.profile.square_customer_id;

@@ -20,6 +20,7 @@ export async function GET() {
           id: item.id,
           type: "ITEM",
           imageUrl: item.imageUrl,
+          soldOut: item.soldOut,
           itemData: {
             name: item.name,
             description: item.description,
@@ -29,6 +30,7 @@ export async function GET() {
             }),
             variations: item.variations.map((v) => ({
               id: v.id,
+              soldOut: v.soldOut,
               itemVariationData: {
                 name: v.name,
                 priceMoney: v.priceCents != null
@@ -49,12 +51,14 @@ export async function GET() {
         id: item.id,
         type: "ITEM",
         imageUrl: item.imageUrl,
+        soldOut: item.soldOut,
         itemData: {
           name: item.name,
           description: item.description,
           categories: [],
           variations: item.variations.map((v) => ({
             id: v.id,
+            soldOut: v.soldOut,
             itemVariationData: {
               name: v.name,
               priceMoney: v.priceCents != null

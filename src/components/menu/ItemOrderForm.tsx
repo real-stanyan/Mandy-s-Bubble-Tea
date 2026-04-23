@@ -19,8 +19,11 @@ type Props = {
 export function ItemOrderForm({ item, modifierLists }: Props) {
   const addLine = useCart((s) => s.addLine);
 
+  // Default to first non-sold-out variation so the form starts in a
+  // fulfillable state. If every variation is sold out we still seed the
+  // first id — the CTA stays disabled via `canAdd` below.
   const [variationId, setVariationId] = useState<string>(
-    item.variations[0]?.id ?? "",
+    (item.variations.find((v) => !v.soldOut) ?? item.variations[0])?.id ?? "",
   );
 
   // modifierListId → set of selected modifier ids
@@ -62,8 +65,17 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     return errors;
   }, [modifierLists, selectedByList]);
 
+  const hasSoldOutModifier = modifierLists.some((ml) =>
+    (selectedByList[ml.id] ? Array.from(selectedByList[ml.id]!) : []).some(
+      (modId) => ml.modifiers.find((m) => m.id === modId)?.soldOut,
+    ),
+  );
+
   const canAdd =
-    selectedVariation != null && Object.keys(validationErrors).length === 0;
+    selectedVariation != null &&
+    !selectedVariation.soldOut &&
+    !hasSoldOutModifier &&
+    Object.keys(validationErrors).length === 0;
 
   const unitPriceCents = useMemo(() => {
     if (!selectedVariation?.priceCents) return 0n;
@@ -97,6 +109,8 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   }
 
   function isModifierDisabled(list: ModifierList, modifierId: string): boolean {
+    const mod = list.modifiers.find((m) => m.id === modifierId);
+    if (mod?.soldOut) return true;
     const selected = selectedByList[list.id] ?? new Set();
     // Already selected → always allow deselect
     if (selected.has(modifierId)) return false;
@@ -186,21 +200,31 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
           <div className="flex flex-wrap gap-2">
             {item.variations.map((v) => {
               const active = variationId === v.id;
+              const disabled = v.soldOut && !active;
               return (
                 <button
                   key={v.id}
                   type="button"
-                  onClick={() => setVariationId(v.id)}
+                  onClick={() => {
+                    if (v.soldOut) return;
+                    setVariationId(v.id);
+                  }}
+                  disabled={disabled}
                   className={`inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition ${
                     active
                       ? "border-transparent text-white"
-                      : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
+                      : disabled
+                        ? "cursor-not-allowed border-black/5 bg-zinc-50 text-zinc-300"
+                        : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
                   }`}
                   style={
                     active ? { backgroundColor: "#3E2723" } : undefined
                   }
                 >
                   {v.name}
+                  {v.soldOut && (
+                    <span className="text-xs font-normal">(Sold out)</span>
+                  )}
                 </button>
               );
             })}
@@ -253,6 +277,9 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   {mod.name}
+                  {mod.soldOut && (
+                    <span className="text-xs font-normal">(Sold out)</span>
+                  )}
                   {priceLabel(mod) && (
                     <span className={selected ? "opacity-80" : disabled ? "text-zinc-300" : "text-zinc-400"}>
                       {priceLabel(mod)}

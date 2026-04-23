@@ -79,6 +79,7 @@ export async function GET(
       id: foundItem.id,
       type: "ITEM",
       imageUrl: foundItem.imageUrl,
+      soldOut: foundItem.soldOut,
       itemData: {
         name: foundItem.name,
         description: foundItem.description,
@@ -88,6 +89,7 @@ export async function GET(
         }),
         variations: foundItem.variations.map((v) => ({
           id: v.id,
+          soldOut: v.soldOut,
           itemVariationData: {
             name: v.name,
             priceMoney:

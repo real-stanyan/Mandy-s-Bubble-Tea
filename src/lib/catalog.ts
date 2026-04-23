@@ -1,6 +1,6 @@
 import "server-only";
 import type { Square } from "square";
-import { squareClient } from "@/lib/square";
+import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { slugify } from "@/lib/slugs";
 
 // Catalog data layer. Fetches raw Square objects once, then builds
@@ -12,6 +12,7 @@ export type ItemVariation = {
   id: string;
   name: string;
   priceCents: bigint | null;
+  soldOut: boolean;
 };
 
 export type ModifierOption = {
@@ -22,6 +23,7 @@ export type ModifierOption = {
   ordinal: number;
   /** Whether this modifier should be pre-selected by default. */
   onByDefault: boolean;
+  soldOut: boolean;
 };
 
 export type ModifierList = {
@@ -71,6 +73,8 @@ export type MenuItem = {
   variations: ItemVariation[];
   modifierListRefs: ItemModifierListRef[];
   categoryIds: string[];
+  /** True when every variation is sold out at SQUARE_LOCATION_ID. */
+  soldOut: boolean;
 };
 
 export type MenuCategory = {
@@ -139,6 +143,31 @@ function resolveMax(
 
 // --- Builders ---------------------------------------------------------------
 
+// Square reports sold-out per-location. When SQUARE_LOCATION_ID is unset
+// we never treat anything as sold out — this keeps local/CI envs usable
+// without a location id and matches prior behavior.
+function isSoldOutAtLocation(
+  overrides:
+    | Array<{
+        locationId?: string | null;
+        soldOut?: boolean;
+        soldOutValidUntil?: string;
+      }>
+    | null
+    | undefined,
+): boolean {
+  if (!SQUARE_LOCATION_ID) return false;
+  const override = (overrides ?? []).find(
+    (o) => o.locationId === SQUARE_LOCATION_ID,
+  );
+  if (override?.soldOut !== true) return false;
+  if (override.soldOutValidUntil) {
+    const until = Date.parse(override.soldOutValidUntil);
+    if (Number.isFinite(until) && Date.now() >= until) return false;
+  }
+  return true;
+}
+
 function buildModifierList(
   raw: Square.CatalogObject.ModifierList,
 ): ModifierList | null {
@@ -158,6 +187,7 @@ function buildModifierList(
       priceCents: md.priceMoney?.amount ?? null,
       ordinal: md.ordinal ?? 0,
       onByDefault: md.onByDefault === true,
+      soldOut: isSoldOutAtLocation(md.locationOverrides),
     });
   }
   modifiers.sort((a, b) => a.ordinal - b.ordinal);
@@ -189,11 +219,14 @@ function buildMenuItem(
       id: vv.id,
       name: vd.name ?? "(unnamed)",
       priceCents: vd.priceMoney?.amount ?? null,
+      soldOut: isSoldOutAtLocation(vd.locationOverrides),
     });
   }
 
   const first = variations[0];
   const firstImageId = data.imageIds?.[0] ?? null;
+  const itemSoldOut =
+    variations.length > 0 && variations.every((v) => v.soldOut);
 
   return {
     id: raw.id,
@@ -203,6 +236,7 @@ function buildMenuItem(
     priceCents: first?.priceCents ?? null,
     variationLabel: first?.name ?? null,
     variations,
+    soldOut: itemSoldOut,
     modifierListRefs: (data.modifierListInfo ?? [])
       .filter((mli) => mli.enabled !== false)
       .map((mli): ItemModifierListRef | null => {
@@ -230,7 +264,11 @@ function buildMenuItem(
 
 // Module-level cache so concurrent calls during build (17 workers
 // pre-rendering static pages) don't each fire 4 Square API requests.
+// TTL keeps sold-out / price edits from Square Dashboard visible within
+// ~1 minute instead of pinning forever on a warm serverless container.
+const MENU_CACHE_TTL_MS = 60_000;
 let _menuPromise: Promise<Menu> | null = null;
+let _menuPromiseAt = 0;
 
 /**
  * Fetch all ITEM, CATEGORY, MODIFIER_LIST, and IMAGE objects from Square
@@ -238,8 +276,11 @@ let _menuPromise: Promise<Menu> | null = null;
  * Results are cached in-process to avoid redundant API calls during build.
  */
 export async function getMenu(): Promise<Menu> {
-  if (_menuPromise) return _menuPromise;
+  if (_menuPromise && Date.now() - _menuPromiseAt < MENU_CACHE_TTL_MS) {
+    return _menuPromise;
+  }
   _menuPromise = _getMenuImpl();
+  _menuPromiseAt = Date.now();
   return _menuPromise;
 }
 
