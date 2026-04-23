@@ -10,6 +10,7 @@ const MemberQrCard = dynamic(
   { ssr: false },
 );
 import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
+import { AddToWalletButton } from "@/components/account/AddToWalletButton";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { formatPrice } from "@/lib/utils";
@@ -251,6 +252,9 @@ function AccountDashboard({
         customerId={profile.square_customer_id}
         phoneE164={profile.phone_e164}
       />
+
+      {/* ── Add to Apple Wallet (iOS / Safari only) ── */}
+      <AddToWalletButton />
 
       {welcomeDiscount.available && (
         <WelcomeDiscountCard />
