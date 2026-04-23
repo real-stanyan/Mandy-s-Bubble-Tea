@@ -397,9 +397,28 @@ async function _getMenuImpl(): Promise<Menu> {
     bucket.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  const categories = Array.from(categoryById.values()).sort((a, b) =>
-    a.squareName.localeCompare(b.squareName),
+  // Display order fixed by the shop owner. Any category not listed here
+  // falls to the end in alphabetical order. Match is case-insensitive on
+  // squareName so Square renames don't silently drop a section.
+  const CATEGORY_DISPLAY_ORDER = [
+    "TOP 10",
+    "MILK TEA",
+    "FRUITY GREEN TEA",
+    "FROZEN",
+    "CHEESE CREAM",
+    "FRUITY BLACK TEA",
+    "SPECIAL MIX",
+    "FRESH BREW",
+  ];
+  const orderIndex = new Map(
+    CATEGORY_DISPLAY_ORDER.map((name, i) => [name.toUpperCase(), i]),
   );
+  const categories = Array.from(categoryById.values()).sort((a, b) => {
+    const ai = orderIndex.get(a.squareName.toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+    const bi = orderIndex.get(b.squareName.toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.squareName.localeCompare(b.squareName);
+  });
 
   return { categories, itemsBySlug, uncategorizedItems, modifierLists };
 }
