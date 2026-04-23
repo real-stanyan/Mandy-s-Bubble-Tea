@@ -39,46 +39,50 @@ function perCupMinutes(slugs: Set<string> | undefined): number {
   return 1;
 }
 
-function lineItemMinutes(
+function collectVariations(
   lineItems: Square.OrderLineItem[] | null | undefined,
   slugsByVariation: Map<string, Set<string>>,
-): number {
-  let total = 0;
+  into: Set<string>,
+): void {
   for (const li of lineItems ?? []) {
     const variationId = li.catalogObjectId;
-    const slugs = variationId ? slugsByVariation.get(variationId) : undefined;
-    // Unmapped line items (fees, gift cards, or items removed since) don't
-    // block the queue — treat them as 0 minutes rather than guessing.
-    if (!slugs) continue;
+    if (!variationId) continue;
+    // Unmapped line items (fees, gift cards, removed products) don't
+    // belong to a drink queue — skip them rather than guessing.
+    if (!slugsByVariation.has(variationId)) continue;
     const qty = parseInt(li.quantity ?? "1", 10);
     if (!Number.isFinite(qty) || qty <= 0) continue;
-    total += qty * perCupMinutes(slugs);
+    into.add(variationId);
   }
-  return total;
 }
 
 /**
  * Estimated wait (minutes) until `order` is ready at the pickup counter.
  *
  *   wait = BASE_MINUTES
- *        + prep time for every cup queued ahead of `order` at this location
- *        + prep time for every cup inside `order`
+ *        + Σ perCup(sku) for every distinct drink SKU in the pipeline
  *
- * "Ahead of" means Square orders at SQUARE_LOCATION_ID whose PICKUP
- * fulfillment is still PROPOSED or RESERVED (not yet prepared) and whose
- * createdAt is strictly earlier than this order. Capped at MAX_WAIT_MINUTES.
+ * "Pipeline" = (this order's line items) ∪ (every OPEN order at this
+ * location whose PICKUP fulfillment is still PROPOSED or RESERVED and
+ * whose createdAt is strictly before this order, within the last
+ * QUEUE_LOOKBACK_MINUTES). Identical SKUs across all of those orders
+ * are counted once — a staff member batches duplicates in one shake,
+ * so two Grapefruit Black Teas ahead of you plus your own Grapefruit
+ * are one minute of prep, not three.
  *
- * On any Square failure the queue contribution is dropped rather than
- * thrown — the confirmation page still needs to render.
+ * Capped at MAX_WAIT_MINUTES. On any Square failure the queue
+ * contribution is dropped rather than thrown — the confirmation page
+ * still needs to render.
  */
 export async function estimateOrderWaitMinutes(
   order: Square.Order,
 ): Promise<number> {
   const menu = await getMenu();
   const slugsByVariation = buildVariationSlugMap(menu);
-  const ownMinutes = lineItemMinutes(order.lineItems, slugsByVariation);
 
-  let queueMinutes = 0;
+  const pipeline = new Set<string>();
+  collectVariations(order.lineItems, slugsByVariation, pipeline);
+
   if (SQUARE_LOCATION_ID && order.createdAt) {
     const endAtMs = Date.parse(order.createdAt);
     const startAtIso = Number.isFinite(endAtMs)
@@ -111,14 +115,19 @@ export async function estimateOrderWaitMinutes(
         if (other.id === order.id) continue;
         // Square's endAt is inclusive; guard strict "before" ourselves.
         if (other.createdAt && other.createdAt >= order.createdAt) continue;
-        queueMinutes += lineItemMinutes(other.lineItems, slugsByVariation);
+        collectVariations(other.lineItems, slugsByVariation, pipeline);
       }
     } catch {
-      queueMinutes = 0;
+      // Queue lookup failed — fall back to counting only the user's own
+      // SKUs plus the base minute.
     }
   }
 
-  return Math.min(MAX_WAIT_MINUTES, BASE_MINUTES + queueMinutes + ownMinutes);
+  let total = BASE_MINUTES;
+  for (const variationId of pipeline) {
+    total += perCupMinutes(slugsByVariation.get(variationId));
+  }
+  return Math.min(MAX_WAIT_MINUTES, total);
 }
 
 export function formatWaitRange(minutes: number): string {
