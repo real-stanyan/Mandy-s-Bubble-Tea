@@ -10,10 +10,11 @@ import {
   lineTotal,
   lineUnitPrice,
   cartSubtotal,
+  cardSurcharge,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, LOYALTY } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, LOYALTY } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -163,6 +164,7 @@ function CartBody({
 
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+  const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
 
   const welcomeCoverage = useMemo(() => {
     if (!welcomeDiscount.available || lines.length === 0) {
@@ -202,7 +204,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -222,7 +224,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -326,6 +328,7 @@ function CartBody({
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
           welcomeCoveredCount={welcomeCoverage.coveredCount}
+          surchargeAmount={surchargeAmount}
           hasProfile={!!profile}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
@@ -565,6 +568,7 @@ function CartFooter({
   welcomeDiscount,
   welcomeDiscountAmount,
   welcomeCoveredCount,
+  surchargeAmount,
   hasProfile,
   applePayReady,
   googlePayReady,
@@ -582,6 +586,7 @@ function CartFooter({
   };
   welcomeDiscountAmount: bigint;
   welcomeCoveredCount: number;
+  surchargeAmount: bigint;
   hasProfile: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
@@ -612,6 +617,7 @@ function CartFooter({
         ? subtotal - welcomeDiscountAmount
         : 0n
       : subtotal;
+  const displayTotal = discountedTotal + surchargeAmount;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -803,6 +809,19 @@ function CartFooter({
               </span>
             </div>
           )}
+        {surchargeAmount > 0n && (
+          <div className="flex justify-between text-sm text-zinc-600">
+            <span>
+              {CARD_SURCHARGE.name}{" "}
+              <span className="text-xs text-zinc-400">
+                ({CARD_SURCHARGE.percentage}%)
+              </span>
+            </span>
+            <span className="font-semibold text-zinc-900">
+              {formatPrice(surchargeAmount)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between text-sm text-zinc-600">
           <span>Tax</span>
           <span className="font-semibold text-zinc-900">
@@ -816,7 +835,7 @@ function CartFooter({
           className="text-xl font-bold"
           style={{ color: BRAND.primaryColor }}
         >
-          {formatPrice(discountedTotal)}
+          {formatPrice(displayTotal)}
         </span>
       </div>
 

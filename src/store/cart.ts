@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { CARD_SURCHARGE_BPS } from "@/lib/constants";
 
 // Cart state lives client-side only and is persisted to localStorage.
 // Prices are stored as BigInt cents to match the rest of the codebase;
@@ -155,4 +156,14 @@ export function cartSubtotal(lines: CartLine[]): bigint {
 /** Total number of items across all lines. */
 export function cartItemCount(lines: CartLine[]): number {
   return lines.reduce((sum, l) => sum + l.quantity, 0);
+}
+
+// Mirrors Square's SUBTOTAL_PHASE percentage service charge: 1.9% of
+// the pre-discount subtotal, truncated to whole cents. Square's
+// authoritative totalMoney (returned from orders.create) is the source
+// of truth for the charged amount — this helper is for pre-order UI
+// display only, and is kept in sync with CARD_SURCHARGE_BPS.
+export function cardSurcharge(subtotalCents: bigint): bigint {
+  if (subtotalCents <= 0n) return 0n;
+  return (subtotalCents * CARD_SURCHARGE_BPS) / 10000n;
 }

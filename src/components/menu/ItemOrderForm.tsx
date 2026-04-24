@@ -16,32 +16,43 @@ type Props = {
   modifierLists: ModifierList[];
 };
 
+type CountMap = Record<string, Record<string, number>>;
+
+const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
+
+function isExclusiveList(list: ModifierList): boolean {
+  return list.modifiers.some((m) => EXCLUSIVE_TOPPINGS.includes(m.name));
+}
+
+function supportsMultiCount(list: ModifierList): boolean {
+  // Single-select lists and lists with exclusive pairs stay 0-or-1 per modifier.
+  if (list.maxSelected === 1) return false;
+  if (isExclusiveList(list)) return false;
+  return true;
+}
+
+function totalInList(counts: CountMap, listId: string): number {
+  const map = counts[listId];
+  if (!map) return 0;
+  let sum = 0;
+  for (const v of Object.values(map)) sum += v;
+  return sum;
+}
+
+function countOf(counts: CountMap, listId: string, modId: string): number {
+  return counts[listId]?.[modId] ?? 0;
+}
+
 export function ItemOrderForm({ item, modifierLists }: Props) {
   const addLine = useCart((s) => s.addLine);
 
-  // Default to first non-sold-out variation so the form starts in a
-  // fulfillable state. If every variation is sold out we still seed the
-  // first id — the CTA stays disabled via `canAdd` below.
   const [variationId, setVariationId] = useState<string>(
     (item.variations.find((v) => !v.soldOut) ?? item.variations[0])?.id ?? "",
   );
 
-  // modifierListId → set of selected modifier ids
-  // Initialize from onByDefault flags set in Square Dashboard.
-  const [selectedByList, setSelectedByList] = useState<
-    Record<string, Set<string>>
-  >(() => {
-    const initial: Record<string, Set<string>> = {};
-    for (const ml of modifierLists) {
-      const defaults = ml.modifiers
-        .filter((m) => m.onByDefault)
-        .map((m) => m.id);
-      if (defaults.length > 0) {
-        initial[ml.id] = new Set(defaults);
-      }
-    }
-    return initial;
-  });
+  const [selectedByList, setSelectedByList] = useState<CountMap>(() =>
+    buildDefaults(modifierLists),
+  );
 
   const [quantity, setQuantity] = useState(1);
 
@@ -52,7 +63,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   const validationErrors = useMemo(() => {
     const errors: Record<string, string> = {};
     for (const ml of modifierLists) {
-      const picked = selectedByList[ml.id]?.size ?? 0;
+      const picked = totalInList(selectedByList, ml.id);
       if (picked < ml.minSelected) {
         errors[ml.id] =
           ml.minSelected === 1
@@ -65,11 +76,14 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     return errors;
   }, [modifierLists, selectedByList]);
 
-  const hasSoldOutModifier = modifierLists.some((ml) =>
-    (selectedByList[ml.id] ? Array.from(selectedByList[ml.id]!) : []).some(
-      (modId) => ml.modifiers.find((m) => m.id === modId)?.soldOut,
-    ),
-  );
+  const hasSoldOutModifier = modifierLists.some((ml) => {
+    const map = selectedByList[ml.id];
+    if (!map) return false;
+    return Object.entries(map).some(
+      ([modId, count]) =>
+        count > 0 && ml.modifiers.find((m) => m.id === modId)?.soldOut,
+    );
+  });
 
   const canAdd =
     selectedVariation != null &&
@@ -81,10 +95,12 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     if (!selectedVariation?.priceCents) return 0n;
     let total = selectedVariation.priceCents;
     for (const ml of modifierLists) {
-      const picks = selectedByList[ml.id] ?? new Set();
+      const map = selectedByList[ml.id];
+      if (!map) continue;
       for (const mod of ml.modifiers) {
-        if (picks.has(mod.id) && mod.priceCents) {
-          total += mod.priceCents;
+        const count = map[mod.id] ?? 0;
+        if (count > 0 && mod.priceCents) {
+          total += mod.priceCents * BigInt(count);
         }
       }
     }
@@ -92,9 +108,6 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   }, [selectedVariation, modifierLists, selectedByList]);
 
   const totalCents = unitPriceCents * BigInt(quantity);
-
-  // Cheese Cream and Brulee are mutually exclusive — selecting one deselects the other.
-  const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
 
   function getExclusivePartner(
     list: ModifierList,
@@ -108,52 +121,68 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     return partner?.id ?? null;
   }
 
-  function isModifierDisabled(list: ModifierList, modifierId: string): boolean {
+  function canIncrement(list: ModifierList, modifierId: string): boolean {
     const mod = list.modifiers.find((m) => m.id === modifierId);
-    if (mod?.soldOut) return true;
-    const selected = selectedByList[list.id] ?? new Set();
-    // Already selected → always allow deselect
-    if (selected.has(modifierId)) return false;
-    // Single-select lists swap on click — never disable
-    if (list.maxSelected === 1) return false;
-    // At max capacity → disable unselected items
-    if (list.maxSelected != null && selected.size >= list.maxSelected)
-      return true;
-    // Exclusive partner is selected → disable this one
-    const partnerId = getExclusivePartner(list, modifierId);
-    if (partnerId && selected.has(partnerId)) return true;
-    return false;
+    if (!mod || mod.soldOut) return false;
+    const current = countOf(selectedByList, list.id, modifierId);
+    // Exclusive: only 0 or 1
+    if (isExclusiveList(list)) {
+      const partnerId = getExclusivePartner(list, modifierId);
+      if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
+        return false;
+      return current < 1;
+    }
+    // Single-select list (maxSelected=1 overall)
+    if (list.maxSelected === 1) {
+      return current < 1;
+    }
+    // Multi-count: bound by list-total maxSelected if set
+    if (list.maxSelected != null) {
+      return totalInList(selectedByList, list.id) < list.maxSelected;
+    }
+    return true;
   }
 
-  function toggleModifier(list: ModifierList, modifierId: string) {
-    if (isModifierDisabled(list, modifierId)) return;
+  function incrementModifier(list: ModifierList, modifierId: string) {
+    if (!canIncrement(list, modifierId)) return;
     setSelectedByList((prev) => {
-      const current = new Set(prev[list.id] ?? []);
-      const isSingleSelect = list.maxSelected === 1;
-      if (current.has(modifierId)) {
-        current.delete(modifierId);
-      } else {
-        if (isSingleSelect) current.clear();
-        // Remove exclusive partner if present
-        const partnerId = getExclusivePartner(list, modifierId);
-        if (partnerId) current.delete(partnerId);
-        current.add(modifierId);
+      const listMap = { ...(prev[list.id] ?? {}) };
+      // Single-select: clear others
+      if (list.maxSelected === 1) {
+        for (const k of Object.keys(listMap)) listMap[k] = 0;
       }
-      return { ...prev, [list.id]: current };
+      // Exclusive: clear partner
+      const partnerId = getExclusivePartner(list, modifierId);
+      if (partnerId) listMap[partnerId] = 0;
+      listMap[modifierId] = (listMap[modifierId] ?? 0) + 1;
+      return { ...prev, [list.id]: listMap };
+    });
+  }
+
+  function decrementModifier(list: ModifierList, modifierId: string) {
+    setSelectedByList((prev) => {
+      const listMap = { ...(prev[list.id] ?? {}) };
+      const current = listMap[modifierId] ?? 0;
+      if (current <= 0) return prev;
+      listMap[modifierId] = current - 1;
+      return { ...prev, [list.id]: listMap };
     });
   }
 
   function handleAdd() {
     if (!canAdd || !selectedVariation) return;
     const chosenModifiers = modifierLists.flatMap((ml) => {
-      const picks = selectedByList[ml.id] ?? new Set();
-      return ml.modifiers
-        .filter((m) => picks.has(m.id))
-        .map((m) => ({
+      const map = selectedByList[ml.id];
+      if (!map) return [];
+      return ml.modifiers.flatMap((m) => {
+        const count = map[m.id] ?? 0;
+        if (count <= 0) return [];
+        return Array.from({ length: count }, () => ({
           id: m.id,
           name: m.name,
           priceCents: m.priceCents ?? 0n,
         }));
+      });
     });
 
     addLine(
@@ -169,23 +198,12 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
       quantity,
     );
 
-    // Reset to defaults from Square Dashboard.
-    const reset: Record<string, Set<string>> = {};
-    for (const ml of modifierLists) {
-      const defaults = ml.modifiers
-        .filter((m) => m.onByDefault)
-        .map((m) => m.id);
-      if (defaults.length > 0) {
-        reset[ml.id] = new Set(defaults);
-      }
-    }
-    setSelectedByList(reset);
+    setSelectedByList(buildDefaults(modifierLists));
     setQuantity(1);
   }
 
   return (
     <div>
-      {/* Size — single fixed option */}
       <Section title="Size">
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-400">
@@ -194,7 +212,6 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
         </div>
       </Section>
 
-      {/* Variations — pill toggle (hidden when single variation) */}
       {item.variations.length > 1 && (
         <Section title="Select Size">
           <div className="flex flex-wrap gap-2">
@@ -232,67 +249,98 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
         </Section>
       )}
 
-      {/* Modifier lists — pill selectors */}
-      {modifierLists.map((ml) => (
-        <Section
-          key={ml.id}
-          title={ml.name}
-          hint={describeSelection(ml)}
-          error={validationErrors[ml.id]}
-        >
-          <div className="flex flex-wrap gap-2">
-            {ml.modifiers.map((mod) => {
-              const selected = selectedByList[ml.id]?.has(mod.id) ?? false;
-              const disabled = isModifierDisabled(ml, mod.id);
-              return (
-                <button
-                  key={mod.id}
-                  type="button"
-                  onClick={() => toggleModifier(ml, mod.id)}
-                  disabled={disabled}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                    selected
-                      ? "border-transparent text-white"
-                      : disabled
-                        ? "cursor-not-allowed border-black/5 bg-zinc-50 text-zinc-300"
-                        : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
-                  }`}
-                  style={
-                    selected
-                      ? { backgroundColor: BRAND.primaryColor }
-                      : undefined
-                  }
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className={selected ? "" : "invisible"}
+      {modifierLists.map((ml) => {
+        const multi = supportsMultiCount(ml);
+        return (
+          <Section
+            key={ml.id}
+            title={ml.name}
+            hint={describeSelection(ml, multi)}
+            error={validationErrors[ml.id]}
+          >
+            <div className="flex flex-wrap gap-2">
+              {ml.modifiers.map((mod) => {
+                const count = countOf(selectedByList, ml.id, mod.id);
+                if (multi && count > 0) {
+                  return (
+                    <ModifierStepper
+                      key={mod.id}
+                      label={mod.name}
+                      count={count}
+                      priceText={priceLabel(mod)}
+                      canIncrement={canIncrement(ml, mod.id)}
+                      onIncrement={() => incrementModifier(ml, mod.id)}
+                      onDecrement={() => decrementModifier(ml, mod.id)}
+                    />
+                  );
+                }
+                const selected = count > 0;
+                const disabled =
+                  mod.soldOut ||
+                  (!selected && !canIncrement(ml, mod.id));
+                return (
+                  <button
+                    key={mod.id}
+                    type="button"
+                    onClick={() => {
+                      if (selected && !multi) {
+                        decrementModifier(ml, mod.id);
+                      } else if (!selected) {
+                        incrementModifier(ml, mod.id);
+                      }
+                    }}
+                    disabled={disabled}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                      selected
+                        ? "border-transparent text-white"
+                        : disabled
+                          ? "cursor-not-allowed border-black/5 bg-zinc-50 text-zinc-300"
+                          : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
+                    }`}
+                    style={
+                      selected
+                        ? { backgroundColor: BRAND.primaryColor }
+                        : undefined
+                    }
                   >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  {mod.name}
-                  {mod.soldOut && (
-                    <span className="text-xs font-normal">(Sold out)</span>
-                  )}
-                  {priceLabel(mod) && (
-                    <span className={selected ? "opacity-80" : disabled ? "text-zinc-300" : "text-zinc-400"}>
-                      {priceLabel(mod)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </Section>
-      ))}
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={selected ? "" : "invisible"}
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    {mod.name}
+                    {mod.soldOut && (
+                      <span className="text-xs font-normal">(Sold out)</span>
+                    )}
+                    {priceLabel(mod) && (
+                      <span
+                        className={
+                          selected
+                            ? "opacity-80"
+                            : disabled
+                              ? "text-zinc-300"
+                              : "text-zinc-400"
+                        }
+                      >
+                        {priceLabel(mod)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+        );
+      })}
 
-      {/* Quantity + Add to Cart */}
       <div className="mt-6 flex items-center gap-3 sm:mt-8">
         <QuantityStepper value={quantity} onChange={setQuantity} />
 
@@ -326,7 +374,53 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   );
 }
 
-// --- Sub-components ---------------------------------------------------------
+function ModifierStepper({
+  label,
+  count,
+  priceText,
+  canIncrement,
+  onIncrement,
+  onDecrement,
+}: {
+  label: string;
+  count: number;
+  priceText: string;
+  canIncrement: boolean;
+  onIncrement: () => void;
+  onDecrement: () => void;
+}) {
+  return (
+    <div
+      className="inline-flex items-center gap-1 rounded-full border border-transparent pl-1 pr-3 py-1 text-sm font-medium text-white"
+      style={{ backgroundColor: BRAND.primaryColor }}
+    >
+      <button
+        type="button"
+        onClick={onDecrement}
+        aria-label={`Decrease ${label}`}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-base text-white/90 transition hover:bg-white/15 active:scale-90"
+      >
+        −
+      </button>
+      <span className="px-1">
+        {label}
+        {count > 1 && (
+          <span className="ml-1 text-white/85">× {count}</span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={onIncrement}
+        disabled={!canIncrement}
+        aria-label={`Increase ${label}`}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-base text-white/90 transition hover:bg-white/15 active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        +
+      </button>
+      {priceText && <span className="opacity-80">{priceText}</span>}
+    </div>
+  );
+}
 
 function Section({
   title,
@@ -345,9 +439,7 @@ function Section({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           {title}
         </h2>
-        {hint && (
-          <span className="text-xs text-zinc-400">{hint}</span>
-        )}
+        {hint && <span className="text-xs text-zinc-400">{hint}</span>}
       </div>
       {children}
       {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
@@ -390,13 +482,33 @@ function priceLabel(mod: ModifierOption): string {
   return `+${formatPrice(mod.priceCents)}`;
 }
 
-function describeSelection(ml: ModifierList): string {
+function describeSelection(ml: ModifierList, multi: boolean): string {
   const { minSelected, maxSelected } = ml;
   if (minSelected === 0 && maxSelected === 1) return "Pick one (optional)";
   if (minSelected === 1 && maxSelected === 1) return "Pick one";
+  if (multi) {
+    if (maxSelected == null && minSelected === 0) return "Tap to add · tap + for more";
+    if (maxSelected == null && minSelected > 0)
+      return `At least ${minSelected} · tap + for more`;
+    if (minSelected === 0) return `Up to ${maxSelected} total · tap + for more`;
+    return `Pick ${minSelected}–${maxSelected} total`;
+  }
   if (maxSelected == null && minSelected === 0) return "Pick any";
   if (maxSelected == null && minSelected > 0)
     return `Pick at least ${minSelected}`;
   if (minSelected === 0) return `Pick up to ${maxSelected}`;
   return `Pick ${minSelected}–${maxSelected}`;
+}
+
+function buildDefaults(modifierLists: ModifierList[]): CountMap {
+  const initial: CountMap = {};
+  for (const ml of modifierLists) {
+    const defaults = ml.modifiers.filter((m) => m.onByDefault);
+    if (defaults.length > 0) {
+      const map: Record<string, number> = {};
+      for (const m of defaults) map[m.id] = 1;
+      initial[ml.id] = map;
+    }
+  }
+  return initial;
 }

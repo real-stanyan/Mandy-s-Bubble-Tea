@@ -36,3 +36,16 @@ export const LOYALTY = {
   unit: "⭐",
   rewardLabel: "Free Drink of Your Choice",
 } as const;
+
+// Passes Square card-processing fees through to the customer. Applied
+// as a Square service charge in SUBTOTAL_PHASE so it's computed on the
+// pre-discount subtotal and shows up on all Square surfaces (POS,
+// Dashboard, receipts, webhooks) automatically.
+export const CARD_SURCHARGE = {
+  name: "Card Surcharge",
+  /** Percentage as a string — matches Square's OrderServiceCharge.percentage format. */
+  percentage: "1.9",
+} as const;
+
+/** 1.9% as basis-points-per-10000 for BigInt math: 190 / 10000. */
+export const CARD_SURCHARGE_BPS = 190n;

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { BUSINESS } from "@/lib/constants";
+import { BUSINESS, CARD_SURCHARGE } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
@@ -260,6 +260,20 @@ export async function POST(request: Request) {
         ticketName: pickupNumber,
         lineItems,
         discounts: welcomeDiscounts,
+        // Passes Square card-processing fees through to the customer.
+        // SUBTOTAL_PHASE → computed on the pre-discount subtotal so the
+        // surcharge doesn't shrink when a welcome discount is applied.
+        // taxable:false → menu items are already GST-inclusive; the
+        // surcharge is a pass-through fee listed separately.
+        serviceCharges: [
+          {
+            uid: "card-surcharge",
+            name: CARD_SURCHARGE.name,
+            percentage: CARD_SURCHARGE.percentage,
+            calculationPhase: "SUBTOTAL_PHASE",
+            taxable: false,
+          },
+        ],
         fulfillments: [
           {
             type: "PICKUP",

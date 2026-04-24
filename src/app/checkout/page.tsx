@@ -10,10 +10,11 @@ import {
   lineTotal,
   lineUnitPrice,
   cartSubtotal,
+  cardSurcharge,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, LOYALTY } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, LOYALTY } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { SignInCard } from "@/components/auth/SignInCard";
@@ -178,12 +179,39 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   }, [lines, welcomeDiscount]);
   const welcomeDiscountAmount = welcomeCoverage.discountCents;
 
+  // Card surcharge mirrors the Square service charge attached in
+  // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
+  const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
   const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
   const progressPct = Math.min((loyaltyBalance / starsPerReward) * 100, 100);
+  // Reward covers the cheapest drink — with an always-on surcharge the
+  // order is never fully $0, so this flag is used only to auto-tick the
+  // redeem checkbox, not to skip the card form.
   const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
+
+  const displayTotal = useMemo(() => {
+    const afterDiscount =
+      canRedeem && useReward
+        ? (subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
+        : welcomeDiscount.available
+          ? (subtotal - welcomeDiscountAmount > 0n
+              ? subtotal - welcomeDiscountAmount
+              : 0n)
+          : subtotal;
+    return afterDiscount + surchargeAmount;
+  }, [
+    subtotal,
+    canRedeem,
+    useReward,
+    rewardDiscount,
+    welcomeDiscount.available,
+    welcomeDiscountAmount,
+    surchargeAmount,
+  ]);
 
   // Pre-fill redeem toggle from cart drawer preference.
   useEffect(() => {
@@ -203,18 +231,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     else if (googlePayAvailable) setPayMethod("google");
   }, [applePayAvailable, googlePayAvailable]);
 
-  const needsCard = !(canRedeemFully && useReward);
+  // Card surcharge is applied on every order, so the card form is
+  // always needed — even when a loyalty reward fully covers the drinks,
+  // the customer still pays the surcharge.
+  const needsCard = true;
 
   // Initialize the Square card form once the SDK has loaded AND the
   // #card-container element is in the DOM.
   useEffect(() => {
-    if (!needsCard) {
-      cardRef.current?.destroy().catch(() => undefined);
-      cardRef.current = null;
-      setCardReady(false);
-      return;
-    }
-
     if (!sdkReady) return;
     if (cardRef.current) return;
     if (!SQUARE_APP_ID || !SQUARE_LOCATION_ID) {
@@ -267,7 +291,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         const paymentRequest = payments.paymentRequest({
           countryCode: "AU",
           currencyCode: "AUD",
-          total: { amount: "1.00", label: BRAND.name },
+          total: {
+            amount: (Number(displayTotal) / 100).toFixed(2),
+            label: BRAND.name,
+          },
         });
         applePayRequestRef.current = paymentRequest;
         const ap = await payments.applePay(paymentRequest);
@@ -302,7 +329,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal) / 100).toFixed(2),
+            amount: (Number(displayTotal) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -329,7 +356,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       googlePayRef.current = null;
       setGooglePayAvailable(false);
     };
-  }, [sdkReady, needsCard, cardReady, subtotal]);
+  }, [sdkReady, needsCard, cardReady, displayTotal]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -338,29 +365,26 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     setError(null);
     setPaymentError(null);
 
-    const expectFreeOrder = canRedeemFully && useReward;
-    if (!expectFreeOrder) {
-      if (payMethod === "apple") {
-        if (!applePayRef.current) {
-          setError("Apple Pay is not ready yet.");
-          return;
-        }
-      } else if (payMethod === "google") {
-        if (!googlePayRef.current) {
-          setError("Google Pay is not ready yet.");
-          return;
-        }
-      } else if (!cardRef.current) {
-        setError("Card form is not ready yet.");
+    if (payMethod === "apple") {
+      if (!applePayRef.current) {
+        setError("Apple Pay is not ready yet.");
         return;
       }
+    } else if (payMethod === "google") {
+      if (!googlePayRef.current) {
+        setError("Google Pay is not ready yet.");
+        return;
+      }
+    } else if (!cardRef.current) {
+      setError("Card form is not ready yet.");
+      return;
     }
 
     setSubmitting(true);
     try {
       // 0) Tokenize wallet IMMEDIATELY — must stay in the user-gesture frame.
       let sourceToken: string | undefined;
-      if (!expectFreeOrder && (payMethod === "apple" || payMethod === "google")) {
+      if (payMethod === "apple" || payMethod === "google") {
         const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
@@ -368,7 +392,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         if (payMethod === "apple" && applePayRequestRef.current?.update) {
           applePayRequestRef.current.update({
             total: {
-              amount: (Number(subtotal) / 100).toFixed(2),
+              amount: (Number(displayTotal) / 100).toFixed(2),
               label: BRAND.name,
             },
           });
@@ -593,15 +617,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <summary className="flex cursor-pointer items-center justify-between p-4 text-sm font-bold text-zinc-900">
                 <span>Order Summary ({lines.length} item{lines.length !== 1 ? "s" : ""})</span>
                 <span className="font-bold" style={{ color: BRAND.primaryColor }}>
-                  {canRedeem && useReward
-                    ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                    : formatPrice(
-                        welcomeDiscount.available
-                          ? (subtotal - welcomeDiscountAmount > 0n
-                              ? subtotal - welcomeDiscountAmount
-                              : 0n)
-                          : subtotal,
-                      )}
+                  {formatPrice(displayTotal)}
                 </span>
               </summary>
               <div className="border-t border-black/10 p-4">
@@ -640,11 +656,25 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
+                {surchargeAmount > 0n && (
+                  <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm text-zinc-600">
+                    <span>
+                      {CARD_SURCHARGE.name}{" "}
+                      <span className="text-xs text-zinc-400">
+                        ({CARD_SURCHARGE.percentage}%)
+                      </span>
+                    </span>
+                    <span className="font-semibold text-zinc-900">
+                      {formatPrice(surchargeAmount)}
+                    </span>
+                  </div>
+                )}
               </div>
             </details>
           </section>
 
-          {/* Free drink banner */}
+          {/* Free drink banner — reward covers the drinks; the 1.9%
+              card surcharge on the original subtotal still applies. */}
           {canRedeemFully && useReward && (
             <section
               className="rounded-2xl border-2 p-4 sm:p-5"
@@ -654,10 +684,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 className="text-center text-base font-bold sm:text-lg"
                 style={{ color: BRAND.primaryColor }}
               >
-                This drink is on us! 🎉
+                Free drink redeemed! 🎉
               </p>
               <p className="mt-1 text-center text-xs text-zinc-600 sm:text-sm">
-                Your {starsPerReward} stars will be redeemed — no payment needed.
+                Your {starsPerReward} stars cover the drinks. Only the{" "}
+                {CARD_SURCHARGE.percentage}% card surcharge remains.
               </p>
             </section>
           )}
@@ -695,8 +726,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </label>
           </section>
 
-          {/* Payment Method — hidden when the reward fully covers the order */}
-          {!(canRedeemFully && useReward) && (
+          {/* Payment Method — always visible; card surcharge means every
+              order needs a real card charge. */}
+          {true && (
             <>
               <section>
                 <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
@@ -840,6 +872,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
+            {surchargeAmount > 0n && (
+              <div className="flex justify-between text-sm text-zinc-600">
+                <span>
+                  {CARD_SURCHARGE.name}{" "}
+                  <span className="text-xs text-zinc-400">
+                    ({CARD_SURCHARGE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-zinc-900">
+                  {formatPrice(surchargeAmount)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm text-zinc-600">
               <span>Tax</span>
               <span className="font-semibold text-zinc-900">
@@ -849,15 +894,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             <div className="flex justify-between border-t border-black/10 pt-3 text-base">
               <span className="font-bold text-zinc-900">Total</span>
               <span className="text-lg font-bold text-zinc-900">
-                {canRedeem && useReward
-                  ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                  : formatPrice(
-                      welcomeDiscount.available
-                        ? (subtotal - welcomeDiscountAmount > 0n
-                            ? subtotal - welcomeDiscountAmount
-                            : 0n)
-                        : subtotal,
-                    )}
+                {formatPrice(displayTotal)}
               </span>
             </div>
           </div>
@@ -866,25 +903,22 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             type="submit"
             disabled={
               submitting ||
-              (!(canRedeemFully && useReward) &&
-                (payMethod === "card" ? !cardReady
-                  : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+              (payMethod === "card" ? !cardReady
+                : payMethod === "apple" ? !applePayAvailable
+                : !googlePayAvailable)
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {submitting
               ? "Processing…"
-              : canRedeemFully && useReward
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? "Pay with Apple Pay"
-                  : payMethod === "google"
-                    ? "Pay with Google Pay"
-                    : cardReady
-                      ? "Place Order"
-                      : "Loading payment…"}
+              : payMethod === "apple"
+                ? "Pay with Apple Pay"
+                : payMethod === "google"
+                  ? "Pay with Google Pay"
+                  : cardReady
+                    ? "Place Order"
+                    : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
@@ -901,15 +935,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           <div className="min-w-0">
             <p className="text-xs text-zinc-500">Total</p>
             <p className="text-lg font-bold text-zinc-900">
-              {canRedeem && useReward
-                ? formatPrice(subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-                : formatPrice(
-                    welcomeDiscount.available
-                      ? (subtotal - welcomeDiscountAmount > 0n
-                          ? subtotal - welcomeDiscountAmount
-                          : 0n)
-                      : subtotal,
-                  )}
+              {formatPrice(displayTotal)}
             </p>
             {welcomeDiscount.available && welcomeCoverage.coveredCount > 0 && (
               <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
@@ -919,16 +945,20 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 {formatPrice(welcomeDiscountAmount)}
               </p>
             )}
+            {surchargeAmount > 0n && (
+              <p className="text-[11px] text-zinc-500">
+                Incl. {CARD_SURCHARGE.name} {formatPrice(surchargeAmount)}
+              </p>
+            )}
           </div>
           <button
             type="submit"
             form="checkout-form"
             disabled={
               submitting ||
-              (!(canRedeemFully && useReward) &&
-                (payMethod === "card" ? !cardReady
-                  : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+              (payMethod === "card" ? !cardReady
+                : payMethod === "apple" ? !applePayAvailable
+                : !googlePayAvailable)
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               payMethod === "apple"
@@ -945,15 +975,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           >
             {submitting
               ? "Processing…"
-              : canRedeemFully && useReward
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-                  : payMethod === "google"
-                    ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-                    : cardReady
-                      ? <><CardIcon /> Place Order</>
-                      : "Loading…"}
+              : payMethod === "apple"
+                ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                : payMethod === "google"
+                  ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                  : cardReady
+                    ? <><CardIcon /> Place Order</>
+                    : "Loading…"}
           </button>
         </div>
       </div>
