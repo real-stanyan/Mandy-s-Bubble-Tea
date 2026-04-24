@@ -58,7 +58,10 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const RIGHT_PAD = 15;
   const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
   const TOP = 6;
-  const BOTTOM = 4;
+  // Keep a generous bottom margin: the Zebra's usable print window
+  // ends several mm above the label's physical edge, so a footer
+  // anchored tight to LL gets clipped. 40 dots ≈ 5 mm of headroom.
+  const BOTTOM = 40;
   const ROW_GAP = 2;
 
   // Font heights in dots (font 0, scalable).
@@ -79,6 +82,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
   parts.push("^XA");
   parts.push(`^PW${PW}`);
   parts.push(`^LL${LL}`);
+  parts.push("^PR6");          // print speed: 6 ips (ZD411 max)
   parts.push("^CI28");         // UTF-8
 
   // Row 1: sticker number (left, big) + time (right, smaller, vertically centered-ish)
