@@ -32,7 +32,10 @@ export type ModifierList = {
   /**
    * Normalized selection bounds.
    *   - minSelected: 0 means optional, >0 means required
-   *   - maxSelected: null means unlimited
+   *   - maxSelected: total count cap (sum across modifiers); null = unlimited
+   *   - maxDistinct: distinct modifier cap (how many DIFFERENT options);
+   *     null = unlimited. Lets a list allow e.g. 3 kinds of toppings but
+   *     each kind can be added multiple times.
    *
    * These are the modifier list's OWN defaults. Per-item overrides are
    * applied later in getItemDetail() to produce the effective bounds
@@ -40,6 +43,7 @@ export type ModifierList = {
    */
   minSelected: number;
   maxSelected: number | null;
+  maxDistinct: number | null;
   modifiers: ModifierOption[];
 };
 
@@ -197,6 +201,7 @@ function buildModifierList(
     name: data.name ?? "(unnamed)",
     minSelected: normalizeListMin(data.minSelectedModifiers, data.selectionType),
     maxSelected: normalizeListMax(data.maxSelectedModifiers, data.selectionType),
+    maxDistinct: null,
     modifiers,
   };
 }
@@ -472,10 +477,14 @@ export function getItemDetail(
 
     let minSelected = resolveMin(ref.minOverride, base.minSelected);
     let maxSelected = resolveMax(ref.maxOverride, base.maxSelected);
+    let maxDistinct = base.maxDistinct;
 
-    // TOPPING list: allow up to 10 selections
+    // TOPPING list: up to 3 different toppings; each can be added multiple
+    // times (stepper). Total count is unbounded at the list level — the
+    // per-kind stepper is naturally bounded by the distinct cap × repeat.
     if (base.name.toUpperCase() === "TOPPING") {
-      maxSelected = 10;
+      maxSelected = null;
+      maxDistinct = 3;
       minSelected = 0;
     }
 
@@ -484,6 +493,7 @@ export function getItemDetail(
       modifiers,
       minSelected,
       maxSelected,
+      maxDistinct,
     });
   }
 

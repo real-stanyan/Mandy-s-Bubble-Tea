@@ -39,6 +39,14 @@ function totalInList(counts: CountMap, listId: string): number {
   return sum;
 }
 
+function distinctInList(counts: CountMap, listId: string): number {
+  const map = counts[listId];
+  if (!map) return 0;
+  let n = 0;
+  for (const v of Object.values(map)) if (v > 0) n += 1;
+  return n;
+}
+
 function countOf(counts: CountMap, listId: string, modId: string): number {
   return counts[listId]?.[modId] ?? 0;
 }
@@ -64,6 +72,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     const errors: Record<string, string> = {};
     for (const ml of modifierLists) {
       const picked = totalInList(selectedByList, ml.id);
+      const distinct = distinctInList(selectedByList, ml.id);
       if (picked < ml.minSelected) {
         errors[ml.id] =
           ml.minSelected === 1
@@ -71,6 +80,8 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
             : `Please pick at least ${ml.minSelected}`;
       } else if (ml.maxSelected != null && picked > ml.maxSelected) {
         errors[ml.id] = `Pick no more than ${ml.maxSelected}`;
+      } else if (ml.maxDistinct != null && distinct > ml.maxDistinct) {
+        errors[ml.id] = `Pick no more than ${ml.maxDistinct} different options`;
       }
     }
     return errors;
@@ -136,6 +147,15 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
       if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
         return false;
       if (current >= 1) return false;
+    }
+    // Distinct-kind cap: adding a brand new option would exceed the
+    // "different kinds" limit. Bumping an already-picked option is fine.
+    if (
+      list.maxDistinct != null &&
+      current === 0 &&
+      distinctInList(selectedByList, list.id) >= list.maxDistinct
+    ) {
+      return false;
     }
     // Bound by list-total maxSelected if set
     if (list.maxSelected != null) {
@@ -485,10 +505,13 @@ function priceLabel(mod: ModifierOption): string {
 }
 
 function describeSelection(ml: ModifierList, multi: boolean): string {
-  const { minSelected, maxSelected } = ml;
+  const { minSelected, maxSelected, maxDistinct } = ml;
   if (minSelected === 0 && maxSelected === 1) return "Pick one (optional)";
   if (minSelected === 1 && maxSelected === 1) return "Pick one";
   if (multi) {
+    if (maxDistinct != null) {
+      return `Up to ${maxDistinct} kinds · tap + for more of each`;
+    }
     if (maxSelected == null && minSelected === 0) return "Tap to add · tap + for more";
     if (maxSelected == null && minSelected > 0)
       return `At least ${minSelected} · tap + for more`;
