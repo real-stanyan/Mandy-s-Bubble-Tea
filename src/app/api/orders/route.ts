@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { BUSINESS, CARD_SURCHARGE } from "@/lib/constants";
+import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE } from "@/lib/constants";
+import { getActivePublicHoliday } from "@/lib/holiday";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
@@ -257,6 +258,43 @@ export async function POST(request: Request) {
     // applied by calling CreateLoyaltyReward with this orderId
     // AFTER the order exists. The checkout flow does that step
     // right after this route returns.
+
+    // Public-holiday surcharge is detected server-side (never trust client).
+    // Ordered BEFORE card-surcharge so receipts list PH first.
+    // Card surcharge is skipped when a loyalty reward fully covers the order
+    // (no card charged → nothing to pass through). The PH surcharge follows
+    // the same rule: a fully-redeemed free drink skips both.
+    const activePH = getActivePublicHoliday(new Date());
+    const skipSurcharges = body.applyLoyaltyReward === true;
+
+    const orderServiceCharges: Array<{
+      uid: string;
+      name: string;
+      percentage: string;
+      calculationPhase: "SUBTOTAL_PHASE";
+      taxable: boolean;
+    }> = [];
+
+    if (!skipSurcharges && activePH) {
+      orderServiceCharges.push({
+        uid: "public-holiday-surcharge",
+        name: `${PH_SURCHARGE.name} (${activePH.name})`,
+        percentage: PH_SURCHARGE.percentage,
+        calculationPhase: "SUBTOTAL_PHASE",
+        taxable: false,
+      });
+    }
+
+    if (!skipSurcharges) {
+      orderServiceCharges.push({
+        uid: "card-surcharge",
+        name: CARD_SURCHARGE.name,
+        percentage: CARD_SURCHARGE.percentage,
+        calculationPhase: "SUBTOTAL_PHASE",
+        taxable: false,
+      });
+    }
+
     const response = await squareClient.orders.create({
       idempotencyKey: randomUUID(),
       order: {
@@ -266,25 +304,12 @@ export async function POST(request: Request) {
         ticketName: pickupNumber,
         lineItems,
         discounts: welcomeDiscounts,
-        // Passes Square card-processing fees through to the customer.
-        // SUBTOTAL_PHASE → computed on the pre-discount subtotal so the
-        // surcharge doesn't shrink when a welcome discount is applied.
-        // taxable:false → menu items are already GST-inclusive; the
-        // surcharge is a pass-through fee listed separately.
-        //
-        // Skipped when a loyalty reward will fully cover the order — no
-        // card is charged, so there's no processing fee to pass through.
-        serviceCharges: body.applyLoyaltyReward
-          ? undefined
-          : [
-              {
-                uid: "card-surcharge",
-                name: CARD_SURCHARGE.name,
-                percentage: CARD_SURCHARGE.percentage,
-                calculationPhase: "SUBTOTAL_PHASE",
-                taxable: false,
-              },
-            ],
+        // Passes Square card-processing fees (and PH surcharge) through
+        // to the customer. SUBTOTAL_PHASE → computed on the pre-discount
+        // subtotal so surcharges don't shrink when a welcome discount is
+        // applied. taxable:false → menu items are already GST-inclusive;
+        // these are pass-through fees listed separately.
+        serviceCharges: orderServiceCharges.length > 0 ? orderServiceCharges : undefined,
         fulfillments: [
           {
             type: "PICKUP",
