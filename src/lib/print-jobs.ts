@@ -109,10 +109,11 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
 
 function cupFromLineItem(line: OrderLineItem): CupRow {
   // Aggregate same-name toppings into a count. A customer who taps +3
-  // Pearl sends 3 separate modifier entries to Square; we collapse them
-  // to "Pearl x3" so the sticker reads `Pearl x3+Pudding` instead of
-  // `Pearl+Pearl+Pearl+Pudding` (saves room under MAX_MOD_CHARS and is
-  // faster for staff to read).
+  // Pearl sends either 3 separate modifier entries OR a single entry
+  // with quantity="3"; we collapse both shapes to "Pearls(3)" so the
+  // sticker reads `Pearls(3)+Pudding` instead of
+  // `Pearls+Pearls+Pearls+Pudding` (saves room under MAX_MOD_CHARS and
+  // matches the receipt convention staff already reads).
   const toppingCounts = new Map<string, number>();
   let ice: string | null = null;
   let sugar: string | null = null;
@@ -148,11 +149,9 @@ function cupFromLineItem(line: OrderLineItem): CupRow {
   const toppings: string[] = [];
   if (milk) toppings.push(milk);
   for (const [name, count] of toppingCounts) {
-    // Format: `Pearl x3` when count > 1. Lowercase `x` keeps the count
-    // tight on the ZD411's condensed font and is ASCII-safe across
-    // fonts. Space before `x` keeps name legibility when joined with
-    // `+` separators: `Pearl x3+Oreo x2`.
-    toppings.push(count > 1 ? `${name} x${count}` : name);
+    // Format: `Pearls(2)` when count > 1. Parenthesised count is what
+    // the tea-making staff expects from the receipt convention.
+    toppings.push(count > 1 ? `${name}(${count})` : name);
   }
 
   // Unit price = base variation price + sum of modifier upcharges.
