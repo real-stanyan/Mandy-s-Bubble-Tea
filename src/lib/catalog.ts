@@ -473,9 +473,9 @@ export function getItemDetail(
     let minSelected = resolveMin(ref.minOverride, base.minSelected);
     let maxSelected = resolveMax(ref.maxOverride, base.maxSelected);
 
-    // TOPPING list: allow up to 3 selections
+    // TOPPING list: allow up to 10 selections
     if (base.name.toUpperCase() === "TOPPING") {
-      maxSelected = 3;
+      maxSelected = 10;
       minSelected = 0;
     }
 
