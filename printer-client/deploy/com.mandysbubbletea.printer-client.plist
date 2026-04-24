@@ -23,12 +23,12 @@
     -->
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
-        <string>/Users/REPLACE_ME/Github/mandys_bubble_tea/printer-client/dist/index.js</string>
+        <string>REPLACE_NODE</string>
+        <string>REPLACE_REPO/printer-client/dist/index.js</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/REPLACE_ME/Github/mandys_bubble_tea/printer-client</string>
+    <string>REPLACE_REPO/printer-client</string>
 
     <!--
       Auto-restart on crash. ThrottleInterval avoids a crash loop
@@ -44,9 +44,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/REPLACE_ME/Library/Logs/mandy-printer-client.out.log</string>
+    <string>REPLACE_HOME/Library/Logs/mandy-printer-client.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/REPLACE_ME/Library/Logs/mandy-printer-client.err.log</string>
+    <string>REPLACE_HOME/Library/Logs/mandy-printer-client.err.log</string>
 
     <!--
       Environment. Either set these here, or point to your .env.local
