@@ -27,7 +27,9 @@ export const config = {
   lpTimeoutMs: Number(process.env.LP_TIMEOUT_MS ?? "15000"),
   // Jobs older than this on startup are marked 'stale' instead of
   // replayed. Wider window = fewer dropped jobs after a long outage.
-  staleWindowMs: Number(process.env.STALE_WINDOW_MS ?? String(30 * 60 * 1000)),
+  // 2h covers a lunch-service-length power or network outage so we
+  // don't silently drop stickers for orders the POS already accepted.
+  staleWindowMs: Number(process.env.STALE_WINDOW_MS ?? String(2 * 60 * 60 * 1000)),
   // Fallback poll cadence. The primary delivery channel is Supabase
   // Realtime; this poll covers the gap if the socket silently drops.
   pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "60000"),
