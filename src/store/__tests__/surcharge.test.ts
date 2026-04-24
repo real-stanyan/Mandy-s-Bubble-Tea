@@ -12,6 +12,11 @@ describe("publicHolidaySurcharge", () => {
     // 10% of $1.23 = 0.123 → 12 cents (BigInt integer division truncates)
     expect(publicHolidaySurcharge(123n)).toBe(12n);
   });
+
+  it("clamps negative inputs to 0 (mirrors cardSurcharge)", () => {
+    expect(publicHolidaySurcharge(-1n)).toBe(0n);
+    expect(publicHolidaySurcharge(-1000n)).toBe(0n);
+  });
 });
 
 describe("cardSurcharge sanity (baseline)", () => {

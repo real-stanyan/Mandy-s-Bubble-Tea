@@ -168,8 +168,12 @@ export function cardSurcharge(subtotalCents: bigint): bigint {
   return (subtotalCents * CARD_SURCHARGE_BPS) / 10000n;
 }
 
-// Public holiday surcharge (10%) in cents. Mirrors cardSurcharge but uses the
-// PH BPS. Only charged when server detects an active QLD public holiday.
+// Mirrors Square's SUBTOTAL_PHASE percentage service charge: 10% of the
+// pre-discount subtotal, truncated to whole cents. Only attached server-side
+// when /api/orders detects an active QLD public holiday. Square's totalMoney
+// remains the authoritative charged amount — this helper is for pre-order
+// UI display and Apple/Google Pay sheet pre-compute only.
 export function publicHolidaySurcharge(baseCents: bigint): bigint {
+  if (baseCents <= 0n) return 0n;
   return (baseCents * PH_SURCHARGE_BPS) / 10000n;
 }
