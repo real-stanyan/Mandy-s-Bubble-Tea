@@ -276,6 +276,7 @@ export async function POST(request: Request) {
     }> = [];
 
     if (!skipSurcharges && activePH) {
+      console.log(`[orders] PH surcharge attached: ${activePH.name}`);
       orderServiceCharges.push({
         uid: "public-holiday-surcharge",
         name: `${PH_SURCHARGE.name} (${activePH.name})`,
