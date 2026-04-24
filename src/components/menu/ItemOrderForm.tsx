@@ -20,15 +20,15 @@ type CountMap = Record<string, Record<string, number>>;
 
 const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
 
-function isExclusiveList(list: ModifierList): boolean {
-  return list.modifiers.some((m) => EXCLUSIVE_TOPPINGS.includes(m.name));
+function isExclusiveModifier(mod: ModifierOption): boolean {
+  return EXCLUSIVE_TOPPINGS.includes(mod.name);
 }
 
 function supportsMultiCount(list: ModifierList): boolean {
-  // Single-select lists and lists with exclusive pairs stay 0-or-1 per modifier.
-  if (list.maxSelected === 1) return false;
-  if (isExclusiveList(list)) return false;
-  return true;
+  // Single-select lists stay 0-or-1 per modifier. Exclusivity on
+  // individual modifiers (Cheese Cream / Brulee) is enforced per-modifier
+  // by isExclusiveModifier — it does not disqualify the whole list.
+  return list.maxSelected !== 1;
 }
 
 function totalInList(counts: CountMap, listId: string): number {
@@ -114,9 +114,9 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     modifierId: string,
   ): string | null {
     const mod = list.modifiers.find((m) => m.id === modifierId);
-    if (!mod || !EXCLUSIVE_TOPPINGS.includes(mod.name)) return null;
+    if (!mod || !isExclusiveModifier(mod)) return null;
     const partner = list.modifiers.find(
-      (m) => m.id !== modifierId && EXCLUSIVE_TOPPINGS.includes(m.name),
+      (m) => m.id !== modifierId && isExclusiveModifier(m),
     );
     return partner?.id ?? null;
   }
@@ -125,18 +125,19 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     const mod = list.modifiers.find((m) => m.id === modifierId);
     if (!mod || mod.soldOut) return false;
     const current = countOf(selectedByList, list.id, modifierId);
-    // Exclusive: only 0 or 1
-    if (isExclusiveList(list)) {
-      const partnerId = getExclusivePartner(list, modifierId);
-      if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
-        return false;
-      return current < 1;
-    }
     // Single-select list (maxSelected=1 overall)
     if (list.maxSelected === 1) {
       return current < 1;
     }
-    // Multi-count: bound by list-total maxSelected if set
+    // Exclusive modifier (Cheese Cream / Brulee): only 0 or 1, and
+    // mutually exclusive with its partner.
+    if (isExclusiveModifier(mod)) {
+      const partnerId = getExclusivePartner(list, modifierId);
+      if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
+        return false;
+      if (current >= 1) return false;
+    }
+    // Bound by list-total maxSelected if set
     if (list.maxSelected != null) {
       return totalInList(selectedByList, list.id) < list.maxSelected;
     }
@@ -261,7 +262,8 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
             <div className="flex flex-wrap gap-2">
               {ml.modifiers.map((mod) => {
                 const count = countOf(selectedByList, ml.id, mod.id);
-                if (multi && count > 0) {
+                const modCanMulti = multi && !isExclusiveModifier(mod);
+                if (modCanMulti && count > 0) {
                   return (
                     <ModifierStepper
                       key={mod.id}
@@ -283,7 +285,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                     key={mod.id}
                     type="button"
                     onClick={() => {
-                      if (selected && !multi) {
+                      if (selected && !modCanMulti) {
                         decrementModifier(ml, mod.id);
                       } else if (!selected) {
                         incrementModifier(ml, mod.id);
