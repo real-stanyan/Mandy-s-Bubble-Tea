@@ -127,7 +127,12 @@ function cupFromLineItem(line: OrderLineItem): CupRow {
     const name = m.name ?? "";
     const bucket = matchModifierByName(name);
     if (bucket === "topping") {
-      toppingCounts.set(name, (toppingCounts.get(name) ?? 0) + 1);
+      // Square can either emit N separate modifier entries for "add N of X"
+      // OR a single entry with quantity=N (observed in the wild). Respect
+      // whichever representation the Orders API sent us so the topping
+      // count on the sticker matches the receipt.
+      const qty = Math.max(1, parseInt(m.quantity ?? "1", 10) || 1);
+      toppingCounts.set(name, (toppingCounts.get(name) ?? 0) + qty);
     } else if (bucket === "ice") {
       ice = name;
     } else if (bucket === "sugar") {
