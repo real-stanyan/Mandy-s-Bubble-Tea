@@ -5,6 +5,7 @@ import "./globals.css";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
+import { PublicHolidayBanner } from "@/components/layout/PublicHolidayBanner";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const GA_ID = "G-KXVRP14YZF";
@@ -90,6 +91,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">
         <AuthProvider>
+          <PublicHolidayBanner />
           <SiteHeaderGate />
           {children}
           <SiteFooterGate />
