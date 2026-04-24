@@ -168,7 +168,14 @@ function CartBody({
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
   // PH surcharge — checked client-side only for display; server is authoritative.
-  const phActive = useMemo(() => isPublicHolidayActive(), []);
+  // Re-check every 60s so a user sitting in the drawer across the Christmas
+  // Eve 18:00 cutoff (or any midnight boundary) sees the correct total before
+  // submitting. 60s matches the RN app banner cadence.
+  const [phActive, setPhActive] = useState(() => isPublicHolidayActive());
+  useEffect(() => {
+    const id = setInterval(() => setPhActive(isPublicHolidayActive()), 60_000);
+    return () => clearInterval(id);
+  }, []);
   const phSurchargeAmount = useMemo(
     () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
     [phActive, subtotal],
@@ -832,7 +839,9 @@ function CartFooter({
               {PH_SURCHARGE.name}{" "}
               <span className="text-xs text-zinc-400">({PH_SURCHARGE.percentage}%)</span>
             </span>
-            <span>+{formatPrice(effectivePhSurcharge)}</span>
+            <span className="font-semibold text-zinc-900">
+              {formatPrice(effectivePhSurcharge)}
+            </span>
           </div>
         )}
         {effectiveSurcharge > 0n && (
