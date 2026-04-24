@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { CARD_SURCHARGE_BPS } from "@/lib/constants";
+import { CARD_SURCHARGE_BPS, PH_SURCHARGE_BPS } from "@/lib/constants";
 
 // Cart state lives client-side only and is persisted to localStorage.
 // Prices are stored as BigInt cents to match the rest of the codebase;
@@ -166,4 +166,10 @@ export function cartItemCount(lines: CartLine[]): number {
 export function cardSurcharge(subtotalCents: bigint): bigint {
   if (subtotalCents <= 0n) return 0n;
   return (subtotalCents * CARD_SURCHARGE_BPS) / 10000n;
+}
+
+// Public holiday surcharge (10%) in cents. Mirrors cardSurcharge but uses the
+// PH BPS. Only charged when server detects an active QLD public holiday.
+export function publicHolidaySurcharge(baseCents: bigint): bigint {
+  return (baseCents * PH_SURCHARGE_BPS) / 10000n;
 }
