@@ -156,6 +156,7 @@ export default async function Home() {
       <Hero imageUrl={heroImageUrl} review={review} />
       <FeaturedProducts items={featuredItems} />
       <OurStory />
+      <AppPromo />
       <LoyaltyPopup />
     </div>
   );
@@ -333,6 +334,115 @@ function FeaturedProducts({ items }: { items: FeaturedItem[] }) {
         )}
       </div>
     </section>
+  );
+}
+
+function AppPromo() {
+  return (
+    <section className="px-4 py-10 sm:px-6 sm:py-16">
+      <div className="mx-auto max-w-7xl">
+        <div
+          className="relative overflow-hidden rounded-3xl"
+          style={{ backgroundColor: "#2E1D12" }}
+        >
+          <div className="grid items-center gap-10 px-6 py-14 sm:px-12 sm:py-16 md:grid-cols-2 md:px-16 md:py-20 lg:px-20">
+            {/* Left — copy */}
+            <div className="flex flex-col items-start gap-5">
+              <span
+                className="text-[11px] font-medium uppercase tracking-[0.22em]"
+                style={{ color: "#F5C9A3" }}
+              >
+                Mandy&apos;s App
+              </span>
+              <h2 className="font-serif text-4xl leading-[1.05] tracking-tight text-white sm:text-5xl md:text-6xl lg:text-[80px] lg:leading-[0.95]">
+                Skip the line.
+                <br />
+                <span className="italic" style={{ color: "#F5C9A3" }}>
+                  Sip sooner.
+                </span>
+              </h2>
+              <p className="max-w-md text-sm leading-relaxed text-white/70 sm:text-base lg:text-lg">
+                Order ahead, track your drink from brew to ready, and earn
+                stars automatically. Same app we use behind the counter.
+              </p>
+
+              <div className="mt-2 flex flex-wrap gap-3">
+                <a
+                  href="https://apps.apple.com/au/app/mandys-bubble-tea/id6762111842"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-3 rounded-2xl px-5 py-3 transition hover:opacity-90"
+                  style={{ backgroundColor: "#F5E6C8" }}
+                  aria-label="Download Mandy's Bubble Tea on the App Store"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-7 w-7 shrink-0"
+                    fill="#1a1a1a"
+                    aria-hidden
+                  >
+                    <path d="M17.564 12.69c-.02-2.28 1.86-3.37 1.94-3.42-1.06-1.55-2.71-1.76-3.3-1.78-1.39-.14-2.73.82-3.44.82-.72 0-1.81-.81-2.97-.79-1.52.02-2.94.89-3.72 2.25-1.6 2.77-.41 6.85 1.13 9.1.77 1.1 1.68 2.34 2.87 2.29 1.16-.05 1.59-.74 2.99-.74s1.79.74 3.01.72c1.25-.02 2.03-1.11 2.78-2.22.88-1.27 1.24-2.51 1.25-2.58-.03-.01-2.39-.92-2.41-3.64zM15.21 5.9c.64-.78 1.07-1.86.95-2.93-.92.04-2.04.61-2.7 1.38-.59.69-1.11 1.79-.97 2.85 1.03.08 2.08-.52 2.72-1.3z" />
+                  </svg>
+                  <span className="leading-tight text-left">
+                    <span
+                      className="block text-[10px] font-medium"
+                      style={{ color: "#6B4A2B" }}
+                    >
+                      Download on
+                    </span>
+                    <span className="block text-[15px] font-bold text-[#1a1a1a]">
+                      App Store
+                    </span>
+                  </span>
+                </a>
+              </div>
+            </div>
+
+            {/* Right — phone mockup */}
+            <div className="relative hidden md:flex md:items-center md:justify-end">
+              <PhoneMockup />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PhoneMockup() {
+  return (
+    <div
+      className="relative aspect-[9/18] w-[280px] rounded-[36px] p-[6px] shadow-2xl lg:w-[320px] xl:w-[360px]"
+      style={{
+        backgroundColor: "#3D2818",
+        transform: "rotate(6deg)",
+      }}
+    >
+      <div
+        className="flex h-full w-full flex-col gap-4 rounded-[30px] p-5"
+        style={{ backgroundColor: "#F5E6C8" }}
+      >
+        <p className="font-serif text-2xl text-[#3D2818]">Mandy</p>
+
+        <div
+          className="flex flex-col gap-1 rounded-2xl p-4"
+          style={{ backgroundColor: "#8D5524", color: "#FFF3DE" }}
+        >
+          <span className="text-[9px] font-semibold uppercase tracking-[0.25em]">
+            Rewards
+          </span>
+          <span className="font-serif text-2xl leading-tight">
+            6 <span className="text-base opacity-80">/ 9 stars</span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="aspect-square rounded-xl" style={{ backgroundColor: "#F5C9A3" }} />
+          <div className="aspect-square rounded-xl" style={{ backgroundColor: "#B9C4A0" }} />
+          <div className="aspect-square rounded-xl" style={{ backgroundColor: "#8D5524" }} />
+        </div>
+      </div>
+    </div>
   );
 }
 
