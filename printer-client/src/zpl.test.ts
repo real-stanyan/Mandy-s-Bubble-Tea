@@ -26,7 +26,7 @@ describe("renderStickerZPL", () => {
     expect(z).toContain("OL812");
     expect(z).toContain("21:35");
     expect(z).toContain("Brown Sugar Milk Tea");
-    expect(z).toContain("Pearls -> Less Ice -> Half Sugar");
+    expect(z).toContain("Pearls -> L.Ice -> 50%S");
     expect(z).toContain("1/2");
     expect(z).toContain("$7.00");
   });
@@ -36,14 +36,66 @@ describe("renderStickerZPL", () => {
     expect(z).toContain("Pearls+Grass Jelly");
   });
 
-  it("renders missing ice/sugar as empty between the '->' separators", () => {
+  it("omits missing ice/sugar rather than printing empty separators", () => {
     const z = renderStickerZPL({ ...base, ice: null, sugar: null });
-    expect(z).toContain("Pearls ->  ->");
+    expect(z).toContain("Pearls");
+    expect(z).not.toContain("->  ->");
+    expect(z).not.toContain("Pearls ->");
   });
 
-  it("handles no toppings + present ice/sugar", () => {
-    const z = renderStickerZPL({ ...base, toppings: [], ice: "Normal Ice", sugar: "Normal Sugar" });
-    expect(z).toContain("-> Normal Ice -> Normal Sugar");
+  it("omits default Normal Ice / Standard Sugar / Standard(Recommended) from the sticker", () => {
+    const z = renderStickerZPL({ ...base, toppings: [], ice: "Normal Ice", sugar: "Standard Sugar" });
+    expect(z).not.toContain("Normal Ice");
+    expect(z).not.toContain("Standard Sugar");
+  });
+
+  it("keeps non-default sugar when ice is Normal (long modifier list)", () => {
+    const z = renderStickerZPL({
+      ...base,
+      toppings: ["Strawberry Popping", "Aloe Vera", "Oreo"],
+      ice: "Normal Ice",
+      sugar: "Half Sugar",
+    });
+    expect(z).toContain("Strawberry Popping+Aloe Vera+Oreo -> 50%S");
+    expect(z).not.toContain("Normal Ice");
+    expect(z).not.toContain("…");
+  });
+
+  it("maps known ice levels to compact shorthand", () => {
+    expect(renderStickerZPL({ ...base, ice: "Less Ice", sugar: "Standard Sugar" })).toContain("L.Ice");
+    expect(renderStickerZPL({ ...base, ice: "Extra Ice", sugar: "Standard Sugar" })).toContain("E.Ice");
+    expect(renderStickerZPL({ ...base, ice: "No Ice", sugar: "Standard Sugar" })).toContain("N.Ice");
+    expect(renderStickerZPL({ ...base, ice: "Warm", sugar: "Standard Sugar" })).toContain("Warm");
+  });
+
+  it("maps known sugar levels to percentage shorthand", () => {
+    expect(renderStickerZPL({ ...base, ice: "Normal Ice", sugar: "Less Sugar (75%)" })).toContain("75%S");
+    expect(renderStickerZPL({ ...base, ice: "Normal Ice", sugar: "Half Sugar" })).toContain("50%S");
+    expect(renderStickerZPL({ ...base, ice: "Normal Ice", sugar: "Little Sugar (25%)" })).toContain("25%S");
+    expect(renderStickerZPL({ ...base, ice: "Normal Ice", sugar: "No Sugar" })).toContain("0%S");
+    expect(renderStickerZPL({ ...base, ice: "Normal Ice", sugar: "Extra Sugar" })).toContain("+S");
+  });
+
+  it("fits 3 max-count toppings + non-default ice + non-default sugar without truncation", () => {
+    const z = renderStickerZPL({
+      ...base,
+      toppings: ["Pearl x10", "Oreo x10", "Pudding x10"],
+      ice: "Less Ice",
+      sugar: "Half Sugar",
+    });
+    expect(z).toContain("Pearl x10+Oreo x10+Pudding x10 -> L.Ice -> 50%S");
+    expect(z).not.toContain("…");
+  });
+
+  it("fits milk alternative + toppings + non-default ice/sugar", () => {
+    const z = renderStickerZPL({
+      ...base,
+      toppings: ["Oat Milk", "Pearls", "Pudding x2"],
+      ice: "Less Ice",
+      sugar: "Half Sugar",
+    });
+    expect(z).toContain("Oat Milk+Pearls+Pudding x2 -> L.Ice -> 50%S");
+    expect(z).not.toContain("…");
   });
 
   it("escapes ZPL metacharacters in drink name", () => {

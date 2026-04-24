@@ -33,20 +33,75 @@ export type CupForZPL = {
 // an ellipsis so staff can tell the label was truncated rather than
 // having ZPL silently drop characters.
 const MAX_DRINK_CHARS = 44;
-const MAX_MOD_CHARS = 52;
+// Modifier row wraps up to 4 lines on our 290-dot usable width at font
+// 0 size 20. At proportional avg ~10 dots/char that's ~25-29 chars per
+// line. Cap at 104 to guarantee the ^FB block never holds characters
+// that exceed line 4 (otherwise ZPL hard-clips on the last line and
+// the overflow glyphs overprint wrapped text -> visible garbage).
+// 104 covers the worst real case: 3 x max-count toppings with the longest
+// topping names + non-default ice + non-default sugar.
+const MAX_MOD_CHARS = 104;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+// Default modifier levels (ICE / SUGAR / ALTERNATIVE MILK lists) that
+// should NOT print on the sticker. Staff assumes default unless the
+// label says otherwise. Matches "Normal Ice", "Standard Sugar", and
+// "Standard(Recommended)" milk.
+function isDefaultLevel(v: string | null | undefined): boolean {
+  if (!v) return false;
+  return /^\s*(normal|standard)\b/i.test(v);
+}
+
+// Closed-set abbreviation tables keyed on lowercased Square modifier
+// name. Unknown values return the input trimmed (fail-safe: prints the
+// full name rather than a potentially-wrong abbreviation).
+const ICE_ABBREVS: Record<string, string> = {
+  "less ice": "L.Ice",
+  "extra ice": "E.Ice",
+  "no ice": "N.Ice",
+  "warm": "Warm",
+};
+
+// Sugar uses percentage form since Square uses parenthesised percentages
+// ("Less Sugar (75%)" / "Little Sugar (25%)") that would otherwise
+// collide with a letter-first abbreviation ("L.Sugar" could be either).
+const SUGAR_ABBREVS: Record<string, string> = {
+  "less sugar (75%)": "75%S",
+  "less sugar 75%": "75%S",
+  "half sugar": "50%S",
+  "little sugar (25%)": "25%S",
+  "little sugar 25%": "25%S",
+  "no sugar": "0%S",
+  "extra sugar": "+S",
+};
+
+function abbreviateIce(v: string | null | undefined): string {
+  if (!v) return "";
+  const key = v.trim().toLowerCase().replace(/\s+/g, " ");
+  return ICE_ABBREVS[key] ?? v.trim();
+}
+
+function abbreviateSugar(v: string | null | undefined): string {
+  if (!v) return "";
+  const key = v.trim().toLowerCase().replace(/\s+/g, " ");
+  return SUGAR_ABBREVS[key] ?? v.trim();
 }
 
 export function renderStickerZPL(cup: CupForZPL): string {
   const dollars = (cup.priceCents / 100).toFixed(2);
   const cupFrac = `${cup.cupIndex}/${cup.cupTotal}`;
   const toppings = cup.toppings.length > 0 ? cup.toppings.join("+") : "";
-  const ice = cup.ice ?? "";
-  const sugar = cup.sugar ?? "";
+  // Defaults ("Normal Ice", "Standard Sugar") are omitted — staff assumes
+  // default unless stated otherwise. Non-default values get compact
+  // shorthand from a closed-set table so the modifier row stays under
+  // MAX_MOD_CHARS for realistic orders.
+  const ice = isDefaultLevel(cup.ice) ? "" : abbreviateIce(cup.ice);
+  const sugar = isDefaultLevel(cup.sugar) ? "" : abbreviateSugar(cup.sugar);
   const modifierLine = truncate(
-    `${toppings} -> ${ice} -> ${sugar}`.trim(),
+    [toppings, ice, sugar].filter((s) => s.length > 0).join(" -> "),
     MAX_MOD_CHARS,
   );
   const drinkName = truncate(cup.drinkName, MAX_DRINK_CHARS);
@@ -100,10 +155,13 @@ export function renderStickerZPL(cup: CupForZPL): string {
   );
   y += H_DRINK * 2 + ROW_GAP;
 
-  // Row 3: modifiers, wrap up to 2 lines (but never bleed into the
-  // footer strip — if the modifier row would overlap the price, drop
-  // it to a single line rather than losing the price).
-  const modLines = y + H_MOD * 2 > BODY_MAX_Y ? 1 : 2;
+  // Row 3: modifiers, wrap up to 4 lines (but never bleed into the
+  // footer strip — step down to 3/2/1 lines if the geometry can't hold
+  // 4 rather than losing the price).
+  const modLines =
+    y + H_MOD * 4 <= BODY_MAX_Y ? 4 :
+    y + H_MOD * 3 <= BODY_MAX_Y ? 3 :
+    y + H_MOD * 2 <= BODY_MAX_Y ? 2 : 1;
   parts.push(
     `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},${modLines},2,L,0^FD${escapeZpl(modifierLine)}^FS`,
   );

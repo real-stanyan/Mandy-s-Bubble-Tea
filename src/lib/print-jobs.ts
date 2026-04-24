@@ -108,9 +108,15 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
 }
 
 function cupFromLineItem(line: OrderLineItem): CupRow {
-  const toppings: string[] = [];
+  // Aggregate same-name toppings into a count. A customer who taps +3
+  // Pearl sends 3 separate modifier entries to Square; we collapse them
+  // to "Pearl x3" so the sticker reads `Pearl x3+Pudding` instead of
+  // `Pearl+Pearl+Pearl+Pudding` (saves room under MAX_MOD_CHARS and is
+  // faster for staff to read).
+  const toppingCounts = new Map<string, number>();
   let ice: string | null = null;
   let sugar: string | null = null;
+  let milk: string | null = null;
 
   // Square does NOT include the modifier list id on the line-item
   // modifier payload, so we classify by name. MODIFIER_LIST_BUCKETS +
@@ -118,8 +124,30 @@ function cupFromLineItem(line: OrderLineItem): CupRow {
   // catalog-lookup path that would resolve the list id; for the MVP
   // name matching is sufficient.
   for (const m of line.modifiers ?? []) {
-    const bucket = matchModifierByName(m.name ?? "");
-    placeInBucket(bucket, m, toppings, (v) => (ice = v), (v) => (sugar = v));
+    const name = m.name ?? "";
+    const bucket = matchModifierByName(name);
+    if (bucket === "topping") {
+      toppingCounts.set(name, (toppingCounts.get(name) ?? 0) + 1);
+    } else if (bucket === "ice") {
+      ice = name;
+    } else if (bucket === "sugar") {
+      sugar = name;
+    } else if (bucket === "milk") {
+      // Standard(Recommended) is the default — skip from the sticker.
+      // Non-default milk alternatives (Oat / Soy / Almond / Fresh) get
+      // prepended to the toppings string so staff sees `Oat Milk+Pearls`.
+      if (!isDefaultMilk(name)) milk = name;
+    }
+  }
+
+  const toppings: string[] = [];
+  if (milk) toppings.push(milk);
+  for (const [name, count] of toppingCounts) {
+    // Format: `Pearl x3` when count > 1. Lowercase `x` keeps the count
+    // tight on the ZD411's condensed font and is ASCII-safe across
+    // fonts. Space before `x` keeps name legibility when joined with
+    // `+` separators: `Pearl x3+Oreo x2`.
+    toppings.push(count > 1 ? `${name} x${count}` : name);
   }
 
   // Unit price = base variation price + sum of modifier upcharges.
@@ -138,25 +166,23 @@ function cupFromLineItem(line: OrderLineItem): CupRow {
   };
 }
 
-function placeInBucket(
-  bucket: ModifierBucket,
-  m: OrderLineItemModifier,
-  toppings: string[],
-  setIce: (v: string) => void,
-  setSugar: (v: string) => void,
-): void {
-  const name = m.name ?? "";
-  if (bucket === "topping") toppings.push(name);
-  else if (bucket === "ice") setIce(name);
-  else if (bucket === "sugar") setSugar(name);
-}
-
 // Fallback: classify a modifier by its name if the modifier list id isn't
 // available on the payload. Case-insensitive substring match against known
 // patterns; anything else lands in "topping" as a safe default.
 function matchModifierByName(name: string): ModifierBucket {
   const n = name.toLowerCase();
   if (n.includes("sugar")) return "sugar";
-  if (n.includes("ice")) return "ice";
+  // "Warm" is an option in the ICE modifier list even though its name
+  // doesn't literally contain "ice". Match it explicitly so it doesn't
+  // fall through to topping.
+  if (n.includes("ice") || n.trim() === "warm") return "ice";
+  // ALTERNATIVE MILK list: "Standard(Recommended)" plus "Fresh/Soy/Oat/
+  // Almond Milk". "recommended" catches the default option which doesn't
+  // contain the word "milk".
+  if (n.includes("milk") || n.includes("recommended")) return "milk";
   return "topping";
+}
+
+function isDefaultMilk(name: string): boolean {
+  return /\brecommended\b|^\s*standard\b/i.test(name);
 }

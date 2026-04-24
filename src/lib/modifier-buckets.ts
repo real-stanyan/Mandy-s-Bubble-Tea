@@ -10,7 +10,7 @@
 //   2. Decide which bucket it belongs to.
 //   3. Add an entry below.
 
-export type ModifierBucket = "topping" | "ice" | "sugar";
+export type ModifierBucket = "topping" | "ice" | "sugar" | "milk";
 
 export const MODIFIER_LIST_BUCKETS: Record<string, ModifierBucket> = {
   // TODO(pre-launch): replace these ids with the real ones from Square Dashboard.
