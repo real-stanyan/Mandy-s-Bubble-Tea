@@ -11,10 +11,12 @@ import {
   lineUnitPrice,
   cartSubtotal,
   cardSurcharge,
+  publicHolidaySurcharge,
   type CartLine,
 } from "@/store/cart";
+import { isPublicHolidayActive } from "@/lib/holiday";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, CARD_SURCHARGE, LOYALTY } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -165,6 +167,12 @@ function CartBody({
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+  // PH surcharge — checked client-side only for display; server is authoritative.
+  const phActive = useMemo(() => isPublicHolidayActive(), []);
+  const phSurchargeAmount = useMemo(
+    () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
+    [phActive, subtotal],
+  );
 
   const welcomeCoverage = useMemo(() => {
     if (!welcomeDiscount.available || lines.length === 0) {
@@ -204,7 +212,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -224,7 +232,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -329,6 +337,7 @@ function CartBody({
           welcomeDiscountAmount={welcomeDiscountAmount}
           welcomeCoveredCount={welcomeCoverage.coveredCount}
           surchargeAmount={surchargeAmount}
+          phSurchargeAmount={phSurchargeAmount}
           hasProfile={!!profile}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
@@ -569,6 +578,7 @@ function CartFooter({
   welcomeDiscountAmount,
   welcomeCoveredCount,
   surchargeAmount,
+  phSurchargeAmount,
   hasProfile,
   applePayReady,
   googlePayReady,
@@ -587,6 +597,7 @@ function CartFooter({
   welcomeDiscountAmount: bigint;
   welcomeCoveredCount: number;
   surchargeAmount: bigint;
+  phSurchargeAmount: bigint;
   hasProfile: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
@@ -621,7 +632,8 @@ function CartFooter({
   // so the server skips the surcharge and the footer hides it.
   const isFreeRedeem = useReward && subtotal - rewardDiscount <= 0n;
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
-  const displayTotal = discountedTotal + effectiveSurcharge;
+  const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
+  const displayTotal = discountedTotal + effectiveSurcharge + effectivePhSurcharge;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -814,6 +826,15 @@ function CartFooter({
               </span>
             </div>
           )}
+        {effectivePhSurcharge > 0n && (
+          <div className="flex justify-between text-sm text-zinc-600">
+            <span>
+              {PH_SURCHARGE.name}{" "}
+              <span className="text-xs text-zinc-400">({PH_SURCHARGE.percentage}%)</span>
+            </span>
+            <span>+{formatPrice(effectivePhSurcharge)}</span>
+          </div>
+        )}
         {effectiveSurcharge > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
