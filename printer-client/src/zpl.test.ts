@@ -119,10 +119,11 @@ describe("renderStickerZPL", () => {
   });
 
   it("bottom-anchors the footer so cup count + price always print", () => {
-    // Label is 240 dots tall. The footer (H_FOOT=22) must land in the
-    // bottom strip regardless of what goes above it. Pull the ^FO Y
-    // coordinate of the two footer fields from the emitted ZPL and
-    // assert they are within the last ~30 dots of the label.
+    // Label is 240 dots tall. The footer (H_FOOT=26) must land in the
+    // bottom strip regardless of what goes above it. With BOTTOM=20
+    // and H_FOOT=26 the footer Y lands at 240-20-26 = 194. Pull the
+    // ^FO Y coordinate of the two footer fields from the emitted ZPL
+    // and assert they land in the expected band.
     const z = renderStickerZPL(base);
     const cupFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD1\/2/);
     const priceFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FB[^^]+\^FD\$7\.00/);
@@ -131,8 +132,8 @@ describe("renderStickerZPL", () => {
     const cupY = Number(cupFo![1]);
     const priceY = Number(priceFo![1]);
     expect(cupY).toBe(priceY);
-    expect(cupY).toBeGreaterThan(205);
-    expect(cupY).toBeLessThan(225);
+    expect(cupY).toBeGreaterThan(185);
+    expect(cupY).toBeLessThan(205);
   });
 
   it("appends an ellipsis when drink name is too long to fit", () => {

@@ -32,15 +32,17 @@ export type CupForZPL = {
 // (proportional font 0, widest glyph ~ height). If over, we append
 // an ellipsis so staff can tell the label was truncated rather than
 // having ZPL silently drop characters.
-const MAX_DRINK_CHARS = 44;
+// Drink font H=28 at ~19 chars/line -> 2 lines ~ 38 chars.
+const MAX_DRINK_CHARS = 38;
 // Modifier row wraps up to 4 lines on our 290-dot usable width at font
-// 0 size 20. At proportional avg ~10 dots/char that's ~25-29 chars per
-// line. Cap at 104 to guarantee the ^FB block never holds characters
-// that exceed line 4 (otherwise ZPL hard-clips on the last line and
-// the overflow glyphs overprint wrapped text -> visible garbage).
-// 104 covers the worst real case: 3 x max-count toppings with the longest
-// topping names + non-default ice + non-default sugar.
-const MAX_MOD_CHARS = 104;
+// 0 size 22. At proportional ~23 chars per line, 4 lines ~ 92 chars.
+// Cap at 92 to guarantee the ^FB block never holds characters that
+// exceed line 4 (otherwise ZPL hard-clips on the last line and the
+// overflow glyphs overprint wrapped text -> visible garbage).
+// 92 covers the worst real case: alternative milk + 3 x max-count
+// toppings with the longest names + non-default ice + non-default sugar
+// (measured at 88 chars).
+const MAX_MOD_CHARS = 92;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -112,19 +114,24 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const LEFT = 15;
   const RIGHT_PAD = 15;
   const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
-  const TOP = 6;
-  // Keep a generous bottom margin: the Zebra's usable print window
-  // ends several mm above the label's physical edge, so a footer
-  // anchored tight to LL gets clipped. 40 dots ≈ 5 mm of headroom.
-  const BOTTOM = 40;
+  const TOP = 4;
+  // Bottom margin: the Zebra's usable print window ends a few mm
+  // above the label's physical edge, so a footer anchored tight to LL
+  // gets clipped. 20 dots ≈ 2.5 mm of headroom — enough for ZD411's
+  // usable window, while reclaiming vertical space for larger body
+  // text that matters to staff at a glance.
+  const BOTTOM = 20;
   const ROW_GAP = 2;
 
-  // Font heights in dots (font 0, scalable).
+  // Font heights in dots (font 0, scalable). Sized so tea-making staff
+  // can read drink / modifier / cup count at a glance without squinting,
+  // while still fitting the worst-case extreme order (long drink name
+  // + alternative milk + 3 max-count toppings + non-default ice+sugar).
   const H_NUM = 38;
   const H_TIME = 22;
-  const H_DRINK = 24;
-  const H_MOD = 20;
-  const H_FOOT = 22;
+  const H_DRINK = 28;
+  const H_MOD = 22;
+  const H_FOOT = 26;
 
   // Bottom-anchor the footer so the price+cup-count row ALWAYS lands
   // on the label regardless of how tall the rows above end up.
