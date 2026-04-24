@@ -34,15 +34,20 @@ export type CupForZPL = {
 // having ZPL silently drop characters.
 // Drink font H=28 at ~19 chars/line -> 2 lines ~ 38 chars.
 const MAX_DRINK_CHARS = 38;
-// Modifier row wraps up to 4 lines on our 290-dot usable width at font
-// 0 size 22. At proportional ~23 chars per line, 4 lines ~ 92 chars.
-// Cap at 92 to guarantee the ^FB block never holds characters that
-// exceed line 4 (otherwise ZPL hard-clips on the last line and the
-// overflow glyphs overprint wrapped text -> visible garbage).
-// 92 covers the worst real case: alternative milk + 3 x max-count
-// toppings with the longest names + non-default ice + non-default sugar
-// (measured at 88 chars).
-const MAX_MOD_CHARS = 92;
+// Threshold that flips the drink row from 1-line to 2-line allotment.
+// Names up to 22 chars fit a single line at H_DRINK=28 on the ZD411's
+// condensed font, freeing a full H_DRINK row of vertical space for the
+// modifier block below (up to 5 wrapped lines instead of 4).
+const DRINK_ONE_LINE_THRESHOLD = 22;
+// Modifier cap depends on how many wrap lines we can use. At H_MOD=22
+// on the ZD411's condensed font each line holds ~20-22 chars (narrower
+// than Labelary previews suggest). Capping below the ^FB hard-clip
+// threshold keeps overflow from overprinting the last line — anything
+// over gets a clean "…" rather than "(75%)" stacked on top.
+//   5 lines (short drink, 1-line budget)  -> ~130 char ceiling
+//   4 lines (long drink, 2-line budget)   -> ~82 char ceiling
+const MAX_MOD_CHARS_5LINE = 130;
+const MAX_MOD_CHARS_4LINE = 82;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -73,9 +78,11 @@ const ICE_ABBREVS: Record<string, string> = {
 const SUGAR_ABBREVS: Record<string, string> = {
   "less sugar (75%)": "75%S",
   "less sugar 75%": "75%S",
+  "less sugar": "75%S",
   "half sugar": "50%S",
   "little sugar (25%)": "25%S",
   "little sugar 25%": "25%S",
+  "little sugar": "25%S",
   "no sugar": "0%S",
   "extra sugar": "+S",
 };
@@ -102,11 +109,18 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // MAX_MOD_CHARS for realistic orders.
   const ice = isDefaultLevel(cup.ice) ? "" : abbreviateIce(cup.ice);
   const sugar = isDefaultLevel(cup.sugar) ? "" : abbreviateSugar(cup.sugar);
+  const drinkName = truncate(cup.drinkName, MAX_DRINK_CHARS);
+  // Modifier truncation cap scales with available wrap lines, which is
+  // in turn determined by drinkName length (short name = 1-line budget
+  // = 5 mod lines; long name = 2-line budget = 4 mod lines).
+  const modCap =
+    drinkName.length > DRINK_ONE_LINE_THRESHOLD
+      ? MAX_MOD_CHARS_4LINE
+      : MAX_MOD_CHARS_5LINE;
   const modifierLine = truncate(
     [toppings, ice, sugar].filter((s) => s.length > 0).join(" -> "),
-    MAX_MOD_CHARS,
+    modCap,
   );
-  const drinkName = truncate(cup.drinkName, MAX_DRINK_CHARS);
 
   // Label geometry (40x30mm @ 203dpi).
   const PW = 320;
@@ -114,7 +128,7 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const LEFT = 15;
   const RIGHT_PAD = 15;
   const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
-  const TOP = 4;
+  const TOP = 2;
   // Bottom margin: the Zebra's usable print window ends a few mm
   // above the label's physical edge, so a footer anchored tight to LL
   // gets clipped. 20 dots ≈ 2.5 mm of headroom — enough for ZD411's
@@ -127,7 +141,9 @@ export function renderStickerZPL(cup: CupForZPL): string {
   // can read drink / modifier / cup count at a glance without squinting,
   // while still fitting the worst-case extreme order (long drink name
   // + alternative milk + 3 max-count toppings + non-default ice+sugar).
-  const H_NUM = 38;
+  // H_NUM shrunk to 32 (from 38) so the sticker# no longer dominates
+  // vertical space that the tea-maker cares less about than drink name.
+  const H_NUM = 32;
   const H_TIME = 22;
   const H_DRINK = 28;
   const H_MOD = 22;
@@ -156,16 +172,23 @@ export function renderStickerZPL(cup: CupForZPL): string {
   );
   y += H_NUM + ROW_GAP;
 
-  // Row 2: drink name, wrap up to 2 lines
+  // Row 2: drink name — allot 1 line for short names and 2 lines for
+  // longer names. Reclaiming a full H_DRINK row for short names gives
+  // the modifier block below a fifth wrap line, which matters for
+  // extreme orders (alt milk + 3 max-count toppings + non-default
+  // ice+sugar). No ROW_GAP before the modifier row — the space already
+  // built into ZPL font 0's ascent handles visual separation.
+  const drinkLines = drinkName.length > DRINK_ONE_LINE_THRESHOLD ? 2 : 1;
   parts.push(
-    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},2,2,L,0^FD${escapeZpl(drinkName)}^FS`,
+    `^FO${LEFT},${y}^A0N,${H_DRINK},${H_DRINK}^FB${W},${drinkLines},2,L,0^FD${escapeZpl(drinkName)}^FS`,
   );
-  y += H_DRINK * 2 + ROW_GAP;
+  y += H_DRINK * drinkLines;
 
-  // Row 3: modifiers, wrap up to 4 lines (but never bleed into the
-  // footer strip — step down to 3/2/1 lines if the geometry can't hold
-  // 4 rather than losing the price).
+  // Row 3: modifiers, wrap up to 5 lines (but never bleed into the
+  // footer strip — step down to 4/3/2/1 lines if the geometry can't
+  // hold 5 rather than losing the price).
   const modLines =
+    y + H_MOD * 5 <= BODY_MAX_Y ? 5 :
     y + H_MOD * 4 <= BODY_MAX_Y ? 4 :
     y + H_MOD * 3 <= BODY_MAX_Y ? 3 :
     y + H_MOD * 2 <= BODY_MAX_Y ? 2 : 1;
