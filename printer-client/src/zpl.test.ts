@@ -118,12 +118,12 @@ describe("renderStickerZPL", () => {
     expect(z).toContain("^FB");
   });
 
-  it("bottom-anchors the footer so cup count + price always print", () => {
-    // Label is 240 dots tall. The footer (H_FOOT=26) must land in the
-    // bottom strip regardless of what goes above it. With BOTTOM=20
-    // and H_FOOT=26 the footer Y lands at 240-20-26 = 194. Pull the
-    // ^FO Y coordinate of the two footer fields from the emitted ZPL
-    // and assert they land in the expected band.
+  it("tucks the footer right below the body and never past the bottom safe zone", () => {
+    // Footer no longer hard-anchors to the bottom — it flows right
+    // below the modifier row so short orders don't leave a dead strip
+    // in the middle. But it must never cross FOOTER_Y_MAX (label 240
+    // dots, BOTTOM=30, H_FOOT=26 -> clamp at 184) or the ZD411 dead
+    // zone will eat part of the cup-count + price row.
     const z = renderStickerZPL(base);
     const cupFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD1\/2/);
     const priceFo = z.match(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FB[^^]+\^FD\$7\.00/);
@@ -132,8 +132,10 @@ describe("renderStickerZPL", () => {
     const cupY = Number(cupFo![1]);
     const priceY = Number(priceFo![1]);
     expect(cupY).toBe(priceY);
-    expect(cupY).toBeGreaterThan(185);
-    expect(cupY).toBeLessThan(205);
+    expect(cupY).toBeLessThanOrEqual(184);
+    // Must sit below the sticker-# row (H_NUM=32) so it isn't colliding
+    // with the top block.
+    expect(cupY).toBeGreaterThan(32);
   });
 
   it("appends an ellipsis when drink name is too long to fit", () => {

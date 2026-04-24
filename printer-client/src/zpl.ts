@@ -40,14 +40,18 @@ const MAX_DRINK_CHARS = 38;
 // modifier block below (up to 5 wrapped lines instead of 4).
 const DRINK_ONE_LINE_THRESHOLD = 22;
 // Modifier cap depends on how many wrap lines we can use. At H_MOD=22
-// on the ZD411's condensed font each line holds ~20-22 chars (narrower
+// on the ZD411's condensed font each line holds ~20 chars (narrower
 // than Labelary previews suggest). Capping below the ^FB hard-clip
 // threshold keeps overflow from overprinting the last line — anything
 // over gets a clean "…" rather than "(75%)" stacked on top.
-//   5 lines (short drink, 1-line budget)  -> ~130 char ceiling
-//   4 lines (long drink, 2-line budget)   -> ~82 char ceiling
-const MAX_MOD_CHARS_5LINE = 130;
-const MAX_MOD_CHARS_4LINE = 82;
+//   5 lines (short drink, 1-line budget)  -> ~100 char ceiling
+//   4 lines (long drink, 2-line budget)   -> ~80 char ceiling
+const MAX_MOD_CHARS_5LINE = 100;
+const MAX_MOD_CHARS_4LINE = 80;
+// Empirical character width for the modifier font on a real ZD411; used
+// to compute how many wrap lines the text actually needs so the footer
+// can tuck in right below rather than bottom-anchoring with a dead gap.
+const CHARS_PER_MOD_LINE = 20;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -130,11 +134,10 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const W = PW - LEFT - RIGHT_PAD; // usable width for wrap/right-align
   const TOP = 2;
   // Bottom margin: the Zebra's usable print window ends a few mm
-  // above the label's physical edge, so a footer anchored tight to LL
-  // gets clipped. 20 dots ≈ 2.5 mm of headroom — enough for ZD411's
-  // usable window, while reclaiming vertical space for larger body
-  // text that matters to staff at a glance.
-  const BOTTOM = 20;
+  // above the label's physical edge. 30 dots ≈ 3.75 mm — enough to
+  // keep the footer inside the print window even when top-of-form
+  // drift or gap-sensor slop nudges the whole label down.
+  const BOTTOM = 30;
   const ROW_GAP = 2;
 
   // Font heights in dots (font 0, scalable). Sized so tea-making staff
@@ -149,10 +152,11 @@ export function renderStickerZPL(cup: CupForZPL): string {
   const H_MOD = 22;
   const H_FOOT = 26;
 
-  // Bottom-anchor the footer so the price+cup-count row ALWAYS lands
-  // on the label regardless of how tall the rows above end up.
-  const FOOTER_Y = LL - BOTTOM - H_FOOT;
-  const BODY_MAX_Y = FOOTER_Y - ROW_GAP;
+  // Upper bound for the footer's Y. Footer normally flows right below
+  // the modifier row; FOOTER_Y_MAX is the clamp that keeps it out of
+  // the printer's bottom dead zone when the body has enough content
+  // to push against it.
+  const FOOTER_Y_MAX = LL - BOTTOM - H_FOOT;
 
   let y = TOP;
 
@@ -184,24 +188,36 @@ export function renderStickerZPL(cup: CupForZPL): string {
   );
   y += H_DRINK * drinkLines;
 
-  // Row 3: modifiers, wrap up to 5 lines (but never bleed into the
-  // footer strip — step down to 4/3/2/1 lines if the geometry can't
-  // hold 5 rather than losing the price).
-  const modLines =
-    y + H_MOD * 5 <= BODY_MAX_Y ? 5 :
-    y + H_MOD * 4 <= BODY_MAX_Y ? 4 :
-    y + H_MOD * 3 <= BODY_MAX_Y ? 3 :
-    y + H_MOD * 2 <= BODY_MAX_Y ? 2 : 1;
-  parts.push(
-    `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},${modLines},2,L,0^FD${escapeZpl(modifierLine)}^FS`,
+  // Row 3: modifiers — allocate only as many wrap lines as the text
+  // actually needs so short orders don't leave a dead strip between
+  // the body and the footer. Cap by both content length (5 lines max)
+  // and available vertical space before the footer's clamp.
+  const neededModLines = modifierLine.length > 0
+    ? Math.max(1, Math.ceil(modifierLine.length / CHARS_PER_MOD_LINE))
+    : 0;
+  const availableModLines = Math.max(
+    1,
+    Math.floor((FOOTER_Y_MAX - ROW_GAP - y) / H_MOD),
   );
+  const modLines = modifierLine.length > 0
+    ? Math.min(neededModLines, availableModLines, 5)
+    : 0;
+  if (modLines > 0) {
+    parts.push(
+      `^FO${LEFT},${y}^A0N,${H_MOD},${H_MOD}^FB${W},${modLines},2,L,0^FD${escapeZpl(modifierLine)}^FS`,
+    );
+    y += H_MOD * modLines + ROW_GAP;
+  }
 
-  // Row 4: cup fraction (left) + price (right) — bottom-anchored.
+  // Row 4: footer tucks in right below the body. FOOTER_Y_MAX clamps it
+  // so a very long modifier block can't push cup-count + price out of
+  // the printer's safe print window.
+  const footerY = Math.min(y, FOOTER_Y_MAX);
   parts.push(
-    `^FO${LEFT},${FOOTER_Y}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`,
+    `^FO${LEFT},${footerY}^A0N,${H_FOOT},${H_FOOT}^FD${escapeZpl(cupFrac)}^FS`,
   );
   parts.push(
-    `^FO${LEFT},${FOOTER_Y}^A0N,${H_FOOT},${H_FOOT}^FB${W},1,0,R,0^FD$${escapeZpl(dollars)}^FS`,
+    `^FO${LEFT},${footerY}^A0N,${H_FOOT},${H_FOOT}^FB${W},1,0,R,0^FD$${escapeZpl(dollars)}^FS`,
   );
 
   parts.push("^XZ");
