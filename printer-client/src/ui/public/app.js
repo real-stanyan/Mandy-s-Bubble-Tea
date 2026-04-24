@@ -20,13 +20,21 @@ async function refresh() {
     const when = new Date(job.created_at).toLocaleTimeString("en-AU", {
       timeZone: "Australia/Brisbane", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
     });
-    const cupDesc = (job.cups || []).map((c) => c.drinkName).join(", ");
+    const cupCount = (job.cups || []).length;
+    const previews = [];
+    for (let i = 1; i <= cupCount; i++) {
+      const cup = job.cups[i - 1] || {};
+      const alt = `${cup.drinkName || "Drink"} ${i}/${cupCount}`;
+      previews.push(
+        `<img class="preview" loading="lazy" title="${alt}" alt="${alt}" src="/api/jobs/${job.id}/preview.png?cup=${i}">`
+      );
+    }
     tr.innerHTML = `
       <td><strong>${job.sticker_number}</strong></td>
       <td>${job.source}</td>
       <td class="status-${job.status}">${job.status}${job.attempts > 0 ? " ("+job.attempts+"x)" : ""}</td>
       <td>${when}</td>
-      <td>${cupDesc}</td>
+      <td class="previews">${previews.join("")}</td>
       <td><button data-id="${job.id}" class="reprint">Reprint</button></td>
     `;
     tbody.appendChild(tr);

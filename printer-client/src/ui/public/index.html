@@ -18,6 +18,12 @@
     .status-printed { color: #15803d; }
     .status-failed { color: #b91c1c; }
     .status-stale { color: #6b7280; }
+    td.previews { display: flex; flex-wrap: wrap; gap: 6px; }
+    img.preview {
+      width: 160px; height: 120px; object-fit: contain;
+      border: 1px solid #ddd; border-radius: 4px; background: white;
+      image-rendering: pixelated;
+    }
   </style>
 </head>
 <body>
@@ -28,7 +34,7 @@
     <button id="refreshBtn">Refresh</button>
   </div>
   <table>
-    <thead><tr><th>Sticker</th><th>Source</th><th>Status</th><th>When</th><th>Cups</th><th></th></tr></thead>
+    <thead><tr><th>Sticker</th><th>Source</th><th>Status</th><th>When</th><th>Preview</th><th></th></tr></thead>
     <tbody id="jobs"></tbody>
   </table>
   <script src="/app.js"></script>
