@@ -140,13 +140,12 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     if (list.maxSelected === 1) {
       return current < 1;
     }
-    // Exclusive modifier (Cheese Cream / Brulee): only 0 or 1, and
-    // mutually exclusive with its partner.
+    // Exclusive modifier (Cheese Cream / Brulee): stackable on their own,
+    // but mutually exclusive with the partner option.
     if (isExclusiveModifier(mod)) {
       const partnerId = getExclusivePartner(list, modifierId);
       if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
         return false;
-      if (current >= 1) return false;
     }
     // Distinct-kind cap: adding a brand new option would exceed the
     // "different kinds" limit. Bumping an already-picked option is fine.
@@ -282,7 +281,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
             <div className="flex flex-wrap gap-2">
               {ml.modifiers.map((mod) => {
                 const count = countOf(selectedByList, ml.id, mod.id);
-                const modCanMulti = multi && !isExclusiveModifier(mod);
+                const modCanMulti = multi;
                 if (modCanMulti && count > 0) {
                   return (
                     <ModifierStepper
