@@ -190,33 +190,37 @@ export async function handleJob(job: PrintJobRow): Promise<void> {
   }
 
   const startFrom = claimed.printed_cup_count ?? 0;
+  const remaining = claimed.cups.slice(startFrom);
   try {
     const orderTime = formatLocalTime(claimed.created_at);
-    for (let i = startFrom; i < claimed.cups.length; i++) {
-      const c = claimed.cups[i];
-      const zpl = renderStickerZPL({
-        stickerNumber: claimed.sticker_number,
-        orderTime,
-        drinkName: c.drinkName,
-        toppings: c.toppings,
-        ice: c.ice,
-        sugar: c.sugar,
-        cupIndex: i + 1,
-        cupTotal: claimed.cups.length,
-        priceCents: c.priceCents,
-      } satisfies CupForZPL);
-      await printZPL(zpl);
-      // Persist per-cup progress so a crash between cups doesn't
-      // reprint cups that already emitted.
-      await supabase
-        .from("print_jobs")
-        .update({ printed_cup_count: i + 1 })
-        .eq("id", claimed.id);
+    // Batch every remaining cup into a single `lp` invocation. Each
+    // lp→CUPS→USB round trip carries ~6s of fixed overhead regardless
+    // of payload, so batching drops a 4-cup order from ~28s to ~11s.
+    // Trade-off: loses per-cup progress tracking — a crash between
+    // lp exit and the DB write reprints the whole batch on replay.
+    if (remaining.length > 0) {
+      const batchedZpl = remaining
+        .map((c, offset) =>
+          renderStickerZPL({
+            stickerNumber: claimed.sticker_number,
+            orderTime,
+            drinkName: c.drinkName,
+            toppings: c.toppings,
+            ice: c.ice,
+            sugar: c.sugar,
+            cupIndex: startFrom + offset + 1,
+            cupTotal: claimed.cups.length,
+            priceCents: c.priceCents,
+          } satisfies CupForZPL),
+        )
+        .join("\n");
+      await printZPL(batchedZpl);
     }
     await supabase
       .from("print_jobs")
       .update({
         status: "printed",
+        printed_cup_count: claimed.cups.length,
         printed_at: new Date().toISOString(),
         claimed_by: null,
       })
