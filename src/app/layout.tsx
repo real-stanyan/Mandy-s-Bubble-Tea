@@ -1,10 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+
+const GA_ID = "G-KXVRP14YZF";
 
 const fraunces = Fraunces({
   weight: ["500", "600"],
@@ -92,6 +95,18 @@ export default function RootLayout({
           <SiteFooterGate />
           <CartDrawer />
         </AuthProvider>
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="gtag-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_ID}');
+          `}
+        </Script>
       </body>
     </html>
   );
