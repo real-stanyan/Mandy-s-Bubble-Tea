@@ -55,8 +55,9 @@ export const CARD_SURCHARGE_BPS = 190n;
 export const PH_SURCHARGE = {
   name: "Public holiday surcharge",
   percentage: "10",
-};
+} as const;
 
+/** 10% as basis-points-per-10000 for BigInt math: 1000 / 10000. */
 export const PH_SURCHARGE_BPS = 1000n;
 
 export type PublicHolidayDef = {
