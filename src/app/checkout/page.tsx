@@ -188,12 +188,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
   const progressPct = Math.min((loyaltyBalance / starsPerReward) * 100, 100);
-  // Reward covers the cheapest drink — with an always-on surcharge the
-  // order is never fully $0, so this flag is used only to auto-tick the
-  // redeem checkbox, not to skip the card form.
+  // Reward covers the cheapest drink (no modifier upcharges).
   const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
+  // True reward redemption path — server skips the card surcharge and
+  // client skips tokenization entirely because Square's total comes out
+  // to $0 after the reward discount.
+  const isFreeRedeem = canRedeemFully && useReward;
 
   const displayTotal = useMemo(() => {
+    if (isFreeRedeem) return 0n;
     const afterDiscount =
       canRedeem && useReward
         ? (subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
@@ -204,6 +207,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           : subtotal;
     return afterDiscount + surchargeAmount;
   }, [
+    isFreeRedeem,
     subtotal,
     canRedeem,
     useReward,
@@ -212,6 +216,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     welcomeDiscountAmount,
     surchargeAmount,
   ]);
+  // Hide the surcharge line from the order summary when the reward
+  // will cover the order — the backend won't charge it.
+  const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
 
   // Pre-fill redeem toggle from cart drawer preference.
   useEffect(() => {
@@ -231,14 +238,20 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     else if (googlePayAvailable) setPayMethod("google");
   }, [applePayAvailable, googlePayAvailable]);
 
-  // Card surcharge is applied on every order, so the card form is
-  // always needed — even when a loyalty reward fully covers the drinks,
-  // the customer still pays the surcharge.
-  const needsCard = true;
+  // When the reward fully covers the order, no card is charged so the
+  // card form can stay unmounted.
+  const needsCard = !isFreeRedeem;
 
   // Initialize the Square card form once the SDK has loaded AND the
   // #card-container element is in the DOM.
   useEffect(() => {
+    if (!needsCard) {
+      cardRef.current?.destroy().catch(() => undefined);
+      cardRef.current = null;
+      setCardReady(false);
+      return;
+    }
+
     if (!sdkReady) return;
     if (cardRef.current) return;
     if (!SQUARE_APP_ID || !SQUARE_LOCATION_ID) {
@@ -365,26 +378,29 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     setError(null);
     setPaymentError(null);
 
-    if (payMethod === "apple") {
-      if (!applePayRef.current) {
-        setError("Apple Pay is not ready yet.");
+    const expectFreeOrder = isFreeRedeem;
+    if (!expectFreeOrder) {
+      if (payMethod === "apple") {
+        if (!applePayRef.current) {
+          setError("Apple Pay is not ready yet.");
+          return;
+        }
+      } else if (payMethod === "google") {
+        if (!googlePayRef.current) {
+          setError("Google Pay is not ready yet.");
+          return;
+        }
+      } else if (!cardRef.current) {
+        setError("Card form is not ready yet.");
         return;
       }
-    } else if (payMethod === "google") {
-      if (!googlePayRef.current) {
-        setError("Google Pay is not ready yet.");
-        return;
-      }
-    } else if (!cardRef.current) {
-      setError("Card form is not ready yet.");
-      return;
     }
 
     setSubmitting(true);
     try {
       // 0) Tokenize wallet IMMEDIATELY — must stay in the user-gesture frame.
       let sourceToken: string | undefined;
-      if (payMethod === "apple" || payMethod === "google") {
+      if (!expectFreeOrder && (payMethod === "apple" || payMethod === "google")) {
         const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
@@ -415,6 +431,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         body: JSON.stringify({
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
+          applyLoyaltyReward: isFreeRedeem,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -656,7 +673,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
-                {surchargeAmount > 0n && (
+                {effectiveSurcharge > 0n && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm text-zinc-600">
                     <span>
                       {CARD_SURCHARGE.name}{" "}
@@ -665,7 +682,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </span>
                     <span className="font-semibold text-zinc-900">
-                      {formatPrice(surchargeAmount)}
+                      {formatPrice(effectiveSurcharge)}
                     </span>
                   </div>
                 )}
@@ -673,9 +690,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </details>
           </section>
 
-          {/* Free drink banner — reward covers the drinks; the 1.9%
-              card surcharge on the original subtotal still applies. */}
-          {canRedeemFully && useReward && (
+          {/* Free drink banner */}
+          {isFreeRedeem && (
             <section
               className="rounded-2xl border-2 p-4 sm:p-5"
               style={{ borderColor: BRAND.primaryColor }}
@@ -684,11 +700,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 className="text-center text-base font-bold sm:text-lg"
                 style={{ color: BRAND.primaryColor }}
               >
-                Free drink redeemed! 🎉
+                This drink is on us! 🎉
               </p>
               <p className="mt-1 text-center text-xs text-zinc-600 sm:text-sm">
-                Your {starsPerReward} stars cover the drinks. Only the{" "}
-                {CARD_SURCHARGE.percentage}% card surcharge remains.
+                Your {starsPerReward} stars will be redeemed — no payment needed.
               </p>
             </section>
           )}
@@ -726,9 +741,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </label>
           </section>
 
-          {/* Payment Method — always visible; card surcharge means every
-              order needs a real card charge. */}
-          {true && (
+          {/* Payment Method — hidden when the reward fully covers the order */}
+          {!isFreeRedeem && (
             <>
               <section>
                 <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
@@ -872,7 +886,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
-            {surchargeAmount > 0n && (
+            {effectiveSurcharge > 0n && (
               <div className="flex justify-between text-sm text-zinc-600">
                 <span>
                   {CARD_SURCHARGE.name}{" "}
@@ -881,7 +895,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   </span>
                 </span>
                 <span className="font-semibold text-zinc-900">
-                  {formatPrice(surchargeAmount)}
+                  {formatPrice(effectiveSurcharge)}
                 </span>
               </div>
             )}
@@ -903,22 +917,25 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             type="submit"
             disabled={
               submitting ||
-              (payMethod === "card" ? !cardReady
-                : payMethod === "apple" ? !applePayAvailable
-                : !googlePayAvailable)
+              (!isFreeRedeem &&
+                (payMethod === "card" ? !cardReady
+                  : payMethod === "apple" ? !applePayAvailable
+                  : !googlePayAvailable))
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
           >
             {submitting
               ? "Processing…"
-              : payMethod === "apple"
-                ? "Pay with Apple Pay"
-                : payMethod === "google"
-                  ? "Pay with Google Pay"
-                  : cardReady
-                    ? "Place Order"
-                    : "Loading payment…"}
+              : isFreeRedeem
+                ? "Redeem Free Drink"
+                : payMethod === "apple"
+                  ? "Pay with Apple Pay"
+                  : payMethod === "google"
+                    ? "Pay with Google Pay"
+                    : cardReady
+                      ? "Place Order"
+                      : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
@@ -945,9 +962,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 {formatPrice(welcomeDiscountAmount)}
               </p>
             )}
-            {surchargeAmount > 0n && (
+            {effectiveSurcharge > 0n && (
               <p className="text-[11px] text-zinc-500">
-                Incl. {CARD_SURCHARGE.name} {formatPrice(surchargeAmount)}
+                Incl. {CARD_SURCHARGE.name} {formatPrice(effectiveSurcharge)}
               </p>
             )}
           </div>
@@ -956,9 +973,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             form="checkout-form"
             disabled={
               submitting ||
-              (payMethod === "card" ? !cardReady
-                : payMethod === "apple" ? !applePayAvailable
-                : !googlePayAvailable)
+              (!isFreeRedeem &&
+                (payMethod === "card" ? !cardReady
+                  : payMethod === "apple" ? !applePayAvailable
+                  : !googlePayAvailable))
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               payMethod === "apple"
@@ -975,13 +993,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           >
             {submitting
               ? "Processing…"
-              : payMethod === "apple"
-                ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-                : payMethod === "google"
-                  ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-                  : cardReady
-                    ? <><CardIcon /> Place Order</>
-                    : "Loading…"}
+              : isFreeRedeem
+                ? "Redeem Free Drink"
+                : payMethod === "apple"
+                  ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                  : payMethod === "google"
+                    ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                    : cardReady
+                      ? <><CardIcon /> Place Order</>
+                      : "Loading…"}
           </button>
         </div>
       </div>

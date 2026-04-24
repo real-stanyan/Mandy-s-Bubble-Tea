@@ -36,6 +36,12 @@ type CreateOrderBody = {
   lines: ClientLine[];
   note?: string;
   applyWelcomeDiscount?: boolean;
+  /** Client signals a loyalty reward will fully cover the order. When
+   *  true we skip the card surcharge because no card is charged
+   *  (payment amount is $0 after reward redemption). Trusted the same
+   *  way applyWelcomeDiscount is — abuse risk is ~1.9% per order, same
+   *  order of magnitude as welcome-discount gaming. */
+  applyLoyaltyReward?: boolean;
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -265,15 +271,20 @@ export async function POST(request: Request) {
         // surcharge doesn't shrink when a welcome discount is applied.
         // taxable:false → menu items are already GST-inclusive; the
         // surcharge is a pass-through fee listed separately.
-        serviceCharges: [
-          {
-            uid: "card-surcharge",
-            name: CARD_SURCHARGE.name,
-            percentage: CARD_SURCHARGE.percentage,
-            calculationPhase: "SUBTOTAL_PHASE",
-            taxable: false,
-          },
-        ],
+        //
+        // Skipped when a loyalty reward will fully cover the order — no
+        // card is charged, so there's no processing fee to pass through.
+        serviceCharges: body.applyLoyaltyReward
+          ? undefined
+          : [
+              {
+                uid: "card-surcharge",
+                name: CARD_SURCHARGE.name,
+                percentage: CARD_SURCHARGE.percentage,
+                calculationPhase: "SUBTOTAL_PHASE",
+                taxable: false,
+              },
+            ],
         fulfillments: [
           {
             type: "PICKUP",

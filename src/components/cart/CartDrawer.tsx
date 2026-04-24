@@ -617,7 +617,11 @@ function CartFooter({
         ? subtotal - welcomeDiscountAmount
         : 0n
       : subtotal;
-  const displayTotal = discountedTotal + surchargeAmount;
+  // Loyalty reward that fully covers the drinks → no card is charged,
+  // so the server skips the surcharge and the footer hides it.
+  const isFreeRedeem = useReward && subtotal - rewardDiscount <= 0n;
+  const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
+  const displayTotal = discountedTotal + effectiveSurcharge;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -654,6 +658,7 @@ function CartFooter({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             applyWelcomeDiscount: welcomeDiscount.available,
+            applyLoyaltyReward: isFreeRedeem,
             lines: lines.map((l) => ({
               itemName: l.itemName,
               variationId: l.variationId,
@@ -809,7 +814,7 @@ function CartFooter({
               </span>
             </div>
           )}
-        {surchargeAmount > 0n && (
+        {effectiveSurcharge > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
               {CARD_SURCHARGE.name}{" "}
@@ -818,7 +823,7 @@ function CartFooter({
               </span>
             </span>
             <span className="font-semibold text-zinc-900">
-              {formatPrice(surchargeAmount)}
+              {formatPrice(effectiveSurcharge)}
             </span>
           </div>
         )}
