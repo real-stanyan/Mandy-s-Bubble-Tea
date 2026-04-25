@@ -108,6 +108,9 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
   const fulfillment = order.fulfillments?.[0];
   const initialState =
     (fulfillment?.state as FulfillmentState | undefined) ?? null;
+  const isDelivery = fulfillment?.type === "DELIVERY";
+  const trackingUrl = order.metadata?.uber_tracking_url ?? null;
+  const deliveryAddress = order.metadata?.delivery_address ?? null;
 
   // Pickup number is written to Square's ticketName at order creation
   // (see /api/orders/route.ts). Staff see the same number on the POS
@@ -174,26 +177,50 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           {pickupNumber}
         </p>
         <p className="mt-2 text-xs text-zinc-500">
-          Show this number at the counter to collect your order.
+          {isDelivery
+            ? "Your driver will reference this number on arrival."
+            : "Show this number at the counter to collect your order."}
         </p>
       </div>
 
-      {/* Pickup Location + Estimated Time cards */}
+      {/* Location/Address + Estimated Time cards */}
       <div className="mb-6 grid grid-cols-2 gap-3">
+        {isDelivery ? (
+          <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+              Delivering To
+            </p>
+            <p className="mt-1.5 text-sm font-bold text-zinc-900">
+              {deliveryAddress ?? "Address on file"}
+            </p>
+            {trackingUrl && (
+              <a
+                href={trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs font-semibold underline"
+                style={{ color: BRAND.primaryColor }}
+              >
+                Track delivery →
+              </a>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+              Pickup Location
+            </p>
+            <p className="mt-1.5 text-base font-bold text-zinc-900">
+              {BUSINESS.name.replace("Mandy's Bubble Tea", "Southport")}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {BUSINESS.address}
+            </p>
+          </div>
+        )}
         <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-            Pickup Location
-          </p>
-          <p className="mt-1.5 text-base font-bold text-zinc-900">
-            {BUSINESS.name.replace("Mandy's Bubble Tea", "Southport")}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {BUSINESS.address}
-          </p>
-        </div>
-        <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-            Estimated Pickup Time
+            {isDelivery ? "Estimated Delivery Time" : "Estimated Pickup Time"}
           </p>
           <p className="mt-1.5 text-2xl font-bold text-zinc-900">
             {waitText}
