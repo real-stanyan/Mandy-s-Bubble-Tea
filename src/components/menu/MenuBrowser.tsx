@@ -22,9 +22,12 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
   const searchResults = useMemo(() => {
     if (!searching) return [] as ProductRowData[];
     const hits: ProductRowData[] = [];
+    const seen = new Set<string>();
     for (const section of sections) {
       for (const item of section.items) {
+        if (seen.has(item.id)) continue;
         if (item.name.toLowerCase().includes(trimmed)) {
+          seen.add(item.id);
           hits.push(item);
         }
       }
