@@ -10,6 +10,7 @@ import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
 import { createDelivery, type CreateDeliveryResult } from "@/lib/uber-direct";
+import { notifyMandyDispatchFailure } from "@/lib/notify-mandy";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -392,7 +393,14 @@ export async function POST(request: Request) {
         console.error(
           `[payment] Uber dispatch failed for ${body.orderId}: ${JSON.stringify(dispatch)}`,
         );
-        // T25 will add Mandy notification here.
+        await notifyMandyDispatchFailure({
+          orderId: body.orderId,
+          reason:
+            "ok" in dispatch && !dispatch.ok
+              ? `${dispatch.status}: ${dispatch.detail ?? ""}`
+              : "unknown",
+          trackingNumber: order.referenceId ?? undefined,
+        });
       }
     }
 
