@@ -95,5 +95,14 @@ describe("uber-direct (mock mode)", () => {
       const body = '{"event":"delivered"}';
       expect(verifyWebhookSignature(body, "deadbeef")).toBe(false);
     });
+
+    it("returns false (does not throw) for same-length but invalid hex", () => {
+      const body = '{"event":"delivered"}';
+      // 64 'z's: same length as a valid SHA-256 hex digest, but invalid hex.
+      // Buffer.from will silently drop the chars and produce a 0-byte buffer,
+      // which would make timingSafeEqual throw. Must short-circuit to false.
+      expect(() => verifyWebhookSignature(body, "z".repeat(64))).not.toThrow();
+      expect(verifyWebhookSignature(body, "z".repeat(64))).toBe(false);
+    });
   });
 });

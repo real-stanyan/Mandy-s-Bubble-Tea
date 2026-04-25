@@ -63,8 +63,11 @@ export type UberDeliveryStatus =
 
 function getMode(): "mock" | "sandbox" | "production" {
   const m = process.env.UBER_DIRECT_MODE;
-  if (m === "sandbox" || m === "production") return m;
-  return "mock";
+  if (m === "mock" || m === "sandbox" || m === "production") return m;
+  // Default to production: fail-closed if env is misconfigured. This intentionally
+  // throws via the realQuote/realCreateDelivery stubs (Phase 4) rather than
+  // silently mocking, so a missing env var on Vercel is loudly visible.
+  return "production";
 }
 
 // ---- Mock implementations -------------------------------------------------
@@ -128,11 +131,23 @@ export function verifyWebhookSignature(rawBody: string, signatureHex: string): b
   const secret = process.env.UBER_DIRECT_WEBHOOK_SECRET;
   if (!secret) return false;
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (expected.length !== signatureHex.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signatureHex, "hex"));
+  // Compare BYTE length, not hex-string length: Buffer.from(invalidHex, "hex")
+  // silently drops non-hex chars, so two same-length hex strings can produce
+  // different-byte-length buffers and crash timingSafeEqual.
+  const expectedBuf = Buffer.from(expected, "hex");
+  const sigBuf = Buffer.from(signatureHex, "hex");
+  if (expectedBuf.length !== sigBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, sigBuf);
 }
 
 // Maps Uber webhook event status → Square fulfillment.state.
+// NOTE — information loss: `canceled`, `failed`, `returned` all collapse to
+// `CANCELED` because Square's fulfillment.state enum is fixed. The webhook
+// handler (Task 20) MUST persist the raw uber status alongside (e.g., on
+// `order.metadata.uberLastStatus`) so ops can distinguish:
+//   - canceled: customer/shop canceled before pickup → refund
+//   - failed: Uber system error → retry-quote
+//   - returned: driver couldn't reach customer, package came back → refund + reach out
 export function mapUberStatusToSquareState(
   uberStatus: UberDeliveryStatus,
 ): "RESERVED" | "PREPARED" | "COMPLETED" | "CANCELED" {
