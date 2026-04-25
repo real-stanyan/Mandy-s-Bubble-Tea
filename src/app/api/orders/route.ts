@@ -279,6 +279,7 @@ export async function POST(request: Request) {
       | Array<{
           uid: string;
           name: string;
+          type: "FIXED_AMOUNT";
           amountMoney: { amount: bigint; currency: Currency };
           scope: "ORDER";
         }>
@@ -312,6 +313,7 @@ export async function POST(request: Request) {
                   K === 1
                     ? `Welcome ${status.percentage || 30}% Off (1 drink)`
                     : `Welcome ${status.percentage || 30}% Off (${K} drinks)`,
+                type: "FIXED_AMOUNT",
                 amountMoney: { amount, currency: BUSINESS.currency as Currency },
                 scope: "ORDER",
               },
