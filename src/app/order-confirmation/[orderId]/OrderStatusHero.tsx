@@ -14,6 +14,7 @@ export type FulfillmentState =
 type Props = {
   orderId: string;
   initialState: FulfillmentState | null;
+  isDelivery?: boolean;
 };
 
 const POLL_MS = 5000;
@@ -24,8 +25,19 @@ const TERMINAL: ReadonlySet<FulfillmentState> = new Set([
   "FAILED",
 ]);
 
-export function OrderStatusHero({ orderId, initialState }: Props) {
+type UberStatus =
+  | "pending"
+  | "pickup"
+  | "pickup_complete"
+  | "dropoff"
+  | "delivered"
+  | "canceled"
+  | "failed"
+  | "returned";
+
+export function OrderStatusHero({ orderId, initialState, isDelivery = false }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
+  const [uberStatus, setUberStatus] = useState<UberStatus | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -60,7 +72,35 @@ export function OrderStatusHero({ orderId, initialState }: Props) {
     };
   }, [orderId, state]);
 
-  const ui = stateToUi(state);
+  // Live Uber status (delivery only) — drives finer-grained copy than the
+  // Square fulfillment.state webhook can give us.
+  useEffect(() => {
+    if (!isDelivery) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/orders/${orderId}/delivery-status`, {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { ok: boolean; status?: UberStatus };
+        if (!cancelled && data.ok && data.status) setUberStatus(data.status);
+      } catch {
+        // Ignore — next tick retries.
+      }
+    };
+    tick();
+    const id = setInterval(tick, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [orderId, isDelivery]);
+
+  const ui =
+    isDelivery && uberStatus
+      ? uberStatusToUi(uberStatus)
+      : stateToUi(state, isDelivery);
 
   return (
     <>
@@ -101,19 +141,76 @@ type Ui = {
   icon: React.ReactNode;
 };
 
-function stateToUi(state: FulfillmentState | null): Ui {
+function uberStatusToUi(status: UberStatus): Ui {
+  switch (status) {
+    case "pending":
+      return {
+        heading: "Order Confirmed — Finding Driver",
+        body: "We're matching your order with a nearby driver. This usually takes under a minute.",
+        headingColor: "#5B7A52",
+        iconBg: "#D5E3D0",
+        icon: <CheckIcon color="#5B7A52" />,
+      };
+    case "pickup":
+      return {
+        heading: "Driver On The Way to Shop",
+        body: "Your driver is heading to Mandy's to pick up your order.",
+        headingColor: BRAND.primaryColor,
+        iconBg: "#FDE5DD",
+        icon: <BagIcon color={BRAND.primaryColor} />,
+      };
+    case "pickup_complete":
+      return {
+        heading: "Picked Up!",
+        body: "Your driver has your order and is leaving the shop now.",
+        headingColor: BRAND.primaryColor,
+        iconBg: "#FDE5DD",
+        icon: <BagIcon color={BRAND.primaryColor} />,
+      };
+    case "dropoff":
+      return {
+        heading: "On The Way to You!",
+        body: "Your driver is en route. Track them on the map below.",
+        headingColor: BRAND.primaryColor,
+        iconBg: "#FDE5DD",
+        icon: <BagIcon color={BRAND.primaryColor} />,
+      };
+    case "delivered":
+      return {
+        heading: "Delivered",
+        body: "Enjoy your drink! Thanks for ordering from Mandy's.",
+        headingColor: "#5B7A52",
+        iconBg: "#D5E3D0",
+        icon: <CheckIcon color="#5B7A52" />,
+      };
+    case "canceled":
+    case "failed":
+    case "returned":
+      return {
+        heading: "Delivery Canceled",
+        body: "This delivery was canceled. If you were charged, refunds will appear in 3–5 days.",
+        headingColor: "#6B7280",
+        iconBg: "#E5E7EB",
+        icon: <XIcon color="#6B7280" />,
+      };
+  }
+}
+
+function stateToUi(state: FulfillmentState | null, isDelivery: boolean): Ui {
   switch (state) {
     case "PREPARED":
       return {
-        heading: "Ready for Pickup!",
-        body: "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
+        heading: isDelivery ? "Out for Delivery!" : "Ready for Pickup!",
+        body: isDelivery
+          ? "Your driver is on the way. Tap the tracking link below to follow along."
+          : "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
         headingColor: BRAND.primaryColor,
         iconBg: "#FDE5DD",
         icon: <BagIcon color={BRAND.primaryColor} />,
       };
     case "COMPLETED":
       return {
-        heading: "Picked Up",
+        heading: isDelivery ? "Delivered" : "Picked Up",
         body: "Enjoy your drink! Thanks for visiting Mandy's Bubble Tea.",
         headingColor: "#5B7A52",
         iconBg: "#D5E3D0",
@@ -132,8 +229,10 @@ function stateToUi(state: FulfillmentState | null): Ui {
     case "RESERVED":
     default:
       return {
-        heading: "Ready for Pickup Soon!",
-        body: "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
+        heading: isDelivery ? "Order Confirmed — Dispatching Driver" : "Ready for Pickup Soon!",
+        body: isDelivery
+          ? "We're sending your order to a driver. You'll get a tracking link once they're on the way."
+          : "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
         headingColor: "#5B7A52",
         iconBg: "#D5E3D0",
         icon: <CheckIcon color="#5B7A52" />,

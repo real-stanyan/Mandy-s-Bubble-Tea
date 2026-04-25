@@ -51,6 +51,24 @@ export type CreateDeliveryResultErr = {
 
 export type CreateDeliveryResult = CreateDeliveryResultOk | CreateDeliveryResultErr;
 
+export type DeliveryDetail = {
+  status: UberDeliveryStatus;
+  trackingUrl: string;
+  pickupEta: string | null;   // ISO
+  dropoffEta: string | null;  // ISO
+  pickup: { lat: number; lng: number } | null;
+  dropoff: { lat: number; lng: number } | null;
+  courier: {
+    name: string | null;
+    phone: string | null;
+    vehicleMake: string | null;
+    vehicleModel: string | null;
+    vehicleColor: string | null;
+    location: { lat: number; lng: number } | null;
+    imgHref: string | null;
+  } | null;
+};
+
 export type UberDeliveryStatus =
   | "pending"
   | "pickup"
@@ -84,6 +102,76 @@ function mockQuote(req: QuoteRequest): QuoteResult {
     quoteId: `mock_quote_${Date.now().toString(36)}`,
     etaMin: 25,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+  };
+}
+
+// Mock delivery state machine — derives a status from how long the
+// delivery id has existed, so the UI can show progression while testing
+// without a real Uber merchant account.
+// Per-deliveryId "first seen" timestamps so the mock animation always
+// starts from t=0 on the first poll of a session. Without this, opening
+// the order page after the 60s window leaves you on "delivered" and the
+// rider never appears to move.
+const mockSessionStart = new Map<string, number>();
+function mockGetDelivery(deliveryId: string): DeliveryDetail {
+  let ts = mockSessionStart.get(deliveryId);
+  if (!ts) {
+    ts = Date.now();
+    mockSessionStart.set(deliveryId, ts);
+  }
+  const ageSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  // Compressed mock timeline: ~60s total so devs can see all phases quickly.
+  const status: UberDeliveryStatus =
+    ageSec < 8
+      ? "pending"
+      : ageSec < 22
+        ? "pickup"
+        : ageSec < 30
+          ? "pickup_complete"
+          : ageSec < 55
+            ? "dropoff"
+            : "delivered";
+
+  // Pickup = store. Dropoff = ~1km north. Courier interpolates between
+  // a depot start, the pickup, then the dropoff over the 240s lifecycle.
+  const pickup = { lat: -28.0084, lng: 153.4116 };
+  const dropoff = { lat: -27.9990, lng: 153.4150 };
+  const depot = { lat: -28.0150, lng: 153.4050 };
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.min(1, Math.max(0, t));
+  let courierLoc: { lat: number; lng: number };
+  if (status === "pickup") {
+    const t = (ageSec - 8) / 14;
+    courierLoc = { lat: lerp(depot.lat, pickup.lat, t), lng: lerp(depot.lng, pickup.lng, t) };
+  } else if (status === "pickup_complete") {
+    courierLoc = pickup;
+  } else if (status === "dropoff") {
+    const t = (ageSec - 30) / 25;
+    courierLoc = { lat: lerp(pickup.lat, dropoff.lat, t), lng: lerp(pickup.lng, dropoff.lng, t) };
+  } else if (status === "delivered") {
+    courierLoc = dropoff;
+  } else {
+    courierLoc = depot;
+  }
+
+  return {
+    status,
+    trackingUrl: `https://mock.uber.com/track/${deliveryId}`,
+    pickupEta: new Date(ts + 22_000).toISOString(),
+    dropoffEta: new Date(ts + 55_000).toISOString(),
+    pickup,
+    dropoff,
+    courier:
+      status === "pending"
+        ? null
+        : {
+            name: "Alex",
+            phone: "+61400000000",
+            vehicleMake: "Toyota",
+            vehicleModel: "Corolla",
+            vehicleColor: "White",
+            location: courierLoc,
+            imgHref: null,
+          },
   };
 }
 
@@ -231,6 +319,53 @@ async function realCreateDelivery(
   return { ok: true, deliveryId: data.id, trackingUrl: data.tracking_url };
 }
 
+async function realGetDelivery(deliveryId: string): Promise<DeliveryDetail> {
+  const token = await getOAuthToken();
+  const customerId = process.env.UBER_DIRECT_CUSTOMER_ID;
+  if (!customerId) throw new Error("UBER_DIRECT_CUSTOMER_ID not configured");
+  const res = await fetch(
+    `${uberApiBase()}/v1/customers/${customerId}/deliveries/${deliveryId}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`Uber getDelivery failed: ${res.status}`);
+  const data = (await res.json()) as {
+    status: UberDeliveryStatus;
+    tracking_url?: string;
+    pickup_eta?: string;
+    dropoff_eta?: string;
+    pickup?: { location?: { lat: number; lng: number } };
+    dropoff?: { location?: { lat: number; lng: number } };
+    courier?: {
+      name?: string;
+      phone_number?: string;
+      vehicle_make?: string;
+      vehicle_model?: string;
+      vehicle_color?: string;
+      location?: { lat: number; lng: number };
+      img_href?: string;
+    };
+  };
+  return {
+    status: data.status,
+    trackingUrl: data.tracking_url ?? "",
+    pickupEta: data.pickup_eta ?? null,
+    dropoffEta: data.dropoff_eta ?? null,
+    pickup: data.pickup?.location ?? null,
+    dropoff: data.dropoff?.location ?? null,
+    courier: data.courier
+      ? {
+          name: data.courier.name ?? null,
+          phone: data.courier.phone_number ?? null,
+          vehicleMake: data.courier.vehicle_make ?? null,
+          vehicleModel: data.courier.vehicle_model ?? null,
+          vehicleColor: data.courier.vehicle_color ?? null,
+          location: data.courier.location ?? null,
+          imgHref: data.courier.img_href ?? null,
+        }
+      : null,
+  };
+}
+
 // ---- Public API -----------------------------------------------------------
 
 export async function quoteDelivery(req: QuoteRequest): Promise<QuoteResult> {
@@ -241,6 +376,11 @@ export async function quoteDelivery(req: QuoteRequest): Promise<QuoteResult> {
 export async function createDelivery(req: CreateDeliveryRequest): Promise<CreateDeliveryResult> {
   if (getMode() === "mock") return mockCreateDelivery(req);
   return realCreateDelivery(req);
+}
+
+export async function getDelivery(deliveryId: string): Promise<DeliveryDetail> {
+  if (getMode() === "mock") return mockGetDelivery(deliveryId);
+  return realGetDelivery(deliveryId);
 }
 
 // HMAC-SHA256 webhook signature check. Constant-time compare to dodge

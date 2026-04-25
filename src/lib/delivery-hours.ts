@@ -12,6 +12,14 @@ function brisbaneHourDecimal(now: Date): number {
 // Open at 11:00, close at 21:30 (close is exclusive — at 21:30 the
 // shop stops accepting new delivery orders for the day).
 export function isDeliveryHoursOpen(now: Date = new Date()): boolean {
+  // Dev-only escape hatch — guarded by NODE_ENV so an accidental set on
+  // a production deploy can't silently disable the hours check.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.NEXT_PUBLIC_DELIVERY_BYPASS_HOURS === "true"
+  ) {
+    return true;
+  }
   const h = brisbaneHourDecimal(now);
   return h >= DELIVERY.hoursOpen && h < DELIVERY.hoursClose;
 }

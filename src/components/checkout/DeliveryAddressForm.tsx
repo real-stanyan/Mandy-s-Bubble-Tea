@@ -42,9 +42,11 @@ declare global {
 }
 
 // Loads the Google Places script once per page. Idempotent — multiple
-// instances of this form share the same `<script>` tag.
+// instances of this form share the same `<script>` tag. No-op when the
+// API key is missing, so the form degrades to a plain text input.
 function ensureGoogleScript() {
   if (typeof window === "undefined") return;
+  if (!PLACES_KEY) return;
   if (window.google?.maps?.places) return;
   if (document.getElementById("google-places-sdk")) return;
   const s = document.createElement("script");
@@ -69,6 +71,7 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
   }, [value, onChange]);
 
   useEffect(() => {
+    if (!PLACES_KEY) return;
     ensureGoogleScript();
     let cancelled = false;
     const tryAttach = () => {
@@ -111,8 +114,26 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
           type="text"
           placeholder="Start typing your address…"
           defaultValue={value.address}
+          onChange={
+            PLACES_KEY
+              ? undefined
+              : (e) =>
+                  onChange({
+                    ...value,
+                    address: e.target.value,
+                    // Dev fallback: store coords so the radius check passes
+                    // and mock quotes resolve. Real prod uses Places autocomplete.
+                    lat: -28.0084,
+                    lng: 153.4116,
+                  })
+          }
           className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
         />
+        {!PLACES_KEY && (
+          <p className="mt-1 text-xs text-amber-700">
+            Google Places key missing — autocomplete disabled (dev mode).
+          </p>
+        )}
       </div>
 
       <div>

@@ -11,6 +11,7 @@ import {
   OrderStatusHero,
   type FulfillmentState,
 } from "./OrderStatusHero";
+import { LiveDeliveryStatus } from "@/components/order/LiveDeliveryStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -161,14 +162,16 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
 
   return (
     <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8 sm:px-6 sm:py-12">
-      <OrderStatusHero orderId={orderId} initialState={initialState} />
+      <OrderStatusHero orderId={orderId} initialState={initialState} isDelivery={isDelivery} />
+
+      {isDelivery && <LiveDeliveryStatus orderId={orderId} />}
 
       {/* Pickup number — big, so staff and customer can match on it */}
       <div
         className="mb-6 rounded-2xl border border-black/5 bg-white p-5 text-center shadow-sm"
       >
         <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-          Your Pickup Number
+          {isDelivery ? "Your Order Number" : "Your Pickup Number"}
         </p>
         <p
           className="mt-1 text-5xl font-extrabold tracking-tight sm:text-6xl"
