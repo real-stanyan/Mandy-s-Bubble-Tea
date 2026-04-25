@@ -44,7 +44,7 @@ export function StoreInfo() {
             className="text-ink2"
             style={{ fontSize: 13, lineHeight: "18px" }}
           >
-            Mon–Sun · 10:00 am – 10:30 pm
+            Mon–Sun · 10:30 am – 10:30 pm
           </span>
         </div>
       </div>
