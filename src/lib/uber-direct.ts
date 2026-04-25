@@ -100,17 +100,135 @@ function mockCreateDelivery(req: CreateDeliveryRequest): CreateDeliveryResult {
 }
 
 // ---- Real Uber Direct API (sandbox + production) -------------------------
-// Phase 4 wires these. Stubs left in place for typecheck.
 
-async function realQuote(_req: QuoteRequest): Promise<QuoteResult> {
-  // TODO Phase 4: POST /v1/customers/{customer_id}/delivery_quotes
-  // with OAuth bearer token (cached per Edge runtime).
-  throw new Error("uber-direct: real API not yet wired (Phase 4)");
+type CachedToken = { token: string; expiresAt: number };
+let cachedToken: CachedToken | null = null;
+
+async function getOAuthToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) {
+    return cachedToken.token;
+  }
+  const clientId = process.env.UBER_DIRECT_CLIENT_ID;
+  const clientSecret = process.env.UBER_DIRECT_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("Uber Direct credentials not configured");
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "client_credentials",
+    scope: "eats.deliveries",
+  });
+  const res = await fetch("https://login.uber.com/oauth/v2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  if (!res.ok) throw new Error(`Uber OAuth failed: ${res.status}`);
+  const data = (await res.json()) as { access_token: string; expires_in: number };
+  cachedToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
+  return data.access_token;
 }
 
-async function realCreateDelivery(_req: CreateDeliveryRequest): Promise<CreateDeliveryResult> {
-  // TODO Phase 4: POST /v1/customers/{customer_id}/deliveries with quote_id.
-  throw new Error("uber-direct: real API not yet wired (Phase 4)");
+function uberApiBase(): string {
+  return process.env.UBER_DIRECT_MODE === "production"
+    ? "https://api.uber.com"
+    : "https://sandbox-api.uber.com";
+}
+
+const PICKUP_ADDRESS_JSON = JSON.stringify({
+  street_address: ["34 Davenport St"],
+  city: "Southport",
+  state: "QLD",
+  zip_code: "4215",
+  country: "AU",
+});
+const PICKUP_BUSINESS_NAME = "Mandy's Bubble Tea";
+const PICKUP_PHONE = "+61404978238";
+
+async function realQuote(req: QuoteRequest): Promise<QuoteResult> {
+  const token = await getOAuthToken();
+  const customerId = process.env.UBER_DIRECT_CUSTOMER_ID;
+  if (!customerId) throw new Error("UBER_DIRECT_CUSTOMER_ID not configured");
+
+  const res = await fetch(
+    `${uberApiBase()}/v1/customers/${customerId}/delivery_quotes`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pickup_address: PICKUP_ADDRESS_JSON,
+        dropoff_address: JSON.stringify({
+          street_address: [req.dropoffAddress],
+          country: "AU",
+        }),
+        dropoff_phone_number: req.dropoffPhone,
+        manifest_total_value: req.orderValueCents,
+      }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text();
+    if (res.status === 422) return { ok: false, reason: "out_of_zone", detail };
+    if (res.status === 503) return { ok: false, reason: "no_driver", detail };
+    return { ok: false, reason: "internal", detail };
+  }
+  const data = (await res.json()) as {
+    id: string;
+    duration: number; // seconds
+    expires: string;
+  };
+  return {
+    ok: true,
+    quoteId: data.id,
+    etaMin: Math.round(data.duration / 60),
+    expiresAt: data.expires,
+  };
+}
+
+async function realCreateDelivery(
+  req: CreateDeliveryRequest,
+): Promise<CreateDeliveryResult> {
+  const token = await getOAuthToken();
+  const customerId = process.env.UBER_DIRECT_CUSTOMER_ID;
+  if (!customerId) throw new Error("UBER_DIRECT_CUSTOMER_ID not configured");
+
+  const res = await fetch(
+    `${uberApiBase()}/v1/customers/${customerId}/deliveries`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        quote_id: req.quoteId,
+        external_id: req.externalOrderId,
+        pickup_business_name: PICKUP_BUSINESS_NAME,
+        pickup_phone_number: PICKUP_PHONE,
+        pickup_notes: req.pickupNote,
+        dropoff_notes: req.dropoffNote,
+      }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text();
+    return {
+      ok: false,
+      status: res.status,
+      retryable: res.status >= 500 || res.status === 429,
+      detail,
+    };
+  }
+  const data = (await res.json()) as { id: string; tracking_url: string };
+  return { ok: true, deliveryId: data.id, trackingUrl: data.tracking_url };
 }
 
 // ---- Public API -----------------------------------------------------------
