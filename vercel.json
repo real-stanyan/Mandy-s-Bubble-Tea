@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/heartbeat-check",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/uber-status-sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
