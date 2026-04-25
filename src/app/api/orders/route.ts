@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import type { Currency } from "square";
+import type { Currency, OrderServiceCharge } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE } from "@/lib/constants";
+import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, SERVICE_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
+import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
+import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -44,6 +47,15 @@ type CreateOrderBody = {
    *  way applyWelcomeDiscount is — abuse risk is ~1.9% per order, same
    *  order of magnitude as welcome-discount gaming. */
   applyLoyaltyReward?: boolean;
+  fulfillmentType?: "PICKUP" | "DELIVERY";
+  delivery?: {
+    address: string;
+    lat: number;
+    lng: number;
+    unit?: string;
+    driverNote?: string;
+    quoteId: string;
+  };
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -62,7 +74,16 @@ function isValidBody(body: unknown): body is CreateOrderBody {
         typeof m.id === "string" &&
         typeof m.priceCents === "number",
     );
-  });
+  }) && (() => {
+    if (b.fulfillmentType === "DELIVERY") {
+      if (!b.delivery || typeof b.delivery !== "object") return false;
+      const d = b.delivery;
+      if (typeof d.address !== "string" || d.address.length < 5) return false;
+      if (typeof d.lat !== "number" || typeof d.lng !== "number") return false;
+      if (typeof d.quoteId !== "string" || d.quoteId.length === 0) return false;
+    }
+    return true;
+  })();
 }
 
 export async function POST(request: Request) {
@@ -177,6 +198,55 @@ export async function POST(request: Request) {
     modifiers: dedupeLineModifiers(line.modifiers),
   }));
 
+  // Server-authoritative drinks subtotal (cents). Computed from client-sent
+  // unit prices the same way welcome-discount math does — the prices came from
+  // our catalog API at add-to-cart time, so trust-but-bound is acceptable.
+  const drinksSubtotalCents: bigint = body.lines.reduce((sum, line) => {
+    const modSum = line.modifiers.reduce(
+      (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
+      0n,
+    );
+    const unit =
+      BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
+    return sum + unit * BigInt(Math.max(1, line.quantity));
+  }, 0n);
+
+  const isDelivery = body.fulfillmentType === "DELIVERY";
+
+  // Delivery prerequisites — eligibility, hours, radius. These run regardless
+  // of free-redeem because they're not surcharges, they're "is this even a
+  // valid order" gates. A loyalty reward doesn't waive the radius/hours rules.
+  if (isDelivery && body.delivery) {
+    if (!isDeliveryEligible(drinksSubtotalCents)) {
+      return NextResponse.json(
+        { ok: false, error: "Below minimum order for delivery" },
+        { status: 400 },
+      );
+    }
+    if (!isDeliveryHoursOpen()) {
+      return NextResponse.json(
+        { ok: false, error: "Outside delivery hours" },
+        { status: 400 },
+      );
+    }
+    if (
+      !isWithinDeliveryRadius(STORE_COORDS, {
+        lat: body.delivery.lat,
+        lng: body.delivery.lng,
+      })
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Address out of delivery range" },
+        { status: 400 },
+      );
+    }
+  } else if (isDelivery && !body.delivery) {
+    return NextResponse.json(
+      { ok: false, error: "Delivery details missing" },
+      { status: 400 },
+    );
+  }
+
   // Pickup ASAP — pickupAt is required by Square even for ASAP orders,
   // so we use "now" as a reasonable approximation.
   const pickupAt = new Date().toISOString();
@@ -266,13 +336,7 @@ export async function POST(request: Request) {
     const activePH = getActivePublicHoliday(new Date());
     const skipSurcharges = body.applyLoyaltyReward === true;
 
-    const orderServiceCharges: Array<{
-      uid: string;
-      name: string;
-      percentage: string;
-      calculationPhase: "SUBTOTAL_PHASE";
-      taxable: boolean;
-    }> = [];
+    const orderServiceCharges: OrderServiceCharge[] = [];
 
     if (!skipSurcharges && activePH) {
       console.log(`[orders] PH surcharge attached: ${activePH.name}`);
@@ -295,6 +359,31 @@ export async function POST(request: Request) {
       });
     }
 
+    // Delivery + service fees only when DELIVERY mode AND not a free-redeem.
+    // Both are SUBTOTAL_PHASE amount-money charges on the line-item subtotal.
+    if (isDelivery && !skipSurcharges) {
+      const fee = deliveryFeeCents(drinksSubtotalCents);
+      if (fee > 0n) {
+        orderServiceCharges.push({
+          uid: "delivery-fee",
+          name: DELIVERY_FEE_NAME,
+          amountMoney: { amount: fee, currency: BUSINESS.currency as Currency },
+          calculationPhase: "SUBTOTAL_PHASE",
+          taxable: false,
+        });
+      }
+      const svc = serviceFeeCents(drinksSubtotalCents);
+      if (svc > 0n) {
+        orderServiceCharges.push({
+          uid: "service-fee",
+          name: `${SERVICE_FEE.name} (${SERVICE_FEE.percentage}%)`,
+          amountMoney: { amount: svc, currency: BUSINESS.currency as Currency },
+          calculationPhase: "SUBTOTAL_PHASE",
+          taxable: false,
+        });
+      }
+    }
+
     const response = await squareClient.orders.create({
       idempotencyKey: randomUUID(),
       order: {
@@ -310,27 +399,56 @@ export async function POST(request: Request) {
         // applied. taxable:false → menu items are already GST-inclusive;
         // these are pass-through fees listed separately.
         serviceCharges: orderServiceCharges.length > 0 ? orderServiceCharges : undefined,
-        fulfillments: [
-          {
-            type: "PICKUP",
-            state: "PROPOSED",
-            pickupDetails: {
-              scheduleType: "ASAP",
-              pickupAt,
-              recipient: {
-                customerId,
-                displayName: pickupNumber,
-                phoneNumber: recipientPhone,
+        fulfillments: isDelivery && body.delivery
+          ? [
+              {
+                type: "DELIVERY" as const,
+                state: "PROPOSED" as const,
+                deliveryDetails: {
+                  scheduleType: "ASAP" as const,
+                  placedAt: new Date().toISOString(),
+                  recipient: {
+                    customerId,
+                    displayName: pickupNumber,
+                    phoneNumber: recipientPhone,
+                  },
+                  note: [pickupNumber, body.note, body.delivery.driverNote]
+                    .filter(Boolean)
+                    .join(" — "),
+                },
               },
-              note: [pickupNumber, body.note].filter(Boolean).join(" — "),
-            },
-          },
-        ],
+            ]
+          : [
+              {
+                type: "PICKUP" as const,
+                state: "PROPOSED" as const,
+                pickupDetails: {
+                  scheduleType: "ASAP" as const,
+                  pickupAt,
+                  recipient: {
+                    customerId,
+                    displayName: pickupNumber,
+                    phoneNumber: recipientPhone,
+                  },
+                  note: [pickupNumber, body.note].filter(Boolean).join(" — "),
+                },
+              },
+            ],
         metadata: {
           source: "web",
           site: BUSINESS.domain,
           ...(welcomeDrinksCovered > 0
             ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
+            : {}),
+          ...(isDelivery && body.delivery
+            ? {
+                delivery_address: body.delivery.unit
+                  ? `${body.delivery.unit}, ${body.delivery.address}`
+                  : body.delivery.address,
+                delivery_lat: String(body.delivery.lat),
+                delivery_lng: String(body.delivery.lng),
+                delivery_quote_id: body.delivery.quoteId,
+              }
             : {}),
         },
       },
