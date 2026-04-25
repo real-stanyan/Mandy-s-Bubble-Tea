@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, Check } from "lucide-react";
+import { Plus } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-import { useCart } from "@/store/cart";
 import type { ProductRowData } from "@/components/menu/ProductRow";
 
 export function ProductCard({ item }: { item: ProductRowData }) {
   const router = useRouter();
-  const addLine = useCart((s) => s.addLine);
-  const [justAdded, setJustAdded] = useState(false);
 
   const showVariationSubtitle =
     item.variationLabel && item.variationLabel.toLowerCase() !== "regular";
@@ -21,20 +17,9 @@ export function ProductCard({ item }: { item: ProductRowData }) {
     router.push(`/menu/${item.categorySlug}/${item.id}`);
   }
 
-  function quickAdd(e: React.MouseEvent) {
+  function openItemFromButton(e: React.MouseEvent) {
     e.stopPropagation();
-    if (item.soldOut || !item.defaultVariation) return;
-    addLine({
-      itemId: item.id,
-      itemName: item.name,
-      itemImageUrl: item.imageUrl,
-      variationId: item.defaultVariation.id,
-      variationName: item.defaultVariation.name,
-      variationPriceCents: BigInt(item.defaultVariation.priceCents),
-      modifiers: [],
-    });
-    setJustAdded(true);
-    window.setTimeout(() => setJustAdded(false), 420);
+    openItem();
   }
 
   return (
@@ -108,26 +93,18 @@ export function ProductCard({ item }: { item: ProductRowData }) {
           )}
           <button
             type="button"
-            onClick={quickAdd}
-            disabled={item.soldOut || !item.defaultVariation}
-            aria-label={`Quick add ${item.name} to cart`}
+            onClick={openItemFromButton}
+            disabled={item.soldOut}
+            aria-label={`Customize ${item.name}`}
+            tabIndex={-1}
             className={
               "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition " +
-              (item.soldOut || !item.defaultVariation
+              (item.soldOut
                 ? "bg-ink4 cursor-not-allowed"
                 : "bg-brand hover:bg-brand-dark active:scale-90")
             }
           >
-            <Plus
-              size={18}
-              className="absolute text-white transition-opacity"
-              style={{ opacity: justAdded ? 0 : 1 }}
-            />
-            <Check
-              size={18}
-              className="absolute text-white transition-opacity"
-              style={{ opacity: justAdded ? 1 : 0 }}
-            />
+            <Plus size={18} className="text-white" />
           </button>
         </div>
       </div>
