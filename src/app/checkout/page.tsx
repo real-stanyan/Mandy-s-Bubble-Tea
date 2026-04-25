@@ -16,6 +16,11 @@ import {
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
+import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
+import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
+import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
+import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
@@ -139,6 +144,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [fulfillment, setFulfillment] = useState<FulfillmentType>("PICKUP");
+  const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddress>({
+    address: "",
+    lat: 0,
+    lng: 0,
+    unit: "",
+    driverNote: "",
+    phone: profile.phone_e164,
+  });
+  const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "idle" });
+  const [hoursOpen, setHoursOpen] = useState(() => isDeliveryHoursOpen());
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
@@ -193,6 +209,69 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     const id = setInterval(() => setPhActive(isPublicHolidayActive()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Re-check delivery hours every 60s so a session stays accurate across the
+  // 11:00 / 21:30 boundaries.
+  useEffect(() => {
+    const id = setInterval(() => setHoursOpen(isDeliveryHoursOpen()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Trigger quote when address + lat/lng + phone are populated and we're in DELIVERY mode.
+  useEffect(() => {
+    if (fulfillment !== "DELIVERY") {
+      setQuoteState({ kind: "idle" });
+      return;
+    }
+    if (!deliveryAddress.lat || !deliveryAddress.lng || !deliveryAddress.address) {
+      setQuoteState({ kind: "idle" });
+      return;
+    }
+    if (!hoursOpen) {
+      setQuoteState({ kind: "error", message: "Delivery hours: 11am–9:30pm" });
+      return;
+    }
+    if (!isDeliveryEligible(subtotal)) {
+      setQuoteState({ kind: "error", message: "Add more to qualify for delivery" });
+      return;
+    }
+    setQuoteState({ kind: "loading" });
+    let cancelled = false;
+    fetch("/api/delivery/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        address: deliveryAddress.address,
+        lat: deliveryAddress.lat,
+        lng: deliveryAddress.lng,
+        unit: deliveryAddress.unit,
+        driverNote: deliveryAddress.driverNote,
+        drinksSubtotalCents: Number(subtotal),
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok) {
+          setQuoteState({ kind: "ok", etaMin: data.etaMin, expiresAt: data.expiresAt });
+        } else {
+          const map: Record<string, string> = {
+            out_of_zone: "Sorry, we don't deliver to that address",
+            no_driver: "No driver available right now — try pickup or check back",
+            closed: "Delivery hours: 11am–9:30pm",
+            min_order: "Add more to qualify for delivery",
+            auth: "Sign in to get a delivery quote",
+          };
+          setQuoteState({ kind: "error", message: map[data.reason] ?? "Delivery unavailable" });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setQuoteState({ kind: "error", message: "Couldn't reach delivery service" });
+      });
+    return () => { cancelled = true; };
+  }, [fulfillment, deliveryAddress, hoursOpen, subtotal]);
+
   const phSurchargeAmount = useMemo(
     () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
     [phActive, subtotal],
@@ -771,6 +850,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </label>
           </section>
 
+          {/* Fulfillment + delivery quote */}
+          <FulfillmentSelector
+            value={fulfillment}
+            onChange={setFulfillment}
+            drinksSubtotalCents={subtotal}
+          />
+
+          {fulfillment === "DELIVERY" && (
+            <div className="space-y-3">
+              <DeliveryAddressForm
+                value={deliveryAddress}
+                onChange={setDeliveryAddress}
+                defaultPhone={profile.phone_e164}
+              />
+              <DeliveryQuoteCard state={quoteState} />
+            </div>
+          )}
+
           {/* Payment Method — hidden when the reward fully covers the order */}
           {!isFreeRedeem && (
             <>
@@ -963,7 +1060,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+                  : !googlePayAvailable)) ||
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: BRAND.primaryColor }}
@@ -1022,7 +1120,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+                  : !googlePayAvailable)) ||
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               payMethod === "apple"
