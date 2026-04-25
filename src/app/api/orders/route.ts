@@ -8,6 +8,7 @@ import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
+import { dedupeLineModifiers } from "@/lib/order-modifiers";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -173,9 +174,7 @@ export async function POST(request: Request) {
   const lineItems = body.lines.map((line) => ({
     quantity: String(line.quantity),
     catalogObjectId: line.variationId,
-    modifiers: line.modifiers.map((m) => ({
-      catalogObjectId: m.id,
-    })),
+    modifiers: dedupeLineModifiers(line.modifiers),
   }));
 
   // Pickup ASAP — pickupAt is required by Square even for ASAP orders,
