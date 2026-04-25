@@ -253,7 +253,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       .then((data) => {
         if (cancelled) return;
         if (data.ok) {
-          setQuoteState({ kind: "ok", etaMin: data.etaMin, expiresAt: data.expiresAt });
+          setQuoteState({ kind: "ok", quoteId: data.quoteId, etaMin: data.etaMin, expiresAt: data.expiresAt });
         } else {
           const map: Record<string, string> = {
             out_of_zone: "Sorry, we don't deliver to that address",
@@ -261,6 +261,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             closed: "Delivery hours: 11am–9:30pm",
             min_order: "Add more to qualify for delivery",
             auth: "Sign in to get a delivery quote",
+            invalid_body: "Address looks invalid — try a fuller address",
+            invalid_json: "Address looks invalid — try a fuller address",
           };
           setQuoteState({ kind: "error", message: map[data.reason] ?? "Delivery unavailable" });
         }
@@ -543,6 +545,18 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
           applyLoyaltyReward: isFreeRedeem,
+          fulfillmentType: fulfillment,
+          delivery:
+            fulfillment === "DELIVERY" && quoteState.kind === "ok"
+              ? {
+                  address: deliveryAddress.address,
+                  lat: deliveryAddress.lat,
+                  lng: deliveryAddress.lng,
+                  unit: deliveryAddress.unit || undefined,
+                  driverNote: deliveryAddress.driverNote || undefined,
+                  quoteId: quoteState.quoteId,
+                }
+              : undefined,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -684,6 +698,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       >
         {/* ── Left column ── */}
         <div className="space-y-5 sm:space-y-6">
+          {/* Fulfillment + delivery quote */}
+          <FulfillmentSelector
+            value={fulfillment}
+            onChange={setFulfillment}
+            drinksSubtotalCents={subtotal}
+          />
+
+          {fulfillment === "DELIVERY" && (
+            <div className="space-y-3">
+              <DeliveryAddressForm
+                value={deliveryAddress}
+                onChange={setDeliveryAddress}
+                defaultPhone={profile.phone_e164}
+              />
+              <DeliveryQuoteCard state={quoteState} />
+            </div>
+          )}
+
           {/* Rewards Progress */}
           <section
             className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
@@ -892,24 +924,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               />
             </label>
           </section>
-
-          {/* Fulfillment + delivery quote */}
-          <FulfillmentSelector
-            value={fulfillment}
-            onChange={setFulfillment}
-            drinksSubtotalCents={subtotal}
-          />
-
-          {fulfillment === "DELIVERY" && (
-            <div className="space-y-3">
-              <DeliveryAddressForm
-                value={deliveryAddress}
-                onChange={setDeliveryAddress}
-                defaultPhone={profile.phone_e164}
-              />
-              <DeliveryQuoteCard state={quoteState} />
-            </div>
-          )}
 
           {/* Payment Method — hidden when the reward fully covers the order */}
           {!isFreeRedeem && (

@@ -3,7 +3,7 @@
 export type QuoteState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ok"; etaMin: number; expiresAt: string }
+  | { kind: "ok"; quoteId: string; etaMin: number; expiresAt: string }
   | { kind: "error"; message: string };
 
 type Props = { state: QuoteState };

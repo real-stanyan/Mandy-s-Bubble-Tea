@@ -19,7 +19,7 @@ function isValidBody(b: unknown): b is QuoteBody {
   const x = b as Partial<QuoteBody>;
   return (
     typeof x.address === "string" &&
-    x.address.length > 5 &&
+    x.address.length >= 3 &&
     typeof x.lat === "number" &&
     typeof x.lng === "number" &&
     typeof x.drinksSubtotalCents === "number"

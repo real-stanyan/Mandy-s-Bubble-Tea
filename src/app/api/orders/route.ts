@@ -78,7 +78,7 @@ function isValidBody(body: unknown): body is CreateOrderBody {
     if (b.fulfillmentType === "DELIVERY") {
       if (!b.delivery || typeof b.delivery !== "object") return false;
       const d = b.delivery;
-      if (typeof d.address !== "string" || d.address.length < 5) return false;
+      if (typeof d.address !== "string" || d.address.length < 3) return false;
       if (typeof d.lat !== "number" || typeof d.lng !== "number") return false;
       if (typeof d.quoteId !== "string" || d.quoteId.length === 0) return false;
     }
@@ -408,7 +408,6 @@ export async function POST(request: Request) {
                 state: "PROPOSED" as const,
                 deliveryDetails: {
                   scheduleType: "ASAP" as const,
-                  placedAt: new Date().toISOString(),
                   recipient: {
                     customerId,
                     displayName: pickupNumber,
