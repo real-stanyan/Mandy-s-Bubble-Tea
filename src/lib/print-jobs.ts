@@ -32,15 +32,25 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   | { queued: false; reason: "not_paid" | "no_line_items" | "conflict" | "error"; detail?: string }
 > {
   // Gate: must be settled. "Settled" is either:
-  //   - has ≥1 tender (a real payment was applied), or
+  //   - has ≥1 successfully-captured tender, or
   //   - state is COMPLETED (covers $0 loyalty redemptions that close
   //     the order without ever creating a tender).
   // Raw `totalCents` alone cannot gate this: a free-drink redemption
   // legitimately totals $0 and still needs a sticker.
+  //
+  // CARD tenders include FAILED/VOIDED entries when a charge was
+  // attempted but didn't go through. Treating any tender presence as
+  // "paid" caused stickers to print on declined-then-retried orders
+  // (the failed tender on the original order ticked the gate, and the
+  // retried order created a separate sticker on success — net result
+  // two cups for one paid drink). Only CAPTURED card tenders count.
   const tenders = order.tenders ?? [];
   const totalCents = order.totalMoney?.amount ?? 0n;
   const isCompleted = order.state === "COMPLETED";
-  if (!assumeSettled && tenders.length === 0 && !isCompleted) {
+  const hasSettledTender = tenders.some((t) =>
+    t.type === "CARD" ? t.cardDetails?.status === "CAPTURED" : true,
+  );
+  if (!assumeSettled && !hasSettledTender && !isCompleted) {
     return { queued: false, reason: "not_paid" };
   }
   const lineItems = order.lineItems ?? [];
