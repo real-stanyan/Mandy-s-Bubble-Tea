@@ -22,8 +22,13 @@ import {
 export const revalidate = 10;
 
 export async function generateStaticParams() {
-  const menu = await getMenu();
-  return menu.categories.map((c) => ({ category: c.slug }));
+  try {
+    const menu = await getMenu();
+    return menu.categories.map((c) => ({ category: c.slug }));
+  } catch (err) {
+    console.error("[menu/[category]] generateStaticParams skipped:", err);
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

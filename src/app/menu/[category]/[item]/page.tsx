@@ -17,15 +17,23 @@ import {
 export const revalidate = 10;
 
 export async function generateStaticParams() {
-  const menu = await getMenu();
-  const params: { category: string; item: string }[] = [];
-  for (const cat of menu.categories) {
-    const items = menu.itemsBySlug.get(cat.slug) ?? [];
-    for (const item of items) {
-      params.push({ category: cat.slug, item: item.id });
+  // Square API blips at build time used to fail the whole Vercel deploy.
+  // Returning [] degrades gracefully — pages still render on first request
+  // (revalidate = 10 caches them after) instead of breaking the deploy.
+  try {
+    const menu = await getMenu();
+    const params: { category: string; item: string }[] = [];
+    for (const cat of menu.categories) {
+      const items = menu.itemsBySlug.get(cat.slug) ?? [];
+      for (const item of items) {
+        params.push({ category: cat.slug, item: item.id });
+      }
     }
+    return params;
+  } catch (err) {
+    console.error("[menu/[category]/[item]] generateStaticParams skipped:", err);
+    return [];
   }
-  return params;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
