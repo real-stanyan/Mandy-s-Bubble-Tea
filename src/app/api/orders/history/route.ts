@@ -124,12 +124,12 @@ export async function GET(request: Request) {
       const firstLine = lineItems[0];
 
       // Staff move an order to "Ready" from the Square dashboard by
-      // updating the PICKUP fulfillment state to PREPARED. The order's
-      // own `state` stays OPEN, so we surface the fulfillment state
+      // updating the fulfillment state to PREPARED. The order's own
+      // `state` stays OPEN, so we surface the fulfillment state
       // separately and let the client promote it to "Ready" in the UI.
-      const pickup = (order.fulfillments ?? []).find(
-        (f) => f.type === "PICKUP",
-      );
+      // Look at the first fulfillment (PICKUP or DELIVERY) regardless of
+      // type — both follow the same state lifecycle.
+      const fulfillment = order.fulfillments?.[0];
 
       return {
         id: order.id,
@@ -137,7 +137,9 @@ export async function GET(request: Request) {
         createdAt: order.createdAt ?? null,
         updatedAt: order.updatedAt ?? null,
         state: order.state ?? null,
-        fulfillmentState: pickup?.state ?? null,
+        fulfillmentState: fulfillment?.state ?? null,
+        fulfillmentType: fulfillment?.type ?? null,
+        uberTrackingUrl: order.metadata?.uber_tracking_url ?? null,
         totalCents: order.totalMoney?.amount?.toString() ?? "0",
         itemSummary: rawLines
           .map((li) => `${li.quantity}× ${li.name ?? "Item"}`)
