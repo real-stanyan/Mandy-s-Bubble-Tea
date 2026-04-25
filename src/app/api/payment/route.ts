@@ -247,20 +247,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // Consume the welcome discount if this order had one applied.
-    // We inspect the order we already fetched (orderResponse.order.discounts)
-    // instead of trusting the client, so this runs for every paid order
-    // whose Square order carries the "welcome-discount" uid.
-    // Decrement the welcome-drinks counter by exactly the number of drinks
-    // this order consumed (stamped into metadata by /api/orders). Missing or
-    // malformed metadata defaults to 0 — we never consume more than /api/orders
-    // asked us to, so a client-side tamper can't drain a user's allowance.
+    // Consume the welcome discount if this order had one applied AND the
+    // payment actually went through. A flaky network or a non-throwing
+    // failure status from Square (e.g. payment.status === "FAILED") must
+    // not burn the customer's discount — they didn't pay anything.
+    //
+    // Settled = card charge returned status COMPLETED, OR this was a $0
+    // order closed via orders.pay (which doesn't throw if it fails — but
+    // if it had thrown we'd already be in the outer catch).
     let welcomeDiscountConsumedCount = 0;
     let welcomeDrinksRemaining: number | null = null;
+    const paymentSettled =
+      amount > 0n ? paymentStatus === "COMPLETED" : true;
     const hadWelcomeDiscount = (order.discounts ?? []).some(
       (d) => d.uid === "welcome-discount",
     );
-    if (hadWelcomeDiscount) {
+    if (paymentSettled && hadWelcomeDiscount) {
       const rawCovered = order.metadata?.welcomeDiscountDrinksCovered;
       const parsedCovered = rawCovered ? parseInt(rawCovered, 10) : 0;
       const coveredCount =
@@ -274,6 +276,11 @@ export async function POST(request: Request) {
         welcomeDiscountConsumedCount = result.consumedCount;
         welcomeDrinksRemaining = result.drinksRemaining;
       }
+    }
+    if (amount > 0n && !paymentSettled) {
+      console.warn(
+        `[payment] payment ${paymentId} did not settle (status=${paymentStatus}); welcome discount preserved`,
+      );
     }
 
     return NextResponse.json({
