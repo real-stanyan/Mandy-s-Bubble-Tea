@@ -15,12 +15,12 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, SERVICE_FEE } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { isDeliveryEligible } from "@/lib/delivery-fee";
+import { isDeliveryEligible, deliveryFeeCents, serviceFeeCents } from "@/lib/delivery-fee";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
@@ -277,6 +277,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     [phActive, subtotal],
   );
 
+  // Delivery + service fees — only displayed (and added to total) when DELIVERY is chosen.
+  // Both are SUBTOTAL_PHASE service charges on the server (T18+), so client mirrors that math.
+  const deliveryFeeAmount = useMemo(
+    () => (fulfillment === "DELIVERY" ? deliveryFeeCents(subtotal) : 0n),
+    [fulfillment, subtotal],
+  );
+  const serviceFeeAmount = useMemo(
+    () => (fulfillment === "DELIVERY" ? serviceFeeCents(subtotal) : 0n),
+    [fulfillment, subtotal],
+  );
+
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
   const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
@@ -299,7 +310,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               ? subtotal - welcomeDiscountAmount
               : 0n)
           : subtotal;
-    return afterDiscount + surchargeAmount + phSurchargeAmount;
+    return afterDiscount + surchargeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
   }, [
     isFreeRedeem,
     subtotal,
@@ -310,11 +321,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     welcomeDiscountAmount,
     surchargeAmount,
     phSurchargeAmount,
+    deliveryFeeAmount,
+    serviceFeeAmount,
   ]);
   // Hide the surcharge line from the order summary when the reward
   // will cover the order — the backend won't charge it.
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
+  const effectiveDeliveryFee = isFreeRedeem ? 0n : deliveryFeeAmount;
+  const effectiveServiceFee = isFreeRedeem ? 0n : serviceFeeAmount;
 
   // Pre-fill redeem toggle from cart drawer preference.
   useEffect(() => {
@@ -769,6 +784,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
+                {fulfillment === "DELIVERY" && (
+                  <>
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>{DELIVERY_FEE_NAME}</span>
+                      <span className="font-semibold text-zinc-900">
+                        {effectiveDeliveryFee === 0n ? (
+                          <>
+                            <span className="mr-1 text-zinc-400 line-through">$4.99</span>
+                            <span className="text-emerald-600">FREE</span>
+                          </>
+                        ) : (
+                          formatPrice(effectiveDeliveryFee)
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>
+                        {SERVICE_FEE.name}{" "}
+                        <span className="text-xs text-zinc-400">
+                          ({SERVICE_FEE.percentage}%)
+                        </span>
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        {formatPrice(effectiveServiceFee)}
+                      </span>
+                    </div>
+                  </>
+                )}
                 {effectivePhSurcharge > 0n && (
                   <div className="flex justify-between text-sm text-zinc-600">
                     <span>
@@ -1012,6 +1055,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   −{formatPrice(rewardDiscount)}
                 </span>
               </div>
+            )}
+            {fulfillment === "DELIVERY" && (
+              <>
+                <div className="flex justify-between text-sm text-zinc-600">
+                  <span>{DELIVERY_FEE_NAME}</span>
+                  <span className="font-semibold text-zinc-900">
+                    {effectiveDeliveryFee === 0n ? (
+                      <>
+                        <span className="mr-1 text-zinc-400 line-through">$4.99</span>
+                        <span className="text-emerald-600">FREE</span>
+                      </>
+                    ) : (
+                      formatPrice(effectiveDeliveryFee)
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm text-zinc-600">
+                  <span>
+                    {SERVICE_FEE.name}{" "}
+                    <span className="text-xs text-zinc-400">
+                      ({SERVICE_FEE.percentage}%)
+                    </span>
+                  </span>
+                  <span className="font-semibold text-zinc-900">
+                    {formatPrice(effectiveServiceFee)}
+                  </span>
+                </div>
+              </>
             )}
             {effectivePhSurcharge > 0n && (
               <div className="flex justify-between text-sm text-zinc-600">
