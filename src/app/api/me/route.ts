@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { squareClient } from "@/lib/square";
 import {
   findLoyaltyAccountByPhone,
+  findOrCreateLoyaltyAccount,
   getActiveProgram,
 } from "@/lib/loyalty";
 
@@ -119,10 +120,28 @@ export async function GET(request: Request) {
     }
   }
 
-  const [loyaltyAccount, welcomeDiscount] = await Promise.all([
+  let [loyaltyAccount, welcomeDiscount] = await Promise.all([
     findLoyaltyAccountByPhone(user.profile.phone_e164).catch(() => null),
     getWelcomeDiscountStatus(user.profile.square_customer_id),
   ]);
+
+  // Self-heal for users who signed up before loyalty enrollment moved
+  // into complete-signup. If they never placed an online order, no path
+  // would have created their Square loyalty account, so a POS scan of
+  // their member QR earns nothing. Enroll them now, best-effort.
+  if (!loyaltyAccount) {
+    try {
+      loyaltyAccount = await findOrCreateLoyaltyAccount(
+        user.profile.square_customer_id,
+        user.profile.phone_e164,
+      );
+    } catch (enrollErr) {
+      console.error(
+        "[me] lazy loyalty enroll failed:",
+        enrollErr instanceof Error ? enrollErr.message : enrollErr,
+      );
+    }
+  }
 
   return NextResponse.json({
     ok: true,

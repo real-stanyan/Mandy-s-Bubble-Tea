@@ -8,6 +8,7 @@ import {
   findCustomerByPhone,
 } from "@/lib/square";
 import { grantWelcomeDiscount, purgeAccount } from "@/lib/supabase";
+import { findOrCreateLoyaltyAccount } from "@/lib/loyalty";
 
 // Final step of OAuth / phone sign-in. By the time this is called, the
 // caller has a valid Supabase session AND has attached a phone to that
@@ -158,6 +159,20 @@ export async function POST(request: Request) {
     // to a legacy in-store customer does NOT re-grant it.
     if (customerCreated) {
       await grantWelcomeDiscount(customerId);
+    }
+
+    // Enroll the customer in the Square loyalty program at signup time so
+    // the very first POS scan of their member QR earns a star — even if
+    // they never place an online order. Best-effort: a Square loyalty
+    // outage must not block account creation. findOrCreateLoyaltyAccount
+    // is idempotent, so re-running on a returning user is a no-op.
+    try {
+      await findOrCreateLoyaltyAccount(customerId, e164);
+    } catch (loyaltyErr) {
+      console.error(
+        "[complete-signup] loyalty enrollment failed:",
+        loyaltyErr instanceof Error ? loyaltyErr.message : loyaltyErr,
+      );
     }
 
     return NextResponse.json({
