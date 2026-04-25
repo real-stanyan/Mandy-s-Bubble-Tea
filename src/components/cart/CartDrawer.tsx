@@ -154,6 +154,14 @@ function CartBody({
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
+  // Hold the paymentRequest objects so handleWalletPay can call .update()
+  // with the current displayTotal right before tokenize. Without this the
+  // wallet sheet shows the amount captured at SDK init time, which gets
+  // stale when the cart changes (more items, welcome discount applied,
+  // PH cutoff crossed) — Apple Pay rejects authorization when the
+  // server-charged amount exceeds what the sheet displayed.
+  const applePayRequestRef = useRef<any>(null);
+  const googlePayRequestRef = useRef<any>(null);
   // Defer SDK loading until the drawer has been opened at least once.
   const [everOpened, setEverOpened] = useState(false);
   useEffect(() => {
@@ -223,6 +231,7 @@ function CartBody({
             label: BRAND.name,
           },
         });
+        applePayRequestRef.current = pr;
         const ap = await payments.applePay(pr);
         applePayRef.current = ap;
         setApplePayReady(true);
@@ -243,6 +252,7 @@ function CartBody({
             label: BRAND.name,
           },
         });
+        googlePayRequestRef.current = pr;
         const gp = await payments.googlePay(pr);
         if (gpCancelled) { gp.destroy().catch(() => {}); return; }
         await gp.attach("#cart-google-pay-container");
@@ -259,12 +269,15 @@ function CartBody({
       googlePayRef.current?.destroy().catch(() => {});
       googlePayRef.current = null;
       applePayRef.current = null;
+      applePayRequestRef.current = null;
+      googlePayRequestRef.current = null;
       paymentsRef.current = null;
       setApplePayReady(false);
       setGooglePayReady(false);
     };
-    // Only init once when SDK becomes ready — subtotal changes are fine
-    // since we re-create the paymentRequest at tokenize time anyway.
+    // Only init once when SDK becomes ready — handleWalletPay calls
+    // applePayRequestRef/googlePayRequestRef.update() with current
+    // displayTotal right before tokenize, so subtotal changes are fine.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sdkReady, lines.length > 0]);
 
@@ -350,6 +363,8 @@ function CartBody({
           googlePayReady={googlePayReady}
           applePayRef={applePayRef}
           googlePayRef={googlePayRef}
+          applePayRequestRef={applePayRequestRef}
+          googlePayRequestRef={googlePayRequestRef}
           paymentsRef={paymentsRef}
         />
       )}
@@ -591,6 +606,8 @@ function CartFooter({
   googlePayReady,
   applePayRef,
   googlePayRef,
+  applePayRequestRef,
+  googlePayRequestRef,
   paymentsRef,
 }: {
   lines: CartLine[];
@@ -610,6 +627,8 @@ function CartFooter({
   googlePayReady: boolean;
   applePayRef: React.RefObject<ApplePayInstance | null>;
   googlePayRef: React.RefObject<GooglePayInstance | null>;
+  applePayRequestRef: React.RefObject<any>;
+  googlePayRequestRef: React.RefObject<any>;
   paymentsRef: React.RefObject<PaymentsInstance | null>;
 }) {
   const subtotal = cartSubtotal(lines);
@@ -658,7 +677,28 @@ function CartFooter({
 
       setPaying(true);
       try {
-        // 0) Tokenize IMMEDIATELY — must stay in the user gesture frame.
+        // 0) Refresh the wallet sheet's amount to the live displayTotal
+        // BEFORE tokenize. Without this the sheet shows whatever amount
+        // was captured at SDK init time, which goes stale when the cart
+        // changes after init (more items, welcome discount applied, PH
+        // cutoff crossed). Apple Pay rejects authorization when the
+        // server-charged amount exceeds what the sheet displayed.
+        const requestRef =
+          method === "apple" ? applePayRequestRef.current : googlePayRequestRef.current;
+        if (requestRef?.update) {
+          try {
+            requestRef.update({
+              total: {
+                amount: (Number(displayTotal) / 100).toFixed(2),
+                label: BRAND.name,
+              },
+            });
+          } catch {
+            // SDK may reject update for trivial cases — non-fatal, the
+            // tokenize will still proceed against the original amount.
+          }
+        }
+        // Tokenize IMMEDIATELY — must stay in the user gesture frame.
         const walletInstance =
           method === "apple" ? applePayRef.current : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet not ready");
