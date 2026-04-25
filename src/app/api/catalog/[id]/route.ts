@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { getMenu } from "@/lib/catalog";
+import {
+  getMenu,
+  isCheeseCreamItem,
+  sortModifierLists,
+} from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +39,7 @@ export async function GET(
     }
 
     // Resolve modifier lists with per-item overrides
+    const banBrulee = isCheeseCreamItem(foundItem, menu);
     const modifierLists = foundItem.modifierListRefs
       .map((ref) => {
         const base = menu.modifierLists.get(ref.id);
@@ -43,11 +48,13 @@ export async function GET(
         const overrideMap = new Map(
           ref.modifierOverrides.map((o) => [o.modifierId, o.onByDefault]),
         );
-        const modifiers = base.modifiers.map((mod) => {
-          const override = overrideMap.get(mod.id);
-          if (override == null) return mod;
-          return { ...mod, onByDefault: override };
-        });
+        const modifiers = base.modifiers
+          .filter((mod) => !(banBrulee && /brul[eé]+/i.test(mod.name)))
+          .map((mod) => {
+            const override = overrideMap.get(mod.id);
+            if (override == null) return mod;
+            return { ...mod, onByDefault: override };
+          });
 
         let minSelected =
           ref.minOverride != null && ref.minOverride >= 0
@@ -74,6 +81,8 @@ export async function GET(
         };
       })
       .filter((ml) => ml != null);
+
+    const sortedModifierLists = sortModifierLists(modifierLists);
 
     const item = {
       id: foundItem.id,
@@ -105,7 +114,7 @@ export async function GET(
       serializeSquareResponse({
         ok: true,
         item,
-        modifierLists,
+        modifierLists: sortedModifierLists,
       }),
     );
   } catch (error) {

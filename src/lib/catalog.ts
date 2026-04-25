@@ -172,6 +172,43 @@ function isSoldOutAtLocation(
   return true;
 }
 
+function isPlaceholderModifierName(
+  name: string | null | undefined,
+): boolean {
+  if (!name) return false;
+  return /^[.\s\u2026]+$/.test(name);
+}
+
+function isBruleeModifier(name: string): boolean {
+  return /brul[eé]+/i.test(name);
+}
+
+export function isCheeseCreamItem(item: MenuItem, menu: Menu): boolean {
+  const ccCat = menu.categories.find(
+    (c) => c.squareName.toUpperCase() === "CHEESE CREAM",
+  );
+  if (!ccCat) return false;
+  const bucket = menu.itemsBySlug.get(ccCat.slug) ?? [];
+  return bucket.some((i) => i.id === item.id);
+}
+
+// Display order on product detail page: TOPPING → SUGAR → ICE → (anything
+// else) → MILK. Stable for equal-rank lists.
+function modifierListRank(name: string): number {
+  const upper = name.toUpperCase();
+  if (upper.includes("TOPPING")) return 0;
+  if (upper.includes("SUGAR")) return 1;
+  if (upper.includes("ICE")) return 2;
+  if (upper.includes("MILK")) return 100;
+  return 50;
+}
+
+export function sortModifierLists<T extends { name: string }>(lists: T[]): T[] {
+  return [...lists].sort(
+    (a, b) => modifierListRank(a.name) - modifierListRank(b.name),
+  );
+}
+
 function buildModifierList(
   raw: Square.CatalogObject.ModifierList,
 ): ModifierList | null {
@@ -185,6 +222,7 @@ function buildModifierList(
     const mod = m as Square.CatalogObject.Modifier;
     const md = mod.modifierData;
     if (!md) continue;
+    if (isPlaceholderModifierName(md.name)) continue;
     modifiers.push({
       id: mod.id,
       name: md.name ?? "(unnamed)",
@@ -460,6 +498,8 @@ export function getItemDetail(
   const item = cat.items.find((i) => i.id === itemId);
   if (!item) return null;
 
+  const banBrulee = isCheeseCreamItem(item, menu);
+
   const modifierLists: ModifierList[] = [];
   for (const ref of item.modifierListRefs) {
     const base = menu.modifierLists.get(ref.id);
@@ -469,11 +509,13 @@ export function getItemDetail(
     const overrideMap = new Map(
       ref.modifierOverrides.map((o) => [o.modifierId, o.onByDefault]),
     );
-    const modifiers = base.modifiers.map((mod) => {
-      const override = overrideMap.get(mod.id);
-      if (override == null) return mod;
-      return { ...mod, onByDefault: override };
-    });
+    const modifiers = base.modifiers
+      .filter((mod) => !(banBrulee && isBruleeModifier(mod.name)))
+      .map((mod) => {
+        const override = overrideMap.get(mod.id);
+        if (override == null) return mod;
+        return { ...mod, onByDefault: override };
+      });
 
     let minSelected = resolveMin(ref.minOverride, base.minSelected);
     let maxSelected = resolveMax(ref.maxOverride, base.maxSelected);
@@ -497,5 +539,9 @@ export function getItemDetail(
     });
   }
 
-  return { category: cat.category, item, modifierLists };
+  return {
+    category: cat.category,
+    item,
+    modifierLists: sortModifierLists(modifierLists),
+  };
 }
