@@ -6,6 +6,8 @@ import { formatPrice } from "@/lib/utils";
 
 export type FulfillmentType = "PICKUP" | "DELIVERY";
 
+const DELIVERY_ENABLED = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
+
 type Props = {
   value: FulfillmentType;
   onChange: (next: FulfillmentType) => void;
@@ -15,6 +17,15 @@ type Props = {
 export function FulfillmentSelector({ value, onChange, drinksSubtotalCents }: Props) {
   const eligible = isDeliveryEligible(drinksSubtotalCents);
   const remainingCents = DELIVERY.minimumSubtotalCents - drinksSubtotalCents;
+
+  if (!DELIVERY_ENABLED) {
+    return (
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+        <div className="font-medium">Pickup</div>
+        <div className="text-xs text-zinc-600">34 Davenport St · Ready in ~10 min</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
