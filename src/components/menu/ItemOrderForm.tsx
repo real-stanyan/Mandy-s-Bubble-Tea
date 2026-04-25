@@ -156,6 +156,10 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     ) {
       return false;
     }
+    // Per-kind cap: each modifier can only be stacked up to this count.
+    if (list.maxPerKind != null && current >= list.maxPerKind) {
+      return false;
+    }
     // Bound by list-total maxSelected if set
     if (list.maxSelected != null) {
       return totalInList(selectedByList, list.id) < list.maxSelected;
@@ -504,10 +508,13 @@ function priceLabel(mod: ModifierOption): string {
 }
 
 function describeSelection(ml: ModifierList, multi: boolean): string {
-  const { minSelected, maxSelected, maxDistinct } = ml;
+  const { minSelected, maxSelected, maxDistinct, maxPerKind } = ml;
   if (minSelected === 0 && maxSelected === 1) return "Pick one (optional)";
   if (minSelected === 1 && maxSelected === 1) return "Pick one";
   if (multi) {
+    if (maxDistinct != null && maxPerKind != null) {
+      return `Up to ${maxDistinct} kinds · max ${maxPerKind} of each`;
+    }
     if (maxDistinct != null) {
       return `Up to ${maxDistinct} kinds · tap + for more of each`;
     }
