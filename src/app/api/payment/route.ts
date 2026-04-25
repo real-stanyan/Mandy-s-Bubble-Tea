@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { SquareError } from "square";
+import { SquareError, type Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { createDelivery, type CreateDeliveryResult } from "@/lib/uber-direct";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -76,6 +77,44 @@ function isValidBody(body: unknown): body is PaymentBody {
     b.orderId.length > 0 &&
     (b.sourceId === undefined || typeof b.sourceId === "string")
   );
+}
+
+async function dispatchUberDeliveryWithRetry(args: {
+  quoteId: string;
+  externalOrderId: string;
+}): Promise<CreateDeliveryResult> {
+  // 5s, 15s, 45s — total ~65s in worst case. Vercel Pro plans allow 60s
+  // function timeout; if running on Hobby this will exceed budget. Note for
+  // ops: bump function maxDuration in vercel.json once delivery rolls out.
+  const delays = [5_000, 15_000, 45_000];
+  let last: CreateDeliveryResult = { ok: false, status: 0, retryable: true };
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    last = await createDelivery({
+      quoteId: args.quoteId,
+      externalOrderId: args.externalOrderId,
+    });
+    if (last.ok) return last;
+    if (!last.retryable) return last;
+    if (attempt < delays.length - 1) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+  }
+  return last;
+}
+
+async function refundFullPayment(
+  paymentId: string,
+  amountMoney: { amount: bigint; currency: string },
+) {
+  await squareClient.refunds.refundPayment({
+    idempotencyKey: randomUUID(),
+    paymentId,
+    amountMoney: {
+      amount: amountMoney.amount,
+      currency: amountMoney.currency as Currency,
+    },
+    reason: "Delivery dispatch failed — auto-refund",
+  });
 }
 
 export async function POST(request: Request) {
@@ -283,6 +322,80 @@ export async function POST(request: Request) {
       );
     }
 
+    // Delivery dispatch — only for DELIVERY fulfillments where payment settled.
+    // The order's fulfillment type, metadata.delivery_quote_id, and referenceId
+    // are all set at /api/orders creation time, so we read them off the
+    // pre-payment `order` object (no re-fetch needed for those fields).
+    let deliveryTrackingUrl: string | null = null;
+    let deliveryRefunded = false;
+
+    const fulfillmentType = order.fulfillments?.[0]?.type;
+    const deliveryQuoteId = order.metadata?.delivery_quote_id;
+
+    if (
+      paymentSettled &&
+      fulfillmentType === "DELIVERY" &&
+      deliveryQuoteId
+    ) {
+      const dispatch = await dispatchUberDeliveryWithRetry({
+        quoteId: deliveryQuoteId,
+        externalOrderId: order.referenceId ?? body.orderId,
+      });
+
+      if (dispatch.ok) {
+        deliveryTrackingUrl = dispatch.trackingUrl;
+        // Re-fetch to get the latest order version after the payment closed it.
+        try {
+          const fresh = await squareClient.orders.get({ orderId: body.orderId });
+          if (fresh.order?.version != null) {
+            await squareClient.orders.update({
+              orderId: body.orderId,
+              order: {
+                locationId: SQUARE_LOCATION_ID,
+                version: fresh.order.version,
+                metadata: {
+                  ...(fresh.order.metadata ?? {}),
+                  uber_delivery_id: dispatch.deliveryId,
+                  uber_tracking_url: dispatch.trackingUrl,
+                },
+              },
+            });
+          }
+        } catch (updateError) {
+          // Metadata update failure is non-fatal — the dispatch already
+          // happened and the cron sync (T24) will reconcile state.
+          console.error(
+            "[payment] failed to write uber metadata to order",
+            updateError instanceof Error ? updateError.message : updateError,
+          );
+        }
+      } else {
+        // Dispatch failed after retries — refund the payment so the customer
+        // isn't charged for an undeliverable order.
+        const totalMoney = order.totalMoney;
+        if (paymentId && totalMoney?.amount && totalMoney.amount > 0n) {
+          try {
+            await refundFullPayment(paymentId, {
+              amount: totalMoney.amount,
+              currency: totalMoney.currency ?? BUSINESS.currency,
+            });
+            deliveryRefunded = true;
+          } catch (refundError) {
+            console.error(
+              "[payment] refund failed after dispatch failure",
+              refundError instanceof Error
+                ? refundError.message
+                : refundError,
+            );
+          }
+        }
+        console.error(
+          `[payment] Uber dispatch failed for ${body.orderId}: ${JSON.stringify(dispatch)}`,
+        );
+        // T25 will add Mandy notification here.
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       paymentId,
@@ -294,6 +407,8 @@ export async function POST(request: Request) {
       // signal to refresh auth. They can upgrade to the count at their own pace.
       welcomeDiscountConsumed: welcomeDiscountConsumedCount > 0,
       payment: paymentForResponse,
+      ...(deliveryTrackingUrl ? { deliveryTrackingUrl } : {}),
+      ...(deliveryRefunded ? { deliveryRefunded: true } : {}),
     });
   } catch (error) {
     console.error("[payment] error:", error instanceof Error ? error.message : error);
