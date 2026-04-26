@@ -1,4 +1,6 @@
-# Members Dashboard Implementation Plan
+# Members Dashboard Implementation Plan — SUPERSEDED 2026-04-26 PM
+
+> **STATUS: SUPERSEDED.** Owner decided the dashboard ships as a standalone deployment in a new repo `mandys_bubble_tea_admin/`. Use `2026-04-26-members-dashboard-standalone.md` instead. This file kept for reference only.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

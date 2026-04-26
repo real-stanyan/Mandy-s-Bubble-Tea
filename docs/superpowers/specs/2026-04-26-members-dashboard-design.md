@@ -2,7 +2,113 @@
 
 **Date:** 2026-04-26
 **Owner:** Stan
-**Status:** Approved (brainstorming) — pending implementation plan
+**Status:** Architecture revised — see "Revised Architecture (PM)" section below. Original `/admin/members` route design preserved for reference but superseded.
+
+---
+
+## Revised Architecture (2026-04-26 PM)
+
+After the original spec was approved, the owner decided the dashboard should ship as a **standalone deployment** rather than as another route inside the customer-facing Mandy's site. This section overrides the "Architecture" section further down whenever they conflict.
+
+### What changes
+
+| Aspect | Original | Revised |
+|---|---|---|
+| Repo | `mandys_bubble_tea` (existing) | `mandys_bubble_tea_admin` (new, sibling of main repo at `~/Github/mandys_bubble_tea_admin/`) |
+| URL | `mandybubbletea.com/admin/members` | `admin.mandybubbletea.com` |
+| Vercel project | Existing `mandys-bubble-tea` | New `mandys-bubble-tea-admin` |
+| Auth gate | Reuse existing `src/app/admin/layout.tsx` (Supabase session + `admin_users` table) | Build the same gate from scratch in the new repo, but pointed at the **same** Supabase project so `admin_users` and `auth.users` are shared |
+| Sign-in UI | None — owner already had a session from the customer site | New magic-link sign-in page (Supabase emails a 6-digit OTP or login link to a permitted email) |
+| Customer-site changes | None to the Next.js app shell — only `complete-signup` route + `AuthProvider` | Same — `signup_channel` migration, `complete-signup` body change, and `AuthProvider` channel tag still happen in `mandys_bubble_tea` |
+
+### What does NOT change
+
+- Data model (`signup_channel` column, push-token backfill) — still applied to the same Supabase project.
+- KPI tiles, charts, top-10 list, all the metric definitions — copy-paste from the original design.
+- Square API access (Customers, Loyalty, Orders) — same credentials, just consumed from a different deployment.
+- Caching strategy (`revalidate: 300`).
+- Rollout plan for RN app `channel: 'app'` — unchanged (still a separate repo task).
+
+### Why standalone (recorded for future-Stan)
+
+- Failure isolation: a customer-facing deploy bug can't take the admin tool down at the same moment Mandy needs to look at numbers, and vice versa.
+- Repo independence: future admin features (refunds, manual loyalty adjustments, complaint triage) won't pollute the e-commerce codebase.
+- Owner's explicit preference recorded 2026-04-26 PM after seeing the original `/admin/members` plan. No technical evidence pushed this — it's a long-term maintenance call.
+
+### New project shape
+
+```
+~/Github/mandys_bubble_tea_admin/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                    # Root layout
+│   │   ├── page.tsx                      # Redirects to /members or /sign-in
+│   │   ├── sign-in/page.tsx              # Supabase magic link UI
+│   │   ├── members/                      # The dashboard (was /admin/members)
+│   │   │   ├── page.tsx                  # Server component
+│   │   │   └── MembersDashboard.tsx      # Client component (charts)
+│   │   └── api/
+│   │       ├── members-stats/route.ts    # JSON aggregation endpoint
+│   │       └── auth/                     # Supabase session callback handlers
+│   ├── components/
+│   │   ├── KpiTile.tsx
+│   │   ├── ChannelDonut.tsx
+│   │   ├── MembersTrendChart.tsx
+│   │   ├── FunnelBars.tsx
+│   │   └── TopCustomersTable.tsx
+│   ├── lib/
+│   │   ├── supabase-server.ts            # Service-role client (server-only)
+│   │   ├── supabase-browser.ts           # Anon client (sign-in flow)
+│   │   ├── square.ts                     # Square SDK init
+│   │   ├── auth.ts                       # getAuthedAdmin() helper
+│   │   └── members-stats.ts              # The aggregation lib
+│   └── middleware.ts                     # Forces /members → sign-in if no session
+├── package.json
+├── tsconfig.json
+├── tailwind.config.ts
+├── postcss.config.mjs
+├── next.config.ts
+├── vitest.config.ts
+├── .env.example
+└── README.md
+```
+
+### Auth model in the new repo
+
+Same primitives as the customer site, but isolated cookie scope:
+
+1. User visits `admin.mandybubbletea.com` → middleware sees no Supabase session cookie → redirects to `/sign-in`.
+2. User enters email → Supabase emails a 6-digit OTP → user pastes it → Supabase issues session cookie scoped to `admin.mandybubbletea.com`.
+3. Server component `members/page.tsx` calls `getAuthedAdmin()`:
+   - Fetches Supabase session → user.id
+   - Queries `admin_users` table for matching `user_id`
+   - If no row, returns 404 (not 403 — don't reveal the page exists)
+4. Same logic in `/api/members-stats` route.
+
+The `admin_users` table is shared with the customer-site project's `/admin/*` routes. Rows added there grant access to BOTH the customer-site `/admin/*` routes AND `admin.mandybubbletea.com`.
+
+### Deployment
+
+- **Vercel project**: new project `mandys-bubble-tea-admin`, hooked to the new repo's `main` branch.
+- **DNS**: add CNAME record `admin.mandybubbletea.com → cname.vercel-dns.com` at the domain registrar. Then add `admin.mandybubbletea.com` as a domain in the Vercel project, Vercel auto-provisions TLS.
+- **Env vars** (Production scope, all required):
+  - `NEXT_PUBLIC_SUPABASE_URL` — same as main project
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — same
+  - `SUPABASE_SERVICE_ROLE_KEY` — same
+  - `SQUARE_ACCESS_TOKEN` — same
+  - `SQUARE_LOCATION_ID` — same
+  - `SQUARE_ENV` — `production`
+
+### Cross-repo coordination
+
+The `signup_channel` change still requires touching the **main** repo (`mandys_bubble_tea`):
+- Migration: `supabase/migrations/2026-04-26-signup-channel.sql`
+- API change: `src/app/api/auth/complete-signup/route.ts`
+- Client change: `src/components/auth/AuthProvider.tsx`
+
+Implementation plan handles this as Phase A, before the new repo work starts. The new repo cannot show the web-vs-app split correctly without it.
+
+---
 
 ## Goal
 
