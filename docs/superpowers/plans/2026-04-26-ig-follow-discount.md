@@ -370,7 +370,7 @@ if (body.applyWelcomeDiscount) {
     const { welcomeCups } = pickPromoCups({
       unitPrices,
       welcomeK: status.drinksRemaining,
-      igFollowK: 0, // wired in Task 8
+      igFollowK: 0, // wired in Task 9
     });
 
     if (welcomeCups.length > 0) {
