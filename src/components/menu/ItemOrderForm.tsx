@@ -19,9 +19,29 @@ type Props = {
 type CountMap = Record<string, Record<string, number>>;
 
 const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
+const WARM_ICE_NAME = "warm";
 
 function isExclusiveModifier(mod: ModifierOption): boolean {
   return EXCLUSIVE_TOPPINGS.includes(mod.name);
+}
+
+function isWarmIceModifier(mod: ModifierOption): boolean {
+  return mod.name.trim().toLowerCase() === WARM_ICE_NAME;
+}
+
+function someSelectedAcrossLists(
+  counts: CountMap,
+  modifierLists: ModifierList[],
+  predicate: (mod: ModifierOption) => boolean,
+): boolean {
+  for (const ml of modifierLists) {
+    const map = counts[ml.id];
+    if (!map) continue;
+    for (const mod of ml.modifiers) {
+      if ((map[mod.id] ?? 0) > 0 && predicate(mod)) return true;
+    }
+  }
+  return false;
 }
 
 function supportsMultiCount(list: ModifierList): boolean {
@@ -136,6 +156,20 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     const mod = list.modifiers.find((m) => m.id === modifierId);
     if (!mod || mod.soldOut) return false;
     const current = countOf(selectedByList, list.id, modifierId);
+    // Cross-list mutex: Warm ice ⊥ Cheese Cream / Brulee toppings.
+    // Hot drinks don't pair with cold cream / torched-sugar toppings.
+    if (
+      isWarmIceModifier(mod) &&
+      someSelectedAcrossLists(selectedByList, modifierLists, isExclusiveModifier)
+    ) {
+      return false;
+    }
+    if (
+      isExclusiveModifier(mod) &&
+      someSelectedAcrossLists(selectedByList, modifierLists, isWarmIceModifier)
+    ) {
+      return false;
+    }
     // Single-select list (maxSelected=1 overall)
     if (list.maxSelected === 1) {
       return current < 1;
