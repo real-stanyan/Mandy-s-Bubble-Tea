@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ArrowRight, Check } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BRAND } from "@/lib/constants";
 
@@ -97,34 +98,119 @@ export function IgFollowPromoCard() {
   // ----- Redeemed state: ticket fully consumed -----
   if (redeemedAt && !igFollowDiscount.available) {
     return (
-      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
-        <h3 className="text-lg font-semibold text-zinc-500 line-through">
-          10% Off Your Next Drink
-        </h3>
-        <p className="mt-1 text-sm text-zinc-500">
-          Used. Thanks for following @mandysbubbletea!
-        </p>
-      </article>
+      <div className="px-4 mt-3">
+        <article className="rounded-card border border-black/5 bg-zinc-50 p-[22px] shadow-mini-cart">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-400" />
+            <span
+              className="font-mono uppercase text-zinc-400"
+              style={{
+                fontSize: 10.5,
+                letterSpacing: 1.3,
+                fontWeight: 700,
+              }}
+            >
+              IG FOLLOW PROMO · USED
+            </span>
+          </div>
+          <h3
+            className="mt-2 font-serif text-zinc-400 line-through"
+            style={{
+              fontSize: 28,
+              lineHeight: "32px",
+              letterSpacing: -0.6,
+              fontWeight: 500,
+            }}
+          >
+            10% off
+          </h3>
+          <p
+            className="mt-2 text-zinc-500"
+            style={{ fontSize: 13, lineHeight: "19px" }}
+          >
+            Thanks for following @mandysbubbletea!
+          </p>
+        </article>
+      </div>
     );
   }
 
-  // ----- Active state: ticket is available -----
+  // ----- Active state: ticket is available (mirrors LoyaltyCard layout) -----
   if (igFollowDiscount.available) {
     return (
-      <article
-        className="rounded-2xl p-5 text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">10% Off Your Next Drink</h3>
-          <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium">
-            ACTIVE
-          </span>
-        </div>
-        <p className="mt-1 text-sm text-white/85">
-          Auto-applied to your cheapest drink at checkout. Thanks for following!
-        </p>
-      </article>
+      <div className="px-4 mt-3">
+        <Link
+          href="/menu"
+          className="block rounded-card p-[22px] shadow-mini-cart transition-transform active:scale-[0.985] text-white"
+          style={{
+            background: `linear-gradient(135deg, ${BRAND.primaryColor} 0%, #6B3E15 100%)`,
+          }}
+        >
+          <div className="flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-peach" />
+                <span
+                  className="font-mono uppercase text-white/70"
+                  style={{
+                    fontSize: 10.5,
+                    letterSpacing: 1.3,
+                    fontWeight: 700,
+                  }}
+                >
+                  IG FOLLOW REWARD
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline">
+                <span
+                  className="font-serif text-white"
+                  style={{
+                    fontSize: 36,
+                    lineHeight: "36px",
+                    letterSpacing: -0.8,
+                    fontWeight: 500,
+                  }}
+                >
+                  10%
+                </span>
+                <span
+                  className="font-serif text-white/45 ml-1.5"
+                  style={{ fontSize: 18, fontWeight: 500 }}
+                >
+                  off your next drink
+                </span>
+              </div>
+            </div>
+            <span className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1.5">
+              <Check size={12} className="text-peach" strokeWidth={3} />
+              <span
+                className="text-white"
+                style={{ fontSize: 11, fontWeight: 500 }}
+              >
+                Active
+              </span>
+            </span>
+          </div>
+
+          <div className="mt-[18px] flex items-center justify-between">
+            <p
+              className="flex-1 pr-3 text-white/85"
+              style={{ fontSize: 13, lineHeight: "19px" }}
+            >
+              Auto-applied to your cheapest drink at checkout.
+            </p>
+            <span className="flex items-center gap-1.5 rounded-full bg-peach px-3 py-1.5">
+              <span
+                className="text-brand-dark"
+                style={{ fontSize: 12.5, fontWeight: 500 }}
+              >
+                Order now
+              </span>
+              <ArrowRight size={12} className="text-brand-dark" />
+            </span>
+          </div>
+        </Link>
+      </div>
     );
   }
 
@@ -139,53 +225,102 @@ export function IgFollowPromoCard() {
   const step2Href = isGuest ? "/auth?next=/account/promotions" : undefined;
 
   return (
-    <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <InstagramIcon className="h-5 w-5 text-zinc-700" />
-        <h3 className="text-lg font-semibold text-zinc-900">
-          Follow us for 10% off
-        </h3>
-      </div>
-      <p className="mt-1 text-sm text-zinc-600">
-        Follow @mandysbubbletea on Instagram and we&apos;ll drop a one-time 10% off
-        on your next drink.
-      </p>
+    <div className="px-4 mt-3">
+      <article className="rounded-card border border-black/10 bg-white p-[22px] shadow-mini-cart">
+        <div className="flex items-start justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: BRAND.primaryColor }}
+              />
+              <span
+                className="font-mono uppercase text-zinc-500"
+                style={{
+                  fontSize: 10.5,
+                  letterSpacing: 1.3,
+                  fontWeight: 700,
+                }}
+              >
+                FOLLOW US ON INSTAGRAM
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline">
+              <span
+                className="font-serif text-zinc-900"
+                style={{
+                  fontSize: 36,
+                  lineHeight: "36px",
+                  letterSpacing: -0.8,
+                  fontWeight: 500,
+                }}
+              >
+                10%
+              </span>
+              <span
+                className="font-serif text-zinc-400 ml-1.5"
+                style={{ fontSize: 18, fontWeight: 500 }}
+              >
+                off your next drink
+              </span>
+            </div>
+          </div>
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px]"
+            style={{
+              background:
+                "linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)",
+            }}
+          >
+            <InstagramIcon className="h-5 w-5 text-white" />
+          </div>
+        </div>
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <a
-          href={IG_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          onClick={handleStep1}
-          className="inline-flex flex-1 items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-          style={{ backgroundColor: BRAND.primaryColor }}
+        <p
+          className="mt-3 text-zinc-600"
+          style={{ fontSize: 13, lineHeight: "19px" }}
         >
-          Follow on Instagram
-        </a>
-        {step2Href ? (
-          <Link
-            href={step2Href}
-            className="inline-flex flex-1 items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-          >
-            {step2Label}
-          </Link>
-        ) : (
-          <button
-            type="button"
-            onClick={handleClaim}
-            disabled={step2Disabled}
-            className="inline-flex flex-1 items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition enabled:hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {step2Label}
-          </button>
-        )}
-      </div>
-
-      {errMsg ? (
-        <p className="mt-2 text-sm text-red-600" role="alert">
-          {errMsg}
+          Follow @mandysbubbletea, then come back and claim your one-time 10%
+          off code.
         </p>
-      ) : null}
-    </article>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <a
+            href={IG_URL}
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={handleStep1}
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+            style={{ backgroundColor: BRAND.primaryColor }}
+          >
+            <InstagramIcon className="h-4 w-4 text-white" />
+            <span>Follow on Instagram</span>
+          </a>
+          {step2Href ? (
+            <Link
+              href={step2Href}
+              className="inline-flex flex-1 items-center justify-center rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+            >
+              {step2Label}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleClaim}
+              disabled={step2Disabled}
+              className="inline-flex flex-1 items-center justify-center rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-800 transition enabled:hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {step2Label}
+            </button>
+          )}
+        </div>
+
+        {errMsg ? (
+          <p className="mt-2 text-sm text-red-600" role="alert">
+            {errMsg}
+          </p>
+        ) : null}
+      </article>
+    </div>
   );
 }
