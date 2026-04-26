@@ -17,6 +17,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
+import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { SignInCard } from "@/components/auth/SignInCard";
@@ -193,6 +194,18 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     const id = setInterval(() => setPhActive(isPublicHolidayActive()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Ordering window — same 60s cadence so the Place Order button flips
+  // at the 22:25 cutoff (or right after 10:30 open) without needing a
+  // page reload. Server gates the actual order in /api/orders.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
+    getOrderingStatus(),
+  );
+  useEffect(() => {
+    const id = setInterval(() => setOrderingStatus(getOrderingStatus()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const storeClosed = !orderingStatus.open;
   const phSurchargeAmount = useMemo(
     () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
     [phActive, subtotal],
@@ -394,6 +407,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     if (!profile) return;
     setError(null);
     setPaymentError(null);
+
+    // Defense in depth — button is already disabled when storeClosed,
+    // but a stale render could still fire onSubmit. Server is authoritative.
+    if (storeClosed) {
+      setError(`Orders closed · ${orderingStatus.nextLabel}`);
+      return;
+    }
 
     const expectFreeOrder = isFreeRedeem;
     if (!expectFreeOrder) {
@@ -960,25 +980,32 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             type="submit"
             disabled={
               submitting ||
+              storeClosed ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable))
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ backgroundColor: BRAND.primaryColor }}
+            style={
+              storeClosed
+                ? { backgroundColor: "#a1a1aa" }
+                : { backgroundColor: BRAND.primaryColor }
+            }
           >
-            {submitting
-              ? "Processing…"
-              : isFreeRedeem
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? "Pay with Apple Pay"
-                  : payMethod === "google"
-                    ? "Pay with Google Pay"
-                    : cardReady
-                      ? "Place Order"
-                      : "Loading payment…"}
+            {storeClosed
+              ? `Orders closed · ${orderingStatus.nextLabel}`
+              : submitting
+                ? "Processing…"
+                : isFreeRedeem
+                  ? "Redeem Free Drink"
+                  : payMethod === "apple"
+                    ? "Pay with Apple Pay"
+                    : payMethod === "google"
+                      ? "Pay with Google Pay"
+                      : cardReady
+                        ? "Place Order"
+                        : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
@@ -1019,35 +1046,42 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             form="checkout-form"
             disabled={
               submitting ||
+              storeClosed ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable))
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
-              payMethod === "apple"
-                ? "bg-black"
-                : payMethod === "google"
-                  ? "bg-[#3c4043]"
-                  : ""
+              storeClosed
+                ? ""
+                : payMethod === "apple"
+                  ? "bg-black"
+                  : payMethod === "google"
+                    ? "bg-[#3c4043]"
+                    : ""
             }`}
             style={
-              payMethod !== "apple" && payMethod !== "google"
-                ? { backgroundColor: BRAND.primaryColor }
-                : undefined
+              storeClosed
+                ? { backgroundColor: "#a1a1aa" }
+                : payMethod !== "apple" && payMethod !== "google"
+                  ? { backgroundColor: BRAND.primaryColor }
+                  : undefined
             }
           >
-            {submitting
-              ? "Processing…"
-              : isFreeRedeem
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-                  : payMethod === "google"
-                    ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-                    : cardReady
-                      ? <><CardIcon /> Place Order</>
-                      : "Loading…"}
+            {storeClosed
+              ? `Closed · ${orderingStatus.nextLabel}`
+              : submitting
+                ? "Processing…"
+                : isFreeRedeem
+                  ? "Redeem Free Drink"
+                  : payMethod === "apple"
+                    ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                    : payMethod === "google"
+                      ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                      : cardReady
+                        ? <><CardIcon /> Place Order</>
+                        : "Loading…"}
           </button>
         </div>
       </div>

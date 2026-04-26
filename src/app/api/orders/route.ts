@@ -4,6 +4,7 @@ import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
+import { getOrderingStatus } from "@/lib/store-status";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getAuthedUser } from "@/lib/auth";
@@ -95,6 +96,23 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { ok: false, error: "Missing or invalid fields" },
       { status: 400 },
+    );
+  }
+
+  // Hard ordering-window guard. Brisbane 10:30am – 22:25pm. Server is
+  // authoritative — clients place orders only when their cart UI says
+  // open, but a stale tab / clock skew / direct API call could still
+  // land here outside hours.
+  const ordering = getOrderingStatus(new Date());
+  if (!ordering.open) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Sorry, online orders are closed. ${ordering.nextLabel}.`,
+        closed: true,
+        nextLabel: ordering.nextLabel,
+      },
+      { status: 409 },
     );
   }
 

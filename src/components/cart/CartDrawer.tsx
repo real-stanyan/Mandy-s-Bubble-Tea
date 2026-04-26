@@ -15,6 +15,7 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { isPublicHolidayActive } from "@/lib/holiday";
+import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
@@ -642,6 +643,18 @@ function CartFooter({
   const [error, setError] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<"apple" | "google" | null>(null);
 
+  // Ordering window — re-check every 60s so the button flips at the
+  // 22:25 cutoff while the drawer is open. Server is authoritative; this
+  // is display-only.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
+    getOrderingStatus(),
+  );
+  useEffect(() => {
+    const id = setInterval(() => setOrderingStatus(getOrderingStatus()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const storeClosed = !orderingStatus.open;
+
   // Reward and welcome display are mutually exclusive in the total math
   // (matches /checkout). Square still applies both at charge time — the
   // server-trusted totalMoney is authoritative.
@@ -667,6 +680,13 @@ function CartFooter({
       if (paying) return;
       setError(null);
       setLastMethod(method);
+
+      // Defense in depth: button is already disabled when storeClosed,
+      // but a stale render or race could still fire onClick.
+      if (!orderingStatus.open) {
+        setError(`Orders closed · ${orderingStatus.nextLabel}`);
+        return;
+      }
 
       if (!hasProfile || !profile) {
         // No signed-in user — punt to checkout where SignInCard will guide them.
@@ -819,6 +839,7 @@ function CartFooter({
       useReward, lines, applePayRef, googlePayRef, paymentsRef,
       clear, closeDrawer, router, refresh,
       welcomeDiscount.available,
+      orderingStatus.open, orderingStatus.nextLabel,
     ],
   );
 
@@ -914,52 +935,64 @@ function CartFooter({
         </span>
       </div>
 
-      {/* Wallet quick-pay — real payment, no redirect */}
-      {showApple && (
+      {storeClosed ? (
         <button
           type="button"
-          disabled={paying}
-          onClick={() => handleWalletPay("apple")}
-          className="mt-5 flex w-full items-center justify-center gap-0.5 rounded-xl bg-black py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+          disabled
+          className="mt-5 w-full cursor-not-allowed rounded-xl bg-zinc-200 py-3.5 text-base font-semibold text-zinc-500"
         >
-          {paying ? "Processing…" : <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>}
+          Orders closed · {orderingStatus.nextLabel}
         </button>
-      )}
-      {showGoogle && (
-        <button
-          type="button"
-          disabled={paying}
-          onClick={() => handleWalletPay("google")}
-          className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl bg-[#3c4043] py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
-        >
-          {paying ? "Processing…" : <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>}
-        </button>
-      )}
-      {/* Fallback if wallet not ready yet — still a link */}
-      {!showApple && !showGoogle && (
-        <Link
-          href="/checkout"
-          onClick={closeDrawer}
-          className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
-            isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
-          }`}
-        >
-          {isIOS ? (
-            <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-          ) : (
-            <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+      ) : (
+        <>
+          {/* Wallet quick-pay — real payment, no redirect */}
+          {showApple && (
+            <button
+              type="button"
+              disabled={paying}
+              onClick={() => handleWalletPay("apple")}
+              className="mt-5 flex w-full items-center justify-center gap-0.5 rounded-xl bg-black py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {paying ? "Processing…" : <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>}
+            </button>
           )}
-        </Link>
-      )}
+          {showGoogle && (
+            <button
+              type="button"
+              disabled={paying}
+              onClick={() => handleWalletPay("google")}
+              className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl bg-[#3c4043] py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {paying ? "Processing…" : <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>}
+            </button>
+          )}
+          {/* Fallback if wallet not ready yet — still a link */}
+          {!showApple && !showGoogle && (
+            <Link
+              href="/checkout"
+              onClick={closeDrawer}
+              className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
+                isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
+              }`}
+            >
+              {isIOS ? (
+                <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+              ) : (
+                <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+              )}
+            </Link>
+          )}
 
-      <Link
-        href="/checkout"
-        onClick={closeDrawer}
-        className="mt-3 block w-full rounded-full border-2 py-3 text-center text-sm font-semibold transition hover:opacity-90"
-        style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
-      >
-        Checkout
-      </Link>
+          <Link
+            href="/checkout"
+            onClick={closeDrawer}
+            className="mt-3 block w-full rounded-full border-2 py-3 text-center text-sm font-semibold transition hover:opacity-90"
+            style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+          >
+            Checkout
+          </Link>
+        </>
+      )}
     </footer>
   );
 }
