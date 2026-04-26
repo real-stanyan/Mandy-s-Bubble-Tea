@@ -155,11 +155,18 @@ export async function POST(request: Request) {
       .single();
     if (upsertErr) throw upsertErr;
 
-    // Only brand-new Square customers get the welcome discount. Linking
-    // to a legacy in-store customer does NOT re-grant it.
-    if (customerCreated) {
-      await grantWelcomeDiscount(customerId);
-    }
+    // Always attempt to grant the welcome discount. grantWelcomeDiscount
+    // is idempotent via upsert(onConflict, ignoreDuplicates), so existing
+    // welcome rows are left untouched. Previously this was gated on
+    // customerCreated, but Square has a `creation_source: MERGE` path
+    // that auto-creates a customer record before our complete-signup
+    // call lands — findCustomerByPhone then hit the MERGE row and
+    // customerCreated flipped to false, silently denying welcome to real
+    // new web signups (~6 affected users observed 2026-04-24..26).
+    // Letting a rare in-store-only customer pick up a welcome on web
+    // signup is much cheaper than denying every Squarish edge-case new
+    // user their welcome.
+    await grantWelcomeDiscount(customerId);
 
     // Enroll the customer in the Square loyalty program at signup time so
     // the very first POS scan of their member QR earns a star — even if
