@@ -114,6 +114,12 @@ export async function purgeAccount(args: {
       .delete()
       .eq("customer_id", customerId);
     if (error) console.error("[purge] welcome_discounts delete", error);
+
+    const { error: igErr } = await admin
+      .from("ig_follow_discounts")
+      .delete()
+      .eq("customer_id", customerId);
+    if (igErr) console.error("[purge] ig_follow_discounts delete", igErr);
   }
 
   if (userId) {
