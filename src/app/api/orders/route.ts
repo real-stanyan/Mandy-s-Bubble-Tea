@@ -7,6 +7,7 @@ import { getActivePublicHoliday } from "@/lib/holiday";
 import { getOrderingStatus } from "@/lib/store-status";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
@@ -246,27 +247,30 @@ export async function POST(request: Request) {
             BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
           for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
         }
-        unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-        const K = Math.min(status.drinksRemaining, unitPrices.length);
-        if (K > 0) {
-          const coveredSum = unitPrices
-            .slice(0, K)
-            .reduce((s, p) => s + p, 0n);
+
+        const { welcomeCups } = pickPromoCups({
+          unitPrices,
+          welcomeK: status.drinksRemaining,
+          igFollowK: 0, // wired in Task 9
+        });
+
+        if (welcomeCups.length > 0) {
+          const coveredSum = welcomeCups.reduce((s, p) => s + p, 0n);
           const amount = (coveredSum * BigInt(status.percentage || 30)) / 100n;
           if (amount > 0n) {
             welcomeDiscounts = [
               {
                 uid: "welcome-discount",
                 name:
-                  K === 1
+                  welcomeCups.length === 1
                     ? `Welcome ${status.percentage || 30}% Off (1 drink)`
-                    : `Welcome ${status.percentage || 30}% Off (${K} drinks)`,
+                    : `Welcome ${status.percentage || 30}% Off (${welcomeCups.length} drinks)`,
                 type: "FIXED_AMOUNT",
                 amountMoney: { amount, currency: BUSINESS.currency as Currency },
                 scope: "ORDER",
               },
             ];
-            welcomeDrinksCovered = K;
+            welcomeDrinksCovered = welcomeCups.length;
           }
         }
       }
