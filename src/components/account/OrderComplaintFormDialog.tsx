@@ -10,6 +10,38 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+function friendlyError(
+  code: string,
+  serverMessage: string | undefined,
+  status: number,
+): string {
+  if (serverMessage) return serverMessage;
+  switch (code) {
+    case "NOT_AUTHENTICATED":
+      return "You need to sign in to report a problem.";
+    case "NOT_OWN_ORDER":
+      return "Sign in with the account that placed this order.";
+    case "ORDER_NOT_FOUND":
+      return "We couldn't find this order.";
+    case "NOT_COMPLETED":
+      return "This order isn't complete yet.";
+    case "WINDOW_CLOSED":
+      return "The 7-day window for reporting this order has passed.";
+    case "ALREADY_REPORTED":
+      return "This order was already reported.";
+    case "INVALID_INPUT":
+      return "Please double-check the form and try again.";
+    case "INVALID_PHOTO":
+      return "One of the photos couldn't be processed. Try a different file.";
+    case "PROCESSING_FAILED":
+      return "We couldn't process your photos. Please try again.";
+    case "EMAIL_FAILED":
+      return "We couldn't send your report. Please try again in a moment.";
+    default:
+      return `Server error (${status}). Please try again.`;
+  }
+}
+
 const MAX_PHOTOS = 3;
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"];
@@ -99,8 +131,18 @@ export function OrderComplaintFormDialog({
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        const msg = json?.message || json?.error || `Server error (${res.status}).`;
-        setError(String(msg));
+        const code = String(json?.error ?? "");
+
+        // 409 ALREADY_REPORTED: another tab/device submitted first, or the
+        // status gate was stale — flip parent state and close gracefully.
+        if (res.status === 409 && code === "ALREADY_REPORTED") {
+          onSuccess();
+          onOpenChange(false);
+          reset();
+          return;
+        }
+
+        setError(friendlyError(code, json?.message, res.status));
         setSubmitting(false);
         return;
       }
