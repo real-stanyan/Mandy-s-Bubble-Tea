@@ -6,6 +6,7 @@ import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
+import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
@@ -283,6 +284,32 @@ export async function POST(request: Request) {
       );
     }
 
+    let igFollowDiscountConsumedCount = 0;
+    let igFollowDrinksRemaining: number | null = null;
+    const hadIgFollowDiscount = (order.discounts ?? []).some(
+      (d) => d.uid === "ig-follow-discount",
+    );
+    if (paymentSettled && hadIgFollowDiscount) {
+      const rawCovered = order.metadata?.igFollowDiscountDrinksCovered;
+      const parsedCovered = rawCovered ? parseInt(rawCovered, 10) : 0;
+      const coveredCount =
+        Number.isFinite(parsedCovered) && parsedCovered > 0 ? parsedCovered : 0;
+      if (coveredCount > 0) {
+        const result = await consumeIgFollowDiscount(
+          customerId,
+          body.orderId,
+          coveredCount,
+        );
+        igFollowDiscountConsumedCount = result.consumedCount;
+        igFollowDrinksRemaining = result.drinksRemaining;
+      }
+    }
+    if (amount > 0n && !paymentSettled && hadIgFollowDiscount) {
+      console.warn(
+        `[payment] payment ${paymentId} did not settle (status=${paymentStatus}); ig-follow discount preserved`,
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       paymentId,
@@ -293,6 +320,8 @@ export async function POST(request: Request) {
       // Preserve the old boolean flag so existing clients still have a truthy
       // signal to refresh auth. They can upgrade to the count at their own pace.
       welcomeDiscountConsumed: welcomeDiscountConsumedCount > 0,
+      igFollowDiscountConsumed: igFollowDiscountConsumedCount > 0,
+      igFollowDrinksRemaining,
       payment: paymentForResponse,
     });
   } catch (error) {
