@@ -17,8 +17,8 @@ If app users start asking for the same feature, mirror the UI to RN later — th
 
 ## 3. User-facing flow
 
-1. Customer signs in, navigates to `/account/orders/[orderId]` for a completed order.
-2. Below the line items + price summary, a section appears:
+1. Customer signs in and clicks a past order from `/account/orders` — `OrderRow.tsx:21` routes to `/order-confirmation/[orderId]` which is the project's actual order detail page (used both right after checkout and when revisiting from past orders).
+2. Below the line items + price summary, a section appears (only when the viewer is signed in and owns the order — see §4):
 
    ```
    Need help with this order?
@@ -33,18 +33,30 @@ If app users start asking for the same feature, mirror the UI to RN later — th
    - **Submit**: shows spinner, button disabled while in flight.
 4. On 200, dialog closes and a toast appears: "Thanks — we'll be in touch within 24 hours." The button on the page flips to a disabled state showing "Reported on Apr 26, 2026".
 
-## 4. Visibility rules (server-derived)
+## 4. Visibility rules
 
-The button section renders different states based on order data fetched server-side. Never trust client clock for window check.
+`/order-confirmation/[orderId]` is a public page (anyone with the link can view, e.g. post-checkout SMS). The complaint section is therefore rendered by a client component that gates on session + ownership. The actual time-window and dedup checks happen server-side via a status endpoint (the client never trusts its own clock).
 
-| Order state                                                | Section behaviour                                             |
-| ---------------------------------------------------------- | ------------------------------------------------------------- |
-| `state !== COMPLETED`                                       | Section not rendered                                          |
-| `COMPLETED` && `closedAt > 7 days ago`                      | Section visible, button disabled, label "Complaint window closed" |
-| `COMPLETED` && already has `order_complaints` row           | Section visible, button disabled, label "Reported on `<date>`" |
-| `COMPLETED` && within 7 days && no row                      | Button enabled                                                |
+**Client-side gate (cheap, immediate):**
 
-`closedAt` comes from the Square fulfillment payload, not local time.
+| Condition                                                            | Section behaviour      |
+| -------------------------------------------------------------------- | ---------------------- |
+| `useAuth()` profile is null                                           | Don't render section   |
+| `profile.square_customer_id !== order.customerId` (passed via prop)  | Don't render section   |
+| `order.state !== 'COMPLETED'` (passed via prop)                       | Don't render section   |
+
+**Server-side gate (definitive, on mount):**
+
+When the client gate passes, the section fetches `GET /api/orders/[orderId]/complaint-status`, which returns one of:
+
+| Reason                  | Section behaviour                                                  |
+| ----------------------- | ------------------------------------------------------------------ |
+| `eligible`              | Button enabled                                                     |
+| `window_closed`         | Section visible, button disabled, label "Complaint window closed"  |
+| `already_reported`      | Section visible, button disabled, label "Reported on `<date>`"     |
+| `not_completed` / 403 / 404 | Section hidden (defensive — client gate should have caught these)  |
+
+The status endpoint runs the same checks as the POST endpoint (sections 6 steps 1–5) but doesn't side-effect; it's a dry-run gate. Always uses `order.closedAt` from Square — not client time.
 
 ## 5. Persistence model
 
@@ -180,26 +192,32 @@ src/lib/email/complaint-mail.test.ts
 src/lib/photo-compress.ts
 src/lib/photo-compress.test.ts
 
-src/lib/order-complaint.ts            # window + ownership validators (pure functions)
+src/lib/order-complaint.ts                                # window + ownership + dedup validators
 src/lib/order-complaint.test.ts
 
-src/app/api/orders/[orderId]/complaint/route.ts
+src/app/api/orders/[orderId]/complaint/route.ts           # POST handler
 src/app/api/orders/[orderId]/complaint/route.test.ts
+src/app/api/orders/[orderId]/complaint-status/route.ts    # GET status (dry-run gate)
+src/app/api/orders/[orderId]/complaint-status/route.test.ts
 
-src/components/account/OrderComplaintFormDialog.tsx    # client, shadcn Dialog
-src/components/account/OrderComplaintButton.tsx        # gate logic + button
+src/components/ui/dialog.tsx                              # shadcn dialog primitive (project ships only alert-dialog today)
 
-src/lib/__fixtures__/sample-photo.jpg                  # ~3 MB iPhone-class fixture for compress tests
+src/components/account/OrderComplaintSection.tsx          # client wrapper: gate + button + dialog mount
+src/components/account/OrderComplaintFormDialog.tsx       # the dialog form itself
+
+src/lib/__fixtures__/sample-photo.jpg                     # ~3 MB iPhone-class fixture for compress tests
 ```
 
 ### Modified files
 
 ```
-src/app/account/orders/[orderId]/page.tsx              # render section + pass alreadyReportedAt
-src/lib/auth/account-purge.ts (or wherever purgeAccount lives)   # add order_complaints DELETE
-.env.example                                            # 3 new env vars
-package.json                                            # add sharp, resend
+src/app/order-confirmation/[orderId]/page.tsx             # mount <OrderComplaintSection /> below price summary, pass {orderId, orderState, customerId, closedAt}
+src/lib/supabase.ts                                       # purgeAccount() — add order_complaints DELETE (file confirmed at src/lib/supabase.ts:88)
+.env.example                                              # 3 new env vars
+package.json                                              # add sharp, resend, @radix-ui/react-dialog
 ```
+
+> Note: the project currently ships `src/components/ui/alert-dialog.tsx` but not `dialog.tsx`. The `<AlertDialog>` primitive is geared toward yes/no confirmations (semantic role=alertdialog, no title/description structure for forms). For the complaint form we add a proper `<Dialog>` primitive.
 
 ### Why a dedicated `email/` directory
 
@@ -230,6 +248,7 @@ New env vars (add to Vercel + `.env.example`):
 | `src/lib/photo-compress.test.ts`                  | real sharp call against fixture: output is jpeg ≤500 KB, EXIF rotation applied, HEIC input → jpeg, non-image rejects |
 | `src/lib/email/complaint-mail.test.ts`            | subject format, line item rendering, reply-to wiring, attachments base64                                             |
 | `src/app/api/orders/[orderId]/complaint/route.test.ts` | All 9 failure branches + happy path, mocking Square + Resend + Supabase                                          |
+| `src/app/api/orders/[orderId]/complaint-status/route.test.ts` | All 5 reason codes (eligible / window_closed / already_reported / not_completed / not_owner), mocking Square + Supabase |
 
 No new e2e suite — vitest covers logic; the UI dialog is exercised manually via cmux browser before completion (`verification-before-completion` skill).
 
