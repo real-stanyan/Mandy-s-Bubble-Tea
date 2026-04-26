@@ -17,6 +17,7 @@ import {
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -144,8 +145,13 @@ function CartBody({
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
 }) {
-  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward } =
-    useAuth();
+  const {
+    profile,
+    loyalty,
+    welcomeDiscount,
+    igFollowDiscount,
+    starsPerReward: authStarsPerReward,
+  } = useAuth();
   const [useReward, setUseReward] = useState(false);
 
   // SDK state for wallet quick-pay.
@@ -190,26 +196,52 @@ function CartBody({
     [phActive, subtotal],
   );
 
-  const welcomeCoverage = useMemo(() => {
-    if (!welcomeDiscount.available || lines.length === 0) {
-      return { coveredCount: 0, discountCents: 0n };
+  const promoCoverage = useMemo(() => {
+    if (lines.length === 0) {
+      return {
+        welcomeCount: 0,
+        welcomeDiscountCents: 0n,
+        igFollowCount: 0,
+        igFollowDiscountCents: 0n,
+      };
     }
     const unitPrices: bigint[] = [];
     for (const line of lines) {
       const unit = lineUnitPrice(line);
       for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
     }
-    unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    const K = Math.min(welcomeDiscount.drinksRemaining, unitPrices.length);
-    if (K === 0) return { coveredCount: 0, discountCents: 0n };
-    const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
+    const welcomeK = welcomeDiscount.available
+      ? welcomeDiscount.drinksRemaining
+      : 0;
+    const igK = igFollowDiscount.available
+      ? igFollowDiscount.drinksRemaining
+      : 0;
+    const { welcomeCups, igFollowCups } = pickPromoCups({
+      unitPrices,
+      welcomeK,
+      igFollowK: igK,
+    });
+    const welcomeDiscountCents =
+      welcomeCups.length > 0
+        ? (welcomeCups.reduce((s, p) => s + p, 0n) *
+            BigInt(welcomeDiscount.percentage || 30)) /
+          100n
+        : 0n;
+    const igFollowDiscountCents =
+      igFollowCups.length > 0
+        ? (igFollowCups.reduce((s, p) => s + p, 0n) *
+            BigInt(igFollowDiscount.percentage || 10)) /
+          100n
+        : 0n;
     return {
-      coveredCount: K,
-      discountCents:
-        (coveredSum * BigInt(welcomeDiscount.percentage)) / 100n,
+      welcomeCount: welcomeCups.length,
+      welcomeDiscountCents,
+      igFollowCount: igFollowCups.length,
+      igFollowDiscountCents,
     };
-  }, [lines, welcomeDiscount]);
-  const welcomeDiscountAmount = welcomeCoverage.discountCents;
+  }, [lines, welcomeDiscount, igFollowDiscount]);
+  const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
+  const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
   useEffect(() => {
     if (!sdkReady || lines.length === 0) return;
@@ -356,7 +388,10 @@ function CartBody({
           rewardDiscount={rewardDiscount}
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
-          welcomeCoveredCount={welcomeCoverage.coveredCount}
+          welcomeCoveredCount={promoCoverage.welcomeCount}
+          igFollowDiscount={igFollowDiscount}
+          igFollowDiscountAmount={igFollowDiscountAmount}
+          igFollowCoveredCount={promoCoverage.igFollowCount}
           surchargeAmount={surchargeAmount}
           phSurchargeAmount={phSurchargeAmount}
           hasProfile={!!profile}
@@ -600,6 +635,9 @@ function CartFooter({
   welcomeDiscount,
   welcomeDiscountAmount,
   welcomeCoveredCount,
+  igFollowDiscount,
+  igFollowDiscountAmount,
+  igFollowCoveredCount,
   surchargeAmount,
   phSurchargeAmount,
   hasProfile,
@@ -621,6 +659,13 @@ function CartFooter({
   };
   welcomeDiscountAmount: bigint;
   welcomeCoveredCount: number;
+  igFollowDiscount: {
+    available: boolean;
+    percentage: number;
+    drinksRemaining: number;
+  };
+  igFollowDiscountAmount: bigint;
+  igFollowCoveredCount: number;
   surchargeAmount: bigint;
   phSurchargeAmount: bigint;
   hasProfile: boolean;
@@ -655,16 +700,17 @@ function CartFooter({
   }, []);
   const storeClosed = !orderingStatus.open;
 
-  // Reward and welcome display are mutually exclusive in the total math
+  // Reward and welcome/IG display are mutually exclusive in the total math
   // (matches /checkout). Square still applies both at charge time — the
   // server-trusted totalMoney is authoritative.
+  const promoDiscountTotal = welcomeDiscountAmount + igFollowDiscountAmount;
   const discountedTotal = useReward
     ? subtotal - rewardDiscount > 0n
       ? subtotal - rewardDiscount
       : 0n
-    : welcomeDiscount.available
-      ? subtotal - welcomeDiscountAmount > 0n
-        ? subtotal - welcomeDiscountAmount
+    : promoDiscountTotal > 0n
+      ? subtotal - promoDiscountTotal > 0n
+        ? subtotal - promoDiscountTotal
         : 0n
       : subtotal;
   // Loyalty reward that fully covers the drinks → no card is charged,
@@ -737,6 +783,7 @@ function CartFooter({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             applyWelcomeDiscount: welcomeDiscount.available,
+            applyIgFollowDiscount: igFollowDiscount.available,
             applyLoyaltyReward: isFreeRedeem,
             lines: lines.map((l) => ({
               itemName: l.itemName,
@@ -839,6 +886,7 @@ function CartFooter({
       useReward, lines, applePayRef, googlePayRef, paymentsRef,
       clear, closeDrawer, router, refresh,
       welcomeDiscount.available,
+      igFollowDiscount.available,
       orderingStatus.open, orderingStatus.nextLabel,
     ],
   );
@@ -891,6 +939,26 @@ function CartFooter({
               </span>
               <span style={{ color: BRAND.primaryColor }}>
                 −{formatPrice(welcomeDiscountAmount)}
+              </span>
+            </div>
+          )}
+        {!useReward &&
+          igFollowDiscount.available &&
+          igFollowCoveredCount > 0 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: BRAND.primaryColor }}
+                />
+                IG Follow {igFollowDiscount.percentage || 10}% Off
+                <span className="text-xs text-zinc-500">
+                  ({igFollowCoveredCount} drink
+                  {igFollowCoveredCount === 1 ? "" : "s"})
+                </span>
+              </span>
+              <span style={{ color: BRAND.primaryColor }}>
+                −{formatPrice(igFollowDiscountAmount)}
               </span>
             </div>
           )}
