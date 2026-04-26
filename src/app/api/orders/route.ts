@@ -216,15 +216,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Server-verify welcome discount before attaching it. Client is NOT
-    // trusted — a request with applyWelcomeDiscount:true but no unused
-    // row in Supabase is silently treated as "no discount".
-    // Compute the welcome-discount amount server-side from client-sent unit
-    // prices. The client has authoritative prices (they came from our catalog
-    // API at add-to-cart time); a malicious client can only shift *which*
-    // drinks are chosen as cheapest, and since the rate is always 30% of a
-    // real line's price, the merchant's downside is bounded. If we later
-    // harden this we'll call `squareClient.orders.calculate()` first to get
+    // Server-verify welcome and IG-follow discounts before attaching them.
+    // Client is NOT trusted — a request with applyWelcomeDiscount or
+    // applyIgFollowDiscount: true but no unused row in Supabase is silently
+    // treated as "no discount".
+    // Compute the discount amounts server-side from client-sent unit prices.
+    // The client has authoritative prices (they came from our catalog API
+    // at add-to-cart time); a malicious client can only shift *which*
+    // drinks are chosen as cheapest, and since the rates are bounded
+    // percentages, the merchant's downside is bounded. If we later harden
+    // this we'll call `squareClient.orders.calculate()` first to get
     // Square's authoritative line totals, but for now trust-client is fine.
     let welcomeDiscounts:
       | Array<{
@@ -319,7 +320,10 @@ export async function POST(request: Request) {
             igFollowDiscounts = [
               {
                 uid: "ig-follow-discount",
-                name: `IG Follow ${igStatus.percentage || 10}% Off (1 drink)`,
+                name:
+                  igFollowCups.length === 1
+                    ? `IG Follow ${igStatus.percentage || 10}% Off (1 drink)`
+                    : `IG Follow ${igStatus.percentage || 10}% Off (${igFollowCups.length} drinks)`,
                 type: "FIXED_AMOUNT",
                 amountMoney: { amount, currency: BUSINESS.currency as Currency },
                 scope: "ORDER",
@@ -387,7 +391,7 @@ export async function POST(request: Request) {
         referenceId: pickupNumber,
         ticketName: pickupNumber,
         lineItems,
-        discounts: allDiscounts.length ? allDiscounts : undefined,
+        discounts: allDiscounts.length > 0 ? allDiscounts : undefined,
         // Passes Square card-processing fees (and PH surcharge) through
         // to the customer. SUBTOTAL_PHASE → computed on the pre-discount
         // subtotal so surcharges don't shrink when a welcome discount is
