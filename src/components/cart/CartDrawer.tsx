@@ -865,9 +865,13 @@ function CartFooter({
           throw new Error(paymentJson.error ?? "Payment failed");
         }
 
-        // If the server consumed our welcome discount, refresh auth state so
-        // welcomeDiscount.available flips back to false everywhere.
-        if (paymentJson.welcomeDiscountConsumed) {
+        // If the server consumed welcome or IG-follow ticket, refresh auth
+        // state so the matching `available` flag flips back to false in cart
+        // / checkout / promotions UI without forcing a manual page reload.
+        if (
+          paymentJson.welcomeDiscountConsumed ||
+          paymentJson.igFollowDiscountConsumed
+        ) {
           void refresh();
         }
 

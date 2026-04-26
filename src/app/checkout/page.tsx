@@ -579,7 +579,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
-      if (paymentJson.welcomeDiscountConsumed) {
+      if (
+        paymentJson.welcomeDiscountConsumed ||
+        paymentJson.igFollowDiscountConsumed
+      ) {
         void refresh();
       }
 
