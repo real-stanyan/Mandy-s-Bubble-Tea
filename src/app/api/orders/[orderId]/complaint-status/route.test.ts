@@ -126,4 +126,17 @@ describe("GET complaint-status", () => {
     const res = await GET(request, context);
     expect(res.status).toBe(403);
   });
+
+  it("404 when Square throws", async () => {
+    (getAuthedUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: "u1",
+      profile: { square_customer_id: "CUST_OWN" },
+    });
+    (squareClient.orders.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("not found"),
+    );
+    const { request, context } = mockReq();
+    const res = await GET(request, context);
+    expect(res.status).toBe(404);
+  });
 });
