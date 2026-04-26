@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
 
 type PromotionItem = {
   id: string;
@@ -15,6 +16,34 @@ type PromotionItem = {
 
 export default function PromotionsPage() {
   const { profile, loyalty, welcomeDiscount, starsPerReward, loading } = useAuth();
+
+  const [igStatus, setIgStatus] = useState<{
+    available: boolean;
+    drinksRemaining: number;
+    redeemedAt: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!profile) return;
+    let alive = true;
+    fetch("/api/promotions/ig-follow/status", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!alive) return;
+        setIgStatus({
+          available: Boolean(data.available),
+          drinksRemaining: Number(data.drinksRemaining ?? 0),
+          redeemedAt: data.redeemedAt ?? null,
+        });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setIgStatus({ available: false, drinksRemaining: 0, redeemedAt: null });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [profile]);
 
   const promotions = useMemo<PromotionItem[]>(() => {
     if (!profile) return getGuestPromotions();
@@ -74,6 +103,18 @@ export default function PromotionsPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {igStatus?.redeemedAt ? (
+              <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+                <h3 className="text-lg font-semibold text-zinc-500 line-through">
+                  10% Off Your Next Drink
+                </h3>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Used. Thanks for following @mandysbubbletea!
+                </p>
+              </article>
+            ) : (
+              <IgFollowPromoCard />
+            )}
             {promotions.length === 0 ? (
               <div className="rounded-2xl border border-black/10 bg-white p-8 text-center">
                 <p className="text-sm text-zinc-500">No promotions available right now.</p>
