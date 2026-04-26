@@ -76,11 +76,14 @@ export async function getWelcomeDiscountStatus(
 /**
  * Tear down every Supabase-side trace of an account when the Square
  * customer is gone (deleted in Square Dashboard, or detected missing on
- * session resume). Deletes the auth.users row (user_profiles cascades
- * via FK) and the welcome_discounts row (not FK-linked). Pass whichever
- * handle you have; we look up the missing one.
+ * session resume). Pass whichever handle you have; we look up the
+ * missing one.
  *
- * Idempotent and swallows errors — callers must not block on cleanup.
+ * Throws if releasing the unique-constrained columns (phone/email)
+ * fails so the caller can surface the failure to the user — leaving
+ * those columns intact would block the customer from re-registering
+ * with the same number. Best-effort steps (welcome_discounts delete,
+ * auth user deletion) are logged but don't throw.
  */
 export async function purgeAccount(args: {
   userId?: string;
@@ -89,37 +92,58 @@ export async function purgeAccount(args: {
   const admin = getSupabase();
   let { userId, customerId } = args;
 
-  try {
-    if (!userId && customerId) {
-      const { data } = await admin
-        .from("user_profiles")
-        .select("user_id")
-        .eq("square_customer_id", customerId)
-        .maybeSingle();
-      userId = data?.user_id ?? undefined;
-    } else if (userId && !customerId) {
-      const { data } = await admin
-        .from("user_profiles")
-        .select("square_customer_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-      customerId = data?.square_customer_id ?? undefined;
+  if (!userId && customerId) {
+    const { data } = await admin
+      .from("user_profiles")
+      .select("user_id")
+      .eq("square_customer_id", customerId)
+      .maybeSingle();
+    userId = data?.user_id ?? undefined;
+  } else if (userId && !customerId) {
+    const { data } = await admin
+      .from("user_profiles")
+      .select("square_customer_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    customerId = data?.square_customer_id ?? undefined;
+  }
+
+  if (customerId) {
+    const { error } = await admin
+      .from("welcome_discounts")
+      .delete()
+      .eq("customer_id", customerId);
+    if (error) console.error("[purge] welcome_discounts delete", error);
+  }
+
+  if (userId) {
+    // CRITICAL: rewrite phone + email to inert per-user markers BEFORE
+    // attempting the auth user delete. Reported 2026-04-26: customers
+    // saw "Phone number in use" when re-registering after Account →
+    // Delete. Root cause: `auth.admin.deleteUser` was silently failing
+    // (FK conflict / soft-delete mode / RLS) and the swallowed error
+    // left the auth.users row behind, with the phone column still
+    // claiming the unique constraint. We can't set NULL via the JS
+    // SDK (typings disallow it and GoTrue's normalization of empty
+    // strings is unreliable), so we write a guaranteed-unique marker
+    // string the customer can never collide with.
+    const deletedMarker = `deleted-${userId}`;
+    const { error: clearErr } = await admin.auth.admin.updateUserById(userId, {
+      phone: deletedMarker,
+      email: `${userId}@deleted.invalid`,
+    });
+    if (clearErr) {
+      console.error("[purge] clear phone/email failed", clearErr);
+      throw new Error(
+        `Failed to release account unique fields: ${clearErr.message}`,
+      );
     }
 
-    if (customerId) {
-      const { error } = await admin
-        .from("welcome_discounts")
-        .delete()
-        .eq("customer_id", customerId);
-      if (error) console.error("[purge] welcome_discounts delete", error);
-    }
-
-    if (userId) {
-      const { error } = await admin.auth.admin.deleteUser(userId);
-      if (error) console.error("[purge] auth.admin.deleteUser", error);
-    }
-  } catch (err) {
-    console.error("[purge] failed", err);
+    // Best-effort hard delete. Phone/email are already released, so a
+    // failure here just leaves an inert row that does not block the
+    // customer from signing up again.
+    const { error: delErr } = await admin.auth.admin.deleteUser(userId);
+    if (delErr) console.error("[purge] auth.admin.deleteUser", delErr);
   }
 }
 
