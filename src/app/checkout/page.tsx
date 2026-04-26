@@ -15,6 +15,7 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
@@ -48,36 +49,6 @@ const WEB_SDK_SRC =
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID ?? "";
 const SQUARE_LOCATION_ID =
   process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID ?? "";
-
-/**
- * Mirrors the server-side cheapest-K algorithm in /api/orders. Expands
- * each cart line into `quantity` unit-price entries, sorts ascending,
- * picks the cheapest `K = min(drinksRemaining, totalUnits)`, and returns
- * both K and the 30%-discount amount. Kept in sync with the server by
- * hand — if the server algorithm changes, update this too.
- */
-function computeWelcomeDiscount(
-  lines: CartLine[],
-  drinksRemaining: number,
-  percentage: number,
-): { coveredCount: number; discountCents: bigint } {
-  if (drinksRemaining <= 0 || lines.length === 0 || percentage <= 0) {
-    return { coveredCount: 0, discountCents: 0n };
-  }
-  const unitPrices: bigint[] = [];
-  for (const line of lines) {
-    const unit = lineUnitPrice(line);
-    for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
-  }
-  unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  const K = Math.min(drinksRemaining, unitPrices.length);
-  if (K === 0) return { coveredCount: 0, discountCents: 0n };
-  const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
-  return {
-    coveredCount: K,
-    discountCents: (coveredSum * BigInt(percentage)) / 100n,
-  };
-}
 
 export default function CheckoutPage() {
   const hydrated = useCart((s) => s.hydrated);
@@ -129,8 +100,14 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
-  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward, refresh } =
-    useAuth();
+  const {
+    profile,
+    loyalty,
+    welcomeDiscount,
+    igFollowDiscount,
+    starsPerReward: authStarsPerReward,
+    refresh,
+  } = useAuth();
   if (!profile) {
     // Should never happen — parent gates this. But TS can't prove it.
     throw new Error("CheckoutSignedIn rendered without profile");
@@ -170,17 +147,52 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return cheapest;
   }, [lines]);
 
-  const welcomeCoverage = useMemo(() => {
-    if (!welcomeDiscount.available) {
-      return { coveredCount: 0, discountCents: 0n };
+  const promoCoverage = useMemo(() => {
+    if (lines.length === 0) {
+      return {
+        welcomeCount: 0,
+        welcomeDiscountCents: 0n,
+        igFollowCount: 0,
+        igFollowDiscountCents: 0n,
+      };
     }
-    return computeWelcomeDiscount(
-      lines,
-      welcomeDiscount.drinksRemaining,
-      welcomeDiscount.percentage,
-    );
-  }, [lines, welcomeDiscount]);
-  const welcomeDiscountAmount = welcomeCoverage.discountCents;
+    const unitPrices: bigint[] = [];
+    for (const line of lines) {
+      const unit = lineUnitPrice(line);
+      for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
+    }
+    const welcomeK = welcomeDiscount.available
+      ? welcomeDiscount.drinksRemaining
+      : 0;
+    const igK = igFollowDiscount.available
+      ? igFollowDiscount.drinksRemaining
+      : 0;
+    const { welcomeCups, igFollowCups } = pickPromoCups({
+      unitPrices,
+      welcomeK,
+      igFollowK: igK,
+    });
+    const welcomeDiscountCents =
+      welcomeCups.length > 0
+        ? (welcomeCups.reduce((s, p) => s + p, 0n) *
+            BigInt(welcomeDiscount.percentage || 30)) /
+          100n
+        : 0n;
+    const igFollowDiscountCents =
+      igFollowCups.length > 0
+        ? (igFollowCups.reduce((s, p) => s + p, 0n) *
+            BigInt(igFollowDiscount.percentage || 10)) /
+          100n
+        : 0n;
+    return {
+      welcomeCount: welcomeCups.length,
+      welcomeDiscountCents,
+      igFollowCount: igFollowCups.length,
+      igFollowDiscountCents,
+    };
+  }, [lines, welcomeDiscount, igFollowDiscount]);
+  const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
+  const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
   // Card surcharge mirrors the Square service charge attached in
   // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
@@ -225,12 +237,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const displayTotal = useMemo(() => {
     if (isFreeRedeem) return 0n;
+    const promoDiscountTotal = welcomeDiscountAmount + igFollowDiscountAmount;
     const afterDiscount =
       canRedeem && useReward
         ? (subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-        : welcomeDiscount.available
-          ? (subtotal - welcomeDiscountAmount > 0n
-              ? subtotal - welcomeDiscountAmount
+        : promoDiscountTotal > 0n
+          ? (subtotal - promoDiscountTotal > 0n
+              ? subtotal - promoDiscountTotal
               : 0n)
           : subtotal;
     return afterDiscount + surchargeAmount + phSurchargeAmount;
@@ -240,8 +253,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     canRedeem,
     useReward,
     rewardDiscount,
-    welcomeDiscount.available,
     welcomeDiscountAmount,
+    igFollowDiscountAmount,
     surchargeAmount,
     phSurchargeAmount,
   ]);
@@ -468,6 +481,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         body: JSON.stringify({
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
+          applyIgFollowDiscount: igFollowDiscount.available,
           applyLoyaltyReward: isFreeRedeem,
           lines: lines.map((l) => ({
             itemName: l.itemName,
@@ -680,7 +694,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
-                {welcomeDiscount.available && (
+                {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
                   <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
                     <span className="flex items-center gap-1.5">
                       <span
@@ -688,15 +702,31 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                         style={{ backgroundColor: BRAND.primaryColor }}
                       />
                       Welcome {welcomeDiscount.percentage}% Off
-                      {welcomeCoverage.coveredCount > 0 && (
-                        <span className="text-xs text-zinc-500">
-                          ({welcomeCoverage.coveredCount} drink
-                          {welcomeCoverage.coveredCount === 1 ? "" : "s"})
-                        </span>
-                      )}
+                      <span className="text-xs text-zinc-500">
+                        ({promoCoverage.welcomeCount} drink
+                        {promoCoverage.welcomeCount === 1 ? "" : "s"})
+                      </span>
                     </span>
                     <span style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(welcomeDiscountAmount)}
+                    </span>
+                  </div>
+                )}
+                {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+                  <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: BRAND.primaryColor }}
+                      />
+                      IG Follow {igFollowDiscount.percentage || 10}% Off
+                      <span className="text-xs text-zinc-500">
+                        ({promoCoverage.igFollowCount} drink
+                        {promoCoverage.igFollowCount === 1 ? "" : "s"})
+                      </span>
+                    </span>
+                    <span style={{ color: BRAND.primaryColor }}>
+                      −{formatPrice(igFollowDiscountAmount)}
                     </span>
                   </div>
                 )}
@@ -906,7 +936,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 {formatPrice(subtotal)}
               </span>
             </div>
-            {welcomeDiscount.available && (
+            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5">
                   <span
@@ -914,15 +944,31 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
                   Welcome {welcomeDiscount.percentage}% Off
-                  {welcomeCoverage.coveredCount > 0 && (
-                    <span className="text-xs text-zinc-500">
-                      ({welcomeCoverage.coveredCount} drink
-                      {welcomeCoverage.coveredCount === 1 ? "" : "s"})
-                    </span>
-                  )}
+                  <span className="text-xs text-zinc-500">
+                    ({promoCoverage.welcomeCount} drink
+                    {promoCoverage.welcomeCount === 1 ? "" : "s"})
+                  </span>
                 </span>
                 <span style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(welcomeDiscountAmount)}
+                </span>
+              </div>
+            )}
+            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: BRAND.primaryColor }}
+                  />
+                  IG Follow {igFollowDiscount.percentage || 10}% Off
+                  <span className="text-xs text-zinc-500">
+                    ({promoCoverage.igFollowCount} drink
+                    {promoCoverage.igFollowCount === 1 ? "" : "s"})
+                  </span>
+                </span>
+                <span style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(igFollowDiscountAmount)}
                 </span>
               </div>
             )}
@@ -1024,12 +1070,20 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             <p className="text-lg font-bold text-zinc-900">
               {formatPrice(displayTotal)}
             </p>
-            {welcomeDiscount.available && welcomeCoverage.coveredCount > 0 && (
+            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
               <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
                 Welcome {welcomeDiscount.percentage}% Off ·{" "}
-                {welcomeCoverage.coveredCount} drink
-                {welcomeCoverage.coveredCount === 1 ? "" : "s"} · −
+                {promoCoverage.welcomeCount} drink
+                {promoCoverage.welcomeCount === 1 ? "" : "s"} · −
                 {formatPrice(welcomeDiscountAmount)}
+              </p>
+            )}
+            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+              <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
+                IG Follow {igFollowDiscount.percentage || 10}% Off ·{" "}
+                {promoCoverage.igFollowCount} drink
+                {promoCoverage.igFollowCount === 1 ? "" : "s"} · −
+                {formatPrice(igFollowDiscountAmount)}
               </p>
             )}
             {effectiveSurcharge > 0n && (
