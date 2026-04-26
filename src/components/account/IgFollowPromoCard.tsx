@@ -34,6 +34,13 @@ export function IgFollowPromoCard() {
   const [visited, setVisited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  // `redeemedAt` lives only on the dedicated status endpoint — context
+  // exposes available/percentage/drinksRemaining but not redeemedAt
+  // (kept narrow on hydration to avoid bloating /api/me). We fetch it
+  // here so the card is self-contained and any caller (e.g. /account
+  // page or /account/promotions) gets the full Locked / Active /
+  // Redeemed state without extra wiring.
+  const [redeemedAt, setRedeemedAt] = useState<string | null>(null);
 
   useEffect(() => {
     setVisited(
@@ -41,6 +48,31 @@ export function IgFollowPromoCard() {
         window.localStorage.getItem(VISITED_KEY) === "1",
     );
   }, []);
+
+  // Fetch redeemedAt only for signed-in users; guests can never be in
+  // the Redeemed state. Refetch when igFollowDiscount.available flips
+  // from true → false (i.e. just consumed) so the card transitions
+  // Locked/Active → Redeemed without a manual reload.
+  useEffect(() => {
+    if (!profile) {
+      setRedeemedAt(null);
+      return;
+    }
+    let alive = true;
+    fetch("/api/promotions/ig-follow/status", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!alive) return;
+        setRedeemedAt(data?.redeemedAt ?? null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setRedeemedAt(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [profile, igFollowDiscount.available]);
 
   const handleStep1 = () => {
     if (typeof window !== "undefined") {
@@ -61,6 +93,20 @@ export function IgFollowPromoCard() {
       setBusy(false);
     }
   };
+
+  // ----- Redeemed state: ticket fully consumed -----
+  if (redeemedAt && !igFollowDiscount.available) {
+    return (
+      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+        <h3 className="text-lg font-semibold text-zinc-500 line-through">
+          10% Off Your Next Drink
+        </h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          Used. Thanks for following @mandysbubbletea!
+        </p>
+      </article>
+    );
+  }
 
   // ----- Active state: ticket is available -----
   if (igFollowDiscount.available) {

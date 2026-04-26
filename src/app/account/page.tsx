@@ -10,6 +10,7 @@ import { AccountHeader } from "@/components/account/AccountHeader";
 import { LoyaltyCard } from "@/components/account/LoyaltyCard";
 import { MiniStats } from "@/components/account/MiniStats";
 import { AddToWalletButton } from "@/components/account/AddToWalletButton";
+import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
 import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
 import { PromotionsCard } from "@/components/account/PromotionsCard";
 import { OrderHistory } from "@/components/account/OrderHistory";
@@ -109,6 +110,7 @@ export default function AccountPage() {
                 phoneE164={profile.phone_e164}
               />
               <AddToWalletButton />
+              <IgFollowPromoCard />
               <PromotionsCard rewardsCount={rewardsAvailable} />
             </div>
             <div className="flex flex-col">
