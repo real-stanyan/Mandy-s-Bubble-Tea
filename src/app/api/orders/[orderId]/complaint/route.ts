@@ -44,7 +44,8 @@ export async function POST(
   try {
     const response = await squareClient.orders.get({ orderId });
     order = response.order;
-  } catch {
+  } catch (err) {
+    console.error("[complaint] Square order fetch failed", { orderId, err });
     return NextResponse.json(
       { ok: false, error: "ORDER_NOT_FOUND" },
       { status: 404 },
@@ -82,7 +83,10 @@ export async function POST(
     );
   }
 
-  // 5. Dedup — must happen BEFORE multipart body parse to avoid wasting bandwidth
+  // 5. Dedup. Note: there's a small race window between this SELECT and the
+  // post-send INSERT below. Two near-simultaneous submissions can both pass
+  // here, both send emails, and the second INSERT will fail on the UNIQUE
+  // constraint — Mandy gets a duplicate email. Acceptable for low-volume use.
   const admin = getSupabaseAdmin();
   const { data: existing } = await admin
     .from("order_complaints")
@@ -100,9 +104,14 @@ export async function POST(
   let formData: FormData;
   try {
     formData = await request.formData();
-  } catch {
+  } catch (err) {
+    console.error("[complaint] multipart parse failed", { orderId, err });
     return NextResponse.json(
-      { ok: false, error: "INVALID_INPUT" },
+      {
+        ok: false,
+        error: "INVALID_INPUT",
+        message: "Could not read upload, please retry.",
+      },
       { status: 422 },
     );
   }
@@ -117,7 +126,12 @@ export async function POST(
   });
   if (!bodyValidation.ok) {
     return NextResponse.json(
-      { ok: false, error: bodyValidation.code, message: bodyValidation.message },
+      {
+        ok: false,
+        error: "INVALID_INPUT",
+        reason: bodyValidation.code,
+        message: bodyValidation.message,
+      },
       { status: 422 },
     );
   }
@@ -152,7 +166,21 @@ export async function POST(
       }),
     );
   } catch (err) {
-    console.error("[complaint] photo compress failed", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[complaint] photo compress failed", { orderId, message });
+    // Sharp can throw on undecodable inputs (HEIC without libheif, corrupt
+    // JPEG, etc.). Map those to 422 so the customer knows to retry with a
+    // different photo rather than retrying the same broken upload forever.
+    if (/unsupported|heif|heic|premature|invalid|corrupt/i.test(message)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "INVALID_PHOTO",
+          message: "We couldn't process one of the photos. Try a different one.",
+        },
+        { status: 422 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "PROCESSING_FAILED" },
       { status: 500 },

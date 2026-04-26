@@ -169,6 +169,9 @@ describe("POST complaint", () => {
     const { request, context } = makeRequest(fd);
     const res = await POST(request, context);
     expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("INVALID_INPUT");
+    expect(json.reason).toBe("DESCRIPTION_TOO_SHORT");
   });
 
   it("422 when more than 3 photos", async () => {
