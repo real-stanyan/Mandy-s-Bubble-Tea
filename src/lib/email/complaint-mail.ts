@@ -120,7 +120,7 @@ function escapeHtml(s: string): string {
 function formatBrisbane(iso: string): string {
   // Brisbane is fixed UTC+10 (no DST). Manually offset and format.
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+  if (Number.isNaN(d.getTime())) return "?";
   const local = new Date(d.getTime() + 10 * 60 * 60 * 1000);
   const yyyy = local.getUTCFullYear();
   const mm = String(local.getUTCMonth() + 1).padStart(2, "0");

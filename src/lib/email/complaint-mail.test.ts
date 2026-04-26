@@ -88,4 +88,13 @@ describe("buildComplaintEmail", () => {
     const m = buildComplaintEmail({ ...baseInput, customerEmail: null });
     expect(m.replyTo).toBeUndefined();
   });
+
+  it("renders '?' for malformed placedAt / closedAt strings", () => {
+    const m = buildComplaintEmail({
+      ...baseInput,
+      placedAt: "not-a-date",
+      closedAt: "",
+    });
+    expect(m.text).toContain("placed ?, completed ?");
+  });
 });
