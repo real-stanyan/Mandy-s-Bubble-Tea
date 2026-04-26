@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { getSupabaseAdmin } from "./supabase-server";
 
 // Business-logic helpers built on top of the service-role Supabase
@@ -131,19 +132,22 @@ export async function purgeAccount(args: {
   }
 
   if (userId) {
-    // CRITICAL: rewrite phone + email to inert per-user markers BEFORE
-    // attempting the auth user delete. Reported 2026-04-26: customers
-    // saw "Phone number in use" when re-registering after Account →
-    // Delete. Root cause: `auth.admin.deleteUser` was silently failing
-    // (FK conflict / soft-delete mode / RLS) and the swallowed error
-    // left the auth.users row behind, with the phone column still
-    // claiming the unique constraint. We can't set NULL via the JS
-    // SDK (typings disallow it and GoTrue's normalization of empty
-    // strings is unreliable), so we write a guaranteed-unique marker
-    // string the customer can never collide with.
-    const deletedMarker = `deleted-${userId}`;
+    // CRITICAL: rewrite phone + email to inert markers BEFORE deleting
+    // the auth user. Reported 2026-04-26: customers saw "Phone number
+    // in use" when re-registering after Account → Delete because
+    // `auth.admin.deleteUser` was silently failing (FK / soft-delete
+    // mode / RLS) and the swallowed error left auth.users intact with
+    // the phone column still claiming the unique constraint.
+    //
+    // We can't pass NULL via the SDK (typings disallow it and GoTrue
+    // ignores explicit nulls in the JSON body — verified). Phone must
+    // be a valid E.164 string, so we write a 14-digit number prefixed
+    // "+9" (an unassigned E.164 country code). 12 random digits gives
+    // a 1-in-10^12 collision space — effectively unique for one shop.
+    const inertNumber = randomBytes(8).readBigUInt64BE() % 1000000000000n;
+    const inertPhone = `+9${inertNumber.toString().padStart(12, "0")}`;
     const { error: clearErr } = await admin.auth.admin.updateUserById(userId, {
-      phone: deletedMarker,
+      phone: inertPhone,
       email: `${userId}@deleted.invalid`,
     });
     if (clearErr) {
