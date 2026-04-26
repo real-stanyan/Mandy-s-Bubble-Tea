@@ -73,11 +73,12 @@ create table ig_follow_discounts (
   drinks_remaining int not null default 1,
   claimed_at       timestamptz not null default now(),
   redeemed_at      timestamptz,
+  order_id         text,
   created_at       timestamptz not null default now()
 );
 ```
 
-`customer_id` is foreign-keyed to nothing (matching `welcome_discounts`); cleanup is handled in `purgeAccount()`.
+`customer_id` is foreign-keyed to nothing (matching `welcome_discounts`); cleanup is handled in `purgeAccount()`. `order_id` is stamped by `consume_ig_follow_discount` when the ticket terminally consumes (mirrors `welcome_discounts.order_id`); observability only, no FK.
 
 New RPC `consume_ig_follow_discount(p_customer_id, p_order_id, p_count)`:
 Cloned from `consume_welcome_discount`. Atomically decrements `drinks_remaining`, writes `redeemed_at = now()` when ticket exhausted. Returns `{ consumed_count, drinks_remaining }`.
