@@ -28,6 +28,7 @@ import { findOrCreateLoyaltyAccount } from "@/lib/loyalty";
 type Body = {
   firstName?: unknown;
   lastName?: unknown;
+  channel?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -65,6 +66,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const channelRaw = typeof body.channel === "string" ? body.channel : "";
+  const channel: "web" | "app" | null =
+    channelRaw === "web" || channelRaw === "app" ? channelRaw : null;
+  // channel is optional — older clients (and the RN app pre-release)
+  // do not send it. NULL is allowed in DB until Phase 2 migration.
 
   const e164 = user.phone;
 
@@ -146,11 +153,12 @@ export async function POST(request: Request) {
           first_name: firstName,
           last_name: lastName || null,
           square_verified_at: new Date().toISOString(),
+          signup_channel: channel,
         },
         { onConflict: "user_id" },
       )
       .select(
-        "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at",
+        "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at, signup_channel",
       )
       .single();
     if (upsertErr) throw upsertErr;
