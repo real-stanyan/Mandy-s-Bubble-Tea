@@ -123,6 +123,14 @@ export async function purgeAccount(args: {
   }
 
   if (userId) {
+    const { error: ocErr } = await admin
+      .from("order_complaints")
+      .delete()
+      .eq("user_id", userId);
+    if (ocErr) console.error("[purge] order_complaints delete", ocErr);
+  }
+
+  if (userId) {
     // CRITICAL: rewrite phone + email to inert per-user markers BEFORE
     // attempting the auth user delete. Reported 2026-04-26: customers
     // saw "Phone number in use" when re-registering after Account →
