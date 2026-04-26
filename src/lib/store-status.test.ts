@@ -28,7 +28,7 @@ describe("getOrderingStatus", () => {
   it("is open at 10:30am sharp (open boundary inclusive)", () => {
     expect(getOrderingStatus(brisbane("2026-04-26", 10, 30))).toEqual({
       open: true,
-      nextLabel: "until 10:25pm",
+      nextLabel: "until 10:15pm",
     });
   });
 
@@ -36,12 +36,12 @@ describe("getOrderingStatus", () => {
     expect(getOrderingStatus(brisbane("2026-04-26", 14, 0)).open).toBe(true);
   });
 
-  it("is open at 22:24 (one minute before cutoff)", () => {
-    expect(getOrderingStatus(brisbane("2026-04-26", 22, 24)).open).toBe(true);
+  it("is open at 22:14 (one minute before cutoff)", () => {
+    expect(getOrderingStatus(brisbane("2026-04-26", 22, 14)).open).toBe(true);
   });
 
-  it("is closed at 22:25 sharp (cutoff boundary exclusive)", () => {
-    expect(getOrderingStatus(brisbane("2026-04-26", 22, 25))).toEqual({
+  it("is closed at 22:15 sharp (cutoff boundary exclusive)", () => {
+    expect(getOrderingStatus(brisbane("2026-04-26", 22, 15))).toEqual({
       open: false,
       nextLabel: "Opens 10:30am tomorrow",
     });

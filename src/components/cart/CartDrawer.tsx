@@ -689,7 +689,7 @@ function CartFooter({
   const [lastMethod, setLastMethod] = useState<"apple" | "google" | null>(null);
 
   // Ordering window — re-check every 60s so the button flips at the
-  // 22:25 cutoff while the drawer is open. Server is authoritative; this
+  // 22:15 cutoff while the drawer is open. Server is authoritative; this
   // is display-only.
   const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
     getOrderingStatus(),

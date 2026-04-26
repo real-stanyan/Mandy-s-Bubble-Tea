@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Hard ordering-window guard. Brisbane 10:30am – 22:25pm. Server is
+  // Hard ordering-window guard. Brisbane 10:30am – 22:15pm. Server is
   // authoritative — clients place orders only when their cart UI says
   // open, but a stale tab / clock skew / direct API call could still
   // land here outside hours.

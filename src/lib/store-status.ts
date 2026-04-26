@@ -1,13 +1,13 @@
 // Store open/close status for Australia/Brisbane (UTC+10, no DST).
 // Ported from the RN app (`components/home/helpers.ts`). Hours are
-// 10:30–22:30 every day with a 5-minute pre-close order cutoff (22:25).
+// 10:30–22:30 every day with a 15-minute pre-close order cutoff (22:15).
 
 export type StoreStatus = { open: boolean; nextLabel: string };
 export type OrderingStatus = { open: boolean; nextLabel: string };
 
 const OPEN_MIN = 10 * 60 + 30;
 const CLOSE_MIN = 22 * 60 + 30;
-const ORDER_CUTOFF_MIN = 22 * 60 + 25;
+const ORDER_CUTOFF_MIN = 22 * 60 + 15;
 
 function brisbaneDate(date: Date): Date {
   return new Date(date.getTime() + 10 * 60 * 60 * 1000);
@@ -44,7 +44,7 @@ export function getStoreStatus(now: Date = new Date()): StoreStatus {
   };
 }
 
-// Online ordering window: 10:30am – 22:25pm (5 min before physical close
+// Online ordering window: 10:30am – 22:15pm (15 min before physical close
 // so staff have time to finish the last cup). Used by the cart drawer,
 // checkout page, and /api/orders to gate new orders. Server is
 // authoritative — clients re-check every 60s for display only.

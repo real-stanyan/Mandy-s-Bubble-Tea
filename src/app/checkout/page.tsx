@@ -208,7 +208,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   }, []);
 
   // Ordering window — same 60s cadence so the Place Order button flips
-  // at the 22:25 cutoff (or right after 10:30 open) without needing a
+  // at the 22:15 cutoff (or right after 10:30 open) without needing a
   // page reload. Server gates the actual order in /api/orders.
   const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
     getOrderingStatus(),
