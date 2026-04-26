@@ -7,6 +7,7 @@ import { formatPrice } from "@/lib/utils";
 import { BRAND, BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
 import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
+import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import {
   OrderStatusHero,
   type FulfillmentState,
@@ -309,6 +310,13 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           })}
         </div>
       </section>
+
+      <OrderComplaintSection
+        orderId={orderId}
+        pickupNumber={pickupNumber}
+        orderState={order.state ?? null}
+        orderCustomerId={order.customerId ?? null}
+      />
 
       <div className="flex">
         <Link
