@@ -29,4 +29,20 @@ describe("Star raster command builder", () => {
       buildLabelJob(Buffer.alloc(10), /* widthBytes */ 50, /* heightDots */ 640),
     ).toThrow(/bitmap size/);
   });
+
+  it("rejects non-integer widthBytes", () => {
+    expect(() => buildLabelJob(Buffer.alloc(0), 1.5, 1)).toThrow(/widthBytes/);
+  });
+
+  it("rejects zero widthBytes", () => {
+    expect(() => buildLabelJob(Buffer.alloc(0), 0, 1)).toThrow(/widthBytes/);
+  });
+
+  it("rejects negative heightDots", () => {
+    expect(() => buildLabelJob(Buffer.alloc(0), 50, -1)).toThrow(/heightDots/);
+  });
+
+  it("rejects non-integer heightDots", () => {
+    expect(() => buildLabelJob(Buffer.alloc(50), 50, 1.5)).toThrow(/heightDots/);
+  });
 });
