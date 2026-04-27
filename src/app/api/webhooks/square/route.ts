@@ -217,6 +217,14 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     console.log(
       `[print] queued order ${orderId} as ${result.stickerNumber} event_id=${eventId}`,
     );
+
+    // CloudPRNT (TSP100) parallel path — non-blocking, must never break the legacy print_jobs flow.
+    try {
+      const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+      await enqueueCupLabelJobs({ order, stickerNumber: result.stickerNumber });
+    } catch (e) {
+      console.error("[cup-label] enqueue failed (non-fatal)", e);
+    }
   } else if (result.reason === "conflict") {
     // Expected on the 2nd+ order.updated event for the same order.
   } else if (result.reason === "not_paid") {

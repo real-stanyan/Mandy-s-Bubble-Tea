@@ -208,6 +208,15 @@ export async function POST(request: Request) {
               `$0 order ${body.orderId} NOT queued: ${result.reason}${result.detail ? ` (${result.detail})` : ""}`,
             );
           }
+          if (result.queued) {
+            // CloudPRNT (TSP100) parallel path — non-blocking, must never break the legacy print_jobs flow.
+            try {
+              const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+              await enqueueCupLabelJobs({ order: paidOrder, stickerNumber: result.stickerNumber });
+            } catch (e) {
+              console.error("[cup-label] enqueue failed (non-fatal)", e);
+            }
+          }
         }
       } catch (printError) {
         const msg = printError instanceof Error ? printError.message : String(printError);
