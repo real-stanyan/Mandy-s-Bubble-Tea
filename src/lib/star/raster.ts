@@ -13,6 +13,12 @@ export function encodeWidthBytes(widthBytes: number): Buffer {
 }
 
 export function buildLabelJob(bitmap: Buffer, widthBytes: number, heightDots: number): Buffer {
+  if (!Number.isInteger(widthBytes) || widthBytes < 1 || widthBytes > 0xffff) {
+    throw new Error(`widthBytes must be integer in [1, 65535], got ${widthBytes}`);
+  }
+  if (!Number.isInteger(heightDots) || heightDots < 1) {
+    throw new Error(`heightDots must be positive integer, got ${heightDots}`);
+  }
   if (bitmap.length !== widthBytes * heightDots) {
     throw new Error(`bitmap size ${bitmap.length} != widthBytes(${widthBytes}) * heightDots(${heightDots})`);
   }
@@ -20,7 +26,7 @@ export function buildLabelJob(bitmap: Buffer, widthBytes: number, heightDots: nu
   const init           = Buffer.from([ESC, 0x40]);                  // initialize
   const enableGap      = Buffer.from([ESC, GS, 0x61, 0x01]);        // die-cut gap sensor on
   const enterRaster    = Buffer.from([ESC, 0x2a, 0x72, 0x41]);      // raster mode begin
-  const setWidthCmd    = Buffer.from([ESC, 0x2a, 0x72, 0x52, widthBytes & 0xff, (widthBytes >>> 8) & 0xff]);
+  const setWidthCmd    = Buffer.concat([Buffer.from([ESC, 0x2a, 0x72, 0x52]), encodeWidthBytes(widthBytes)]);
   const exitRaster     = Buffer.from([ESC, 0x2a, 0x72, 0x42]);      // raster mode end
   const formFeedToGap  = Buffer.from([ESC, 0x64, 0x02]);            // feed to next die-cut gap
 
