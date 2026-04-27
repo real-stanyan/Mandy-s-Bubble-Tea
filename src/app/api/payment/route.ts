@@ -181,10 +181,29 @@ export async function POST(request: Request) {
         try {
           const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
           const result = await enqueuePrintJob({ order, assumeSettled: true });
+          let stickerNumber: string | null = null;
           if (result.queued) {
+            stickerNumber = result.stickerNumber;
+          } else if (result.reason === "conflict") {
+            // Webhook beat us to print_jobs. Fetch the existing sticker_number so
+            // user-doodle rows still get enqueued; the upsert below overrides
+            // any default rows the webhook may have already written.
+            const { getSupabaseAdmin } = await import("@/lib/supabase-server");
+            const { data, error } = await getSupabaseAdmin()
+              .from("print_jobs")
+              .select("sticker_number")
+              .eq("square_order_id", order.id!)
+              .maybeSingle();
+            if (!error && data?.sticker_number) {
+              stickerNumber = data.sticker_number;
+            } else {
+              console.warn("[cup-label] paid-branch: print_jobs conflict but sticker_number not found", { orderId: order.id, error });
+            }
+          }
+          if (stickerNumber) {
             await enqueueCupLabelJobs({
               order,
-              stickerNumber: result.stickerNumber,
+              stickerNumber,
               doodleIds: body.doodleIds,
               userId: user.userId,
             });

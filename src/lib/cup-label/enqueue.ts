@@ -111,8 +111,12 @@ export async function enqueueCupLabelJobs({
   }
 
   if (rows.length === 0) return;
+  const hasUserRow = rows.some(r => r.doodle_source === "user");
   const { error: insErr } = await sb
     .from("cup_label_jobs")
-    .upsert(rows, { onConflict: "square_order_id,line_id,cup_idx", ignoreDuplicates: true });
+    .upsert(rows, {
+      onConflict: "square_order_id,line_id,cup_idx",
+      ignoreDuplicates: !hasUserRow,
+    });
   if (insErr) throw insErr;
 }
