@@ -14,7 +14,10 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-export const revalidate = 10;
+// Sold-out state on toppings (modifier locationOverrides) must be live —
+// ISR was serving stale "Sold out" labels until the next regeneration cycle.
+// getMenu() has its own 5s in-process cache, so concurrent requests are deduped.
+export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   // Square API blips at build time used to fail the whole Vercel deploy.
