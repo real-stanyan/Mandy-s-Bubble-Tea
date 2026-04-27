@@ -270,3 +270,65 @@ describe("enqueueCupLabelJobs (Fix #1: clientLineId seeds the default pool)", ()
   });
 });
 
+// Fix #2b regression — ignoreDuplicates flips based on doodle_source
+describe("enqueueCupLabelJobs (Fix #2b: upsert ignoreDuplicates flips on user rows)", () => {
+  it("uses ignoreDuplicates:true when all rows are default (webhook-style)", async () => {
+    const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
+    (getSupabaseAdmin as any).mockReturnValue({
+      from: () => ({ upsert: upsertMock }),
+      storage: { from: () => ({ upload }) },
+    });
+
+    await enqueueCupLabelJobs({
+      order: {
+        id: "ord-fix2-default",
+        lineItems: [
+          { uid: "line-d1", quantity: "1", name: "Test", modifiers: [] },
+        ],
+      } as unknown as Order,
+      stickerNumber: "OL-D1",
+    });
+
+    expect(upsertMock).toHaveBeenCalledTimes(1);
+    const [, opts] = upsertMock.mock.calls[0];
+    expect(opts.ignoreDuplicates).toBe(true);
+  });
+
+  it("uses ignoreDuplicates:false when at least one row is user-sourced (payment-style)", async () => {
+    // Provide a resolvable doodleId — downloadMock must return valid JSON paths
+    const userPaths = [{ d: "M0,0 L5,5", stroke: "#111", width: 2 }];
+    downloadMock.mockResolvedValue({
+      data: { text: async () => JSON.stringify({ paths: userPaths }) },
+      error: null,
+    });
+
+    const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
+    (getSupabaseAdmin as any).mockReturnValue({
+      from: () => ({ upsert: upsertMock }),
+      storage: { from: (b: string) => ({ upload, download: (...a: unknown[]) => downloadMock(b, ...a) }) },
+    });
+
+    const clientLineId = "VAR1::MOD_PEARL";
+    await enqueueCupLabelJobs({
+      order: {
+        id: "ord-fix2-user",
+        lineItems: [
+          {
+            uid: "uid-A",
+            catalogObjectId: "VAR1",
+            name: "Pearl Milk Tea",
+            quantity: "1",
+            modifiers: [{ catalogObjectId: "MOD_PEARL", name: "Pearl" }],
+          },
+        ],
+      } as unknown as Order,
+      stickerNumber: "OL-U1",
+      doodleIds: { [`${clientLineId}:0`]: "doodle-fix2" },
+      userId: "user-fix2",
+    });
+
+    expect(upsertMock).toHaveBeenCalledTimes(1);
+    const [, opts] = upsertMock.mock.calls[0];
+    expect(opts.ignoreDuplicates).toBe(false);
+  });
+});
