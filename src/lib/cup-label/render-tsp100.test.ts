@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderCupLabelToBitmap, LABEL_WIDTH_DOTS, LABEL_HEIGHT_DOTS } from "./render-tsp100";
+import { renderCupLabelToBitmap, LABEL_WIDTH_DOTS, LABEL_HEIGHT_DOTS, wrapText } from "./render-tsp100";
 import { POOL } from "../doodle/pool";
 
 describe("TSP100 sandwich label compositor", () => {
@@ -29,5 +29,30 @@ describe("TSP100 sandwich label compositor", () => {
     const allFf = bm.every(b => b === 0xff);
     expect(allZero).toBe(false);
     expect(allFf).toBe(false);
+  });
+});
+
+describe("wrapText", () => {
+  it("returns empty array for empty input", () => {
+    expect(wrapText("", 26)).toEqual([]);
+  });
+
+  it("keeps short text on one line", () => {
+    expect(wrapText("Hot", 26)).toEqual(["Hot"]);
+  });
+
+  it("wraps on ' · ' separators", () => {
+    const r = wrapText("Pearl×2 · Aloe · 50%S · Warm · Extra · L", 20);
+    expect(r.length).toBeGreaterThan(1);
+    expect(r.length).toBeLessThanOrEqual(4);
+  });
+
+  it("appends ellipsis when truncating beyond 4 lines", () => {
+    const r = wrapText(
+      "A · B · C · D · E · F · G · H · I · J · K · L · M · N · O",
+      3,
+    );
+    expect(r.length).toBe(4);
+    expect(r[3]).toMatch(/…$/);
   });
 });

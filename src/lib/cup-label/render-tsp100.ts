@@ -46,10 +46,12 @@ export async function renderCupLabelToBitmap(input: CupLabelInput): Promise<Buff
 
 async function renderTopBand(input: CupLabelInput): Promise<Buffer> {
   const { stickerNumber, cupIdxOf, drinkName } = input;
+  const total = Math.max(1, cupIdxOf.total);
+  const idx = Math.min(Math.max(1, cupIdxOf.idx), total);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
     <text x="12" y="36" font-family="sans-serif" font-size="32" font-weight="700" fill="white">
-      ${escapeXml(stickerNumber)} · ${cupIdxOf.idx}/${cupIdxOf.total}
+      ${escapeXml(stickerNumber)} · ${idx}/${total}
     </text>
     <text x="12" y="76" font-family="sans-serif" font-size="28" font-weight="700" fill="white">
       ${escapeXml(drinkName)}
@@ -81,7 +83,8 @@ async function renderBottomModifiers(input: CupLabelInput): Promise<Buffer> {
   return sharp(Buffer.from(svg)).resize(LABEL_WIDTH_DOTS, BOTTOM_HEIGHT).png().toBuffer();
 }
 
-function wrapText(text: string, maxChars: number): string[] {
+export function wrapText(text: string, maxChars: number): string[] {
+  if (!text) return [];
   const words = text.split(" · ");
   const lines: string[] = [];
   let cur = "";
@@ -91,7 +94,12 @@ function wrapText(text: string, maxChars: number): string[] {
     else { lines.push(cur); cur = w; }
   }
   if (cur) lines.push(cur);
-  return lines.slice(0, 4);
+  if (lines.length <= 4) return lines;
+  const truncated = lines.slice(0, 4);
+  truncated[3] = truncated[3].length > maxChars - 1
+    ? truncated[3].slice(0, maxChars - 1) + "…"
+    : truncated[3] + " …";
+  return truncated;
 }
 
 function escapeXml(s: string): string {
