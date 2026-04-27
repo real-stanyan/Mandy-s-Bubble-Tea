@@ -67,16 +67,21 @@ type PaymentBody = {
   sourceId?: string;
   orderId: string;
   verificationToken?: string; // from payments.verifyBuyer() for SCA
+  doodleIds?: Record<string, string>;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<PaymentBody>;
-  return (
-    typeof b.orderId === "string" &&
-    b.orderId.length > 0 &&
-    (b.sourceId === undefined || typeof b.sourceId === "string")
-  );
+  if (typeof b.orderId !== "string" || b.orderId.length === 0) return false;
+  if (b.sourceId !== undefined && typeof b.sourceId !== "string") return false;
+  if (b.doodleIds !== undefined) {
+    if (typeof b.doodleIds !== "object" || b.doodleIds === null) return false;
+    for (const v of Object.values(b.doodleIds)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  return true;
 }
 
 export async function POST(request: Request) {
@@ -168,6 +173,26 @@ export async function POST(request: Request) {
       paymentId = id;
       paymentStatus = payment.payment?.status ?? null;
       paymentForResponse = serializeSquareResponse(payment.payment);
+
+      // CloudPRNT (TSP100) parallel path — enqueue cup-label jobs with
+      // user-selected doodleIds when present. Runs before the webhook fires
+      // so user-doodle data wins on the upsert conflict (idempotent).
+      if (paymentStatus === "COMPLETED" && body.doodleIds && Object.keys(body.doodleIds).length > 0) {
+        try {
+          const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+          const result = await enqueuePrintJob({ order, assumeSettled: true });
+          if (result.queued) {
+            await enqueueCupLabelJobs({
+              order,
+              stickerNumber: result.stickerNumber,
+              doodleIds: body.doodleIds,
+              userId: user.userId,
+            });
+          }
+        } catch (e) {
+          console.error("[cup-label] paid-branch user-doodle enqueue failed (non-fatal)", e);
+        }
+      }
     } else {
       // Zero-total order: fully covered by a loyalty reward (or other
       // discount). Square rejects zero-amount Payment objects, so we
