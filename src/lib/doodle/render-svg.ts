@@ -24,6 +24,10 @@ export function pathsJsonToSvg(paths: SvgPath[], canvasSize: number): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasSize} ${canvasSize}">${body}</svg>`;
 }
 
+export function validateSvgPaths(paths: SvgPath[]): void {
+  for (const p of paths) validateSvgPath(p);
+}
+
 function validateSvgPath(p: SvgPath): SvgPath {
   if (!/^[MmLlHhVvCcSsQqTtAaZz0-9.,\s+\-]+$/.test(p.d)) {
     throw new Error(`Invalid svg path: d contains disallowed characters`);
