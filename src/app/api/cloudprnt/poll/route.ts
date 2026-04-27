@@ -27,7 +27,14 @@ export async function POST() {
   }
 
   const bitmap = Buffer.from(await file.arrayBuffer());
-  const stream = buildLabelJob(bitmap, WIDTH_BYTES, LABEL_HEIGHT_DOTS);
+
+  let stream: Buffer;
+  try {
+    stream = buildLabelJob(bitmap, WIDTH_BYTES, LABEL_HEIGHT_DOTS);
+  } catch (e) {
+    await markFailed(sb, job.id, e instanceof Error ? e.message : String(e));
+    return NextResponse.json({ jobReady: false });
+  }
 
   return new Response(new Uint8Array(stream), {
     status: 200,
@@ -43,6 +50,6 @@ export const GET = POST;
 async function markFailed(sb: ReturnType<typeof getSupabaseAdmin>, id: string, err: string) {
   await sb
     .from("cup_label_jobs")
-    .update({ status: "failed", last_error: err })
+    .update({ status: "failed", last_error: err, printer_token: null })
     .eq("id", id);
 }
