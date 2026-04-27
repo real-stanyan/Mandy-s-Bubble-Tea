@@ -14,11 +14,25 @@ export async function renderSvgToPng(svg: string, opts: RenderOpts): Promise<Buf
 export type SvgPath = { d: string; stroke: string; width: number };
 
 export function pathsJsonToSvg(paths: SvgPath[], canvasSize: number): string {
-  const body = paths
+  const safe = paths.map(validateSvgPath);
+  const body = safe
     .map(
       p =>
         `<path d="${p.d}" stroke="${p.stroke}" stroke-width="${p.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
     )
     .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasSize} ${canvasSize}">${body}</svg>`;
+}
+
+function validateSvgPath(p: SvgPath): SvgPath {
+  if (!/^[MmLlHhVvCcSsQqTtAaZz0-9.,\s+\-]+$/.test(p.d)) {
+    throw new Error(`Invalid svg path: d contains disallowed characters`);
+  }
+  if (!/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(p.stroke)) {
+    throw new Error(`Invalid svg path: stroke must be #RGB or #RRGGBB`);
+  }
+  if (!Number.isFinite(p.width) || p.width < 0.5 || p.width > 30) {
+    throw new Error(`Invalid svg path: width must be in [0.5, 30]`);
+  }
+  return p;
 }
