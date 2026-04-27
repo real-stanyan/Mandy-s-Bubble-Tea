@@ -71,12 +71,12 @@ export async function enqueueCupLabelJobs({
           userPaths = paths;
         } catch (e) {
           console.error("[cup-label] user doodle load failed, falling back to default", e);
-          const pool = pickDefaultForCup(lineId, cupIdx);
+          const pool = pickDefaultForCup(clientLineId, cupIdx);
           doodleSvg = pool.svg;
           poolKey = pool.key;
         }
       } else {
-        const pool = pickDefaultForCup(lineId, cupIdx);
+        const pool = pickDefaultForCup(clientLineId, cupIdx);
         doodleSvg = pool.svg;
         poolKey = pool.key;
       }
