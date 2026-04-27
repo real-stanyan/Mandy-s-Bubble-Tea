@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Order } from "square";
+import { pickDefaultForCup } from "@/lib/doodle/pool";
 
 const uploadMock = vi.fn();
 const upsertMock = vi.fn();
@@ -223,3 +224,49 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
     expect(inserted.every(r => r.modifiers_text === "—")).toBe(true);
   });
 });
+
+// Fix #1 regression — seed mismatch
+describe("enqueueCupLabelJobs (Fix #1: clientLineId seeds the default pool)", () => {
+  it("doodle_pool_key matches pickDefaultForCup(clientLineId, cupIdx), NOT pickDefaultForCup(line.uid, cupIdx)", async () => {
+    // Build an order where line.uid and clientLineId are guaranteed to diverge
+    // so we can distinguish which seed was used.
+    // line.uid = "uid-A", line.catalogObjectId = "VAR1", modifiers = [MOD_PEARL]
+    // => clientLineId = "VAR1::MOD_PEARL", lineId = "uid-A"
+    // Verified: pickDefaultForCup("VAR1::MOD_PEARL", 0).key === "cloud"
+    //           pickDefaultForCup("uid-A",           0).key === "bunny"
+    const expectedKey = pickDefaultForCup("VAR1::MOD_PEARL", 0).key;
+    const wrongKey    = pickDefaultForCup("uid-A",           0).key;
+    // Sanity: ensure the test actually distinguishes the two seeds
+    expect(expectedKey).not.toBe(wrongKey);
+
+    const inserted: any[] = [];
+    const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
+    (getSupabaseAdmin as any).mockReturnValue({
+      from: () => ({
+        upsert: (rows: any[]) => { inserted.push(...rows); return { error: null }; },
+      }),
+      storage: { from: () => ({ upload }) },
+    });
+
+    await enqueueCupLabelJobs({
+      order: {
+        id: "ord-fix1",
+        lineItems: [
+          {
+            uid: "uid-A",
+            catalogObjectId: "VAR1",
+            name: "Pearl Milk Tea",
+            quantity: "1",
+            modifiers: [{ catalogObjectId: "MOD_PEARL", name: "Pearl" }],
+          },
+        ],
+      } as unknown as Order,
+      stickerNumber: "OL-FIX1",
+    });
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].doodle_pool_key).toBe(expectedKey);
+    expect(inserted[0].doodle_pool_key).not.toBe(wrongKey);
+  });
+});
+
