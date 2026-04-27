@@ -28,9 +28,10 @@ export async function enqueueCupLabelJobs({ order, stickerNumber }: EnqueueCupLa
 
   const rows: Row[] = [];
 
-  for (const line of lineItems) {
-    const lineId = line.uid ?? line.catalogObjectId ?? "";
-    const qty = Number(line.quantity ?? "1");
+  for (const [lineIdx, line] of lineItems.entries()) {
+    const lineId = line.uid ?? line.catalogObjectId ?? `idx-${lineIdx}`;
+    const rawQty = Number(line.quantity ?? "1");
+    const qty = Number.isFinite(rawQty) ? Math.max(0, Math.floor(rawQty)) : 0;
     const drinkName = line.name ?? "Drink";
     const modifiersText = (line.modifiers ?? []).map(m => m.name).filter(Boolean).join(" · ") || "—";
 
@@ -65,6 +66,8 @@ export async function enqueueCupLabelJobs({ order, stickerNumber }: EnqueueCupLa
   }
 
   if (rows.length === 0) return;
-  const { error: insErr } = await sb.from("cup_label_jobs").insert(rows);
+  const { error: insErr } = await sb
+    .from("cup_label_jobs")
+    .upsert(rows, { onConflict: "square_order_id,line_id,cup_idx", ignoreDuplicates: true });
   if (insErr) throw insErr;
 }
