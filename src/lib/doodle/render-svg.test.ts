@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderSvgToPng } from "./render-svg";
+import { renderSvgToPng, pathsJsonToSvg } from "./render-svg";
 import { POOL } from "./pool";
 
 describe("renderSvgToPng", () => {
@@ -24,3 +24,32 @@ function pathsToSvg(paths: { d: string; stroke: string; width: number }[], size:
   const inner = paths.map(p => `<path d="${p.d}" stroke="${p.stroke}" stroke-width="${p.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`;
 }
+
+describe("pathsJsonToSvg validation", () => {
+  it("accepts valid paths", () => {
+    expect(() =>
+      pathsJsonToSvg([{ d: "M10,10 L50,50", stroke: "#000", width: 4 }], 360),
+    ).not.toThrow();
+  });
+
+  it("rejects malicious d attribute injection", () => {
+    expect(() =>
+      pathsJsonToSvg([{ d: 'M0,0" onload="x', stroke: "#000", width: 4 }], 360),
+    ).toThrow(/Invalid svg path: d/);
+  });
+
+  it("rejects non-hex stroke", () => {
+    expect(() =>
+      pathsJsonToSvg([{ d: "M0,0", stroke: "red", width: 4 }], 360),
+    ).toThrow(/stroke/);
+  });
+
+  it("rejects unreasonable width", () => {
+    expect(() =>
+      pathsJsonToSvg([{ d: "M0,0", stroke: "#000", width: 999 }], 360),
+    ).toThrow(/width/);
+    expect(() =>
+      pathsJsonToSvg([{ d: "M0,0", stroke: "#000", width: 0 }], 360),
+    ).toThrow(/width/);
+  });
+});
