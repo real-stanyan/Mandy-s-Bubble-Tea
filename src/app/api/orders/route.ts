@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE } from "@/lib/constants";
+import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
 import { getOrderingStatus } from "@/lib/store-status";
 import { serializeSquareResponse } from "@/lib/utils";
@@ -374,6 +374,14 @@ export async function POST(request: Request) {
     }
 
     if (!skipSurcharges) {
+      orderServiceCharges.push({
+        uid: "platform-fee",
+        name: PLATFORM_FEE.name,
+        percentage: PLATFORM_FEE.percentage,
+        calculationPhase: "SUBTOTAL_PHASE",
+        taxable: false,
+      });
+
       orderServiceCharges.push({
         uid: "card-surcharge",
         name: CARD_SURCHARGE.name,
