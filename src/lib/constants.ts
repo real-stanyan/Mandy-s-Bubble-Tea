@@ -50,6 +50,18 @@ export const CARD_SURCHARGE = {
 /** 1.9% as basis-points-per-10000 for BigInt math: 190 / 10000. */
 export const CARD_SURCHARGE_BPS = 190n;
 
+// Platform Fee — additional online-ordering pass-through service charge.
+// Same SUBTOTAL_PHASE / non-taxable / skipped-on-free-redeem pattern as
+// CARD_SURCHARGE. Customer-visible on every receipt surface.
+export const PLATFORM_FEE = {
+  name: "Platform Fee",
+  /** Percentage as a string — matches Square's OrderServiceCharge.percentage format. */
+  percentage: "0.4",
+} as const;
+
+/** 0.4% as basis-points-per-10000 for BigInt math: 40 / 10000. */
+export const PLATFORM_FEE_BPS = 40n;
+
 // ---- Public holiday surcharge ----
 
 export const PH_SURCHARGE = {
