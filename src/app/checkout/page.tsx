@@ -11,12 +11,13 @@ import {
   lineUnitPrice,
   cartSubtotal,
   cardSurcharge,
+  platformFee,
   publicHolidaySurcharge,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
-import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
@@ -198,6 +199,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
 
+  // Platform Fee mirrors the SUBTOTAL_PHASE service charge attached in
+  // /api/orders: 0.4% of the pre-discount subtotal.
+  const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
+
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting on the checkout page across the Christmas
   // Eve 18:00 cutoff (or any midnight boundary) sees the correct total before submitting.
@@ -246,7 +251,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               ? subtotal - promoDiscountTotal
               : 0n)
           : subtotal;
-    return afterDiscount + surchargeAmount + phSurchargeAmount;
+    return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount;
   }, [
     isFreeRedeem,
     subtotal,
@@ -256,11 +261,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     welcomeDiscountAmount,
     igFollowDiscountAmount,
     surchargeAmount,
+    platformFeeAmount,
     phSurchargeAmount,
   ]);
-  // Hide the surcharge line from the order summary when the reward
-  // will cover the order — the backend won't charge it.
+  // Hide the surcharge lines from the order summary when the reward
+  // will cover the order — the backend won't charge them.
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
+  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
 
   // Pre-fill redeem toggle from cart drawer preference.
@@ -756,6 +763,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
+                {effectivePlatformFee > 0n && (
+                  <div className="flex justify-between text-sm text-zinc-600">
+                    <span>
+                      {PLATFORM_FEE.name}{" "}
+                      <span className="text-xs text-zinc-400">
+                        ({PLATFORM_FEE.percentage}%)
+                      </span>
+                    </span>
+                    <span className="font-semibold text-zinc-900">
+                      {formatPrice(effectivePlatformFee)}
+                    </span>
+                  </div>
+                )}
                 {effectiveSurcharge > 0n && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm text-zinc-600">
                     <span>
@@ -998,6 +1018,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
+            {effectivePlatformFee > 0n && (
+              <div className="flex justify-between text-sm text-zinc-600">
+                <span>
+                  {PLATFORM_FEE.name}{" "}
+                  <span className="text-xs text-zinc-400">
+                    ({PLATFORM_FEE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-zinc-900">
+                  {formatPrice(effectivePlatformFee)}
+                </span>
+              </div>
+            )}
             {effectiveSurcharge > 0n && (
               <div className="flex justify-between text-sm text-zinc-600">
                 <span>
@@ -1093,6 +1126,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <p className="text-[11px] text-zinc-500">
                 {effectivePhSurcharge > 0n && (
                   <>Incl. {PH_SURCHARGE.name} {formatPrice(effectivePhSurcharge)} · </>
+                )}
+                {effectivePlatformFee > 0n && (
+                  <>Incl. {PLATFORM_FEE.name} {formatPrice(effectivePlatformFee)} · </>
                 )}
                 Incl. {CARD_SURCHARGE.name} {formatPrice(effectiveSurcharge)}
               </p>
