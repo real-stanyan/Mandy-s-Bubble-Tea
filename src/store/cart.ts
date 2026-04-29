@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { CARD_SURCHARGE_BPS, PH_SURCHARGE_BPS } from "@/lib/constants";
+import { CARD_SURCHARGE_BPS, PH_SURCHARGE_BPS, PLATFORM_FEE_BPS } from "@/lib/constants";
 
 // Cart state lives client-side only and is persisted to localStorage.
 // Prices are stored as BigInt cents to match the rest of the codebase;
@@ -176,4 +176,13 @@ export function cardSurcharge(subtotalCents: bigint): bigint {
 export function publicHolidaySurcharge(baseCents: bigint): bigint {
   if (baseCents <= 0n) return 0n;
   return (baseCents * PH_SURCHARGE_BPS) / 10000n;
+}
+
+// Mirrors Square's SUBTOTAL_PHASE percentage service charge: 0.4% of the
+// pre-discount subtotal, truncated to whole cents. UI-display only — Square's
+// totalMoney is the authoritative charged amount; ≤1c divergence may exist
+// at certain price points due to Square's round-half-up vs. BigInt floor.
+export function platformFee(subtotalCents: bigint): bigint {
+  if (subtotalCents <= 0n) return 0n;
+  return (subtotalCents * PLATFORM_FEE_BPS) / 10000n;
 }
