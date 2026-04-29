@@ -14,7 +14,7 @@ const baseInput: ComplaintMailInput = {
   description: "Pearls were hard and the milk tea tasted off.",
   placedAt: "2026-04-26T00:34:00Z",
   closedAt: "2026-04-26T01:02:00Z",
-  totalsLine: "Subtotal $14.70 · PH 10% $1.47 · Card 1.9% $0.27 · Total $16.44",
+  totalsLine: "Subtotal $14.70 · PH 10% $1.47 · Platform 0.4% $0.06 · Card 1.9% $0.27 · Total $16.50",
   itemLines: [
     "Brown Sugar Milk Tea (Large, 50% sugar, Less ice, Pearl ×2)  $7.20",
     "Lychee Slushy (Regular, 100% sugar, Cheese Cream)            $7.50",
