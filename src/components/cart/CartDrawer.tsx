@@ -11,6 +11,7 @@ import {
   lineUnitPrice,
   cartSubtotal,
   cardSurcharge,
+  platformFee,
   publicHolidaySurcharge,
   type CartLine,
 } from "@/store/cart";
@@ -18,7 +19,7 @@ import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
-import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -182,6 +183,7 @@ function CartBody({
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+  const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting in the drawer across the Christmas
   // Eve 18:00 cutoff (or any midnight boundary) sees the correct total before
@@ -260,7 +262,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + platformFeeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -281,7 +283,7 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + platformFeeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
@@ -393,6 +395,7 @@ function CartBody({
           igFollowDiscountAmount={igFollowDiscountAmount}
           igFollowCoveredCount={promoCoverage.igFollowCount}
           surchargeAmount={surchargeAmount}
+          platformFeeAmount={platformFeeAmount}
           phSurchargeAmount={phSurchargeAmount}
           hasProfile={!!profile}
           applePayReady={applePayReady}
@@ -639,6 +642,7 @@ function CartFooter({
   igFollowDiscountAmount,
   igFollowCoveredCount,
   surchargeAmount,
+  platformFeeAmount,
   phSurchargeAmount,
   hasProfile,
   applePayReady,
@@ -667,6 +671,7 @@ function CartFooter({
   igFollowDiscountAmount: bigint;
   igFollowCoveredCount: number;
   surchargeAmount: bigint;
+  platformFeeAmount: bigint;
   phSurchargeAmount: bigint;
   hasProfile: boolean;
   applePayReady: boolean;
@@ -717,8 +722,10 @@ function CartFooter({
   // so the server skips the surcharge and the footer hides it.
   const isFreeRedeem = useReward && subtotal - rewardDiscount <= 0n;
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
+  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
-  const displayTotal = discountedTotal + effectiveSurcharge + effectivePhSurcharge;
+  const displayTotal =
+    discountedTotal + effectiveSurcharge + effectivePlatformFee + effectivePhSurcharge;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -974,6 +981,17 @@ function CartFooter({
             </span>
             <span className="font-semibold text-zinc-900">
               {formatPrice(effectivePhSurcharge)}
+            </span>
+          </div>
+        )}
+        {effectivePlatformFee > 0n && (
+          <div className="flex justify-between text-sm text-zinc-600">
+            <span>
+              {PLATFORM_FEE.name}{" "}
+              <span className="text-xs text-zinc-400">({PLATFORM_FEE.percentage}%)</span>
+            </span>
+            <span className="font-semibold text-zinc-900">
+              {formatPrice(effectivePlatformFee)}
             </span>
           </div>
         )}
