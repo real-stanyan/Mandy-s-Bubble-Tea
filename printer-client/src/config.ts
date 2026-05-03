@@ -31,6 +31,10 @@ export const config = {
   // don't silently drop stickers for orders the POS already accepted.
   staleWindowMs: Number(process.env.STALE_WINDOW_MS ?? String(2 * 60 * 60 * 1000)),
   // Fallback poll cadence. The primary delivery channel is Supabase
-  // Realtime; this poll covers the gap if the socket silently drops.
-  pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "60000"),
+  // Realtime; this poll covers the gap if the socket silently drops
+  // an INSERT event without changing channel status (observed ~2-3%
+  // of jobs in production). 8s keeps worst-case customer wait
+  // basically invisible while costing ~7 Supabase calls/min on a
+  // table that's empty 99% of the time.
+  pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "8000"),
 };

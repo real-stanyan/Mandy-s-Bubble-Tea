@@ -77,9 +77,47 @@ export async function replayOnStart(): Promise<void> {
 }
 
 /**
+ * Scans the pending queue once and processes whatever's there.
+ * Used by both the periodic fallback poll and the on-disconnect
+ * catch-up. `inFlight` short-circuits overlapping calls — a flapping
+ * Realtime channel could otherwise fire many of these back-to-back.
+ * Atomic claim in `handleJob` makes overlap semantically safe; the
+ * guard just trims wasted DB round-trips.
+ */
+let pollInFlight = false;
+async function runPollOnce(reason: "tick" | "realtime-drop"): Promise<void> {
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    const { data, error } = await supabase
+      .from("print_jobs")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(20);
+    if (error) {
+      console.error(`[queue] poll select failed (${reason}):`, error.message);
+      return;
+    }
+    const rows = (data ?? []) as PrintJobRow[];
+    if (rows.length > 0 && reason === "realtime-drop") {
+      console.log(`[queue] catch-up poll picked up ${rows.length} pending after realtime drop`);
+    }
+    for (const row of rows) {
+      await handleJob(row);
+    }
+  } catch (err) {
+    console.error(`[queue] poll tick failed (${reason}):`, err);
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+/**
  * Subscribes to INSERT events on print_jobs via Supabase Realtime.
  * On any non-SUBSCRIBED status (CHANNEL_ERROR / TIMED_OUT / CLOSED)
- * tears the channel down and resubscribes after a short delay.
+ * fires an immediate catch-up poll to cover the disconnect window,
+ * then tears the channel down and resubscribes after a short delay.
  * Returns a handle the caller can close on shutdown.
  */
 export function subscribePrintJobs(): { close: () => void } {
@@ -104,8 +142,11 @@ export function subscribePrintJobs(): { close: () => void } {
         console.log(`[queue] realtime status: ${status}`);
         if (status === "SUBSCRIBED") return;
         if (closed) return;
-        // Any non-subscribed status means we're no longer receiving
-        // events. Tear down and retry after a short delay.
+        // Any non-subscribed status means we may have missed an
+        // INSERT during the gap. Fire one catch-up poll immediately
+        // (don't wait for the next periodic tick), then tear the
+        // channel down and reconnect.
+        runPollOnce("realtime-drop").catch(() => { /* logged inside */ });
         if (reconnectTimer) return;
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
@@ -134,31 +175,15 @@ export function subscribePrintJobs(): { close: () => void } {
 /**
  * Fallback poller. Every `pollFallbackMs` this scans for pending
  * jobs and processes them. Covers the case where Realtime silently
- * dropped an INSERT event (rare but observed). `handleJob`'s claim
- * step makes this safe against concurrent delivery — whichever
- * path gets there first wins.
+ * dropped an INSERT event without changing channel status (rare but
+ * observed ~2-3% of jobs in production). `handleJob`'s claim step
+ * makes this safe against concurrent delivery — whichever path gets
+ * there first wins.
  */
 export function startPollFallback(): NodeJS.Timeout {
-  const tick = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("print_jobs")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: true })
-        .limit(20);
-      if (error) {
-        console.error("[queue] poll select failed:", error.message);
-        return;
-      }
-      for (const row of (data ?? []) as PrintJobRow[]) {
-        await handleJob(row);
-      }
-    } catch (err) {
-      console.error("[queue] poll tick failed:", err);
-    }
-  };
-  return setInterval(tick, config.pollFallbackMs);
+  return setInterval(() => {
+    runPollOnce("tick").catch(() => { /* logged inside */ });
+  }, config.pollFallbackMs);
 }
 
 async function claim(jobId: string): Promise<PrintJobRow | null> {
