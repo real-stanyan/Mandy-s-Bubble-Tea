@@ -38,8 +38,13 @@ export const config = {
   // table that's empty 99% of the time.
   pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "8000"),
   // macOS audio output device to enforce on startup. Mandy's Mac mini
-  // has a Samsung Soundbar paired via AirPlay; whenever the soundbar
-  // wakes up macOS auto-selects it as default and the new-online-order
-  // alert plays into a dead device. Set to empty string to disable.
-  audioOutputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? "Mac mini Speakers",
+  // is paired with a Samsung Soundbar over AirPlay — owner wants the
+  // OL-arrival alert played there because the store is loud. macOS
+  // sometimes drops the soundbar from default selection (TYPE C
+  // dongle, Mac mini Speakers, or whichever was last connected wins);
+  // this nudges it back on every startup. If the soundbar is offline
+  // the switch silently fails and the alert simply doesn't play —
+  // owner accepts that trade-off (keep soundbar powered on).
+  // Set to empty string to disable enforcement entirely.
+  audioOutputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? "[ AV ] Samsung Soundbar T4-Series",
 };
