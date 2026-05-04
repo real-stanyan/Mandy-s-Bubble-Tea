@@ -37,4 +37,9 @@ export const config = {
   // basically invisible while costing ~7 Supabase calls/min on a
   // table that's empty 99% of the time.
   pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "8000"),
+  // macOS audio output device to enforce on startup. Mandy's Mac mini
+  // has a Samsung Soundbar paired via AirPlay; whenever the soundbar
+  // wakes up macOS auto-selects it as default and the new-online-order
+  // alert plays into a dead device. Set to empty string to disable.
+  audioOutputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? "Mac mini Speakers",
 };
