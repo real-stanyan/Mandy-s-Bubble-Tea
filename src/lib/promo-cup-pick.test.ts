@@ -2,14 +2,14 @@ import { describe, it, expect } from "vitest";
 import { pickPromoCups } from "./promo-cup-pick";
 
 describe("pickPromoCups", () => {
-  it("welcome takes the cheapest K cups, IG takes the next cheapest", () => {
+  it("welcome wins when both promos are available; IG empty (caller MUST not consume IG ticket)", () => {
     const result = pickPromoCups({
       unitPrices: [1000n, 800n, 600n], // unsorted on input
       welcomeK: 2,
       igFollowK: 1,
     });
     expect(result.welcomeCups).toEqual([600n, 800n]);
-    expect(result.igFollowCups).toEqual([1000n]);
+    expect(result.igFollowCups).toEqual([]);
   });
 
   it("welcome only — IG empty when igFollowK is 0", () => {
@@ -32,7 +32,7 @@ describe("pickPromoCups", () => {
     expect(result.igFollowCups).toEqual([600n]);
   });
 
-  it("one-cup welcome-priority rule: welcome takes the cup, IG empty (caller MUST not consume IG ticket)", () => {
+  it("one-cup welcome-priority rule still holds: welcome takes the cup, IG empty", () => {
     const result = pickPromoCups({
       unitPrices: [800n],
       welcomeK: 1,
@@ -52,13 +52,23 @@ describe("pickPromoCups", () => {
     expect(result.igFollowCups).toEqual([]);
   });
 
-  it("IG gets fewer cups when welcomeK consumes everything", () => {
+  it("clamps igFollowK to available cup count when only IG is available", () => {
     const result = pickPromoCups({
-      unitPrices: [600n, 800n],
-      welcomeK: 2,
+      unitPrices: [600n],
+      welcomeK: 0,
+      igFollowK: 2,
+    });
+    expect(result.welcomeCups).toEqual([]);
+    expect(result.igFollowCups).toEqual([600n]);
+  });
+
+  it("welcome covers cheapest K only; remaining cups stay regular even with IG ticket on file", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n, 1000n],
+      welcomeK: 1,
       igFollowK: 1,
     });
-    expect(result.welcomeCups).toEqual([600n, 800n]);
+    expect(result.welcomeCups).toEqual([600n]);
     expect(result.igFollowCups).toEqual([]);
   });
 
