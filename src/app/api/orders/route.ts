@@ -12,6 +12,10 @@ import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import { applyPrizeToOrder } from "@/lib/lottery/auto-apply";
+import type { DigitalPayload } from "@/lib/lottery/types";
+import { TIER_LABELS } from "@/lib/lottery/types";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -48,6 +52,10 @@ type CreateOrderBody = {
    *  way applyWelcomeDiscount is — abuse risk is ~1.9% per order, same
    *  order of magnitude as welcome-discount gaming. */
   applyLoyaltyReward?: boolean;
+  /** Signals whether the order originated from the native app or the
+   *  web storefront. Defaults to "web". Only app orders are eligible
+   *  for auto-applied lottery digital prizes. */
+  __source?: "app" | "web";
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -189,8 +197,44 @@ export async function POST(request: Request) {
     // depth, not the authoritative source.
   }
 
+  const orderSource: "app" | "web" = body.__source === "app" ? "app" : "web";
+
   const customerId = user.profile.square_customer_id;
   const recipientPhone = user.profile.phone_e164;
+
+  // Look up the user's earliest-expiring active digital prize (app only).
+  // Wrapped in try/catch so a Supabase failure never blocks order creation.
+  let activeLotteryPrize: {
+    id: string;
+    tier_id: string;
+    prize_payload: DigitalPayload;
+  } | null = null;
+  let appliedPrize: { rollId: string; tier_id: string; label: string } | null = null;
+
+  if (orderSource === "app" && user.userId) {
+    try {
+      const supa = getSupabaseAdmin();
+      const { data } = await supa
+        .from("prize_rolls")
+        .select("id, tier_id, prize_payload, prize_type")
+        .eq("user_id", user.userId)
+        .eq("prize_type", "digital")
+        .eq("status", "won_active")
+        .gt("expires_at", new Date().toISOString())
+        .order("expires_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        activeLotteryPrize = {
+          id: data.id as string,
+          tier_id: data.tier_id as string,
+          prize_payload: data.prize_payload as DigitalPayload,
+        };
+      }
+    } catch (err) {
+      console.error("[orders] active digital prize lookup failed:", err);
+    }
+  }
 
   const lineItems = body.lines.map((line) => ({
     quantity: String(line.quantity),
@@ -335,10 +379,93 @@ export async function POST(request: Request) {
       }
     }
 
-    const allDiscounts = [
+    let allDiscounts: Array<{
+      uid: string;
+      name: string;
+      type: "FIXED_AMOUNT";
+      amountMoney: { amount: bigint; currency: Currency };
+      scope: "ORDER" | "LINE_ITEM";
+      appliedTo?: string;
+    }> = [
       ...(welcomeDiscounts ?? []),
       ...(igFollowDiscounts ?? []),
     ];
+
+    // Inject active lottery digital prize (app orders only).
+    // applyPrizeToOrder uses snake_case shapes internally, so we build a
+    // parallel snake_case representation from body.lines (client prices),
+    // call the helper, then map its output back into SDK camelCase.
+    if (activeLotteryPrize) {
+      const snakeItems = body.lines.flatMap((line, lineIdx) => {
+        const modSum = line.modifiers.reduce(
+          (s, m) => s + Math.max(0, Math.floor(m.priceCents)),
+          0,
+        );
+        const unitCents = Math.max(0, Math.floor(line.variationPriceCents)) + modSum;
+        return Array.from({ length: line.quantity }, (_, i) => ({
+          uid: `line-${lineIdx}-${i}`,
+          quantity: "1",
+          base_price_money: { amount: unitCents, currency: BUSINESS.currency },
+          modifiers: [] as Array<unknown>,
+          applied_discounts: [] as Array<{ discount_uid: string }>,
+        }));
+      });
+
+      const prizeResult = applyPrizeToOrder(
+        snakeItems,
+        activeLotteryPrize.prize_payload,
+        activeLotteryPrize.id,
+      );
+
+      // Map discount(s) from snake_case → SDK camelCase shape.
+      for (const d of prizeResult.discounts) {
+        allDiscounts.push({
+          uid: d.uid,
+          name: d.name,
+          type: "FIXED_AMOUNT",
+          amountMoney: {
+            amount: BigInt(d.amount_money?.amount ?? 0),
+            currency: (d.amount_money?.currency ?? BUSINESS.currency) as Currency,
+          },
+          scope: d.scope as "ORDER" | "LINE_ITEM",
+        });
+      }
+
+      // Map appliedDiscounts back onto the route's lineItems array.
+      // snakeItems are 1-per-quantity expansions; we need to map uid back
+      // to the original lineItems index (one entry per unique body line).
+      const uidToLineIdx = new Map<string, number>();
+      for (let li = 0; li < body.lines.length; li++) {
+        for (let q = 0; q < body.lines[li].quantity; q++) {
+          uidToLineIdx.set(`line-${li}-${q}`, li);
+        }
+      }
+      // Collect which lineItems indices got applied_discounts added.
+      const lineItemApplied = new Set<number>();
+      for (const si of prizeResult.lineItems) {
+        if (si.applied_discounts && si.applied_discounts.length > 0) {
+          const liIdx = uidToLineIdx.get(si.uid ?? "");
+          if (liIdx !== undefined) lineItemApplied.add(liIdx);
+        }
+      }
+      // The discount uid(s) that came from the prize.
+      const prizeDiscountUids = prizeResult.discounts.map((d) => d.uid);
+      // Attach appliedDiscounts to the Square SDK lineItems for those indices.
+      for (const liIdx of lineItemApplied) {
+        const item = lineItems[liIdx] as Record<string, unknown>;
+        const existing = (item.appliedDiscounts as Array<{ discountUid: string }>) ?? [];
+        item.appliedDiscounts = [
+          ...existing,
+          ...prizeDiscountUids.map((uid) => ({ discountUid: uid })),
+        ];
+      }
+
+      appliedPrize = {
+        rollId: activeLotteryPrize.id,
+        tier_id: activeLotteryPrize.tier_id,
+        label: TIER_LABELS[activeLotteryPrize.tier_id] ?? activeLotteryPrize.tier_id,
+      };
+    }
 
     // Note: loyalty rewards are NOT attached here. Square's order
     // create request has no loyaltyRewards field — the discount is
@@ -423,7 +550,7 @@ export async function POST(request: Request) {
           },
         ],
         metadata: {
-          source: "web",
+          source: orderSource,
           site: BUSINESS.domain,
           ...(welcomeDrinksCovered > 0
             ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
@@ -431,6 +558,7 @@ export async function POST(request: Request) {
           ...(igFollowDrinksCovered > 0
             ? { igFollowDiscountDrinksCovered: String(igFollowDrinksCovered) }
             : {}),
+          ...(appliedPrize ? { lotteryPrizeRollId: appliedPrize.rollId } : {}),
         },
       },
     });
@@ -450,6 +578,7 @@ export async function POST(request: Request) {
       orderId,
       amountCents,
       order: serializeSquareResponse(response.order),
+      appliedPrize,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
