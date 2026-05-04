@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { WebhooksHelper } from "square";
 import { getUserIdBySquareCustomer, purgeAccount } from "@/lib/supabase";
 import { squareClient } from "@/lib/square";
+import { handleRefundedOrder } from "@/lib/lottery/refund";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
 import { enqueuePrintJob } from "@/lib/print-jobs";
@@ -327,6 +329,67 @@ export async function POST(request: Request) {
           `[print] handleOrderPaid threw for order ${orderId} event_id=${event.event_id}: ${message}`,
         );
       }
+    }
+  }
+
+  if (event.type === "refund.updated") {
+    const refund = (
+      event.data?.object as { refund?: { order_id?: string; status?: string } }
+    )?.refund;
+    if (refund?.status !== "COMPLETED") {
+      return NextResponse.json({ ok: true });
+    }
+    const orderId = refund.order_id;
+    if (!orderId) {
+      console.error(
+        `[square-webhook] refund.updated missing refund.order_id event_id=${event.event_id}`,
+      );
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      const supa = getSupabaseAdmin();
+      const result = await handleRefundedOrder(orderId, {
+        getOrderTotalCents: async (sqId) => {
+          const resp = await squareClient.orders.get({ orderId: sqId });
+          const total = resp.order?.totalMoney?.amount;
+          return total != null ? Number(total) : null;
+        },
+        getCumulativeRefundCents: async (sqId) => {
+          const resp = await squareClient.orders.get({ orderId: sqId });
+          const refunds = (resp.order?.refunds ?? []) as Array<{
+            amountMoney?: { amount?: bigint | number };
+            status?: string;
+          }>;
+          let sum = 0;
+          for (const r of refunds) {
+            if (r.status === "COMPLETED" && r.amountMoney?.amount != null) {
+              sum += Number(r.amountMoney.amount);
+            }
+          }
+          return sum;
+        },
+        voidPrizeRoll: async (sqId) => {
+          const { data, error } = await supa
+            .from("prize_rolls")
+            .update({
+              status: "voided",
+              voided_at: new Date().toISOString(),
+            })
+            .eq("square_order_id", sqId)
+            .neq("status", "voided")
+            .select("id");
+          if (error) throw error;
+          return { updated: data?.length ?? 0 };
+        },
+      });
+      console.log(
+        `[square-webhook] refund.updated for order ${orderId} voided=${result.voided} event_id=${event.event_id}`,
+      );
+    } catch (err) {
+      console.error(
+        `[square-webhook] refund.updated handler failed event_id=${event.event_id}`,
+        err,
+      );
     }
   }
 
