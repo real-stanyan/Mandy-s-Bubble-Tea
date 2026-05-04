@@ -10,6 +10,9 @@ import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { rollPrize } from "@/lib/lottery/roll";
+import { TIER_LABELS } from "@/lib/lottery/types";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -310,6 +313,124 @@ export async function POST(request: Request) {
       );
     }
 
+    // Lottery: mark applied prize as redeemed + roll a new prize.
+    // Wrapped in try/catch — lottery failure must never break payment success.
+    let appliedPrize: { rollId: string; tier_id: string; label: string } | null = null;
+    let prize:
+      | {
+          rollId: string;
+          tier_id: string;
+          prize_type: "thank_you" | "digital" | "physical";
+          label: string;
+          payload: object;
+          claim_code?: string;
+          expires_at: string | null;
+        }
+      | null = null;
+
+    try {
+      // `order` is the Square order read at the top of the route handler.
+      // T9-a stamped metadata.lotteryPrizeRollId and metadata.source onto
+      // the Square order when creating it via /api/orders.
+      const orderMeta = order?.metadata ?? {};
+      const lotteryRollId =
+        typeof orderMeta.lotteryPrizeRollId === "string"
+          ? orderMeta.lotteryPrizeRollId
+          : null;
+      const orderSource: "app" | "web" =
+        orderMeta.source === "app" ? "app" : "web";
+
+      const supa = getSupabaseAdmin();
+
+      // 1. Mark the applied prize (if any) as redeemed.
+      if (lotteryRollId && paymentSettled) {
+        const { data: redeemed, error: redeemErr } = await supa
+          .from("prize_rolls")
+          .update({
+            status: "redeemed",
+            redeemed_order_id: body.orderId,
+          })
+          .eq("id", lotteryRollId)
+          .eq("status", "won_active")
+          .select("id, tier_id")
+          .maybeSingle();
+        if (redeemErr) {
+          console.error("[payment] mark-redeemed failed:", redeemErr);
+        } else if (redeemed) {
+          appliedPrize = {
+            rollId: redeemed.id as string,
+            tier_id: redeemed.tier_id as string,
+            label:
+              TIER_LABELS[redeemed.tier_id as string] ??
+              (redeemed.tier_id as string),
+          };
+        }
+      }
+
+      // 2. Roll a new prize for this order (app-source + settled only).
+      if (orderSource === "app" && paymentSettled && user?.userId) {
+        const result = await rollPrize(
+          {
+            userId: user.userId,
+            squareOrderId: body.orderId,
+            source: "app",
+          },
+          {
+            getActiveCampaign: async () => {
+              const { data } = await supa
+                .from("campaigns")
+                .select("id, name, starts_at, ends_at, prize_pool, is_active")
+                .eq("is_active", true)
+                .lte("starts_at", new Date().toISOString())
+                .gte("ends_at", new Date().toISOString())
+                .maybeSingle();
+              return data as never;
+            },
+            userHasPhysicalLock: async (uid, campaignId) => {
+              const { count } = await supa
+                .from("prize_rolls")
+                .select("id", { count: "exact", head: true })
+                .eq("user_id", uid)
+                .eq("campaign_id", campaignId)
+                .eq("prize_type", "physical")
+                .in("status", ["won_active", "claimed", "expired"]);
+              return (count ?? 0) > 0;
+            },
+            insertRoll: async (row) => {
+              const { data, error } = await supa
+                .from("prize_rolls")
+                .insert(row)
+                .select("id")
+                .single();
+              if (error) throw error;
+              return { id: data.id as string };
+            },
+            claimCodeExists: async (code) => {
+              const { count } = await supa
+                .from("prize_rolls")
+                .select("id", { count: "exact", head: true })
+                .eq("claim_code", code);
+              return (count ?? 0) > 0;
+            },
+          },
+        );
+        if (result) {
+          prize = {
+            rollId: result.rollId,
+            tier_id: result.tier_id,
+            prize_type: result.prize_type,
+            label: result.label,
+            payload: result.payload as object,
+            claim_code: result.claim_code,
+            expires_at: result.expires_at,
+          };
+        }
+      }
+    } catch (err) {
+      console.error("[payment] lottery handling failed:", err);
+      // Never let lottery failure break payment success response.
+    }
+
     return NextResponse.json({
       ok: true,
       paymentId,
@@ -323,6 +444,8 @@ export async function POST(request: Request) {
       igFollowDiscountConsumed: igFollowDiscountConsumedCount > 0,
       igFollowDrinksRemaining,
       payment: paymentForResponse,
+      prize,
+      appliedPrize,
     });
   } catch (error) {
     console.error("[payment] error:", error instanceof Error ? error.message : error);
