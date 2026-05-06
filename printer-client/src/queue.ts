@@ -8,18 +8,13 @@ import { renderStickerZPL, type CupForZPL } from "./zpl";
 import { maybeAlert } from "./alert";
 
 function playOnlineOrderAlert(): void {
-  // Twin spoken cue. The store Soundbar over AirPlay drops sub-second
-  // afplay bursts (Submarine.aiff was inaudible in-store, 2026-05-04);
-  // a ~1.5s say with -r 180 stays audible, fired twice to be hard to miss.
+  // Single spoken cue. say -r 180 ~1.5s stays audible on the store
+  // Soundbar (HDMI route from Mac mini, 2026-05-04 wiring confirmed).
   try {
-    spawn(
-      "/bin/sh",
-      [
-        "-c",
-        'say -v Samantha -r 180 "new order"; sleep 0.2; say -v Samantha -r 180 "new order"',
-      ],
-      { detached: true, stdio: "ignore" }
-    ).unref();
+    spawn("say", ["-v", "Samantha", "-r", "180", "new order"], {
+      detached: true,
+      stdio: "ignore",
+    }).unref();
   } catch {
     /* sound failure must never block printing */
   }
