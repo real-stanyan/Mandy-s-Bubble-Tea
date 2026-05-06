@@ -178,7 +178,7 @@ export function publicHolidaySurcharge(baseCents: bigint): bigint {
   return (baseCents * PH_SURCHARGE_BPS) / 10000n;
 }
 
-// Mirrors Square's SUBTOTAL_PHASE percentage service charge: 0.4% of the
+// Mirrors Square's SUBTOTAL_PHASE percentage service charge: 0.5% of the
 // pre-discount subtotal, truncated to whole cents. UI-display only — Square's
 // totalMoney is the authoritative charged amount; ≤1c divergence may exist
 // at certain price points due to Square's round-half-up vs. BigInt floor.

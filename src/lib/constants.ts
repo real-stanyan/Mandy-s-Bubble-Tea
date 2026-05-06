@@ -56,11 +56,11 @@ export const CARD_SURCHARGE_BPS = 190n;
 export const PLATFORM_FEE = {
   name: "Platform Fee",
   /** Percentage as a string — matches Square's OrderServiceCharge.percentage format. */
-  percentage: "0.4",
+  percentage: "0.5",
 } as const;
 
-/** 0.4% as basis-points-per-10000 for BigInt math: 40 / 10000. */
-export const PLATFORM_FEE_BPS = 40n;
+/** 0.5% as basis-points-per-10000 for BigInt math: 50 / 10000. */
+export const PLATFORM_FEE_BPS = 50n;
 
 // ---- Public holiday surcharge ----
 

@@ -27,16 +27,16 @@ describe("cardSurcharge sanity (baseline)", () => {
 });
 
 describe("platformFee", () => {
-  it("computes 0.4% of the base in cents (BigInt)", () => {
-    // 0.4% of $6.20 = 0.0248 → floor 2 cents
-    expect(platformFee(620n)).toBe(2n);
-    // 0.4% of $12.40 = 0.0496 → floor 4 cents
-    expect(platformFee(1240n)).toBe(4n);
+  it("computes 0.5% of the base in cents (BigInt)", () => {
+    // 0.5% of $6.20 = 0.031 → floor 3 cents
+    expect(platformFee(620n)).toBe(3n);
+    // 0.5% of $12.40 = 0.062 → floor 6 cents
+    expect(platformFee(1240n)).toBe(6n);
     expect(platformFee(0n)).toBe(0n);
   });
 
   it("floors for uneven divisions", () => {
-    // 0.4% of $1.25 = 0.005 → floor 0 cents (Square server may round to 1; ≤1c divergence is OK)
+    // 0.5% of $1.25 = 0.00625 → floor 0 cents (Square server may round to 1; ≤1c divergence is OK)
     expect(platformFee(125n)).toBe(0n);
   });
 
@@ -46,7 +46,7 @@ describe("platformFee", () => {
   });
 
   it("computes large-amount math without overflow", () => {
-    // 0.4% of $10,000.00 = $40.00
-    expect(platformFee(1_000_000n)).toBe(4_000n);
+    // 0.5% of $10,000.00 = $50.00
+    expect(platformFee(1_000_000n)).toBe(5_000n);
   });
 });

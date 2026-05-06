@@ -200,7 +200,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
 
   // Platform Fee mirrors the SUBTOTAL_PHASE service charge attached in
-  // /api/orders: 0.4% of the pre-discount subtotal.
+  // /api/orders: 0.5% of the pre-discount subtotal.
   const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
 
   // PH surcharge — checked client-side only for display; server is authoritative.
