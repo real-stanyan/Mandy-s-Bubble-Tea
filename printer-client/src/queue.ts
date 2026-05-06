@@ -1,5 +1,6 @@
 // printer-client/src/queue.ts
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { config } from "./config";
@@ -7,19 +8,20 @@ import { printZPL, getPrinterStatus } from "./printer";
 import { renderStickerZPL, type CupForZPL } from "./zpl";
 import { maybeAlert } from "./alert";
 
+// 2.98s mp3, long enough to outlast Soundbar BT idle (sub-second afplay
+// bursts dropped in-store, 2026-05-04). Resolved relative to dist/queue.js
+// at runtime so it works regardless of cwd.
+const ONLINE_ORDER_SOUND = path.resolve(
+  __dirname,
+  "../sounds/new_job_order.mp3"
+);
+
 function playOnlineOrderAlert(): void {
-  // Twin spoken cue. The store Soundbar over AirPlay drops sub-second
-  // afplay bursts (Submarine.aiff was inaudible in-store, 2026-05-04);
-  // a ~1.5s say with -r 180 stays audible, fired twice to be hard to miss.
   try {
-    spawn(
-      "/bin/sh",
-      [
-        "-c",
-        'say -v Samantha -r 180 "new order"; sleep 0.2; say -v Samantha -r 180 "new order"',
-      ],
-      { detached: true, stdio: "ignore" }
-    ).unref();
+    spawn("afplay", [ONLINE_ORDER_SOUND], {
+      detached: true,
+      stdio: "ignore",
+    }).unref();
   } catch {
     /* sound failure must never block printing */
   }
