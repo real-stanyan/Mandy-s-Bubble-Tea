@@ -8,12 +8,12 @@ import { printZPL, getPrinterStatus } from "./printer";
 import { renderStickerZPL, type CupForZPL } from "./zpl";
 import { maybeAlert } from "./alert";
 
-// 2.98s mp3, long enough to outlast Soundbar BT idle (sub-second afplay
+// 4.31s mp3, long enough to outlast Soundbar BT idle (sub-second afplay
 // bursts dropped in-store, 2026-05-04). Resolved relative to dist/queue.js
 // at runtime so it works regardless of cwd.
 const ONLINE_ORDER_SOUND = path.resolve(
   __dirname,
-  "../sounds/new_job_order.mp3"
+  "../sounds/doordash.mp3"
 );
 
 function playOnlineOrderAlert(): void {
