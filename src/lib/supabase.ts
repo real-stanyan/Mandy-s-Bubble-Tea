@@ -132,6 +132,28 @@ export async function purgeAccount(args: {
   }
 
   if (userId) {
+    // CRITICAL: explicitly delete user_profiles BEFORE touching auth.users.
+    // user_profiles owns its own UNIQUE constraint on phone_e164 (separate
+    // from auth.users.phone) and we previously relied on ON DELETE CASCADE
+    // from auth.users → user_profiles to clean it up. When
+    // `auth.admin.deleteUser` silently fails (the swallowed error case
+    // below) the cascade never fires and a zombie user_profiles row keeps
+    // claiming the phone, blocking the same customer from re-registering
+    // with "duplicate key value violates unique constraint
+    // user_profiles_phone_e164_key". Doing it explicitly here releases
+    // phone_e164 + square_customer_id regardless of whether the auth-side
+    // delete succeeds.
+    const { error: profErr } = await admin
+      .from("user_profiles")
+      .delete()
+      .eq("user_id", userId);
+    if (profErr) {
+      console.error("[purge] user_profiles delete failed", profErr);
+      throw new Error(
+        `Failed to release user_profiles row: ${profErr.message}`,
+      );
+    }
+
     // CRITICAL: rewrite phone + email to inert markers BEFORE deleting
     // the auth user. Reported 2026-04-26: customers saw "Phone number
     // in use" when re-registering after Account → Delete because
