@@ -197,7 +197,21 @@ export async function POST(request: Request) {
       created: customerCreated,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // Supabase PostgrestError, Square errors, and other "error-shaped"
+    // plain objects are not Error instances. Extract `.message` before
+    // falling back to String() so we don't ship "[object Object]" to the
+    // client. Always log the raw error so PostgrestError's
+    // details/hint/code stay visible in Vercel logs.
+    console.error("[complete-signup] failed:", err);
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" &&
+            err !== null &&
+            "message" in err &&
+            typeof (err as { message: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : String(err);
     return NextResponse.json(
       { ok: false, error: message },
       { status: 502 },
