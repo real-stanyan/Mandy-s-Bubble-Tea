@@ -23,8 +23,6 @@ import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/li
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
-
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
 
@@ -222,6 +220,7 @@ function CartBody({
       unitPrices,
       welcomeK,
       igFollowK: igK,
+      loyaltyRewardCount: 0,
     });
     const welcomeDiscountCents =
       welcomeCups.length > 0
@@ -326,17 +325,6 @@ function CartBody({
     }
     return cheapest;
   }, [lines]);
-
-  // Persist redeem preference so checkout can pick it up.
-  useEffect(() => {
-    try {
-      if (useReward) {
-        window.localStorage.setItem(REDEEM_STORAGE_KEY, "1");
-      } else {
-        window.localStorage.removeItem(REDEEM_STORAGE_KEY);
-      }
-    } catch { /* noop */ }
-  }, [useReward]);
 
   // Reset redeem when user no longer qualifies.
   useEffect(() => {
