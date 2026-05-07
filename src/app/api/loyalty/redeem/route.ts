@@ -87,6 +87,12 @@ export async function POST(request: Request) {
     }
 
     if (body.orderId) {
+      // TOCTOU: the order could be edited between this check and the loop
+      // below. Square allows order edits and applies loyalty rewards
+      // independently of cup count, so the worst case is N rewards
+      // attached to fewer cups (extra rewards yield $0 discount on
+      // already-free items). Acceptable — a stricter guarantee would
+      // require Square order versioning.
       const preCheck = await squareClient.orders.get({
         orderId: body.orderId,
       });
@@ -148,6 +154,10 @@ export async function POST(request: Request) {
       loyaltyRewardIds: createdIds,
       // Back-compat for older app binaries that read `loyaltyRewardId`
       loyaltyRewardId: createdIds[0],
+      // Computed from the pre-loop balance snapshot. If a concurrent
+      // redemption on the same account ran in parallel, the displayed
+      // value can be briefly stale until the client refetches; the
+      // server-side balance check above prevents over-redemption.
       remainingBalance: account.balance - starsNeeded,
       updatedAmountCents,
     });

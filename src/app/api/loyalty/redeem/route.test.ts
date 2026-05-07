@@ -73,7 +73,25 @@ describe("POST /api/loyalty/redeem", () => {
     expect(json.remainingBalance).toBe(9);
     expect(json.updatedAmountCents).toBe("350");
     expect(mockRedeemReward).toHaveBeenCalledTimes(2);
+    expect(mockRedeemReward).toHaveBeenNthCalledWith(1, "acc1", "tier1", "ord1");
+    expect(mockRedeemReward).toHaveBeenNthCalledWith(2, "acc1", "tier1", "ord1");
     expect(mockRewardsDelete).not.toHaveBeenCalled();
+  });
+
+  it("count=2 with no orderId: creates 2 ISSUED rewards, never calls orders.get", async () => {
+    mockRedeemReward
+      .mockResolvedValueOnce({ loyaltyRewardId: "r1" })
+      .mockResolvedValueOnce({ loyaltyRewardId: "r2" });
+
+    const res = await POST(makeRequest({ count: 2 }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.loyaltyRewardIds).toEqual(["r1", "r2"]);
+    expect(json.updatedAmountCents).toBeNull();
+    expect(mockOrdersGet).not.toHaveBeenCalled();
+    expect(mockRedeemReward).toHaveBeenCalledTimes(2);
+    expect(mockRedeemReward).toHaveBeenNthCalledWith(1, "acc1", "tier1", undefined);
   });
 
   it("count defaults to 1 when omitted (back-compat)", async () => {
