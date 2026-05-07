@@ -87,4 +87,76 @@ describe("pickPromoCups", () => {
     pickPromoCups({ unitPrices: input, welcomeK: 1, igFollowK: 1 });
     expect(input).toEqual([1000n, 600n, 800n]);
   });
+
+  it("loyaltyRewardCount=0 leaves existing behavior unchanged", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n, 1000n],
+      welcomeK: 1,
+      igFollowK: 0,
+      loyaltyRewardCount: 0,
+    });
+    expect(result.loyaltyRewardCups).toEqual([]);
+    expect(result.welcomeCups).toEqual([600n]);
+    expect(result.igFollowCups).toEqual([]);
+  });
+
+  it("loyaltyRewardCount=2 takes the cheapest two; welcome takes next-cheapest", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n, 1000n],
+      welcomeK: 1,
+      igFollowK: 0,
+      loyaltyRewardCount: 2,
+    });
+    expect(result.loyaltyRewardCups).toEqual([600n, 800n]);
+    expect(result.welcomeCups).toEqual([1000n]);
+    expect(result.igFollowCups).toEqual([]);
+  });
+
+  it("loyaltyRewardCount=2 with IG-only (no welcome): IG takes from the remainder", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n, 1000n],
+      welcomeK: 0,
+      igFollowK: 1,
+      loyaltyRewardCount: 2,
+    });
+    expect(result.loyaltyRewardCups).toEqual([600n, 800n]);
+    expect(result.welcomeCups).toEqual([]);
+    expect(result.igFollowCups).toEqual([1000n]);
+  });
+
+  it("loyaltyRewardCount equals cup count: welcome & IG are empty", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n],
+      welcomeK: 1,
+      igFollowK: 1,
+      loyaltyRewardCount: 2,
+    });
+    expect(result.loyaltyRewardCups).toEqual([600n, 800n]);
+    expect(result.welcomeCups).toEqual([]);
+    expect(result.igFollowCups).toEqual([]);
+  });
+
+  it("welcome+reward retains welcome-wins-over-IG: IG empty even with leftover cups", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n, 1000n, 1200n],
+      welcomeK: 1,
+      igFollowK: 1,
+      loyaltyRewardCount: 1,
+    });
+    expect(result.loyaltyRewardCups).toEqual([600n]);
+    expect(result.welcomeCups).toEqual([800n]);
+    expect(result.igFollowCups).toEqual([]);
+  });
+
+  it("loyaltyRewardCount clamps to available cup count (no over-allocation)", () => {
+    const result = pickPromoCups({
+      unitPrices: [600n, 800n],
+      welcomeK: 0,
+      igFollowK: 0,
+      loyaltyRewardCount: 5,
+    });
+    expect(result.loyaltyRewardCups).toEqual([600n, 800n]);
+    expect(result.welcomeCups).toEqual([]);
+    expect(result.igFollowCups).toEqual([]);
+  });
 });
