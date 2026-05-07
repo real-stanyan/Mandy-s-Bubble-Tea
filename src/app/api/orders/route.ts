@@ -48,12 +48,16 @@ type CreateOrderBody = {
    *  way applyWelcomeDiscount is — abuse risk is ~1.9% per order, same
    *  order of magnitude as welcome-discount gaming. */
   applyLoyaltyReward?: boolean;
-  /** Number of loyalty rewards the client wants applied to this order
-   *  (0..N). Used by `pickPromoCups` to remove the cheapest N cups from
-   *  the welcome/IG discount candidate set, so the server agrees with the
-   *  client on which cups belong to rewards vs promos. Also gates
-   *  skipSurcharges — treated as equivalent to the legacy
-   *  `applyLoyaltyReward` boolean (either one triggers the skip). */
+  /** Number of loyalty rewards the client wants applied to this order.
+   *  Must be a non-negative integer (fractional values are floored by
+   *  pickPromoCups). When > 0, gates skipSurcharges on its own —
+   *  applyLoyaltyReward boolean above is the legacy field for old app
+   *  binaries that don't send this count. When the order ALSO has a
+   *  welcome/IG discount, pickPromoCups uses this to remove the cheapest
+   *  N cups from the discount candidate set so server agrees with client
+   *  on which cups belong to rewards vs promos. (When neither welcome
+   *  nor IG discount is active on this order, pickPromoCups isn't called
+   *  and this field only affects skipSurcharges.) */
   loyaltyRewardCount?: number;
 };
 
