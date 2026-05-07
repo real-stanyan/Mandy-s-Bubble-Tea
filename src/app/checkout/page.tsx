@@ -665,10 +665,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <span>{starsPerReward} for Free Drink</span>
             </div>
 
-            {loyaltyBalance >= starsPerReward && maxRewardCount > 0 && (
-              <div className="mt-2.5 flex items-center justify-between rounded-lg border border-[#C43A10]/30 bg-[#F5E6C8]/40 px-4 py-3 sm:mt-3">
+            {maxRewardCount > 0 && (
+              <div
+                className="mt-2.5 flex items-center justify-between rounded-lg border px-4 py-3 sm:mt-3"
+                style={{
+                  borderColor: `${BRAND.primaryColor}4D`, // 30% alpha
+                  backgroundColor: `${BRAND.accentColor}66`, // ~40% alpha
+                }}
+              >
                 <div>
-                  <div className="text-sm font-medium text-[#C43A10]">
+                  <div
+                    className="text-sm font-medium"
+                    style={{ color: BRAND.primaryColor }}
+                  >
                     Use rewards
                   </div>
                   {rewardCount > 0 && (
@@ -683,12 +692,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     type="button"
                     onClick={() => setRewardCount((n) => Math.max(0, n - 1))}
                     disabled={rewardCount === 0}
-                    className="h-8 w-8 rounded-full border border-[#C43A10] text-[#C43A10] disabled:opacity-30"
+                    className="h-8 w-8 rounded-full border disabled:opacity-30"
+                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
                     aria-label="Decrease reward count"
                   >
-                    −
+                    <span aria-hidden="true">−</span>
                   </button>
-                  <span className="min-w-[1.5rem] text-center font-medium text-[#C43A10]">
+                  <span
+                    className="min-w-[1.5rem] text-center font-medium"
+                    style={{ color: BRAND.primaryColor }}
+                  >
                     {rewardCount}
                   </span>
                   <button
@@ -697,10 +710,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       setRewardCount((n) => Math.min(maxRewardCount, n + 1))
                     }
                     disabled={rewardCount === maxRewardCount}
-                    className="h-8 w-8 rounded-full border border-[#C43A10] text-[#C43A10] disabled:opacity-30"
+                    className="h-8 w-8 rounded-full border disabled:opacity-30"
+                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
                     aria-label="Increase reward count"
                   >
-                    +
+                    <span aria-hidden="true">+</span>
                   </button>
                 </div>
               </div>
