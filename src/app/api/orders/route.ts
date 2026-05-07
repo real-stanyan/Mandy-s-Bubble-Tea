@@ -48,6 +48,13 @@ type CreateOrderBody = {
    *  way applyWelcomeDiscount is — abuse risk is ~1.9% per order, same
    *  order of magnitude as welcome-discount gaming. */
   applyLoyaltyReward?: boolean;
+  /** Number of loyalty rewards the client wants applied to this order
+   *  (0..N). Used by `pickPromoCups` to remove the cheapest N cups from
+   *  the welcome/IG discount candidate set, so the server agrees with the
+   *  client on which cups belong to rewards vs promos. Also gates
+   *  skipSurcharges — treated as equivalent to the legacy
+   *  `applyLoyaltyReward` boolean (either one triggers the skip). */
+  loyaltyRewardCount?: number;
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -289,6 +296,7 @@ export async function POST(request: Request) {
           unitPrices,
           welcomeK,
           igFollowK: igK,
+          loyaltyRewardCount: body.loyaltyRewardCount ?? 0,
         });
 
         if (welcomeCups.length > 0) {
@@ -352,7 +360,9 @@ export async function POST(request: Request) {
     // (no card charged → nothing to pass through). The PH surcharge follows
     // the same rule: a fully-redeemed free drink skips both.
     const activePH = getActivePublicHoliday(new Date());
-    const skipSurcharges = body.applyLoyaltyReward === true;
+    const skipSurcharges =
+      (body.loyaltyRewardCount ?? 0) > 0 ||
+      body.applyLoyaltyReward === true;
 
     const orderServiceCharges: Array<{
       uid: string;
