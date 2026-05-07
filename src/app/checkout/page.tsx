@@ -125,7 +125,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const walletAvailable = applePayAvailable || googlePayAvailable;
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
 
-  const [useReward, setUseReward] = useState(false);
+  const [rewardCount, setRewardCount] = useState(0);
 
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
@@ -136,31 +136,33 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
 
-  // The cheapest single-drink unit price — used as the reward discount
-  // (Square's "Free Drink" reward covers the cheapest item).
-  const rewardDiscount = useMemo(() => {
-    if (lines.length === 0) return 0n;
-    let cheapest = lineUnitPrice(lines[0]);
-    for (const l of lines) {
-      const up = lineUnitPrice(l);
-      if (up < cheapest) cheapest = up;
+  // Expand all cup unit prices, sorted ascending — used for multi-reward discount.
+  const sortedUnitPrices = useMemo(() => {
+    const cups: bigint[] = [];
+    for (const line of lines) {
+      const unit = lineUnitPrice(line);
+      for (let i = 0; i < line.quantity; i++) cups.push(unit);
     }
-    return cheapest;
+    return cups.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }, [lines]);
 
+  // Sum of the cheapest N cup prices — the reward discount for rewardCount cups.
+  const rewardDiscount = useMemo(
+    () =>
+      sortedUnitPrices
+        .slice(0, rewardCount)
+        .reduce((sum, p) => sum + p, 0n),
+    [sortedUnitPrices, rewardCount],
+  );
+
   const promoCoverage = useMemo(() => {
-    if (lines.length === 0) {
+    if (sortedUnitPrices.length === 0) {
       return {
         welcomeCount: 0,
         welcomeDiscountCents: 0n,
         igFollowCount: 0,
         igFollowDiscountCents: 0n,
       };
-    }
-    const unitPrices: bigint[] = [];
-    for (const line of lines) {
-      const unit = lineUnitPrice(line);
-      for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
     }
     const welcomeK = welcomeDiscount.available
       ? welcomeDiscount.drinksRemaining
@@ -169,9 +171,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       ? igFollowDiscount.drinksRemaining
       : 0;
     const { welcomeCups, igFollowCups } = pickPromoCups({
-      unitPrices,
+      unitPrices: sortedUnitPrices,
       welcomeK,
       igFollowK: igK,
+      loyaltyRewardCount: rewardCount,
     });
     const welcomeDiscountCents =
       welcomeCups.length > 0
@@ -191,7 +194,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       igFollowCount: igFollowCups.length,
       igFollowDiscountCents,
     };
-  }, [lines, welcomeDiscount, igFollowDiscount]);
+  }, [sortedUnitPrices, rewardCount, welcomeDiscount, igFollowDiscount]);
   const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
   const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
@@ -230,36 +233,39 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
-  const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
   const progressPct = Math.min((loyaltyBalance / starsPerReward) * 100, 100);
-  // Reward covers the cheapest drink (no modifier upcharges).
-  const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
+
+  // Maximum rewards the user can apply — bounded by stars balance and cup count.
+  const cupCount = starsThisOrder; // 1 cup per quantity unit
+  const maxRewardCount = useMemo(() => {
+    if (starsPerReward <= 0) return 0;
+    return Math.min(
+      Math.floor(loyaltyBalance / starsPerReward),
+      cupCount,
+    );
+  }, [loyaltyBalance, starsPerReward, cupCount]);
+
+  // Clamp rewardCount if maxRewardCount shrinks (e.g. user removes an item).
+  useEffect(() => {
+    if (rewardCount > maxRewardCount) setRewardCount(maxRewardCount);
+  }, [maxRewardCount, rewardCount]);
+
   // True reward redemption path — server skips the card surcharge and
   // client skips tokenization entirely because Square's total comes out
   // to $0 after the reward discount.
-  const isFreeRedeem = canRedeemFully && useReward;
+  const totalDiscount =
+    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount;
+  const afterDiscount =
+    subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
+  const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
 
   const displayTotal = useMemo(() => {
     if (isFreeRedeem) return 0n;
-    const promoDiscountTotal = welcomeDiscountAmount + igFollowDiscountAmount;
-    const afterDiscount =
-      canRedeem && useReward
-        ? (subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-        : promoDiscountTotal > 0n
-          ? (subtotal - promoDiscountTotal > 0n
-              ? subtotal - promoDiscountTotal
-              : 0n)
-          : subtotal;
     return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount;
   }, [
     isFreeRedeem,
-    subtotal,
-    canRedeem,
-    useReward,
-    rewardDiscount,
-    welcomeDiscountAmount,
-    igFollowDiscountAmount,
+    afterDiscount,
     surchargeAmount,
     platformFeeAmount,
     phSurchargeAmount,
@@ -269,19 +275,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
   const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
-
-  // Pre-fill redeem toggle from cart drawer preference.
-  useEffect(() => {
-    if (!canRedeem) return;
-    try {
-      const saved = window.localStorage.getItem("mbt:cart:useReward");
-      if (saved === "1") setUseReward(true);
-    } catch { /* noop */ }
-  }, [canRedeem]);
-
-  useEffect(() => {
-    if (canRedeemFully) setUseReward(true);
-  }, [canRedeemFully]);
 
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
@@ -489,7 +482,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
           applyIgFollowDiscount: igFollowDiscount.available,
-          applyLoyaltyReward: isFreeRedeem,
+          applyLoyaltyReward: rewardCount > 0,
+          loyaltyRewardCount: rewardCount,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -509,13 +503,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         throw new Error(orderJson.error ?? "Order creation failed");
       }
 
-      // 2) Optionally redeem a loyalty reward against the order.
+      // 2) Optionally redeem loyalty rewards against the order.
       let amountCents: string = orderJson.amountCents;
-      if (useReward) {
+      if (rewardCount > 0) {
         const redeemRes = await fetch("/api/loyalty/redeem", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId: orderJson.orderId }),
+          body: JSON.stringify({ orderId: orderJson.orderId, count: rewardCount }),
         });
         const redeemJson = await redeemRes.json();
         if (!redeemRes.ok || !redeemJson.ok) {
@@ -671,21 +665,45 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <span>{starsPerReward} for Free Drink</span>
             </div>
 
-            {canRedeem && (
-              <label className="mt-2.5 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-2.5 sm:mt-3 sm:p-3">
-                <input
-                  type="checkbox"
-                  checked={useReward}
-                  onChange={(e) => setUseReward(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: BRAND.primaryColor }}
-                >
-                  Redeem free drink ({starsPerReward} stars)
-                </span>
-              </label>
+            {loyaltyBalance >= starsPerReward && maxRewardCount > 0 && (
+              <div className="mt-2.5 flex items-center justify-between rounded-lg border border-[#C43A10]/30 bg-[#F5E6C8]/40 px-4 py-3 sm:mt-3">
+                <div>
+                  <div className="text-sm font-medium text-[#C43A10]">
+                    Use rewards
+                  </div>
+                  {rewardCount > 0 && (
+                    <div className="mt-0.5 text-xs text-neutral-600">
+                      −{formatPrice(rewardDiscount)} off {rewardCount} cheapest drink
+                      {rewardCount > 1 ? "s" : ""}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRewardCount((n) => Math.max(0, n - 1))}
+                    disabled={rewardCount === 0}
+                    className="h-8 w-8 rounded-full border border-[#C43A10] text-[#C43A10] disabled:opacity-30"
+                    aria-label="Decrease reward count"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-[1.5rem] text-center font-medium text-[#C43A10]">
+                    {rewardCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRewardCount((n) => Math.min(maxRewardCount, n + 1))
+                    }
+                    disabled={rewardCount === maxRewardCount}
+                    className="h-8 w-8 rounded-full border border-[#C43A10] text-[#C43A10] disabled:opacity-30"
+                    aria-label="Increase reward count"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
             )}
           </section>
 
@@ -740,10 +758,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
-                {canRedeem && useReward && (
+                {rewardCount > 0 && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm">
                     <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                      Free Drink Reward
+                      Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
                     </span>
                     <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(rewardDiscount)}
@@ -995,10 +1013,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
-            {canRedeem && useReward && (
+            {rewardCount > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                  Free Drink Reward
+                  Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
                 </span>
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(rewardDiscount)}
