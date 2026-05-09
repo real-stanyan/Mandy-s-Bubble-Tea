@@ -22,10 +22,24 @@ export async function GET(request: Request) {
   }
 
   const user = await getAuthedUser(request);
-  if (!user?.profile?.square_customer_id) {
+  if (!user) {
     return NextResponse.json(
       { ok: false, error: "Sign in to see your order history" },
       { status: 401 },
+    );
+  }
+  // Authed but profile/square_customer_id not yet readable. This is the
+  // brief race window after complete-signup where the just-upserted
+  // user_profiles row hasn't propagated to the next request, or a
+  // partially-onboarded user (Apple/Google session without phone link).
+  // Returning 401 here paints a misleading "Sign in to see..." pill on
+  // /account next to a fully-rendered AccountHeader (Kevin Jiang
+  // 2026-05-08 21:53 BNE). Hand back an empty list — a brand-new
+  // customer has no orders yet anyway.
+  if (!user.profile?.square_customer_id) {
+    return NextResponse.json(
+      { ok: true, orders: [] },
+      { headers: { "Cache-Control": "no-store" } },
     );
   }
   const customerId = user.profile.square_customer_id;
