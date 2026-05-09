@@ -41,9 +41,15 @@ export default function AccountPage() {
   useEffect(() => {
     if (!userId) {
       setOrders([]);
+      setOrdersError(null);
       return;
     }
     let cancelled = false;
+    // Clear any stale error from a previous fetch — a single transient
+    // 401 used to leave the "Sign in to see your order history" pill
+    // pinned above AccountHeader forever, even after the next fetch
+    // succeeded.
+    setOrdersError(null);
     fetch("/api/orders/history", { cache: "no-store" })
       .then(async (res) => {
         const json = await res.json();
