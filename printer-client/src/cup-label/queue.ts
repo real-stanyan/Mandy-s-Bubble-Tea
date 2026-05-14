@@ -8,6 +8,28 @@ import { downloadRasterZPL } from "./storage";
 
 type CupLabelStatus = "pending" | "printing" | "printed" | "failed";
 
+// Single-printer serialiser. Each cup_label_jobs INSERT triggers a
+// Realtime callback; for a 3-cup order the three callbacks fire roughly
+// simultaneously and each `await handleJob()` calls into libusb to
+// open / claim / write / release the same USB device. The libusb
+// wrapper isn't reentrant — the second print rams in mid-release of
+// the first and the bus gets into a half-open state ("Device is not
+// opened" on the release callback, plus the second print's ZPL stream
+// gets interleaved with the first one's tail, producing a corrupted
+// label). Serialising at the queue layer means any number of triggers
+// (Realtime + poll + replay) all chain through one tail Promise.
+let serial: Promise<void> = Promise.resolve();
+function runSerial(row: CupLabelJobRow): Promise<void> {
+  const next = serial.then(() => handleJob(row).catch((e) => {
+    console.error("[cup-label/queue] handleJob threw:", e);
+  }));
+  // Reset to a resolved chain on rejection so a future throw can't kill
+  // the serial pipeline (handleJob's own try/catch already neutralises
+  // expected errors; this is the belt-and-braces).
+  serial = next.catch(() => undefined);
+  return next;
+}
+
 type CupLabelJobRow = {
   id: string;
   square_order_id: string;
@@ -66,7 +88,7 @@ export async function replayOnStart(): Promise<void> {
     return;
   }
   for (const row of (data ?? []) as CupLabelJobRow[]) {
-    await handleJob(row);
+    await runSerial(row);
   }
 }
 
@@ -92,7 +114,7 @@ async function runPollOnce(reason: "tick" | "realtime-drop"): Promise<void> {
       );
     }
     for (const row of rows) {
-      await handleJob(row);
+      await runSerial(row);
     }
   } catch (err) {
     console.error(`[cup-label/queue] poll tick failed (${reason}):`, err);
@@ -121,7 +143,7 @@ export function subscribeCupLabelJobs(): { close: () => void } {
         async (payload) => {
           const row = payload.new as CupLabelJobRow;
           if (row.status !== "pending") return;
-          await handleJob(row);
+          await runSerial(row);
         },
       )
       .subscribe((status) => {

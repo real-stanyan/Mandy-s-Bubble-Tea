@@ -35,13 +35,18 @@ async function main() {
       /* ignore */
     });
   });
+  // libusb cleanup occasionally throws "Device is not opened" from
+  // inside an async Interface.release() callback that we can't wrap
+  // in try/catch upstream. Default Node policy on uncaughtException
+  // is process death — for this consumer that means losing the
+  // realtime subscription and silently dropping every subsequent
+  // cup_label_jobs INSERT. Keep the process alive; the next print's
+  // open() refreshes the device handle.
   process.on("uncaughtException", (err) => {
-    console.error("[cup-label/main] uncaughtException:", err);
-    maybeAlert(`cup-label uncaughtException: ${err.message}`)
-      .catch(() => {
-        /* ignore */
-      })
-      .finally(() => process.exit(1));
+    console.error("[cup-label/main] uncaughtException (kept alive):", err);
+    maybeAlert(`cup-label uncaughtException (kept alive): ${err.message}`).catch(() => {
+      /* ignore */
+    });
   });
 }
 

@@ -107,7 +107,15 @@ export function printCupLabelZPL(zpl: string): Promise<void> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      iface.release(true, () => {
+      // iface.release() walks its endpoints synchronously to abort
+      // in-flight transfers. On macOS we've seen this throw
+      // "Device is not opened" when a previous transfer's natural
+      // completion callback fires during release (very tight race
+      // around timeout / completion overlap). Swallow those — the
+      // alternative is process death via uncaughtException, which
+      // bricks the consumer entirely. The downstream open() in the
+      // next call will refresh the handle.
+      const close = () => {
         try {
           dev.close();
         } catch {
@@ -115,7 +123,16 @@ export function printCupLabelZPL(zpl: string): Promise<void> {
         }
         if (err) reject(err);
         else resolve();
-      });
+      };
+      try {
+        iface.release(true, close);
+      } catch (releaseErr) {
+        console.error(
+          "[zd410] iface.release threw, closing anyway:",
+          releaseErr instanceof Error ? releaseErr.message : releaseErr,
+        );
+        close();
+      }
     };
 
     const timer = setTimeout(() => {
