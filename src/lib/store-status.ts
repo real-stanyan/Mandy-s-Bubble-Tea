@@ -44,13 +44,21 @@ export function getStoreStatus(now: Date = new Date()): StoreStatus {
   };
 }
 
-// Online ordering: always open (24/7). Previously 10:30am – 22:15pm
-// with a 15-min pre-close cutoff; that gate is intentionally lifted
-// on this branch so the consumer-facing app accepts orders any time
-// of day. Physical store hours (getStoreStatus) still display 10:30–
-// 22:30 separately. Marking `now` arg as void to silence the unused-
-// param warning without changing the public signature.
-export function getOrderingStatus(_now: Date = new Date()): OrderingStatus {
-  void _now;
-  return { open: true, nextLabel: "Open 24/7" };
+// Online ordering window: 10:30am – 22:15pm (15 min before physical close
+// so staff have time to finish the last cup). Used by the cart drawer,
+// checkout page, and /api/orders to gate new orders. Server is
+// authoritative — clients re-check every 60s for display only.
+export function getOrderingStatus(now: Date = new Date()): OrderingStatus {
+  const minutes = brisbaneMinutes(now);
+  const isOpen = minutes >= OPEN_MIN && minutes < ORDER_CUTOFF_MIN;
+  if (isOpen) {
+    return { open: true, nextLabel: `until ${formatClock(ORDER_CUTOFF_MIN)}` };
+  }
+  const beforeOpen = minutes < OPEN_MIN;
+  return {
+    open: false,
+    nextLabel: beforeOpen
+      ? `Opens ${formatClock(OPEN_MIN)}`
+      : `Opens ${formatClock(OPEN_MIN)} tomorrow`,
+  };
 }
