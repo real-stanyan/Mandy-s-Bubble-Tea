@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test-print": "tsx scripts/test-print.ts",
     "test-print:zd410": "tsx scripts/test-print-zd410.ts",
+    "calibrate:zd410": "tsx scripts/calibrate-zd410.ts",
     "seed-fake-job": "tsx scripts/seed-fake-job.ts"
   },
   "dependencies": {

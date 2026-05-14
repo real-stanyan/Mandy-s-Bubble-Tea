@@ -19,9 +19,28 @@
 
 import { config as loadEnv } from "dotenv";
 import path from "node:path";
+import Module from "node:module";
 import { createClient } from "@supabase/supabase-js";
-import { renderCupLabel } from "../src/lib/cup-label/render-zebra-cup";
-import { POOL } from "../src/lib/doodle/pool";
+
+// `src/lib/cup-label/render-zebra-cup.ts` imports `server-only` to keep
+// it out of Next.js client bundles. Running it from a standalone tsx
+// CLI hits server-only's throw at module load. Map "server-only" to an
+// empty .cjs stub before we transitively import the renderer.
+const M = Module as unknown as {
+  _resolveFilename: (req: string, parent: unknown, ...rest: unknown[]) => string;
+};
+const origResolve = M._resolveFilename;
+M._resolveFilename = function (req, parent, ...rest) {
+  if (req === "server-only") {
+    return path.resolve(__dirname, "./_empty-cjs-stub.cjs");
+  }
+  return origResolve.call(this, req, parent, ...rest);
+};
+
+// Dynamic import after the resolver hook is installed so the renderer
+// pulls our stub instead of the real server-only module.
+const { renderCupLabel } = require("../src/lib/cup-label/render-zebra-cup") as typeof import("../src/lib/cup-label/render-zebra-cup");
+const { POOL } = require("../src/lib/doodle/pool") as typeof import("../src/lib/doodle/pool");
 
 loadEnv({ path: path.resolve(__dirname, "../.env.local") });
 loadEnv();
@@ -32,11 +51,11 @@ function arg(name: string, fallback: string): string {
 }
 
 async function main() {
-  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) {
     throw new Error(
-      "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing — populate .env.local first",
+      "SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY required in .env.local",
     );
   }
   const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
