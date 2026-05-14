@@ -123,10 +123,41 @@ export function printCupLabelZPL(zpl: string): Promise<void> {
     }, config.cupLabelLpTimeoutMs);
 
     outEp.timeout = config.cupLabelLpTimeoutMs;
-    outEp.transfer(Buffer.from(zpl, "utf8"), (err: Error | undefined) => {
-      if (err) settle(new Error(`USB transfer failed: ${err.message}`));
-      else settle();
-    });
+
+    // Chunked transfer. Large ^GFA payloads (84+ KB hex raster) overrun
+    // the ZD410's internal USB receive buffer when sent as one transfer
+    // — the host-side libusb transfer completes (bytes accepted onto the
+    // USB endpoint) but the printer's parser drops trailing hex chars,
+    // leaving the printer to fire a blank label. Slicing the buffer into
+    // ~16KB chunks with a ~60ms pause between each gives the parser time
+    // to consume each block before the next arrives. The full-buffer
+    // path takes ~300ms; the chunked path takes ~400ms for a 84KB label
+    // — a barely-perceptible per-cup penalty in exchange for reliability.
+    const buf = Buffer.from(zpl, "utf8");
+    const CHUNK = 16 * 1024;
+    const CHUNK_GAP_MS = 60;
+
+    const sendChunk = (offset: number) => {
+      if (settled) return;
+      if (offset >= buf.length) {
+        settle();
+        return;
+      }
+      const slice = buf.subarray(offset, Math.min(offset + CHUNK, buf.length));
+      outEp.transfer(slice, (err: Error | undefined) => {
+        if (err) {
+          settle(new Error(`USB transfer failed at offset ${offset}: ${err.message}`));
+          return;
+        }
+        // Pause between chunks to let the ZD410 drain its receive buffer.
+        // Last chunk doesn't need the pause — settle immediately.
+        const next = offset + slice.length;
+        if (next >= buf.length) settle();
+        else setTimeout(() => sendChunk(next), CHUNK_GAP_MS);
+      });
+    };
+
+    sendChunk(0);
   });
 }
 

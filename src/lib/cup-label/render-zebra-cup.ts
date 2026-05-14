@@ -16,20 +16,26 @@ export const LABEL_HEIGHT_DOTS = 945;
 // Sandwich layout (top → middle → bottom):
 //   • Top    (10mm = 120 dots): black band, white sticker number + cup
 //                                fraction (line 1) + drink name (line 2).
-//   • Middle (40mm = 472 dots): user/preset doodle, square, centered.
-//   • Bottom (~20mm = remainder): modifier text in zebra format
+//   • Middle (~49.5mm = 584 dots): user/preset doodle, square, near-edge-
+//                                  to-edge (3 dots ≈ 0.25mm padding left
+//                                  and right — the 8-dot byte alignment
+//                                  required by ZPL ^GFA forces us off
+//                                  the 590-dot label width by 6 dots).
+//   • Bottom (~19.6mm = remainder): modifier text in zebra format
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
 const TOP_BAND_HEIGHT = 120;
-const MIDDLE_BAND_HEIGHT = 472;
+// Doodle fills the label width edge-to-edge. ZPL ^GFA requires the raster
+// width to be a multiple of 8 dots (byte-row alignment), but the 590-dot
+// label width is not. We choose 592 (8×74) — 2 dots wider than the
+// physical label — and left-align it at x=0. The trailing 2 dots fall
+// off the right edge and are silently clipped by the print head, giving
+// a perceived 0mm border on both sides (vs the previous 0.25mm each).
+const DOODLE_SIZE = 592;
+const DOODLE_LEFT = 0;
+const MIDDLE_BAND_HEIGHT = DOODLE_SIZE;
 const BAND_GAP = 10; // dot row gap between middle and bottom
 const BOTTOM_BAND_Y = TOP_BAND_HEIGHT + MIDDLE_BAND_HEIGHT + BAND_GAP;
 const BOTTOM_BAND_HEIGHT = LABEL_HEIGHT_DOTS - BOTTOM_BAND_Y;
-
-// Doodle is rendered as a square that fills the middle band height,
-// centered horizontally inside the 590-dot width. 472/8 = 59 bytes/row
-// (exact, no padding needed for ^GFA).
-const DOODLE_SIZE = MIDDLE_BAND_HEIGHT;
-const DOODLE_LEFT = Math.floor((LABEL_WIDTH_DOTS - DOODLE_SIZE) / 2);
 
 export type CupLabelInput = {
   stickerNumber: string;
@@ -186,6 +192,16 @@ async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
 }
 
 async function renderMiddleBandPng(doodlePng: Buffer): Promise<Buffer> {
+  // When DOODLE_SIZE overflows LABEL_WIDTH_DOTS (the edge-to-edge layout),
+  // sharp's composite rejects a wider-than-canvas input. Crop the doodle
+  // to label width first — this mirrors the silent clip the ZD410 print
+  // head applies to the rightmost overflow bits.
+  const inputForComposite =
+    DOODLE_SIZE > LABEL_WIDTH_DOTS
+      ? await sharp(doodlePng)
+          .extract({ left: 0, top: 0, width: LABEL_WIDTH_DOTS, height: DOODLE_SIZE })
+          .toBuffer()
+      : doodlePng;
   return sharp({
     create: {
       width: LABEL_WIDTH_DOTS,
@@ -194,7 +210,7 @@ async function renderMiddleBandPng(doodlePng: Buffer): Promise<Buffer> {
       background: "white",
     },
   })
-    .composite([{ input: doodlePng, top: 0, left: DOODLE_LEFT }])
+    .composite([{ input: inputForComposite, top: 0, left: DOODLE_LEFT }])
     .png()
     .toBuffer();
 }
