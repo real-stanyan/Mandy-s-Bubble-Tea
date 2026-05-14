@@ -24,6 +24,15 @@ export const LABEL_HEIGHT_DOTS = 945;
 //   • Bottom (~19.6mm = remainder): modifier text in zebra format
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
 const TOP_BAND_HEIGHT = 120;
+// Two-column top band: greeting on the left, order info on the right.
+const TOP_GREETING_X = 20;
+const TOP_GREETING_Y = 38;
+const TOP_GREETING_WIDTH = 220;
+const TOP_GREETING_FONT = 44;
+const TOP_RIGHT_X = 250;
+const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
+const TOP_STICKER_Y = 22;
+const TOP_DRINK_Y = 80;
 // Doodle fills the label width edge-to-edge. ZPL ^GFA requires the raster
 // width to be a multiple of 8 dots (byte-row alignment), but the 590-dot
 // label width is not. We choose 592 (8×74) — 2 dots wider than the
@@ -43,7 +52,23 @@ export type CupLabelInput = {
   drinkName: string;
   modifiersText: string;
   doodleSvg: string;
+  /**
+   * Optional pre-rendered doodle raster. When present, bypasses the
+   * SVG→resvg pipeline and pipes this PNG straight into the grayscale +
+   * threshold + 1-bit pack stages. Used by AI-generated doodles where
+   * we already have a raster output from the upstream model and don't
+   * want to round-trip through SVG. Must be square and resizable to
+   * DOODLE_SIZE × DOODLE_SIZE.
+   */
+  doodlePngBuffer?: Buffer;
+  /** Logged-in customer's first name. Falls back to "Guest" when null/empty/undefined. */
+  customerFirstName?: string | null;
 };
+
+function formatGreeting(name: string | null): string {
+  const trimmed = name?.trim();
+  return trimmed && trimmed.length > 0 ? `Hi, ${trimmed}` : "Hi, Guest";
+}
 
 export type CupLabelOutput = {
   /** ZPL II string ready to send to a 300 DPI Zebra. */
@@ -53,14 +78,20 @@ export type CupLabelOutput = {
 };
 
 export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutput> {
-  // Doodle path: SVG → resvg PNG → grayscale → threshold → 1-bit packed.
+  // Doodle path: (SVG → resvg PNG) OR (caller-supplied PNG) → grayscale
+  //   → threshold → 1-bit packed.
   // We need both a 1-bit packed buffer (for ZPL ^GFA hex embed) and the
   // grayscale PNG (for the dev preview composite). Render the PNG once
   // and reuse it via sharp's clone() for both branches.
-  const doodlePngBuffer = await renderSvgToPng(input.doodleSvg, {
-    widthPx: DOODLE_SIZE,
-    heightPx: DOODLE_SIZE,
-  });
+  const doodlePngBuffer = input.doodlePngBuffer
+    ? await sharp(input.doodlePngBuffer)
+        .resize(DOODLE_SIZE, DOODLE_SIZE, { fit: "cover" })
+        .png()
+        .toBuffer()
+    : await renderSvgToPng(input.doodleSvg, {
+        widthPx: DOODLE_SIZE,
+        heightPx: DOODLE_SIZE,
+      });
   const doodleGray = await sharp(doodlePngBuffer)
     .grayscale()
     .threshold(128)
@@ -75,6 +106,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     sticker: input.stickerNumber,
     cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
     drinkName: input.drinkName,
+    greeting: formatGreeting(input.customerFirstName ?? null),
     modifiers: input.modifiersText,
     doodleHex,
     doodleTotalBytes,
@@ -90,6 +122,7 @@ function buildZpl(args: {
   sticker: string;
   cupFrac: string;
   drinkName: string;
+  greeting: string;
   modifiers: string;
   doodleHex: string;
   doodleTotalBytes: number;
@@ -117,13 +150,17 @@ function buildZpl(args: {
   // Top band: black bar with white text. ^GB draws a filled rect using
   // the third arg as line thickness (set = height = solid fill).
   parts.push(`^FO0,0^GB${LABEL_WIDTH_DOTS},${TOP_BAND_HEIGHT},${TOP_BAND_HEIGHT}^FS`);
-  // Sticker number + cup fraction (line 1, large)
+  // Left column: greeting (vertically centered), e.g. "Hi, Stan" or "Hi, Guest".
   parts.push(
-    `^FO20,15^A0N,46,46^FR^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
+    `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${TOP_GREETING_FONT},${TOP_GREETING_FONT}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
-  // Drink name (line 2, smaller, single-line truncated by ^FB width)
+  // Right column line 1: sticker number + cup fraction (large, right-aligned)
   parts.push(
-    `^FO20,72^A0N,32,32^FR^FB${innerWidth},1,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
+    `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
+  );
+  // Right column line 2: drink name (single-line, right-aligned, truncated)
+  parts.push(
+    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,32,32^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.drinkName)}^FS`,
   );
 
   // Middle band: doodle as ^GFA (ASCII hex graphic field).
@@ -176,15 +213,20 @@ async function renderPreviewPng(
 }
 
 async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
-  const { stickerNumber, cupIdxOf, drinkName } = input;
+  const { stickerNumber, cupIdxOf, drinkName, customerFirstName } = input;
   const total = Math.max(1, cupIdxOf.total);
   const idx = Math.min(Math.max(1, cupIdxOf.idx), total);
+  const greeting = formatGreeting(customerFirstName ?? null);
+  const rightEdge = LABEL_WIDTH_DOTS - 20;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
-    <text x="20" y="50" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
+    <text x="${TOP_GREETING_X}" y="78" font-family="sans-serif" font-size="${TOP_GREETING_FONT}" font-weight="700" fill="white">
+      ${escapeXml(greeting)}
+    </text>
+    <text x="${rightEdge}" y="62" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
       ${escapeXml(stickerNumber)} · ${idx}/${total}
     </text>
-    <text x="20" y="100" font-family="sans-serif" font-size="30" font-weight="700" fill="white">
+    <text x="${rightEdge}" y="110" text-anchor="end" font-family="sans-serif" font-size="28" font-weight="700" fill="white">
       ${escapeXml(drinkName)}
     </text>
   </svg>`;

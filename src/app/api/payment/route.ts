@@ -69,6 +69,7 @@ type PaymentBody = {
   verificationToken?: string; // from payments.verifyBuyer() for SCA
   doodleIds?: Record<string, string>;
   doodleDefaults?: Record<string, string>;
+  aiDoodleIds?: Record<string, string>;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
@@ -85,6 +86,12 @@ function isValidBody(body: unknown): body is PaymentBody {
   if (b.doodleDefaults !== undefined) {
     if (typeof b.doodleDefaults !== "object" || b.doodleDefaults === null) return false;
     for (const v of Object.values(b.doodleDefaults)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.aiDoodleIds !== undefined) {
+    if (typeof b.aiDoodleIds !== "object" || b.aiDoodleIds === null) return false;
+    for (const v of Object.values(b.aiDoodleIds)) {
       if (typeof v !== "string") return false;
     }
   }
@@ -217,7 +224,9 @@ export async function POST(request: Request) {
               stickerNumber,
               doodleIds: body.doodleIds,
               doodleDefaults: body.doodleDefaults,
+              aiDoodleIds: body.aiDoodleIds,
               userId: user.userId,
+              customerFirstName: user.profile.first_name,
             });
           }
         } catch (e) {
@@ -268,7 +277,15 @@ export async function POST(request: Request) {
             // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
             try {
               const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
-              await enqueueCupLabelJobs({ order: paidOrder, stickerNumber: result.stickerNumber });
+              await enqueueCupLabelJobs({
+                order: paidOrder,
+                stickerNumber: result.stickerNumber,
+                doodleIds: body.doodleIds,
+                doodleDefaults: body.doodleDefaults,
+                aiDoodleIds: body.aiDoodleIds,
+                userId: user.userId,
+                customerFirstName: user.profile.first_name,
+              });
             } catch (e) {
               console.error("[cup-label] enqueue failed (non-fatal)", e);
             }

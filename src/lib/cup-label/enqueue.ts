@@ -3,7 +3,7 @@ import type { Order } from "square";
 import { getSupabaseAdmin } from "../supabase-server";
 import { POOL, pickDefaultForCup } from "../doodle/pool";
 import { pathsJsonToSvg, type SvgPath } from "../doodle/render-svg";
-import { loadUserDoodleUpload } from "../doodle/upload-store";
+import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store";
 import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
@@ -24,8 +24,18 @@ export type EnqueueCupLabelArgs = {
    * same slot.
    */
   doodleDefaults?: Record<string, string>;
+  /**
+   * Optional client-supplied AI-generated doodle IDs, keyed the same way
+   * as `doodleIds`. Value is a UUID returned by /api/cup-label/ai-generate
+   * which points to a pre-rendered binary PNG in the `doodles_pending`
+   * Storage bucket under `{userId}/ai/{aiDoodleId}.png`. Highest priority
+   * source: ai > user-drawn > preset > hash-default.
+   */
+  aiDoodleIds?: Record<string, string>;
   /** Required when doodleIds is set — used to scope the storage lookup. */
   userId?: string;
+  /** Customer's first name for the "Hi, {name}" header. Falls back to "Guest". */
+  customerFirstName?: string | null;
 };
 
 const USER_SVG_CANVAS = 400;
@@ -37,7 +47,7 @@ type Row = {
   sticker_number: string;
   drink_name: string;
   modifiers_text: string;
-  doodle_source: "default" | "user";
+  doodle_source: "default" | "user" | "ai";
   doodle_pool_key: string | null;
   doodle_paths: SvgPath[] | null;
   raster_path: string;
@@ -48,12 +58,35 @@ export async function enqueueCupLabelJobs({
   stickerNumber,
   doodleIds,
   doodleDefaults,
+  aiDoodleIds,
   userId,
+  customerFirstName,
 }: EnqueueCupLabelArgs): Promise<void> {
   const orderId = order.id!;
   const sb = getSupabaseAdmin();
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
+
+  // Square may split a single cart line (quantity=N) into N separate
+  // lineItems when applying per-cup loyalty rewards or other unit-level
+  // discounts. The RN cart's slot keys are computed as
+  // `${clientLineId}:${cupIdx}` where cupIdx runs 0..N-1 *across* the
+  // whole quantity. So when we iterate Square's lineItems we have to
+  // share a counter across all lineItems with the same clientLineId —
+  // otherwise the second/third split each restart cupIdx at 0 and
+  // collide on the same slot key, sending the same doodle to every cup.
+  const groupCounter = new Map<string, number>();
+
+  // Pre-compute the total cup count per clientLineId so the printed
+  // "cup 2 / 3" footer reflects the whole drink group, not just the
+  // current split line's local quantity (always 1 after a split).
+  const groupTotal = new Map<string, number>();
+  for (const line of lineItems) {
+    const key = clientLineIdFromSquareLine(line);
+    const q = Number(line.quantity ?? "1");
+    const safeQ = Number.isFinite(q) ? Math.max(0, Math.floor(q)) : 0;
+    groupTotal.set(key, (groupTotal.get(key) ?? 0) + safeQ);
+  }
 
   for (const [lineIdx, line] of lineItems.entries()) {
     const lineId = line.uid ?? line.catalogObjectId ?? `idx-${lineIdx}`;
@@ -63,9 +96,12 @@ export async function enqueueCupLabelJobs({
     const drinkName = line.name ?? "Drink";
     const modifiersText = formatModifiersForLabel(line);
 
-    for (let cupIdx = 0; cupIdx < qty; cupIdx++) {
+    for (let localIdx = 0; localIdx < qty; localIdx++) {
+      const cupIdx = groupCounter.get(clientLineId) ?? 0;
+      groupCounter.set(clientLineId, cupIdx + 1);
       const slotKey = `${clientLineId}:${cupIdx}`;
       const userDoodleId = doodleIds && userId ? doodleIds[slotKey] : undefined;
+      const aiDoodleId = aiDoodleIds && userId ? aiDoodleIds[slotKey] : undefined;
       const presetKey = doodleDefaults?.[slotKey];
 
       // Dev-only diagnostic: surface any key-mismatch between the RN
@@ -73,11 +109,13 @@ export async function enqueueCupLabelJobs({
       // order. If this prints "MISS" but the client *did* pick a preset,
       // the mismatch is the bug — investigate clientLineId algos.
       if (process.env.NODE_ENV === "development") {
-        const clientChose = presetKey
-          ? `preset:${presetKey}`
-          : userDoodleId
-            ? `drawn:${userDoodleId.slice(0, 8)}`
-            : "MISS";
+        const clientChose = aiDoodleId
+          ? `ai:${aiDoodleId.slice(0, 8)}`
+          : presetKey
+            ? `preset:${presetKey}`
+            : userDoodleId
+              ? `drawn:${userDoodleId.slice(0, 8)}`
+              : "MISS";
         console.log(
           `[cup-label dev] slot ${slotKey} → ${clientChose}` +
           (doodleDefaults ? ` | doodleDefaults keys: ${JSON.stringify(Object.keys(doodleDefaults))}` : ""),
@@ -85,7 +123,8 @@ export async function enqueueCupLabelJobs({
       }
 
       let doodleSvg: string;
-      let source: "user" | "default" = "default";
+      let doodlePngBuffer: Buffer | undefined;
+      let source: "user" | "default" | "ai" = "default";
       let poolKey: string | null = null;
       let userPaths: SvgPath[] | null = null;
 
@@ -100,7 +139,23 @@ export async function enqueueCupLabelJobs({
         return pickDefaultForCup(clientLineId, cupIdx);
       };
 
-      if (userDoodleId && userId) {
+      // Priority: AI > user-drawn > preset > hash default.
+      // Each tier falls through on load failure so an order never fails
+      // to print because of an upstream blob hiccup.
+      if (aiDoodleId && userId) {
+        try {
+          doodlePngBuffer = await loadAiDoodleUpload(userId, aiDoodleId);
+          source = "ai";
+          // doodleSvg is still required by the type signature but unused
+          // when doodlePngBuffer is present; pass an empty SVG.
+          doodleSvg = "";
+        } catch (e) {
+          console.error("[cup-label] ai doodle load failed, falling back", e);
+          const pool = pickPool();
+          doodleSvg = pool.svg;
+          poolKey = pool.key;
+        }
+      } else if (userDoodleId && userId) {
         try {
           const paths = await loadUserDoodleUpload(userId, userDoodleId);
           doodleSvg = pathsJsonToSvg(paths, USER_SVG_CANVAS);
@@ -118,12 +173,15 @@ export async function enqueueCupLabelJobs({
         poolKey = pool.key;
       }
 
-      const { zpl, previewPng } = await renderCupLabel({
+      const totalForGroup = groupTotal.get(clientLineId) ?? qty;
+      const { zpl } = await renderCupLabel({
         stickerNumber,
-        cupIdxOf: { idx: cupIdx + 1, total: qty },
+        cupIdxOf: { idx: cupIdx + 1, total: totalForGroup },
         drinkName,
         modifiersText,
         doodleSvg,
+        doodlePngBuffer,
+        customerFirstName: customerFirstName ?? null,
       });
 
       // raster_path column historically held a TSP100 1-bit raster blob;
@@ -133,34 +191,15 @@ export async function enqueueCupLabelJobs({
       // local checkout doesn't trigger the store's printer to print.
       // The Mac mini printer-client polls prod Supabase, so an unfenced
       // dev test would print a real cup label at the shop.
-      if (process.env.NODE_ENV !== "development") {
+      // Escape hatch: MANDYS_CUP_LABEL_USE_PROD=1 forces the upload even
+      // in dev, so dev-mode E2E testing of the ZD410 macbook consumer
+      // works without enqueuing a print_jobs row (ZD411 stays silent).
+      const useProdCupLabel = process.env.MANDYS_CUP_LABEL_USE_PROD === "1";
+      if (process.env.NODE_ENV !== "development" || useProdCupLabel) {
         const { error: upErr } = await sb.storage
           .from("doodles")
           .upload(rasterPath, zpl, { contentType: "text/plain; charset=utf-8", upsert: true });
         if (upErr) throw upErr;
-      }
-
-      // Dev-only: also dump a viewable PNG preview to ~/Desktop/ so we can
-      // eyeball labels without a real printer. Writes are best-effort —
-      // failures here must never break the print queue path.
-      // Strict `development` gate so vitest (NODE_ENV=test) and prod don't
-      // litter the filesystem.
-      if (process.env.NODE_ENV === "development") {
-        try {
-          const fs = await import("node:fs/promises");
-          const path = await import("node:path");
-          const home = process.env.HOME ?? "/tmp";
-          const safeName = drinkName.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 40);
-          const file = path.join(
-            home,
-            "Desktop",
-            `cuplabel_${stickerNumber}_cup${cupIdx + 1}of${qty}_${safeName}.png`,
-          );
-          await fs.writeFile(file, previewPng);
-          console.log(`[cup-label dev] preview PNG → ${file}`);
-        } catch (e) {
-          console.error("[cup-label dev] PNG dump failed (non-fatal)", e);
-        }
       }
 
       rows.push({
@@ -179,10 +218,10 @@ export async function enqueueCupLabelJobs({
   }
 
   if (rows.length === 0) return;
-  // Same dev guard as the Storage upload above: in dev we already wrote
-  // PNG previews to ~/Desktop, so we don't enqueue anything to the prod
-  // print queue.
-  if (process.env.NODE_ENV === "development") return;
+  // Same dev guard as the Storage upload above. Set
+  // MANDYS_CUP_LABEL_USE_PROD=1 in dev to enqueue rows into prod
+  // Supabase so a macbook printer-client can pick them up over Realtime.
+  if (process.env.NODE_ENV === "development" && process.env.MANDYS_CUP_LABEL_USE_PROD !== "1") return;
   // "Authoritative" = caller passed an explicit user choice (drawn or
   // preset). When the webhook later runs without a choice, its rows are
   // skipped on conflict so the user's pick survives.
