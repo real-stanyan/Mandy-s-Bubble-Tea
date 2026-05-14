@@ -2,15 +2,16 @@ import "server-only";
 import sharp from "sharp";
 import { renderSvgToPng } from "../doodle/render-svg";
 
-// 50mm × 70mm direct-thermal cup label printed on a 300 DPI Zebra
-// (ZD410-300dpi or similar). At 300 DPI: 25.4mm/inch ÷ 300 dots/inch ≈
-// 0.0847mm/dot, so 50mm = 590 dots and 70mm = 827 dots. The width is
-// rounded down to a multiple of 8 for byte-aligned 1-bit raster packing
-// (588 = 73.5 bytes/row → use 584 = 73 bytes/row for safety) — actually
-// the printer doesn't require width-byte alignment for non-graphic
-// regions, only the embedded ^GFA needs an 8-aligned width.
+// 50mm × 80mm direct-thermal cup label printed on a 300 DPI Zebra
+// (ZD410-300dpi). At 300 DPI: 25.4mm/inch ÷ 300 dots/inch ≈ 0.0847mm/dot,
+// so 50mm = 590 dots and 80mm = 945 dots. The width is rounded down to a
+// multiple of 8 for byte-aligned 1-bit raster packing (588 = 73.5
+// bytes/row → use 584 = 73 bytes/row for safety) — actually the printer
+// doesn't require width-byte alignment for non-graphic regions, only the
+// embedded ^GFA needs an 8-aligned width. Height extra above the prior
+// 70mm (827 dots) flows into the bottom modifier band via BOTTOM_BAND_HEIGHT.
 export const LABEL_WIDTH_DOTS = 590;
-export const LABEL_HEIGHT_DOTS = 827;
+export const LABEL_HEIGHT_DOTS = 945;
 
 // Sandwich layout (top → middle → bottom):
 //   • Top    (10mm = 120 dots): black band, white sticker number + cup
