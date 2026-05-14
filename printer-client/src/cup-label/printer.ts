@@ -1,84 +1,146 @@
 // printer-client/src/cup-label/printer.ts
-import { spawn } from "node:child_process";
+//
+// Direct USB write to the Zebra ZD410 via libusb (the npm `usb` package).
+// Bypasses CUPS entirely — macOS 15+ removed raw-queue support in CUPS
+// 2.4, so the lp(1) path can't be created any more without a vendor PPD.
+// ZPL printers are designed for raw byte streams; CUPS adds nothing to
+// that pipeline. This also means the consumer needs zero drivers, zero
+// printer-PPD install, and survives macOS upgrades.
+//
+// The ZD411 path (../printer.ts) still uses lp(1) because its CUPS queue
+// was created on an older macOS and is grandfathered in. Not touching it
+// here per the "leave ZD411 alone" requirement.
+
+import { findByIds, type Device, type OutEndpoint } from "usb";
 import { config } from "../config";
 
+const ZEBRA_VENDOR_ID = 0x0a5f;
+
+function zd410ProductId(): number {
+  const raw = process.env.CUP_LABEL_USB_PRODUCT_ID;
+  if (raw) {
+    const n = raw.startsWith("0x") ? parseInt(raw, 16) : parseInt(raw, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  // ZD410-300dpi default observed on Stan's macbook (serial 50J214700502).
+  // Override via CUP_LABEL_USB_PRODUCT_ID if a different SKU lands later.
+  return 0x011e;
+}
+
+function findZD410(): Device | undefined {
+  return findByIds(ZEBRA_VENDOR_ID, zd410ProductId());
+}
+
 /**
- * Send a ZPL string to the Zebra ZD410 cup-label printer via CUPS
- * (`lp -d <cupLabelPrinterName> -o raw`). Independent from the ZD411
- * `printZPL` in ../printer.ts so the two CUPS queues can fail/recover
- * independently — see the "two independent launchd jobs" decision in
- * the spec.
+ * Send a ZPL II string to the ZD410 over USB.
  *
- * Resolves on `lp` exit 0, rejects on non-zero, spawn error, or timeout.
- * The timeout guards against CUPS hanging when the ZD410 is offline or
- * jammed; without it a single stuck `lp` would freeze the cup-label
- * queue forever.
+ * Each call opens the device → claims interface 0 → finds the bulk OUT
+ * endpoint → writes the buffer → releases → closes. Per-call open/close
+ * costs ~50ms but keeps the device free for other tools (Zebra Setup
+ * Utilities, etc.) between prints.
+ *
+ * On macOS the kernel auto-attaches a generic USB printer class driver.
+ * We try to detach it before claim; if detach isn't supported we still
+ * attempt claim — recent macOS versions allow claim without explicit
+ * detach as long as no CUPS scheduler holds the device.
  */
 export function printCupLabelZPL(zpl: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const lp = spawn("lp", ["-d", config.cupLabelPrinterName, "-o", "raw"]);
-    let stderr = "";
+    const dev = findZD410();
+    if (!dev) {
+      reject(
+        new Error(
+          `ZD410 USB device not found (vendor=0x${ZEBRA_VENDOR_ID.toString(16)}, product=0x${zd410ProductId().toString(16)})`,
+        ),
+      );
+      return;
+    }
+
+    try {
+      dev.open();
+    } catch (e) {
+      reject(new Error(`USB open failed: ${e instanceof Error ? e.message : String(e)}`));
+      return;
+    }
+
+    const iface = dev.interface(0);
+
+    try {
+      if (typeof iface.isKernelDriverActive === "function" && iface.isKernelDriverActive()) {
+        iface.detachKernelDriver();
+      }
+    } catch {
+      // Not all macOS / libusb combinations support kernel-driver detach.
+      // Fall through to claim — most modern macOS releases allow the
+      // claim without explicit detach.
+    }
+
+    try {
+      iface.claim();
+    } catch (e) {
+      try {
+        dev.close();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error(`USB claim failed: ${e instanceof Error ? e.message : String(e)}`));
+      return;
+    }
+
+    const outEp = iface.endpoints.find((ep) => ep.direction === "out") as
+      | OutEndpoint
+      | undefined;
+    if (!outEp) {
+      iface.release(true, () => {
+        try {
+          dev.close();
+        } catch {
+          /* ignore */
+        }
+        reject(new Error("no OUT endpoint on ZD410 interface 0"));
+      });
+      return;
+    }
+
     let settled = false;
-    const done = (fn: () => void) => {
+    const settle = (err?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      fn();
+      iface.release(true, () => {
+        try {
+          dev.close();
+        } catch {
+          /* ignore */
+        }
+        if (err) reject(err);
+        else resolve();
+      });
     };
+
     const timer = setTimeout(() => {
-      try {
-        lp.kill("SIGKILL");
-      } catch {
-        // ignore
-      }
-      done(() => reject(new Error(`lp timeout after ${config.cupLabelLpTimeoutMs}ms`)));
+      settle(new Error(`USB transfer timeout after ${config.cupLabelLpTimeoutMs}ms`));
     }, config.cupLabelLpTimeoutMs);
 
-    lp.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    lp.on("error", (err) => done(() => reject(err)));
-    lp.on("exit", (code) => {
-      if (code === 0) done(() => resolve());
-      else done(() => reject(new Error(`lp exit ${code}: ${stderr.trim() || "no stderr"}`)));
+    outEp.timeout = config.cupLabelLpTimeoutMs;
+    outEp.transfer(Buffer.from(zpl, "utf8"), (err: Error | undefined) => {
+      if (err) settle(new Error(`USB transfer failed: ${err.message}`));
+      else settle();
     });
-    lp.stdin.end(zpl);
   });
 }
 
 /**
- * Query CUPS for the cup-label printer status. Returns 'idle',
- * 'printing', 'offline' (disabled / stopped / not present), or 'unknown'.
- * Bounded by a 5s timeout so a stuck lpstat can't block the tick.
+ * Reachability check. libusb can detect device presence but a ZD410
+ * doesn't expose a "busy/idle" flag without sending vendor SGD/SDP
+ * queries. So we collapse to two states — 'idle' if the device is
+ * present on the bus, 'offline' if it isn't. A jammed printer will
+ * surface as a transfer timeout instead.
  */
 export async function getCupLabelPrinterStatus(): Promise<
   "idle" | "printing" | "offline" | "unknown"
 > {
-  return new Promise((resolve) => {
-    const lpstat = spawn("lpstat", ["-p", config.cupLabelPrinterName]);
-    let stdout = "";
-    let settled = false;
-    const done = (value: "idle" | "printing" | "offline" | "unknown") => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-    const timer = setTimeout(() => {
-      try {
-        lpstat.kill("SIGKILL");
-      } catch {
-        // ignore
-      }
-      done("unknown");
-    }, 5000);
-
-    lpstat.stdout.on("data", (c) => (stdout += c.toString()));
-    lpstat.on("error", () => done("offline"));
-    lpstat.on("exit", () => {
-      const s = stdout.toLowerCase();
-      if (s.includes("is idle")) done("idle");
-      else if (s.includes("printing") || s.includes("now printing")) done("printing");
-      else if (s.includes("disabled") || s.includes("stopped")) done("offline");
-      else done("unknown");
-    });
-  });
+  const dev = findZD410();
+  if (!dev) return "offline";
+  return "idle";
 }
