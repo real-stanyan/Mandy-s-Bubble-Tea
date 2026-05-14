@@ -68,6 +68,7 @@ type PaymentBody = {
   orderId: string;
   verificationToken?: string; // from payments.verifyBuyer() for SCA
   doodleIds?: Record<string, string>;
+  doodleDefaults?: Record<string, string>;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
@@ -78,6 +79,12 @@ function isValidBody(body: unknown): body is PaymentBody {
   if (b.doodleIds !== undefined) {
     if (typeof b.doodleIds !== "object" || b.doodleIds === null) return false;
     for (const v of Object.values(b.doodleIds)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.doodleDefaults !== undefined) {
+    if (typeof b.doodleDefaults !== "object" || b.doodleDefaults === null) return false;
+    for (const v of Object.values(b.doodleDefaults)) {
       if (typeof v !== "string") return false;
     }
   }
@@ -174,10 +181,14 @@ export async function POST(request: Request) {
       paymentStatus = payment.payment?.status ?? null;
       paymentForResponse = serializeSquareResponse(payment.payment);
 
-      // CloudPRNT (TSP100) parallel path — enqueue cup-label jobs with
-      // user-selected doodleIds when present. Runs before the webhook fires
-      // so user-doodle data wins on the upsert conflict (idempotent).
-      if (paymentStatus === "COMPLETED" && body.doodleIds && Object.keys(body.doodleIds).length > 0) {
+      // Cup-label (Zebra ZD410-300dpi) parallel path — enqueue cup-label
+      // jobs with user-selected doodleIds OR doodleDefaults when present.
+      // Runs before the webhook fires so user-choice rows win on upsert
+      // conflict.
+      const hasUserDoodleChoice =
+        (body.doodleIds && Object.keys(body.doodleIds).length > 0) ||
+        (body.doodleDefaults && Object.keys(body.doodleDefaults).length > 0);
+      if (paymentStatus === "COMPLETED" && hasUserDoodleChoice) {
         try {
           const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
           const result = await enqueuePrintJob({ order, assumeSettled: true });
@@ -205,6 +216,7 @@ export async function POST(request: Request) {
               order,
               stickerNumber,
               doodleIds: body.doodleIds,
+              doodleDefaults: body.doodleDefaults,
               userId: user.userId,
             });
           }
@@ -253,7 +265,7 @@ export async function POST(request: Request) {
             );
           }
           if (result.queued) {
-            // CloudPRNT (TSP100) parallel path — non-blocking, must never break the legacy print_jobs flow.
+            // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
             try {
               const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
               await enqueueCupLabelJobs({ order: paidOrder, stickerNumber: result.stickerNumber });

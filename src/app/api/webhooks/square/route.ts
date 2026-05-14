@@ -218,7 +218,7 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
       `[print] queued order ${orderId} as ${result.stickerNumber} event_id=${eventId}`,
     );
 
-    // CloudPRNT (TSP100) parallel path — non-blocking, must never break the legacy print_jobs flow.
+    // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
     try {
       const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
       await enqueueCupLabelJobs({ order, stickerNumber: result.stickerNumber });

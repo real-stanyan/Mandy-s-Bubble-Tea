@@ -18,12 +18,15 @@ vi.mock("@/lib/supabase-server", () => ({
   })),
 }));
 
-vi.mock("./render-tsp100", () => ({
-  renderCupLabelToBitmap: vi.fn().mockResolvedValue(Buffer.from([0])),
+vi.mock("./render-zebra-cup", () => ({
+  renderCupLabel: vi.fn().mockResolvedValue({
+    zpl: "^XA^XZ",
+    previewPng: Buffer.from([0]),
+  }),
 }));
 
 import { enqueueCupLabelJobs } from "./enqueue";
-import { renderCupLabelToBitmap } from "./render-tsp100";
+import { renderCupLabel } from "./render-zebra-cup";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 const buildOrder = () => ({
@@ -46,7 +49,7 @@ beforeEach(() => {
   uploadMock.mockReset().mockResolvedValue({ error: null });
   upsertMock.mockReset().mockResolvedValue({ error: null });
   downloadMock.mockReset();
-  (renderCupLabelToBitmap as unknown as ReturnType<typeof vi.fn>).mockClear();
+  (renderCupLabel as unknown as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe("enqueueCupLabelJobs (default path, regression)", () => {
@@ -201,7 +204,7 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
     expect(inserted.map(r => r.line_id)).toEqual(["idx-0", "idx-1"]);
   });
 
-  it("falls back to '—' when modifiers is undefined or empty", async () => {
+  it("emits empty modifiers_text when modifiers is undefined or empty (matches Zebra zpl)", async () => {
     const inserted: any[] = [];
     const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
     (getSupabaseAdmin as any).mockReturnValue({
@@ -221,7 +224,7 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
       } as unknown as Order,
       stickerNumber: "OL000",
     });
-    expect(inserted.every(r => r.modifiers_text === "—")).toBe(true);
+    expect(inserted.every(r => r.modifiers_text === "")).toBe(true);
   });
 });
 

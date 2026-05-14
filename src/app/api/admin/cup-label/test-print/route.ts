@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, getSupabaseRoute } from "@/lib/supabase-server";
-import { renderCupLabelToBitmap } from "@/lib/cup-label/render-tsp100";
+import { renderCupLabel } from "@/lib/cup-label/render-zebra-cup";
 import { POOL } from "@/lib/doodle/pool";
 
 export const runtime = "nodejs";
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     (await req.json().catch(() => ({}))) as { drinkName?: string; modifiersText?: string; poolKey?: string };
   const item = POOL.find(p => p.key === poolKey) ?? POOL[0];
 
-  const bitmap = await renderCupLabelToBitmap({
+  const { zpl } = await renderCupLabel({
     stickerNumber: "TEST",
     cupIdxOf: { idx: 1, total: 1 },
     drinkName,
@@ -37,10 +37,10 @@ export async function POST(req: NextRequest) {
 
   const sb = getSupabaseAdmin();
   const orderId = `test-${Date.now()}`;
-  const path = `${orderId}/test_0.bin`;
+  const path = `${orderId}/test_0.zpl`;
   const { error: upErr } = await sb.storage
     .from("doodles")
-    .upload(path, bitmap, { contentType: "application/octet-stream" });
+    .upload(path, zpl, { contentType: "text/plain; charset=utf-8" });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   const { data, error } = await sb
