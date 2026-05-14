@@ -7,6 +7,8 @@
     "build": "tsc && mkdir -p dist/ui/public && cp src/ui/public/* dist/ui/public/",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "start:cup-label": "node dist/cup-label-index.js",
+    "dev:cup-label": "tsx watch src/cup-label-index.ts",
     "test": "vitest run",
     "test-print": "tsx scripts/test-print.ts",
     "seed-fake-job": "tsx scripts/seed-fake-job.ts"
