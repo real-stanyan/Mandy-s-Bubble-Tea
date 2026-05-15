@@ -8,8 +8,11 @@
 // "user uploaded" — both are pre-rendered PNGs ready for ZPL ^GFA pack.
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
+import sharp from "sharp";
 import { getAuthedUser } from "@/lib/auth";
-import { saveAiDoodleUpload, aiDoodlePreviewUrl } from "@/lib/doodle/upload-store";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { aiDoodlePreviewUrl } from "@/lib/doodle/upload-store";
 import { binarizeForThermal } from "@/lib/doodle/binarize";
 
 export const runtime = "nodejs";
@@ -81,16 +84,55 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The tracker row id becomes the customer-facing uploadedDoodleId.
+  // The processed PNG is stored at the existing path scheme so that
+  // legacy loadAiDoodleUpload(userId, id) continues to resolve it.
+  // The raw color PNG goes under uploads-originals/ for the admin
+  // cup-doodles gallery.
+  const id = randomUUID();
+  const sb = getSupabaseAdmin();
+  const processedPath = `${user.userId}/ai/${id}.png`;
+  const originalPath = `${user.userId}/uploads-originals/${id}.png`;
+
   try {
-    const { aiDoodleId } = await saveAiDoodleUpload({
-      userId: user.userId,
-      pngBuffer: processedPng,
+    const { error: procErr } = await sb.storage
+      .from("doodles_pending")
+      .upload(processedPath, processedPng, { contentType: "image/png", upsert: false });
+    if (procErr) throw new Error(`processed upload: ${procErr.message}`);
+
+    // Color original — non-fatal. Failures here just mean the cup
+    // doesn't show up in the admin gallery; the print path is fine.
+    try {
+      const colorPng = await sharp(raw).png({ compressionLevel: 6 }).toBuffer();
+      const { error: origErr } = await sb.storage
+        .from("doodles_pending")
+        .upload(originalPath, colorPng, { contentType: "image/png", upsert: false });
+      if (origErr) {
+        console.warn(`[upload-image] color-original upload failed (non-fatal): ${origErr.message}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[upload-image] color-original step threw (non-fatal): ${msg}`);
+    }
+
+    const { error: insErr } = await sb.from("cup_label_upload_jobs").insert({
+      id,
+      user_id: user.userId,
+      original_path: originalPath,
+      processed_path: processedPath,
     });
-    const previewUrl = await aiDoodlePreviewUrl(user.userId, aiDoodleId);
+    if (insErr) {
+      // We have the PNGs but no tracker row. The cup will still
+      // print (loadAiDoodleUpload will fall through to the legacy
+      // bucket-only path), but it won't show in the admin gallery.
+      console.warn(`[upload-image] tracker insert failed (non-fatal): ${insErr.message}`);
+    }
+
+    const previewUrl = await aiDoodlePreviewUrl(user.userId, id);
     console.log(
-      `[upload-image] ok userId=${user.userId} id=${aiDoodleId.slice(0, 8)} bytes=${raw.length}`,
+      `[upload-image] ok userId=${user.userId} id=${id.slice(0, 8)} bytes=${raw.length}`,
     );
-    return NextResponse.json({ ok: true, uploadedDoodleId: aiDoodleId, previewUrl });
+    return NextResponse.json({ ok: true, uploadedDoodleId: id, previewUrl });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[upload-image] storage upload failed:", msg);

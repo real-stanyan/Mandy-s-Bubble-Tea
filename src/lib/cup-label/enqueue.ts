@@ -78,6 +78,14 @@ type Row = {
   // printer would add their own kinds with their own filtered
   // Realtime subscriptions in printer-client.
   target_printer_kind: "zd410";
+  // For the admin cup-doodles gallery. Points at the customer's color
+  // original (Doubao raw output for AI cups, raw photo upload for
+  // photo cups). NULL for default / drawn / fortune / preset cups —
+  // those have no "original image" worth showing in the gallery.
+  original_image_path: string | null;
+  // FK to cup_label_ai_jobs when the source is AI. Lets the admin
+  // gallery join the customer's prompt without a path-LIKE hack.
+  ai_job_id: string | null;
 };
 
 export async function enqueueCupLabelJobs({
@@ -173,6 +181,11 @@ export async function enqueueCupLabelJobs({
       let source: "user" | "default" | "ai" | "fortune" = "default";
       let poolKey: string | null = null;
       let userPaths: SvgPath[] | null = null;
+      // Admin cup-doodles gallery — color-original tracking. Populated
+      // only on the AI / photo-upload branches below; left null for
+      // default / drawn / fortune cups.
+      let originalImagePath: string | null = null;
+      let aiJobId: string | null = null;
 
       const pickPool = (): { key: string; svg: string } => {
         if (presetKey) {
@@ -199,6 +212,38 @@ export async function enqueueCupLabelJobs({
           // doodleSvg is still required by the type signature but unused
           // when doodlePngBuffer is present; pass an empty SVG.
           doodleSvg = "";
+
+          // Admin gallery wiring — the aiDoodleId from the cart is
+          // either a cup_label_ai_jobs row id (Doubao AI path) or a
+          // cup_label_upload_jobs row id (photo upload path). The
+          // client uses the same map for both. Look up both tables;
+          // exactly one will hit. Failure is non-fatal — the cup
+          // still prints; it just doesn't show in the gallery.
+          try {
+            const { data: aiRow } = await sb
+              .from("cup_label_ai_jobs")
+              .select("original_png_path")
+              .eq("id", aiDoodleId)
+              .maybeSingle();
+            if (aiRow?.original_png_path) {
+              originalImagePath = aiRow.original_png_path;
+              aiJobId = aiDoodleId;
+            } else {
+              const { data: upRow } = await sb
+                .from("cup_label_upload_jobs")
+                .select("original_path")
+                .eq("id", aiDoodleId)
+                .maybeSingle();
+              if (upRow?.original_path) {
+                originalImagePath = upRow.original_path;
+              }
+            }
+          } catch (lookupErr) {
+            console.warn(
+              "[cup-label] gallery lookup failed (non-fatal)",
+              lookupErr,
+            );
+          }
         } catch (e) {
           console.error("[cup-label] ai doodle load failed, falling back", e);
           const pool = pickPool();
@@ -248,6 +293,8 @@ export async function enqueueCupLabelJobs({
         raster_path: null,
         zpl_body: zpl,
         target_printer_kind: "zd410",
+        original_image_path: originalImagePath,
+        ai_job_id: aiJobId,
       });
     }
   }
