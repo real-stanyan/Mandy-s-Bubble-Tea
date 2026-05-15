@@ -42,6 +42,12 @@ const TOP_DRINK_Y = 80;
 const DOODLE_SIZE = 592;
 const DOODLE_LEFT = 0;
 const MIDDLE_BAND_HEIGHT = DOODLE_SIZE;
+// Fortune (POS path) text-block sizing. ~55-dot font ≈ 4.7mm cap-height
+// at 300dpi — large enough to read across the counter, small enough
+// that a 12-word fortune fits in 2 lines.
+const FORTUNE_FONT_SIZE = 55;
+const FORTUNE_LINE_SPACING = 18;
+const FORTUNE_PADDING_X = 40;
 const BAND_GAP = 10; // dot row gap between middle and bottom
 const BOTTOM_BAND_Y = TOP_BAND_HEIGHT + MIDDLE_BAND_HEIGHT + BAND_GAP;
 const BOTTOM_BAND_HEIGHT = LABEL_HEIGHT_DOTS - BOTTOM_BAND_Y;
@@ -63,6 +69,17 @@ export type CupLabelInput = {
   doodlePngBuffer?: Buffer;
   /** Logged-in customer's first name. Falls back to "Guest" when null/empty/undefined. */
   customerFirstName?: string | null;
+  /**
+   * Fortune-cookie-style sentence rendered in place of the middle
+   * doodle band. Used by in-store (Square POS) orders where the
+   * customer never touches the web/app and there is no drawn / preset
+   * / AI / upload doodle to pick — see `lib/cup-label/fortune.ts` for
+   * generation. When set, the SVG/PNG raster pipeline is skipped
+   * entirely; the renderer emits a ZPL ^FB text block centered across
+   * the same physical band. Plain ASCII English only — ZD410 stock
+   * fonts can't render CJK without a separate font-download step.
+   */
+  fortuneText?: string;
 };
 
 function formatGreeting(name: string | null): string {
@@ -78,6 +95,23 @@ export type CupLabelOutput = {
 };
 
 export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutput> {
+  // Fortune (POS / in-store) path: no doodle raster, the middle band
+  // is a plain ZPL ^FB text block. Skip the entire SVG→PNG→1-bit
+  // pipeline — the printer renders the glyphs natively from its stock
+  // ^A0 scalable font, which is sharper and ~85KB smaller in ZPL.
+  if (input.fortuneText) {
+    const zpl = buildZpl({
+      sticker: input.stickerNumber,
+      cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
+      drinkName: input.drinkName,
+      greeting: formatGreeting(input.customerFirstName ?? null),
+      modifiers: input.modifiersText,
+      fortuneText: input.fortuneText,
+    });
+    const previewPng = await renderPreviewPng(input, null);
+    return { zpl, previewPng };
+  }
+
   // Doodle path: (SVG → resvg PNG) OR (caller-supplied PNG) → grayscale
   //   → threshold → 1-bit packed.
   // We need both a 1-bit packed buffer (for ZPL ^GFA hex embed) and the
@@ -124,9 +158,10 @@ function buildZpl(args: {
   drinkName: string;
   greeting: string;
   modifiers: string;
-  doodleHex: string;
-  doodleTotalBytes: number;
-  doodleWidthBytes: number;
+  doodleHex?: string;
+  doodleTotalBytes?: number;
+  doodleWidthBytes?: number;
+  fortuneText?: string;
 }): string {
   const innerWidth = LABEL_WIDTH_DOTS - 40; // 20px padding each side
 
@@ -163,15 +198,28 @@ function buildZpl(args: {
     `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,32,32^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.drinkName)}^FS`,
   );
 
-  // Middle band: doodle as ^GFA (ASCII hex graphic field).
-  // Format: ^GFa,b,c,d,data
-  //   a = A (ASCII hex)
-  //   b = total binary byte count
-  //   c = total binary byte count (same — uncompressed)
-  //   d = bytes per row
-  parts.push(
-    `^FO${DOODLE_LEFT},${TOP_BAND_HEIGHT}^GFA,${args.doodleTotalBytes},${args.doodleTotalBytes},${args.doodleWidthBytes},${args.doodleHex}^FS`,
-  );
+  // Middle band: either a fortune-cookie sentence (POS / in-store path)
+  // or the doodle raster (web/app path). Mutually exclusive — the
+  // renderCupLabel branch above guarantees exactly one is populated.
+  if (args.fortuneText !== undefined) {
+    // Center the fortune across the middle band. ^FB params:
+    //   width, max-lines, line-spacing, alignment, hanging-indent.
+    // 5-12 word sentences typically wrap to 1–3 lines at this font
+    // size; the 5-line cap stays for safety. Vertical offset puts the
+    // bottom of a single line near the band's vertical middle.
+    const fontSize = FORTUNE_FONT_SIZE;
+    const innerW = LABEL_WIDTH_DOTS - FORTUNE_PADDING_X * 2;
+    const yMid = TOP_BAND_HEIGHT + Math.floor(MIDDLE_BAND_HEIGHT / 2) - fontSize;
+    parts.push(
+      `^FO${FORTUNE_PADDING_X},${yMid}^A0N,${fontSize},${fontSize}^FB${innerW},5,${FORTUNE_LINE_SPACING},C,0^FD${escapeZpl(args.fortuneText)}^FS`,
+    );
+  } else {
+    // ^GFA (ASCII hex graphic field): a=A ascii, b/c=total bytes,
+    // d=bytes per row.
+    parts.push(
+      `^FO${DOODLE_LEFT},${TOP_BAND_HEIGHT}^GFA,${args.doodleTotalBytes},${args.doodleTotalBytes},${args.doodleWidthBytes},${args.doodleHex}^FS`,
+    );
+  }
 
   // Bottom band: modifier text. ^FB params: width, max-lines, line-spacing,
   // alignment, hanging-indent.
@@ -190,10 +238,12 @@ function buildZpl(args: {
 
 async function renderPreviewPng(
   input: CupLabelInput,
-  doodlePngBuffer: Buffer,
+  doodlePngBuffer: Buffer | null,
 ): Promise<Buffer> {
   const top = await renderTopBandPng(input);
-  const middle = await renderMiddleBandPng(doodlePngBuffer);
+  const middle = input.fortuneText
+    ? await renderFortuneBandPng(input.fortuneText)
+    : await renderMiddleBandPng(doodlePngBuffer!);
   const bottom = await renderBottomBandPng(input);
   return sharp({
     create: {
@@ -231,6 +281,45 @@ async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
     </text>
   </svg>`;
   return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: TOP_BAND_HEIGHT });
+}
+
+// Dev preview of the fortune (POS) middle band. Mirrors the ZPL ^FB
+// layout — same font size, padding, center alignment — so an admin
+// looking at the eyeball preview sees roughly what the printer emits.
+// Naive word-wrap by greedy-fill of the inner width; the dev preview
+// doesn't have access to the printer's real glyph metrics so this
+// approximates with a 28-char-per-line budget at 55-dot font.
+async function renderFortuneBandPng(fortune: string): Promise<Buffer> {
+  const lines = wrapFortunePreview(fortune, FORTUNE_PREVIEW_CHARS_PER_LINE);
+  const lineHeight = FORTUNE_FONT_SIZE + FORTUNE_LINE_SPACING;
+  const blockHeight = lines.length * lineHeight;
+  const yStart = Math.floor((MIDDLE_BAND_HEIGHT - blockHeight) / 2) + FORTUNE_FONT_SIZE;
+  const textElems = lines
+    .map(
+      (line, i) =>
+        `<text x="${LABEL_WIDTH_DOTS / 2}" y="${yStart + i * lineHeight}" text-anchor="middle" font-family="sans-serif" font-size="${FORTUNE_FONT_SIZE}" font-weight="600" fill="black">${escapeXml(line)}</text>`,
+    )
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${MIDDLE_BAND_HEIGHT}">
+    <rect width="100%" height="100%" fill="white"/>
+    ${textElems}
+  </svg>`;
+  return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: MIDDLE_BAND_HEIGHT });
+}
+
+const FORTUNE_PREVIEW_CHARS_PER_LINE = 20;
+
+function wrapFortunePreview(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur.length === 0) cur = w;
+    else if (cur.length + 1 + w.length <= maxChars) cur = `${cur} ${w}`;
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 async function renderMiddleBandPng(doodlePng: Buffer): Promise<Buffer> {

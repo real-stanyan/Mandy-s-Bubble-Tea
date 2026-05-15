@@ -7,6 +7,7 @@ import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store
 import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
+import { generateFortunes } from "./fortune";
 
 export type EnqueueCupLabelArgs = {
   order: Order;
@@ -36,6 +37,16 @@ export type EnqueueCupLabelArgs = {
   userId?: string;
   /** Customer's first name for the "Hi, {name}" header. Falls back to "Guest". */
   customerFirstName?: string | null;
+  /**
+   * "web" (default): web/app checkout — honor doodleIds / aiDoodleIds /
+   * doodleDefaults, fall back to hash-based POOL preset.
+   * "pos": in-store Square POS order coming in via the webhook — there's
+   * no app-side doodle choice. Every cup gets a unique fortune-cookie
+   * sentence in place of the doodle, generated server-side via DeepSeek
+   * with a hand-curated fallback pool when the upstream is unreachable.
+   * See `lib/cup-label/fortune.ts`.
+   */
+  mode?: "web" | "pos";
 };
 
 const USER_SVG_CANVAS = 400;
@@ -47,7 +58,7 @@ type Row = {
   sticker_number: string;
   drink_name: string;
   modifiers_text: string;
-  doodle_source: "default" | "user" | "ai";
+  doodle_source: "default" | "user" | "ai" | "fortune";
   doodle_pool_key: string | null;
   doodle_paths: SvgPath[] | null;
   // Legacy column from the Storage-backed pipeline. Always null on new
@@ -77,11 +88,29 @@ export async function enqueueCupLabelJobs({
   aiDoodleIds,
   userId,
   customerFirstName,
+  mode = "web",
 }: EnqueueCupLabelArgs): Promise<void> {
   const orderId = order.id!;
   const sb = getSupabaseAdmin();
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
+
+  // POS path: pre-fetch one fortune per cup before the per-line loop
+  // so we make a single DeepSeek call for the whole order (5-cup POS
+  // ticket = 1 round-trip, not 5). Fortunes are then consumed in
+  // cup-emission order. generateFortunes() always returns exactly N
+  // strings — falls back to its hand-curated pool on any failure.
+  let fortunes: string[] = [];
+  let fortuneCursor = 0;
+  if (mode === "pos") {
+    const totalCups = lineItems.reduce((sum, line) => {
+      const q = Number(line.quantity ?? "1");
+      return sum + (Number.isFinite(q) ? Math.max(0, Math.floor(q)) : 0);
+    }, 0);
+    if (totalCups > 0) {
+      fortunes = await generateFortunes(totalCups);
+    }
+  }
 
   // Square may split a single cart line (quantity=N) into N separate
   // lineItems when applying per-cup loyalty rewards or other unit-level
@@ -140,7 +169,8 @@ export async function enqueueCupLabelJobs({
 
       let doodleSvg: string;
       let doodlePngBuffer: Buffer | undefined;
-      let source: "user" | "default" | "ai" = "default";
+      let fortuneText: string | undefined;
+      let source: "user" | "default" | "ai" | "fortune" = "default";
       let poolKey: string | null = null;
       let userPaths: SvgPath[] | null = null;
 
@@ -155,10 +185,14 @@ export async function enqueueCupLabelJobs({
         return pickDefaultForCup(clientLineId, cupIdx);
       };
 
-      // Priority: AI > user-drawn > preset > hash default.
-      // Each tier falls through on load failure so an order never fails
-      // to print because of an upstream blob hiccup.
-      if (aiDoodleId && userId) {
+      // POS mode short-circuits the whole doodle resolution chain —
+      // there's no app, no user choice, no preset. Each cup gets the
+      // next fortune off the pre-fetched batch.
+      if (mode === "pos") {
+        fortuneText = fortunes[fortuneCursor++] ?? "Today is your lucky day";
+        source = "fortune";
+        doodleSvg = "";
+      } else if (aiDoodleId && userId) {
         try {
           doodlePngBuffer = await loadAiDoodleUpload(userId, aiDoodleId);
           source = "ai";
@@ -197,6 +231,7 @@ export async function enqueueCupLabelJobs({
         modifiersText,
         doodleSvg,
         doodlePngBuffer,
+        fortuneText,
         customerFirstName: customerFirstName ?? null,
       });
 

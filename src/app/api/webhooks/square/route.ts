@@ -219,9 +219,27 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     );
 
     // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
+    //
+    // Webhook fires for both POS *and* API-created orders. We only want
+    // fortune-mode for true in-store POS orders so we don't race the
+    // app's payment route and overwrite a logged-in user's doodle
+    // choice with a fortune. Square sets `order.source.name` to
+    // "Square Point of Sale" / "Square Register" / "Square Terminal …"
+    // for POS-family orders, and the registered Application name
+    // ("Mandy's Bubble Tea") for API orders, so a `^Square ` prefix
+    // is a reliable POS signal. When unsure, default to "web" mode
+    // (hash POOL preset) — that matches the pre-fortune behavior, so
+    // the worst case for a misclassified order is the old behavior.
+    const sourceName = order.source?.name ?? "";
+    const isPosOrder = /^Square /i.test(sourceName);
+    const cupLabelMode = isPosOrder ? "pos" : "web";
     try {
       const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
-      await enqueueCupLabelJobs({ order, stickerNumber: result.stickerNumber });
+      await enqueueCupLabelJobs({
+        order,
+        stickerNumber: result.stickerNumber,
+        mode: cupLabelMode,
+      });
     } catch (e) {
       console.error("[cup-label] enqueue failed (non-fatal)", e);
     }
