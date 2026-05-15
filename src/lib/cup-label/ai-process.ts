@@ -93,12 +93,18 @@ async function runPipeline(input: ProcessAiJobInput): Promise<string> {
 
   // 2b. Persist the color original for the admin cup-doodles gallery
   // BEFORE binarizing. Stored as PNG under {userId}/ai-originals/{jobId}.png
-  // so the doodles_pending bucket's mime allowlist accepts it. Failure
-  // here is non-fatal — the print path doesn't depend on the original,
-  // so we log and continue rather than fail the whole submission.
+  // so the doodles_pending bucket's mime allowlist accepts it. The
+  // bucket caps individual objects at 5MB, and Doubao raw 2048×2048
+  // PNGs routinely exceed that — re-encode to 1280 max + jpeg-style
+  // PNG compression so a detailed scene still fits. Failure here is
+  // non-fatal: the print path doesn't depend on the original, so we
+  // log and continue rather than fail the whole submission.
   const originalPath = `${input.userId}/ai-originals/${input.jobId}.png`;
   try {
-    const colorPng = await sharp(rawImage).png({ compressionLevel: 6 }).toBuffer();
+    const colorPng = await sharp(rawImage)
+      .resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true })
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toBuffer();
     const sbStore = getSupabaseAdmin();
     const { error } = await sbStore.storage
       .from("doodles_pending")

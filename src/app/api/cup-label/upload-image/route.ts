@@ -102,8 +102,14 @@ export async function POST(request: NextRequest) {
 
     // Color original — non-fatal. Failures here just mean the cup
     // doesn't show up in the admin gallery; the print path is fine.
+    // Resize to 1280-max because the doodles_pending bucket caps
+    // single objects at 5MB and modern phone photos easily exceed
+    // that even after PNG re-encode.
     try {
-      const colorPng = await sharp(raw).png({ compressionLevel: 6 }).toBuffer();
+      const colorPng = await sharp(raw)
+        .resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true })
+        .png({ compressionLevel: 9, adaptiveFiltering: true })
+        .toBuffer();
       const { error: origErr } = await sb.storage
         .from("doodles_pending")
         .upload(originalPath, colorPng, { contentType: "image/png", upsert: false });
