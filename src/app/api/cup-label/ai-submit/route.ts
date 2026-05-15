@@ -34,6 +34,18 @@ type Body = {
   prompt: string;
   /** Optional reference image (data URI or raw base64) for image-to-image. */
   sourceImageBase64?: string;
+  /**
+   * Opaque per-cart identifier from the local cart store. Without
+   * this, the (user_id, slot_key) UNIQUE would lock the same drink
+   * + cup_idx for the lifetime of the account — a returning customer
+   * who orders the same Pearl Milk Tea cup 0 next week would get
+   * last week's AI image back instead of a fresh one. With it, the
+   * quota correctly scopes to a single shopping session.
+   *
+   * Optional for backward compat with any in-flight pre-cutover
+   * clients; new clients must always send it.
+   */
+  cartSessionId?: string;
 };
 
 function isValidBody(body: unknown): body is Body {
@@ -42,6 +54,7 @@ function isValidBody(body: unknown): body is Body {
   if (typeof b.slotKey !== "string" || b.slotKey.trim().length === 0) return false;
   if (typeof b.prompt !== "string" || b.prompt.trim().length === 0) return false;
   if (b.sourceImageBase64 !== undefined && typeof b.sourceImageBase64 !== "string") return false;
+  if (b.cartSessionId !== undefined && typeof b.cartSessionId !== "string") return false;
   return true;
 }
 
@@ -70,7 +83,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const slotKey = body.slotKey.trim();
+  const rawSlotKey = body.slotKey.trim();
+  // The effective DB slot_key prepends the cart-session id when the
+  // client provides one. This is the fix for the "new prompt prints
+  // old image" bug — without the session prefix, returning customers
+  // hitting the same drink+modifier combo would silently reuse a
+  // previous cart's AI image because of UNIQUE(user_id, slot_key).
+  const cartSessionId = body.cartSessionId?.trim() ?? "";
+  const slotKey = cartSessionId ? `${cartSessionId}:${rawSlotKey}` : rawSlotKey;
   const prompt = body.prompt.trim();
   if (prompt.length > MAX_PROMPT_LEN) {
     return NextResponse.json(
