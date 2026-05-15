@@ -50,7 +50,23 @@ type Row = {
   doodle_source: "default" | "user" | "ai";
   doodle_pool_key: string | null;
   doodle_paths: SvgPath[] | null;
-  raster_path: string;
+  // Legacy column from the Storage-backed pipeline. Always null on new
+  // rows now that ZPL lives in `zpl_body`. Kept nullable in the schema
+  // so old rows with `raster_path` set are still readable by the
+  // printer-client fallback path. Will be dropped once all old rows
+  // have either printed or been archived.
+  raster_path: string | null;
+  // ZPL II text rendered inline. Replaces the previous Storage hop
+  // (upload to `doodles` bucket → printer-client downloads). Inline
+  // avoids the partial-state window where the bucket upload succeeded
+  // but the row insert failed (or vice-versa), and shaves one HTTP
+  // round-trip off the printer hot path.
+  zpl_body: string;
+  // Routes the row to the right consumer. ZD410 USB cup-label printer
+  // gets `zd410`. Future ZD411 retirement bridge or back-of-house
+  // printer would add their own kinds with their own filtered
+  // Realtime subscriptions in printer-client.
+  target_printer_kind: "zd410";
 };
 
 export async function enqueueCupLabelJobs({
@@ -184,24 +200,6 @@ export async function enqueueCupLabelJobs({
         customerFirstName: customerFirstName ?? null,
       });
 
-      // raster_path column historically held a TSP100 1-bit raster blob;
-      // post-Zebra cutover it now points to the ZPL II text file.
-      const rasterPath = `${orderId}/${lineId}_${cupIdx}.zpl`;
-      // Dev guard: skip Supabase Storage upload + cup_label_jobs row so a
-      // local checkout doesn't trigger the store's printer to print.
-      // The Mac mini printer-client polls prod Supabase, so an unfenced
-      // dev test would print a real cup label at the shop.
-      // Escape hatch: MANDYS_CUP_LABEL_USE_PROD=1 forces the upload even
-      // in dev, so dev-mode E2E testing of the ZD410 macbook consumer
-      // works without enqueuing a print_jobs row (ZD411 stays silent).
-      const useProdCupLabel = process.env.MANDYS_CUP_LABEL_USE_PROD === "1";
-      if (process.env.NODE_ENV !== "development" || useProdCupLabel) {
-        const { error: upErr } = await sb.storage
-          .from("doodles")
-          .upload(rasterPath, zpl, { contentType: "text/plain; charset=utf-8", upsert: true });
-        if (upErr) throw upErr;
-      }
-
       rows.push({
         square_order_id: orderId,
         line_id: lineId,
@@ -212,15 +210,19 @@ export async function enqueueCupLabelJobs({
         doodle_source: source,
         doodle_pool_key: poolKey,
         doodle_paths: userPaths,
-        raster_path: rasterPath,
+        raster_path: null,
+        zpl_body: zpl,
+        target_printer_kind: "zd410",
       });
     }
   }
 
   if (rows.length === 0) return;
-  // Same dev guard as the Storage upload above. Set
-  // MANDYS_CUP_LABEL_USE_PROD=1 in dev to enqueue rows into prod
-  // Supabase so a macbook printer-client can pick them up over Realtime.
+  // Dev guard: a local checkout would otherwise enqueue real rows into
+  // prod Supabase and the Mac mini printer-client would print them at
+  // the shop. MANDYS_CUP_LABEL_USE_PROD=1 is the dev-mode E2E escape
+  // hatch used when testing a macbook-attached ZD410 against prod
+  // Realtime without enqueuing print_jobs (ZD411 stays silent).
   if (process.env.NODE_ENV === "development" && process.env.MANDYS_CUP_LABEL_USE_PROD !== "1") return;
   // "Authoritative" = caller passed an explicit user choice (drawn or
   // preset). When the webhook later runs without a choice, its rows are

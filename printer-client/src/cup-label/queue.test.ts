@@ -21,17 +21,22 @@ vi.mock("../supabase", () => {
     }
     proxy.maybeSingle = async () => {
       if (lastPatch) updateCalls.push({ patch: lastPatch, chain: [...chain] });
-      return { data: (globalThis as Record<string, unknown>).__cupLabelClaimRow ?? null, error: null };
+      return { data: null, error: null };
     };
-    proxy.then = (resolve: (v: unknown) => unknown) => {
+    proxy.then = ((resolve: unknown) => {
       if (lastPatch) updateCalls.push({ patch: lastPatch, chain: [...chain] });
-      return Promise.resolve({ data: null, error: null }).then(resolve);
-    };
+      const resolver = resolve as ((v: unknown) => unknown) | undefined;
+      return Promise.resolve({ data: null, error: null }).then(resolver);
+    }) as (..._args: unknown[]) => unknown;
     return proxy;
   };
   return {
     supabase: {
       from: vi.fn((table: string) => builder(table)),
+      rpc: vi.fn(async (_fn: string, _args: Record<string, unknown>) => {
+        const row = (globalThis as Record<string, unknown>).__cupLabelClaimRow;
+        return { data: row ? [row] : [], error: null };
+      }),
       __updateCalls: updateCalls,
     },
   };
@@ -71,6 +76,8 @@ type SupabaseMock = typeof supabase & {
   __updateCalls: Array<{ patch: Record<string, unknown>; chain: string[] }>;
 };
 
+const INLINE_ZPL = "^XA^FO50,50^A0N,50,50^FDtest^FS^XZ";
+
 const baseRow = {
   id: "00000000-0000-0000-0000-000000000001",
   square_order_id: "sq_order_1",
@@ -81,7 +88,9 @@ const baseRow = {
   modifiers_text: "Pearls -> L.Ice -> 50%S",
   doodle_source: "user" as const,
   doodle_pool_key: null,
-  raster_path: "sq_order_1/line_1_0.zpl",
+  raster_path: null as string | null,
+  zpl_body: INLINE_ZPL as string | null,
+  target_printer_kind: "zd410" as const,
   status: "pending" as const,
   attempts: 0,
   last_error: null,
@@ -97,28 +106,47 @@ describe("cup-label queue.handleJob", () => {
     (globalThis as Record<string, unknown>).__cupLabelClaimRow = null;
   });
 
-  it("happy path: claim → status check → download → print → mark printed", async () => {
-    (globalThis as Record<string, unknown>).__cupLabelClaimRow = { ...baseRow, status: "printing", attempts: 1 };
+  it("happy path with inline zpl_body: claim → status check → print → mark printed (no storage download)", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 1,
+    };
     vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
-    vi.mocked(downloadRasterZPL).mockResolvedValue("^XA^FO50,50^A0N,50,50^FDtest^FS^XZ");
     vi.mocked(printCupLabelZPL).mockResolvedValue();
 
     await handleJob(baseRow);
 
-    expect(downloadRasterZPL).toHaveBeenCalledWith("sq_order_1/line_1_0.zpl");
-    expect(printCupLabelZPL).toHaveBeenCalledWith("^XA^FO50,50^A0N,50,50^FDtest^FS^XZ");
+    expect(downloadRasterZPL).not.toHaveBeenCalled();
+    expect(printCupLabelZPL).toHaveBeenCalledWith(INLINE_ZPL);
     expect(maybeAlert).not.toHaveBeenCalled();
 
     const patches = (supabase as SupabaseMock).__updateCalls.map((c) => c.patch);
-    const claimPatch = patches.find((p) => p.status === "printing");
-    expect(claimPatch).toBeDefined();
     const successPatch = patches.find((p) => p.status === "printed");
     expect(successPatch).toBeDefined();
     expect(successPatch?.printed_at).toBeTypeOf("string");
     expect(successPatch?.printer_token).toBeNull();
   });
 
-  it("skips when claim affects zero rows (another consumer won the race)", async () => {
+  it("legacy row with raster_path but no zpl_body: falls back to Storage download", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 1,
+      zpl_body: null,
+      raster_path: "sq_order_1/line_1_0.zpl",
+    };
+    vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
+    vi.mocked(downloadRasterZPL).mockResolvedValue("^XA^XZ");
+    vi.mocked(printCupLabelZPL).mockResolvedValue();
+
+    await handleJob(baseRow);
+
+    expect(downloadRasterZPL).toHaveBeenCalledWith("sq_order_1/line_1_0.zpl");
+    expect(printCupLabelZPL).toHaveBeenCalledWith("^XA^XZ");
+  });
+
+  it("skips when claim returns no row (another consumer won the race)", async () => {
     (globalThis as Record<string, unknown>).__cupLabelClaimRow = null;
 
     await handleJob(baseRow);
@@ -128,13 +156,16 @@ describe("cup-label queue.handleJob", () => {
     expect(printCupLabelZPL).not.toHaveBeenCalled();
   });
 
-  it("when CUPS printer offline: marks failed + alerts, never downloads or prints", async () => {
-    (globalThis as Record<string, unknown>).__cupLabelClaimRow = { ...baseRow, status: "printing", attempts: 1 };
+  it("when CUPS printer offline: marks failed + alerts, never prints", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 1,
+    };
     vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("offline");
 
     await handleJob(baseRow);
 
-    expect(downloadRasterZPL).not.toHaveBeenCalled();
     expect(printCupLabelZPL).not.toHaveBeenCalled();
     expect(maybeAlert).toHaveBeenCalledOnce();
     expect(vi.mocked(maybeAlert).mock.calls[0][0]).toContain("offline");
@@ -145,28 +176,38 @@ describe("cup-label queue.handleJob", () => {
     expect(failPatch?.last_error).toContain("printer offline");
   });
 
-  it("on storage download error: marks failed with the error message", async () => {
-    (globalThis as Record<string, unknown>).__cupLabelClaimRow = { ...baseRow, status: "printing", attempts: 1 };
+  it("transient print failure (attempts < 3): bounces back to 'pending' for retry, no alert", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 1,
+    };
     vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
-    vi.mocked(downloadRasterZPL).mockRejectedValue(new Error("storage download foo.zpl failed: not found"));
+    vi.mocked(printCupLabelZPL).mockRejectedValue(new Error("lp exit 1: paper out"));
 
     await handleJob(baseRow);
 
-    expect(printCupLabelZPL).not.toHaveBeenCalled();
     const patches = (supabase as SupabaseMock).__updateCalls.map((c) => c.patch);
-    const failPatch = patches.find((p) => p.status === "failed");
-    expect(failPatch?.last_error).toContain("storage download");
+    const failurePatch = patches.find((p) => p.last_error?.toString().includes("paper out"));
+    expect(failurePatch?.status).toBe("pending");
+    expect(maybeAlert).not.toHaveBeenCalled();
   });
 
-  it("alerts on the 3rd consecutive print failure (attempts >= 3)", async () => {
-    (globalThis as Record<string, unknown>).__cupLabelClaimRow = { ...baseRow, status: "printing", attempts: 3 };
+  it("alerts and marks 'failed' on the 3rd consecutive print failure (attempts >= 3)", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 3,
+    };
     vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
-    vi.mocked(downloadRasterZPL).mockResolvedValue("^XA^XZ");
     vi.mocked(printCupLabelZPL).mockRejectedValue(new Error("lp exit 1: paper out"));
 
     await handleJob(baseRow);
 
     expect(maybeAlert).toHaveBeenCalledOnce();
     expect(vi.mocked(maybeAlert).mock.calls[0][0]).toContain("3x");
+    const patches = (supabase as SupabaseMock).__updateCalls.map((c) => c.patch);
+    const finalPatch = patches.find((p) => p.last_error?.toString().includes("paper out"));
+    expect(finalPatch?.status).toBe("failed");
   });
 });

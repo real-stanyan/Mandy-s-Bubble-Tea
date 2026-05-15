@@ -38,9 +38,13 @@ type CupLabelJobRow = {
   sticker_number: string;
   drink_name: string;
   modifiers_text: string;
-  doodle_source: "user" | "default";
+  doodle_source: "user" | "default" | "ai";
   doodle_pool_key: string | null;
-  raster_path: string;
+  // Storage-backed fallback. Newer rows leave this null and use
+  // `zpl_body` instead — see handleJob() for the resolution order.
+  raster_path: string | null;
+  zpl_body: string | null;
+  target_printer_kind: "zd410";
   status: CupLabelStatus;
   attempts: number;
   last_error: string | null;
@@ -48,6 +52,8 @@ type CupLabelJobRow = {
   created_at: string;
   printed_at: string | null;
 };
+
+const TARGET_PRINTER_KIND = "zd410" as const;
 
 /**
  * Runs once at start.
@@ -69,18 +75,21 @@ export async function replayOnStart(): Promise<void> {
     .from("cup_label_jobs")
     .update({ status: "failed", last_error: "stale: row older than CUP_LABEL_STALE_WINDOW_MS" })
     .lt("created_at", cutoff)
+    .eq("target_printer_kind", TARGET_PRINTER_KIND)
     .in("status", ["pending", "printing"]);
   if (staleErr) console.error("[cup-label/queue] stale mark failed:", staleErr.message);
 
   const { error: releaseErr } = await supabase
     .from("cup_label_jobs")
     .update({ status: "pending", printer_token: null })
+    .eq("target_printer_kind", TARGET_PRINTER_KIND)
     .eq("status", "printing");
   if (releaseErr) console.error("[cup-label/queue] release printing failed:", releaseErr.message);
 
   const { data, error } = await supabase
     .from("cup_label_jobs")
     .select("*")
+    .eq("target_printer_kind", TARGET_PRINTER_KIND)
     .eq("status", "pending")
     .order("created_at", { ascending: true });
   if (error) {
@@ -100,6 +109,7 @@ async function runPollOnce(reason: "tick" | "realtime-drop"): Promise<void> {
     const { data, error } = await supabase
       .from("cup_label_jobs")
       .select("*")
+      .eq("target_printer_kind", TARGET_PRINTER_KIND)
       .eq("status", "pending")
       .order("created_at", { ascending: true })
       .limit(20);
@@ -136,13 +146,22 @@ export function subscribeCupLabelJobs(): { close: () => void } {
   const connect = () => {
     if (closed) return;
     channel = supabase
-      .channel("cup_label_jobs")
+      .channel(`cup_label_jobs:${TARGET_PRINTER_KIND}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "cup_label_jobs" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "cup_label_jobs",
+          // Server-side filter so a future second consumer for a
+          // different printer kind doesn't receive (and discard) this
+          // consumer's INSERTs.
+          filter: `target_printer_kind=eq.${TARGET_PRINTER_KIND}`,
+        },
         async (payload) => {
           const row = payload.new as CupLabelJobRow;
           if (row.status !== "pending") return;
+          if (row.target_printer_kind !== TARGET_PRINTER_KIND) return;
           await runSerial(row);
         },
       )
@@ -195,36 +214,31 @@ export function startPollFallback(): NodeJS.Timeout {
 }
 
 /**
- * Atomic claim via the `claim_oldest_cup_label_job` RPC defined in
- * 2026-04-27-claim-cup-label-job.sql. The RPC uses `FOR UPDATE SKIP
- * LOCKED` so concurrent callers never double-claim. We then look up
- * the full row by id — the RPC only returns (id, raster_path,
- * printer_token).
+ * Atomic per-id claim via the `claim_cup_label_job_by_id` RPC. The RPC
+ * does a single UPDATE WHERE status='pending' (atomic in Postgres) and
+ * properly bumps `attempts` instead of resetting it to 1, which is what
+ * the previous Supabase JS update did — that bug meant the "alert
+ * after 3 failures" logic in handleJob() never fired.
  *
- * Exported for testing; subscribeCupLabelJobs hot path uses the payload
- * row directly, which lets us start downloading the raster before the
- * claim returns. We still call this to flip the row to 'printing'.
+ * Exported for testing; subscribeCupLabelJobs hot path passes the
+ * Realtime payload row directly to handleJob, which then claims here.
+ * Concurrent triggers (Realtime + poll + replay) all converge on a
+ * single UPDATE, so only one consumer wins per row.
  */
 export async function claimById(jobId: string): Promise<CupLabelJobRow | null> {
   const token = `${config.cupLabelDeviceId || "cup-label-consumer"}-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}`;
-  const { data, error } = await supabase
-    .from("cup_label_jobs")
-    .update({
-      status: "printing",
-      printer_token: token,
-      attempts: 1,
-    })
-    .eq("id", jobId)
-    .eq("status", "pending")
-    .select("*")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("claim_cup_label_job_by_id", {
+    p_job_id: jobId,
+    p_token: token,
+  });
   if (error) {
     console.error(`[cup-label/queue] claim failed for ${jobId}:`, error.message);
     return null;
   }
-  return (data as CupLabelJobRow | null) ?? null;
+  const rows = (data ?? []) as CupLabelJobRow[];
+  return rows[0] ?? null;
 }
 
 /**
@@ -261,7 +275,7 @@ export async function handleJob(job: CupLabelJobRow): Promise<void> {
   }
 
   try {
-    const zpl = await downloadRasterZPL(claimed.raster_path);
+    const zpl = await resolveZpl(claimed);
     await printCupLabelZPL(zpl);
     await supabase
       .from("cup_label_jobs")
@@ -276,18 +290,51 @@ export async function handleJob(job: CupLabelJobRow): Promise<void> {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const newAttempts = claimed.attempts; // claimById already bumped to 1
+    // claimById (RPC) already incremented attempts atomically and
+    // returned the post-increment value. So the row currently in DB
+    // has `attempts = claimed.attempts`.
+    const attempts = claimed.attempts;
+    // Auto-retry: bounce back to 'pending' so the poll-fallback tick
+    // picks it up again later (Realtime only fires on INSERT). Hard
+    // 'failed' only on the final attempt — that's when the row stops
+    // moving and the alert fires. Previous code marked 'failed' on
+    // the first error so attempts could never reach the alert
+    // threshold, and the operator would only learn of the dropped
+    // cup when a customer complained.
+    const isFinal = attempts >= CUP_LABEL_MAX_ATTEMPTS;
+    const nextStatus: CupLabelStatus = isFinal ? "failed" : "pending";
     await supabase
       .from("cup_label_jobs")
       .update({
-        status: "failed",
+        status: nextStatus,
         last_error: message,
         printer_token: null,
       })
       .eq("id", claimed.id);
     console.error(
-      `[cup-label/queue] failed ${claimed.sticker_number} cup ${claimed.cup_idx + 1}: ${message}`,
+      `[cup-label/queue] ${nextStatus} ${claimed.sticker_number} cup ${claimed.cup_idx + 1} (attempts=${attempts}/${CUP_LABEL_MAX_ATTEMPTS}): ${message}`,
     );
-    if (newAttempts >= 3) await maybeAlert(`cup-label print failed ${newAttempts}x: ${message}`);
+    if (isFinal) {
+      await maybeAlert(
+        `cup-label print failed ${attempts}x for sticker ${claimed.sticker_number} cup ${claimed.cup_idx + 1}: ${message}`,
+      );
+    }
   }
+}
+
+const CUP_LABEL_MAX_ATTEMPTS = 3;
+
+// Resolve the ZPL II text for a claimed job. Prefer the inline
+// `zpl_body` column (introduced 2026-05-15) because it skips the
+// Storage round-trip and has no partial-state window between the
+// upload and the row insert. Fall back to the Storage `raster_path`
+// only for legacy rows enqueued before the schema change.
+async function resolveZpl(claimed: CupLabelJobRow): Promise<string> {
+  if (claimed.zpl_body && claimed.zpl_body.length > 0) {
+    return claimed.zpl_body;
+  }
+  if (claimed.raster_path) {
+    return downloadRasterZPL(claimed.raster_path);
+  }
+  throw new Error(`no zpl_body or raster_path on job ${claimed.id}`);
 }

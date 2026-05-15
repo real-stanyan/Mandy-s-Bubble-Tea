@@ -120,11 +120,14 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
       storage: { from: () => ({ upload }) },
     });
 
+    // Two distinct catalog items so they hash to different clientLineIds
+    // and don't share the cross-line cupIdx group counter (which is used
+    // to merge Square's quantity-split lineItems for the same cart line).
     const order = {
       id: "ord-1",
       lineItems: [
-        { uid: "line-a", quantity: "2", name: "Pearl Milk Tea", modifiers: [{ name: "Pearl" }] },
-        { uid: "line-b", quantity: "1", name: "Mango", modifiers: [] },
+        { uid: "line-a", catalogObjectId: "VAR_PEARL_MT", quantity: "2", name: "Pearl Milk Tea", modifiers: [{ catalogObjectId: "MOD_PEARL", name: "Pearl" }] },
+        { uid: "line-b", catalogObjectId: "VAR_MANGO", quantity: "1", name: "Mango", modifiers: [] },
       ],
     } as unknown as Order;
 

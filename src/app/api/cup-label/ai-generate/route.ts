@@ -30,6 +30,17 @@ export const maxDuration = 60;
 const MAX_PROMPT_LEN = 200;
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 
+// Per-user concurrency lock. One AI generation call ties up the
+// Doubao API key for 10-40s; if a user double-taps "Generate" or
+// opens the modal in two tabs we get two in-flight requests against
+// the same Doubao token, both eating the same Vercel function
+// budget. Track userId -> in-flight count and reject the second
+// with 429 so the client retries after the first lands. Per-instance
+// only (Vercel functions are stateless across instances), but on
+// Pro tier "fluid compute" multiple invocations share one process
+// and this is enough to stop one user spamming the upstream.
+const aiInFlight = new Set<string>();
+
 type Body = {
   prompt: string;
   /** Optional reference image (data URI or raw base64) for image-to-image. */
@@ -84,6 +95,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Reject duplicate in-flight requests for the same user. Tell the
+  // client to back off via 429 + Retry-After so a double-tap on
+  // "Generate" doesn't double-charge Doubao.
+  if (aiInFlight.has(user.userId)) {
+    return NextResponse.json(
+      { ok: false, error: "Another AI generation is still running for this account" },
+      { status: 429, headers: { "Retry-After": "10" } },
+    );
+  }
+  aiInFlight.add(user.userId);
+
+  try {
   const t0 = Date.now();
 
   // 0. If the caller supplied a reference image, decode it, normalise to
@@ -237,4 +260,7 @@ export async function POST(request: NextRequest) {
     `[ai-generate] ok userId=${user.userId} id=${aiDoodleId.slice(0, 8)} elapsed=${Date.now() - t0}ms`,
   );
   return NextResponse.json({ ok: true, aiDoodleId, previewUrl });
+  } finally {
+    aiInFlight.delete(user.userId);
+  }
 }

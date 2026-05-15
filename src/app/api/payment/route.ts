@@ -219,7 +219,13 @@ export async function POST(request: Request) {
             }
           }
           if (stickerNumber) {
-            await enqueueCupLabelJobs({
+            // Fire-and-forget. enqueueCupLabelJobs loads N doodles +
+            // renders N ZPL labels + upserts the rows; under load that
+            // can add hundreds of ms to the payment response. Print
+            // failures here are non-fatal — the user already paid, and
+            // the cup-label job table's own alert pipeline will page
+            // staff if the printer never picks them up.
+            void enqueueCupLabelJobs({
               order,
               stickerNumber,
               doodleIds: body.doodleIds,
@@ -227,10 +233,12 @@ export async function POST(request: Request) {
               aiDoodleIds: body.aiDoodleIds,
               userId: user.userId,
               customerFirstName: user.profile.first_name,
+            }).catch((e) => {
+              console.error("[cup-label] paid-branch enqueue threw (background)", e);
             });
           }
         } catch (e) {
-          console.error("[cup-label] paid-branch user-doodle enqueue failed (non-fatal)", e);
+          console.error("[cup-label] paid-branch user-doodle enqueue setup failed (non-fatal)", e);
         }
       }
     } else {
@@ -277,7 +285,8 @@ export async function POST(request: Request) {
             // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
             try {
               const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
-              await enqueueCupLabelJobs({
+              // Fire-and-forget — see the paid-branch comment above.
+              void enqueueCupLabelJobs({
                 order: paidOrder,
                 stickerNumber: result.stickerNumber,
                 doodleIds: body.doodleIds,
@@ -285,9 +294,11 @@ export async function POST(request: Request) {
                 aiDoodleIds: body.aiDoodleIds,
                 userId: user.userId,
                 customerFirstName: user.profile.first_name,
+              }).catch((e) => {
+                console.error("[cup-label] $0-branch enqueue threw (background)", e);
               });
             } catch (e) {
-              console.error("[cup-label] enqueue failed (non-fatal)", e);
+              console.error("[cup-label] $0-branch enqueue setup failed (non-fatal)", e);
             }
           }
         }

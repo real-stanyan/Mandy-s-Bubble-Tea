@@ -55,18 +55,29 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("omits the modifier ^FB block when modifiers is empty (matches Zebra zpl)", async () => {
-    const out = await renderCupLabel({
+    const withMods = await renderCupLabel({
+      stickerNumber: "OL000",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Test",
+      modifiersText: "Pearl -> 50%S",
+      doodleSvg: POOL[0].svg,
+    });
+    const withoutMods = await renderCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Test",
       modifiersText: "",
       doodleSvg: POOL[0].svg,
     });
-    // No ^FB,..,L,0^FD<…modifier text…>^FS line should be emitted; the
-    // bottom band stays blank rather than printing a placeholder.
-    const fbCount = (out.zpl.match(/\^FB/g) ?? []).length;
-    // Drink name uses one ^FB; modifier should NOT add a second.
-    expect(fbCount).toBe(1);
+    // The empty-modifier path should drop exactly one ^FB (the
+    // modifier band) versus the with-modifiers render. We compare
+    // relative counts so the test stays robust against unrelated
+    // template additions (e.g. the top-band "Hi, {name}" greeting
+    // or the right-aligned order-info block both add their own
+    // ^FB blocks).
+    const withCount = (withMods.zpl.match(/\^FB/g) ?? []).length;
+    const withoutCount = (withoutMods.zpl.match(/\^FB/g) ?? []).length;
+    expect(withCount - withoutCount).toBe(1);
   });
 });
 
