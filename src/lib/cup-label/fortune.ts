@@ -21,45 +21,133 @@ const MIN_WORDS = 4;
 const MAX_WORDS = 14;
 
 const SYSTEM_PROMPT = [
-  "You write short fortune-cookie messages in the style of Chinese-restaurant fortunes.",
-  "Tone: gentle, philosophical, slightly mysterious, occasionally playful.",
-  "Each fortune is one sentence, 5-12 words, no period at the end.",
-  "Plain English only — no emoji, no quotation marks, no numbering, no preamble.",
+  "You write short fortune-cookie messages for a friendly bubble tea shop in Brisbane.",
+  "These print directly on customer cup labels — they MUST be universally polite and impossible to misread.",
+  "",
+  "ALLOWED topics: present-moment warmth, gratitude, kindness, small daily joys, tea/sweetness/bubbles, gentle optimism, playful curiosity, calm patience.",
+  "",
+  "FORBIDDEN topics (never reference): love, romance, dating, marriage, missing someone, family relationships, illness, death, grief, accidents, money, debt, wealth, religion, gods, spirits, fate, karma, politics, work performance, weight, looks, age, mental health, addiction, predictions of loss / failure / endings, warnings or 'beware'.",
+  "",
+  "STYLE rules:",
+  "- One sentence, 5 to 12 words, no period or other end punctuation.",
+  "- Plain warm English. No emoji, no quotes, no numbering, no preamble.",
+  "- No second-person commands ('Do X', 'Avoid Y', 'Beware Z'). Gentle observations only.",
+  "- No promises of specific outcomes ('You will get a promotion', 'Money is coming').",
+  "- No reference to other people specifically ('Someone misses you', 'A stranger will').",
+  "- Universally kind: a grieving widow, a stressed teen, and a delighted child must all read it without harm.",
+  "",
   "Return exactly the requested count, one per line, nothing else.",
-].join(" ");
+].join("\n");
 
+// Curated fallback pool. Every line was re-vetted for the rule "a
+// grieving widow, a stressed teen, and a delighted child must all read
+// it without harm." Entries that mentioned other people specifically
+// ("Someone misses you", "Someone will remember you fondly"), assumed
+// inner states ("an old worry is about to lose its grip", "speak gently
+// to yourself"), or implied warnings ("tomorrow's storm") were dropped
+// from the original v1 pool. Replacements lean on tea / bubbles / the
+// present moment.
 const FALLBACK_POOL: readonly string[] = [
-  "A pleasant surprise is waiting for you next Tuesday",
-  "Your patience today will be repaid threefold",
   "The next sip will taste better than the last",
-  "A small kindness will return to you this week",
-  "Trust the question more than the answer",
   "Today is a fine day to begin something quiet",
-  "Look up — the sky is doing something for you",
-  "An old worry is about to lose its grip",
-  "A door you forgot about is about to open",
-  "The person you miss is thinking of you too",
   "Patience is the slowest brewer of all teas",
-  "Your next idea will arrive while washing dishes",
-  "Say yes to the smaller invitation this week",
   "The road less travelled has more bubble tea",
-  "A coin found today is luck saved for later",
-  "Listen for the music between the questions",
-  "Tomorrow's storm will pass before lunch",
-  "Someone is about to remember you fondly",
-  "The thing you cannot find is closer than you think",
-  "Speak gently to yourself today; you have been heard",
-  "Three blessings travel with you this afternoon",
-  "Choose the seat by the window",
-  "Your hands will create something beautiful this week",
-  "The wait will turn out to be the gift",
-  "An unexpected message will lift you on Friday",
-  "A long conversation will feel like five minutes",
-  "Bring your laugh; it is needed where you go next",
-  "The map you doubted is the right one",
-  "A small mistake today will save you next month",
-  "The pearl at the bottom is yours to find",
+  "Three pearls floated to the top just for you",
+  "A small kindness shared today travels far",
+  "Bubbles rise because they refuse to stay still",
+  "Slow sips make for long memories",
+  "The first bubble is always the bravest",
+  "Sweetness finds those who notice the small things",
+  "A kind word costs nothing and warms everything",
+  "The pearls at the bottom are the patient ones",
+  "Today carries small wonders worth a slow sip",
+  "Curiosity is the best companion for a Tuesday",
+  "A good cup is half drink, half pause",
+  "Every bubble holds a tiny bit of joy",
+  "Notice the warmth in your hands right now",
+  "The simple things often taste the best",
+  "A quiet smile makes the room a little brighter",
+  "Tea is patience you can drink",
+  "The bubbles know exactly when to rise",
+  "Small joys count just as much as big ones",
+  "A gentle pace wins more days than a fast one",
+  "The pearl you chase first is always the sweetest",
+  "Today is a fine day for a fresh start",
+  "Kindness shared at a cafe travels for miles",
+  "Take the moment slowly; it is yours",
+  "Every cup is a tiny new beginning",
+  "The best surprises are the ones you sip slowly",
+  "Joy hides in the smallest bubbles",
 ];
+
+// Defence-in-depth: even with a tight system prompt, a DeepSeek
+// completion could drift into territory we don't want on a cup.
+// Reject any line that contains a forbidden-topic word, looks like a
+// command, or makes a promise about a specific person / outcome. The
+// match is case-insensitive and word-boundary scoped so "soul" doesn't
+// false-positive on "soul-warming" (no such substrings in pool).
+const FORBIDDEN_WORDS = [
+  // mortality / health
+  "death", "die", "dies", "died", "dying", "dead", "kill", "kills",
+  "killed", "killing", "grave", "funeral", "mourn", "mourning",
+  "ill", "sick", "disease", "cancer", "hospital", "wound", "pain", "hurt",
+  // relationships / romance
+  "love", "loves", "loved", "loving", "romance", "lover", "romantic",
+  "kiss", "marry", "married", "marries", "marrying", "marriage",
+  "divorce", "ex", "miss you", "miss someone", "loved one", "loved ones",
+  // religion / spirits
+  "god", "gods", "jesus", "christ", "buddha", "allah", "soul",
+  "heaven", "hell", "devil", "demon", "spirit", "ghost",
+  "prayer", "pray", "prays", "praying", "prayed", "blessed", "blessing",
+  // money / status
+  "money", "debt", "rich", "poor", "wealth", "broke", "fortune of",
+  // negative / warnings
+  "beware", "warning", "danger", "avoid", "regret", "regrets",
+  "regretted", "regretting", "betray", "betrayed", "betraying",
+  "lie", "lies", "lying", "deceive", "deceived", "fail", "fails",
+  "failed", "failing", "failure", "loss", "lose", "loses", "losing",
+  // body / appearance / age
+  "weight", "fat", "skinny", "ugly", "old age", "wrinkle",
+  // politics
+  "government", "president", "election", "vote",
+  // mental health
+  "depression", "anxiety", "trauma", "addict", "addiction",
+] as const;
+
+// Lines that look like imperatives (start with a bare verb or a "Don't")
+// also get bounced — even kind-looking commands ("Just relax") can read
+// as targeting someone. We keep "Today is a fine day" / "The next sip"
+// style declaratives.
+const IMPERATIVE_STARTS = [
+  /^do(?:n['']t)?\s/i,
+  /^don['']t\s/i,
+  /^avoid\s/i,
+  /^beware\s/i,
+  /^stop\s/i,
+  /^never\s/i,
+  /^always\s/i,
+  /^must\s/i,
+];
+
+export function isSafeFortune(line: string): boolean {
+  const lower = line.toLowerCase();
+  for (const word of FORBIDDEN_WORDS) {
+    // Word-boundary match so "ill" doesn't fire on "skill" / "still".
+    const re = new RegExp(`\\b${word.replace(/\s+/g, "\\s+")}\\b`, "i");
+    if (re.test(lower)) return false;
+  }
+  for (const re of IMPERATIVE_STARTS) {
+    if (re.test(line.trim())) return false;
+  }
+  // Question detection. parseFortunes already strips trailing "?",
+  // so we have to recognise questions structurally — bare wh-word at
+  // the start of the line, or "is/are/can/will/should you" interrogative.
+  const trimmed = line.trim();
+  if (trimmed.endsWith("?")) return false;
+  if (/^(?:why|how|what|when|where|who|which|whose)\b/i.test(trimmed)) return false;
+  if (/^(?:is|are|can|will|should|would|could|do|does|did)\s+you\b/i.test(trimmed)) return false;
+  return true;
+}
 
 /**
  * Generate `count` short fortune-cookie sentences via DeepSeek, with
@@ -127,7 +215,9 @@ async function callDeepSeek(apiKey: string, count: number): Promise<string[]> {
 
 // Tolerant parser: strip leading "1.", "1)", "- ", "•", quotes, trailing
 // punctuation. Reject lines that are too short / too long to be a
-// fortune (model sometimes prefixes with "Here are 5 fortunes:" etc).
+// fortune (model sometimes prefixes with "Here are 5 fortunes:" etc),
+// and reject any line that fails the safety validator — those lines
+// get topped up from the curated fallback pool by the caller.
 function parseFortunes(raw: string): string[] {
   return raw
     .split(/\r?\n/)
@@ -142,7 +232,12 @@ function parseFortunes(raw: string): string[] {
     .filter((line) => {
       if (!line) return false;
       const words = line.split(/\s+/).length;
-      return words >= MIN_WORDS && words <= MAX_WORDS;
+      if (words < MIN_WORDS || words > MAX_WORDS) return false;
+      if (!isSafeFortune(line)) {
+        console.warn(`[fortune] rejected unsafe line: ${line}`);
+        return false;
+      }
+      return true;
     });
 }
 
@@ -166,4 +261,4 @@ function pickFromPool(count: number, exclude: string[] = []): string[] {
 
 // Exported for testing — the unit test wants to assert pool fallback
 // behaviour without mocking the entire DeepSeek API surface.
-export const __test__ = { parseFortunes, pickFromPool, FALLBACK_POOL };
+export const __test__ = { parseFortunes, pickFromPool, FALLBACK_POOL, isSafeFortune };
