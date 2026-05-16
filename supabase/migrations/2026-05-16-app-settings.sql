@@ -13,13 +13,16 @@ CREATE TABLE app_settings (
 
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
--- Read: public. Cart UI on the customer site reads effective ordering state
--- (the actual read happens server-side via service_role today, but a public
--- read policy keeps the door open if we ever fetch from the browser client).
-CREATE POLICY "app_settings_read_all"
+-- Read: public allowlist. Cart UI on the customer site reads effective ordering
+-- state (the actual read happens server-side via service_role today, but a
+-- public read policy keeps the door open if we ever fetch from the browser
+-- client). Public-readable keys allowlist: add new keys here only when you've
+-- confirmed they're safe to expose to anon. Server-side reads via service_role
+-- bypass RLS and work for any key regardless.
+CREATE POLICY "app_settings_read_public_keys"
   ON app_settings
   FOR SELECT
-  USING (true);
+  USING (key IN ('pos_backup_mode'));
 
 -- Write: service_role only. No INSERT/UPDATE/DELETE policy → denies anon
 -- and authenticated. Admin endpoint uses getSupabaseAdmin() which is
