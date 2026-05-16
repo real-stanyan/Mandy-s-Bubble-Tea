@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEffectiveOrderingStatus } from "@/lib/store-status";
+import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 
 export const dynamic = "force-dynamic";
 

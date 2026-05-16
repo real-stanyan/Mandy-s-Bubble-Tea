@@ -4,7 +4,7 @@ import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
-import { getEffectiveOrderingStatus } from "@/lib/store-status";
+import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";

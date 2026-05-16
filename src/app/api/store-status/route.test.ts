@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "./route";
 
-vi.mock("@/lib/store-status", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/store-status")>(
-    "@/lib/store-status",
+vi.mock("@/lib/store-status-server", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/store-status-server")>(
+    "@/lib/store-status-server",
   );
   return {
     ...actual,
@@ -11,7 +11,7 @@ vi.mock("@/lib/store-status", async () => {
   };
 });
 
-import { getEffectiveOrderingStatus } from "@/lib/store-status";
+import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 
 describe("GET /api/store-status", () => {
   beforeEach(() => {

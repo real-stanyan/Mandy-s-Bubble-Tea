@@ -2,25 +2,23 @@
 // Ported from the RN app (`components/home/helpers.ts`). Hours are
 // 10:30–22:30 every day with a 15-minute pre-close order cutoff (22:15).
 
-import { getSupabaseAdmin } from "@/lib/supabase-server";
-
 export type StoreStatus = { open: boolean; nextLabel: string };
 export type OrderingStatus = { open: boolean; nextLabel: string };
 
-const OPEN_MIN = 10 * 60 + 30;
-const CLOSE_MIN = 22 * 60 + 30;
-const ORDER_CUTOFF_MIN = 22 * 60 + 15;
+export const OPEN_MIN = 10 * 60 + 30;
+export const CLOSE_MIN = 22 * 60 + 30;
+export const ORDER_CUTOFF_MIN = 22 * 60 + 15;
 
-function brisbaneDate(date: Date): Date {
+export function brisbaneDate(date: Date): Date {
   return new Date(date.getTime() + 10 * 60 * 60 * 1000);
 }
 
-function brisbaneMinutes(now: Date): number {
+export function brisbaneMinutes(now: Date): number {
   const brisbane = brisbaneDate(now);
   return brisbane.getUTCHours() * 60 + brisbane.getUTCMinutes();
 }
 
-function formatClock(minsOfDay: number): string {
+export function formatClock(minsOfDay: number): string {
   const h24 = Math.floor(minsOfDay / 60);
   const m = minsOfDay % 60;
   const suffix = h24 < 12 || h24 === 24 ? "am" : "pm";
@@ -55,57 +53,6 @@ export function getOrderingStatus(now: Date = new Date()): OrderingStatus {
   const isOpen = minutes >= OPEN_MIN && minutes < ORDER_CUTOFF_MIN;
   if (isOpen) {
     return { open: true, nextLabel: `until ${formatClock(ORDER_CUTOFF_MIN)}` };
-  }
-  const beforeOpen = minutes < OPEN_MIN;
-  return {
-    open: false,
-    nextLabel: beforeOpen
-      ? `Opens ${formatClock(OPEN_MIN)}`
-      : `Opens ${formatClock(OPEN_MIN)} tomorrow`,
-  };
-}
-
-const POS_BACKUP_CACHE_TTL_MS = 60_000;
-let posBackupCache: { value: boolean; fetchedAt: number } | null = null;
-
-export function __resetPosBackupCacheForTests(): void {
-  posBackupCache = null;
-}
-
-async function readPosBackupMode(): Promise<boolean> {
-  const now = Date.now();
-  if (posBackupCache && now - posBackupCache.fetchedAt < POS_BACKUP_CACHE_TTL_MS) {
-    return posBackupCache.value;
-  }
-  try {
-    const { data, error } = await getSupabaseAdmin()
-      .from("app_settings")
-      .select("value")
-      .eq("key", "pos_backup_mode")
-      .maybeSingle();
-    if (error) throw error;
-    const value = data?.value === true;
-    posBackupCache = { value, fetchedAt: now };
-    return value;
-  } catch {
-    // Defensive: never let a Supabase outage close the store unexpectedly.
-    // Fall back to the conservative "with cutoff" default (false).
-    posBackupCache = { value: false, fetchedAt: now };
-    return false;
-  }
-}
-
-export async function getEffectiveOrderingStatus(
-  now: Date = new Date(),
-): Promise<OrderingStatus> {
-  const backup = await readPosBackupMode();
-  if (!backup) return getOrderingStatus(now);
-
-  // Backup mode: cutoff = physical close (22:30) instead of 22:15.
-  const minutes = brisbaneMinutes(now);
-  const isOpen = minutes >= OPEN_MIN && minutes < CLOSE_MIN;
-  if (isOpen) {
-    return { open: true, nextLabel: `until ${formatClock(CLOSE_MIN)}` };
   }
   const beforeOpen = minutes < OPEN_MIN;
   return {
