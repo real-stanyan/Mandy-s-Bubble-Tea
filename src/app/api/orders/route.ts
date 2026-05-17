@@ -4,7 +4,7 @@ import type { Currency } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
-import { getOrderingStatus } from "@/lib/store-status";
+import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
   // authoritative — clients place orders only when their cart UI says
   // open, but a stale tab / clock skew / direct API call could still
   // land here outside hours.
-  const ordering = getOrderingStatus(new Date());
+  const ordering = await getEffectiveOrderingStatus(new Date());
   if (!ordering.open) {
     return NextResponse.json(
       {

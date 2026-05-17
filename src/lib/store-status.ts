@@ -5,20 +5,20 @@
 export type StoreStatus = { open: boolean; nextLabel: string };
 export type OrderingStatus = { open: boolean; nextLabel: string };
 
-const OPEN_MIN = 10 * 60 + 30;
-const CLOSE_MIN = 22 * 60 + 30;
-const ORDER_CUTOFF_MIN = 22 * 60 + 15;
+export const OPEN_MIN = 10 * 60 + 30;
+export const CLOSE_MIN = 22 * 60 + 30;
+export const ORDER_CUTOFF_MIN = 22 * 60 + 15;
 
-function brisbaneDate(date: Date): Date {
+export function brisbaneDate(date: Date): Date {
   return new Date(date.getTime() + 10 * 60 * 60 * 1000);
 }
 
-function brisbaneMinutes(now: Date): number {
+export function brisbaneMinutes(now: Date): number {
   const brisbane = brisbaneDate(now);
   return brisbane.getUTCHours() * 60 + brisbane.getUTCMinutes();
 }
 
-function formatClock(minsOfDay: number): string {
+export function formatClock(minsOfDay: number): string {
   const h24 = Math.floor(minsOfDay / 60);
   const m = minsOfDay % 60;
   const suffix = h24 < 12 || h24 === 24 ? "am" : "pm";

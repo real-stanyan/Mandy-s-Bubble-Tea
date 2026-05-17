@@ -19,7 +19,7 @@ import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
-import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
+import type { OrderingStatus } from "@/lib/store-status";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { SignInCard } from "@/components/auth/SignInCard";
@@ -215,17 +215,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return () => clearInterval(id);
   }, []);
 
-  // Ordering window — same 60s cadence so the Place Order button flips
-  // at the 22:15 cutoff (or right after 10:30 open) without needing a
-  // page reload. Server gates the actual order in /api/orders.
-  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
-    getOrderingStatus(),
-  );
+  // Ordering window — poll /api/store-status every 30s so the Place Order
+  // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
+  // needing a page reload. Server gates the actual order in /api/orders.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus | null>(null);
   useEffect(() => {
-    const id = setInterval(() => setOrderingStatus(getOrderingStatus()), 60_000);
-    return () => clearInterval(id);
+    let cancelled = false;
+    async function pull() {
+      try {
+        const res = await fetch("/api/store-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as OrderingStatus;
+        if (!cancelled) setOrderingStatus(data);
+      } catch {
+        /* keep last-known good value */
+      }
+    }
+    pull();
+    const id = setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
-  const storeClosed = !orderingStatus.open;
+  const orderingKnown = orderingStatus !== null;
+  const orderingOpen = orderingStatus?.open === true;
+  // Pre-fetch: treat as open so we don't flash a "closed" state on first
+  // paint. The server gate is still authoritative.
+  const storeClosed = orderingKnown && !orderingOpen;
   const phSurchargeAmount = useMemo(
     () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
     [phActive, subtotal],
@@ -424,7 +441,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     // Defense in depth — button is already disabled when storeClosed,
     // but a stale render could still fire onSubmit. Server is authoritative.
     if (storeClosed) {
-      setError(`Orders closed · ${orderingStatus.nextLabel}`);
+      setError(`Orders closed · ${orderingStatus?.nextLabel ?? ""}`);
       return;
     }
 
@@ -1108,7 +1125,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             }
           >
             {storeClosed
-              ? `Orders closed · ${orderingStatus.nextLabel}`
+              ? `Orders closed · ${orderingStatus?.nextLabel ?? ""}`
               : submitting
                 ? "Processing…"
                 : isFreeRedeem
@@ -1195,7 +1212,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             }
           >
             {storeClosed
-              ? `Closed · ${orderingStatus.nextLabel}`
+              ? `Closed · ${orderingStatus?.nextLabel ?? ""}`
               : submitting
                 ? "Processing…"
                 : isFreeRedeem

@@ -16,7 +16,7 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { isPublicHolidayActive } from "@/lib/holiday";
-import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
+import type { OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
@@ -681,17 +681,34 @@ function CartFooter({
   const [error, setError] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<"apple" | "google" | null>(null);
 
-  // Ordering window — re-check every 60s so the button flips at the
-  // 22:15 cutoff while the drawer is open. Server is authoritative; this
-  // is display-only.
-  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus>(() =>
-    getOrderingStatus(),
-  );
+  // Ordering window — poll /api/store-status every 30s so the button flips
+  // at the 22:15 cutoff (or pos_backup_mode toggle) while the drawer is
+  // open. Server gate at /api/orders is authoritative; this is display-only.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus | null>(null);
   useEffect(() => {
-    const id = setInterval(() => setOrderingStatus(getOrderingStatus()), 60_000);
-    return () => clearInterval(id);
+    let cancelled = false;
+    async function pull() {
+      try {
+        const res = await fetch("/api/store-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as OrderingStatus;
+        if (!cancelled) setOrderingStatus(data);
+      } catch {
+        /* keep last-known good value */
+      }
+    }
+    pull();
+    const id = setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
-  const storeClosed = !orderingStatus.open;
+  const orderingKnown = orderingStatus !== null;
+  const orderingOpen = orderingStatus?.open === true;
+  // Pre-fetch: treat as open to avoid flashing a "closed" state on first
+  // paint. The server gate is still authoritative.
+  const storeClosed = orderingKnown && !orderingOpen;
 
   // Reward and welcome/IG display are mutually exclusive in the total math
   // (matches /checkout). Square still applies both at charge time — the
@@ -723,9 +740,10 @@ function CartFooter({
       setLastMethod(method);
 
       // Defense in depth: button is already disabled when storeClosed,
-      // but a stale render or race could still fire onClick.
-      if (!orderingStatus.open) {
-        setError(`Orders closed · ${orderingStatus.nextLabel}`);
+      // but a stale render or race could still fire onClick. Only block
+      // here once we have confirmed status from the server (orderingKnown).
+      if (orderingKnown && !orderingOpen) {
+        setError(`Orders closed · ${orderingStatus?.nextLabel ?? ""}`);
         return;
       }
 
@@ -886,7 +904,7 @@ function CartFooter({
       clear, closeDrawer, router, refresh,
       welcomeDiscount.available,
       igFollowDiscount.available,
-      orderingStatus.open, orderingStatus.nextLabel,
+      orderingKnown, orderingOpen, orderingStatus?.nextLabel,
     ],
   );
 
@@ -1019,7 +1037,7 @@ function CartFooter({
           disabled
           className="mt-5 w-full cursor-not-allowed rounded-xl bg-zinc-200 py-3.5 text-base font-semibold text-zinc-500"
         >
-          Orders closed · {orderingStatus.nextLabel}
+          Orders closed · {orderingStatus?.nextLabel ?? ""}
         </button>
       ) : (
         <>
