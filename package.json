@@ -10,8 +10,6 @@
     "postinstall": "patch-package",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:contract": "vitest run --config vitest.contract.config.ts; tsx scripts/patch-testbaseline.ts",
-    "test:contract:ci": "vitest run --config vitest.contract.config.ts",
     "wallet:assets": "tsx scripts/render-wallet-assets.ts"
   },
   "dependencies": {

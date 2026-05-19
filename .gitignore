@@ -45,5 +45,8 @@ yarn-error.log*
 next-env.d.ts
 .env.test
 
-# vitest contract test output
+# API contract tests — local only, never deploy
+/tests/api-contract/
+/vitest.contract.config.ts
+/scripts/patch-testbaseline.ts
 test-results-contract.json
