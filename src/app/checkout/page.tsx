@@ -22,6 +22,7 @@ import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
+import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
@@ -842,6 +843,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             </section>
           )}
+
+          {/* ── Cup Labels — per-cup gallery picker (web-only, gallery ship) ── */}
+          <CupLabelSection />
 
           {/* ── Your Details — signed-in summary + optional note ── */}
           <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">

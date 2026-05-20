@@ -32,6 +32,10 @@ type CartState = {
   isOpen: boolean;
   hydrated: boolean;
 
+  // Per-cup gallery-label selection. Key = cupKey (`${lineId}::${cupIdx}`,
+  // 0-indexed), value = gallery hash from public/cup-label/gallery/.
+  labelSelections: Record<string, string>;
+
   // Actions
   addLine: (line: Omit<CartLine, "id" | "quantity">, quantity?: number) => void;
   setQuantity: (lineId: string, quantity: number) => void;
@@ -39,7 +43,46 @@ type CartState = {
   clear: () => void;
   openDrawer: () => void;
   closeDrawer: () => void;
+  setLabel: (cupKey: string, galleryHash: string) => void;
+  clearLabel: (cupKey: string) => void;
 };
+
+/** Build the deterministic key for a single cup within a cart line. */
+export function cupKey(lineId: string, cupIdx: number): string {
+  return `${lineId}::${cupIdx}`;
+}
+
+/** Drop every selection belonging to a removed line. */
+function pruneSelectionsForLine(
+  selections: Record<string, string>,
+  lineId: string,
+): Record<string, string> {
+  const prefix = `${lineId}::`;
+  const next: Record<string, string> = {};
+  for (const [k, v] of Object.entries(selections)) {
+    if (!k.startsWith(prefix)) next[k] = v;
+  }
+  return next;
+}
+
+/** Drop selections for cup indices that no longer exist after a qty cut. */
+function pruneSelectionsAboveCup(
+  selections: Record<string, string>,
+  lineId: string,
+  maxQty: number,
+): Record<string, string> {
+  const prefix = `${lineId}::`;
+  const next: Record<string, string> = {};
+  for (const [k, v] of Object.entries(selections)) {
+    if (!k.startsWith(prefix)) {
+      next[k] = v;
+      continue;
+    }
+    const idx = Number(k.slice(prefix.length));
+    if (Number.isFinite(idx) && idx < maxQty) next[k] = v;
+  }
+  return next;
+}
 
 /** Compute a signature that groups line items with identical contents. */
 function signatureFor(
@@ -60,6 +103,7 @@ export const useCart = create<CartState>()(
       lines: [],
       isOpen: false,
       hydrated: false,
+      labelSelections: {},
 
       addLine: (partial, quantity = 1) => {
         const id = signatureFor(
@@ -87,23 +131,40 @@ export const useCart = create<CartState>()(
       setQuantity: (lineId, quantity) =>
         set((state) => {
           if (quantity <= 0) {
-            return { lines: state.lines.filter((l) => l.id !== lineId) };
+            const next = pruneSelectionsForLine(state.labelSelections, lineId);
+            return {
+              lines: state.lines.filter((l) => l.id !== lineId),
+              labelSelections: next,
+            };
           }
+          const next = pruneSelectionsAboveCup(state.labelSelections, lineId, quantity);
           return {
             lines: state.lines.map((l) =>
               l.id === lineId ? { ...l, quantity } : l,
             ),
+            labelSelections: next,
           };
         }),
 
       removeLine: (lineId) =>
         set((state) => ({
           lines: state.lines.filter((l) => l.id !== lineId),
+          labelSelections: pruneSelectionsForLine(state.labelSelections, lineId),
         })),
 
-      clear: () => set({ lines: [] }),
+      clear: () => set({ lines: [], labelSelections: {} }),
       openDrawer: () => set({ isOpen: true }),
       closeDrawer: () => set({ isOpen: false }),
+      setLabel: (key, galleryHash) =>
+        set((state) => ({
+          labelSelections: { ...state.labelSelections, [key]: galleryHash },
+        })),
+      clearLabel: (key) =>
+        set((state) => {
+          const next = { ...state.labelSelections };
+          delete next[key];
+          return { labelSelections: next };
+        }),
     }),
     {
       name: "mandy-cart",
@@ -125,7 +186,10 @@ export const useCart = create<CartState>()(
         },
       }),
       // Don't persist drawer open state — always start closed.
-      partialize: (state) => ({ lines: state.lines }),
+      partialize: (state) => ({
+        lines: state.lines,
+        labelSelections: state.labelSelections,
+      }),
       onRehydrateStorage: () => (state) => {
         if (state) state.hydrated = true;
       },
