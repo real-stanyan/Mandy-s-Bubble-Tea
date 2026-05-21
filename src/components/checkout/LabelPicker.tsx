@@ -13,11 +13,14 @@ import { BRAND } from "@/lib/constants";
 import { useCart, type CupLabelSelection } from "@/store/cart";
 import {
   uploadPhotoForCupLabel,
+  uploadDrawingForCupLabel,
   submitAiCupLabel,
   readFileAsDataUri,
   AI_PROMPT_MAX_LEN,
   CupLabelClientError,
 } from "@/lib/cup-label/client";
+import { DrawCanvas, BRUSHES, type BrushWidth } from "./cup-label/DrawCanvas";
+import type { SvgPath } from "@/lib/doodle/render-svg";
 
 type Manifest = { hashes: string[] };
 
@@ -34,18 +37,20 @@ type LabelPickerProps = {
   onSelect: (selection: CupLabelSelection) => void;
 };
 
-type Tab = "preset" | "photo" | "ai";
+type Tab = "preset" | "draw" | "ai" | "photo";
 
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: "preset", label: "🎨 Gallery" },
-  { key: "photo", label: "📷 Photo" },
+  { key: "draw", label: "✏️ Draw" },
   { key: "ai", label: "✨ AI" },
+  { key: "photo", label: "📷 Photo" },
 ];
 
 function initialTabFor(sel: CupLabelSelection | undefined): Tab {
   if (!sel) return "preset";
   if (sel.kind === "ai") return "ai";
   if (sel.kind === "photo") return "photo";
+  if (sel.kind === "draw") return "draw";
   return "preset";
 }
 
@@ -123,6 +128,15 @@ export function LabelPicker({
               current={current?.kind === "preset" ? current.hash : undefined}
               onSelect={(hash) => {
                 onSelect({ kind: "preset", hash });
+                onOpenChange(false);
+              }}
+            />
+          ) : tab === "draw" ? (
+            <DrawTab
+              isSignedIn={isSignedIn}
+              slotKey={slotKey}
+              onSelect={(sel) => {
+                onSelect(sel);
                 onOpenChange(false);
               }}
             />
@@ -460,6 +474,130 @@ function AiTab({
         style={{ backgroundColor: BRAND.primaryColor }}
       >
         Generate
+      </button>
+    </div>
+  );
+}
+
+function DrawTab({
+  isSignedIn,
+  slotKey,
+  onSelect,
+}: {
+  isSignedIn: boolean;
+  slotKey: string;
+  onSelect: (sel: Extract<CupLabelSelection, { kind: "draw" }>) => void;
+}) {
+  const [paths, setPaths] = useState<SvgPath[]>([]);
+  const [brush, setBrush] = useState<BrushWidth>(6);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isSignedIn) return <SignInGate label="Draw" />;
+
+  // Force a fresh canvas whenever the user picks a different cup —
+  // otherwise the prior cup's strokes bleed in via shared state.
+  // slotKey changes per cup, so reset on its change.
+  // (LabelPicker already remounts the tab body when `tab` flips, but
+  // not when slotKey changes within an open dialog — guard here.)
+  // Note: intentionally not pulling slotKey into state — using it as
+  // the React `key` on the canvas would force a remount on slot
+  // change. The LabelPicker reopens the dialog per cup so slotKey is
+  // stable for the lifetime of this component.
+
+  function handleUndo() {
+    if (paths.length === 0) return;
+    setPaths(paths.slice(0, -1));
+  }
+
+  function handleClear() {
+    setPaths([]);
+    setError(null);
+  }
+
+  async function handleUse() {
+    if (paths.length === 0 || busy) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const { userDoodleId } = await uploadDrawingForCupLabel(paths);
+      onSelect({ kind: "draw", userDoodleId, pathCount: paths.length });
+    } catch (err) {
+      const msg =
+        err instanceof CupLabelClientError
+          ? err.message
+          : "Upload failed — please try again.";
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const _slotKey = slotKey;
+  void _slotKey;
+
+  return (
+    <div className="flex flex-col gap-3 p-2">
+      <DrawCanvas paths={paths} brushWidth={brush} onPathsChange={setPaths} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500">Brush</span>
+          {BRUSHES.map((w) => {
+            const active = brush === w;
+            return (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setBrush(w)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border transition"
+                style={{
+                  borderColor: active ? BRAND.primaryColor : "#d4d4d8",
+                  borderWidth: active ? 2 : 1,
+                  backgroundColor: active ? "#fff" : "#fafafa",
+                }}
+                aria-pressed={active}
+                aria-label={`Brush size ${w}`}
+              >
+                <span
+                  className="inline-block rounded-full bg-black"
+                  style={{ width: w, height: w }}
+                />
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={paths.length === 0 || busy}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={paths.length === 0 || busy}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={handleUse}
+        disabled={paths.length === 0 || busy}
+        className="self-end rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        style={{ backgroundColor: BRAND.primaryColor }}
+      >
+        {busy ? "Saving…" : "Use this drawing"}
       </button>
     </div>
   );

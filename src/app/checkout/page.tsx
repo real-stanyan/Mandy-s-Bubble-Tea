@@ -224,13 +224,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   //      want the user to actually print their AI image, so block Pay
   //      until the real uuid lands on the cart.
   const cupLabelGate = useMemo<
-    "ready" | "no-selection" | "ai-pending"
+    "ready" | "no-selection" | "ai-pending" | "draw-pending"
   >(() => {
     for (const line of lines) {
       for (let i = 0; i < line.quantity; i++) {
         const sel = labelSelections[cupKey(line.id, i)];
         if (!sel) return "no-selection";
         if (sel.kind === "ai" && sel.aiDoodleId === null) return "ai-pending";
+        if (sel.kind === "draw" && sel.userDoodleId === null) return "draw-pending";
       }
     }
     return "ready";
@@ -618,7 +619,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       //    two parallel maps /api/payment accepts. Empty buckets become
       //    `undefined` so the route validator skips them and server enqueue
       //    falls back to hash-default for slots without an explicit choice.
-      const { presetStickerHashes, aiDoodleIds } =
+      const { presetStickerHashes, aiDoodleIds, doodleIds } =
         buildPaymentSelections(labelSelections);
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
@@ -629,6 +630,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           verificationToken,
           presetStickerHashes,
           aiDoodleIds,
+          doodleIds,
         }),
       });
       const paymentJson = await paymentRes.json();
@@ -1172,7 +1174,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               : submitting
                 ? "Processing…"
                 : !allCupsLabeled
-                  ? (cupLabelGate === "ai-pending" ? "Waiting for AI image…" : "Preparing labels…")
+                  ? (cupLabelGate === "ai-pending"
+                      ? "Waiting for AI image…"
+                      : cupLabelGate === "draw-pending"
+                        ? "Saving your drawing…"
+                        : "Preparing labels…")
                   : isFreeRedeem
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
@@ -1262,7 +1268,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               : submitting
                 ? "Processing…"
                 : !allCupsLabeled
-                  ? (cupLabelGate === "ai-pending" ? "Waiting for AI image…" : "Preparing labels…")
+                  ? (cupLabelGate === "ai-pending"
+                      ? "Waiting for AI image…"
+                      : cupLabelGate === "draw-pending"
+                        ? "Saving your drawing…"
+                        : "Preparing labels…")
                   : isFreeRedeem
                     ? "Redeem Free Drink"
                     : payMethod === "apple"

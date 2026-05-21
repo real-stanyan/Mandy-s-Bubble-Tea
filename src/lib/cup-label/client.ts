@@ -89,6 +89,35 @@ export interface AiSubmitResult {
   reused: boolean;
 }
 
+export interface UploadDrawingResult {
+  userDoodleId: string;
+}
+
+export async function uploadDrawingForCupLabel(
+  paths: Array<{ d: string; stroke: string; width: number }>,
+): Promise<UploadDrawingResult> {
+  if (paths.length === 0) {
+    throw new CupLabelClientError("Drawing is empty");
+  }
+  const res = await fetch("/api/doodle/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    doodleId?: string;
+    error?: string;
+  };
+  if (!res.ok || !body.ok || !body.doodleId) {
+    throw new CupLabelClientError(
+      body.error ?? `Drawing upload failed (${res.status})`,
+      res.status,
+    );
+  }
+  return { userDoodleId: body.doodleId };
+}
+
 export async function submitAiCupLabel(args: AiSubmitArgs): Promise<AiSubmitResult> {
   const prompt = args.prompt.trim();
   if (prompt.length === 0) {

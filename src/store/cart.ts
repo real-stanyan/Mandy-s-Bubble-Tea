@@ -34,6 +34,10 @@ export type CartLine = {
 export type CupLabelSelection =
   | { kind: "preset"; hash: string }
   | { kind: "photo"; uploadedDoodleId: string; previewUrl: string }
+  // userDoodleId is null while the synchronous /api/doodle/upload call
+  // is in flight. The Pay gate refuses pending draw slots so the user
+  // can't ship a cup with an un-uploaded drawing.
+  | { kind: "draw"; userDoodleId: string | null; pathCount: number }
   // aiDoodleId is null while the background submission to
   // /api/cup-label/ai-submit is in flight — committing the selection
   // optimistically lets the user close the dialog and keep going
