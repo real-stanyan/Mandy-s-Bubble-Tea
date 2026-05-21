@@ -9,7 +9,6 @@ import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store
 import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
-import { generateFortunes } from "./fortune";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -66,10 +65,10 @@ export type EnqueueCupLabelArgs = {
    * "web" (default): web/app checkout — honor doodleIds / aiDoodleIds /
    * doodleDefaults, fall back to hash-based POOL preset.
    * "pos": in-store Square POS order coming in via the webhook — there's
-   * no app-side doodle choice. Every cup gets a unique fortune-cookie
-   * sentence in place of the doodle, generated server-side via DeepSeek
-   * with a hand-curated fallback pool when the upstream is unreachable.
-   * See `lib/cup-label/fortune.ts`.
+   * no app-side doodle choice. Each cup gets a random sticker pulled
+   * from `public/cup-label/gallery/`. The pool is read once per order
+   * and shuffled (Fisher-Yates) so a single POS ticket won't repeat
+   * back-to-back unless cup count > gallery size.
    */
   mode?: "web" | "pos";
 };
@@ -129,20 +128,26 @@ export async function enqueueCupLabelJobs({
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
 
-  // POS path: pre-fetch one fortune per cup before the per-line loop
-  // so we make a single DeepSeek call for the whole order (5-cup POS
-  // ticket = 1 round-trip, not 5). Fortunes are then consumed in
-  // cup-emission order. generateFortunes() always returns exactly N
-  // strings — falls back to its hand-curated pool on any failure.
-  let fortunes: string[] = [];
-  let fortuneCursor = 0;
+  // POS path: pre-scan the gallery dir once, shuffle, then consume one
+  // hash per cup so a single POS ticket doesn't repeat the same sticker
+  // back-to-back (the gallery has ~80 entries, so the chance of an
+  // *order-wide* repeat is near zero for typical 1-5 cup tickets).
+  // Read-once amortizes the directory listing across the whole order.
+  let posStickerHashes: string[] = [];
+  let posStickerCursor = 0;
   if (mode === "pos") {
-    const totalCups = lineItems.reduce((sum, line) => {
-      const q = Number(line.quantity ?? "1");
-      return sum + (Number.isFinite(q) ? Math.max(0, Math.floor(q)) : 0);
-    }, 0);
-    if (totalCups > 0) {
-      fortunes = await generateFortunes(totalCups);
+    try {
+      const entries = await fs.readdir(GALLERY_DIR, { withFileTypes: true });
+      const candidates = entries
+        .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
+        .map((e) => e.name);
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      posStickerHashes = candidates;
+    } catch (e) {
+      console.error("[cup-label] POS gallery scan failed (falling back to hash default per cup)", e);
     }
   }
 
@@ -229,7 +234,6 @@ export async function enqueueCupLabelJobs({
 
       let doodleSvg: string;
       let doodlePngBuffer: Buffer | undefined;
-      let fortuneText: string | undefined;
       let source: "user" | "default" | "ai" | "fortune" | "preset_sticker" = "default";
       let poolKey: string | null = null;
       let userPaths: SvgPath[] | null = null;
@@ -251,12 +255,36 @@ export async function enqueueCupLabelJobs({
       };
 
       // POS mode short-circuits the whole doodle resolution chain —
-      // there's no app, no user choice, no preset. Each cup gets the
-      // next fortune off the pre-fetched batch.
+      // there's no app, no user choice. Each cup gets the next gallery
+      // sticker off the pre-shuffled batch. Falls back to the hash-default
+      // POOL preset if the gallery directory is unreadable or empty.
       if (mode === "pos") {
-        fortuneText = fortunes[fortuneCursor++] ?? "Today is your lucky day";
-        source = "fortune";
-        doodleSvg = "";
+        const hash =
+          posStickerHashes.length > 0
+            ? posStickerHashes[posStickerCursor++ % posStickerHashes.length]
+            : null;
+        if (hash) {
+          try {
+            const filePath = path.join(GALLERY_DIR, hash, "binarized.png");
+            doodlePngBuffer = await fs.readFile(filePath);
+            source = "preset_sticker";
+            poolKey = hash;
+            originalImagePath = `cup-label/gallery/${hash}/binarized.png`;
+            doodleSvg = "";
+          } catch (e) {
+            console.error(
+              "[cup-label] POS sticker load failed, falling back to hash default",
+              { hash, error: e instanceof Error ? e.message : e },
+            );
+            const pool = pickPool();
+            doodleSvg = pool.svg;
+            poolKey = pool.key;
+          }
+        } else {
+          const pool = pickPool();
+          doodleSvg = pool.svg;
+          poolKey = pool.key;
+        }
       } else if (presetStickerHash) {
         // Static gallery sticker — committed PNG under public/cup-label/gallery.
         // Read the pre-binarized (1-bit Atkinson-dithered) variant directly so
@@ -348,7 +376,6 @@ export async function enqueueCupLabelJobs({
         modifiersText,
         doodleSvg,
         doodlePngBuffer,
-        fortuneText,
         customerFirstName: customerFirstName ?? null,
       });
 
