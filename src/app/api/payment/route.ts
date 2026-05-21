@@ -203,7 +203,10 @@ export async function POST(request: Request) {
       // conflict.
       const hasUserDoodleChoice =
         (body.doodleIds && Object.keys(body.doodleIds).length > 0) ||
-        (body.doodleDefaults && Object.keys(body.doodleDefaults).length > 0);
+        (body.doodleDefaults && Object.keys(body.doodleDefaults).length > 0) ||
+        (body.presetStickerHashes &&
+          Object.keys(body.presetStickerHashes).length > 0) ||
+        (body.aiDoodleIds && Object.keys(body.aiDoodleIds).length > 0);
       if (paymentStatus === "COMPLETED" && hasUserDoodleChoice) {
         try {
           const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
