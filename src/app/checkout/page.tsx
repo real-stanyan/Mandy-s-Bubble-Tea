@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCart,
+  cupKey,
   lineTotal,
   lineUnitPrice,
   cartSubtotal,
@@ -208,6 +209,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // Platform Fee mirrors the SUBTOTAL_PHASE service charge attached in
   // /api/orders: 0.5% of the pre-discount subtotal.
   const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
+
+  // Every cup must have a label selection (preset / photo / ai) before
+  // the user can pay. CupLabelSection's auto-random useEffect fills
+  // empty slots once the gallery manifest finishes loading — typically
+  // sub-second — but a rapid pay-click during that window would
+  // otherwise ship the order with no presetStickerHashes and the
+  // server would silently fall back to the small POOL default
+  // (boba_eyes / bunny / etc), bypassing the 78-sticker gallery and
+  // never surfacing in admin /cup-doodles. Gate Pay so the bug can't
+  // recur.
+  const allCupsLabeled = useMemo(() => {
+    for (const line of lines) {
+      for (let i = 0; i < line.quantity; i++) {
+        if (!labelSelections[cupKey(line.id, i)]) return false;
+      }
+    }
+    return true;
+  }, [lines, labelSelections]);
 
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting on the checkout page across the Christmas
@@ -1126,6 +1145,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             disabled={
               submitting ||
               storeClosed ||
+              !allCupsLabeled ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1142,15 +1162,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               ? `Orders closed · ${orderingStatus?.nextLabel ?? ""}`
               : submitting
                 ? "Processing…"
-                : isFreeRedeem
-                  ? "Redeem Free Drink"
-                  : payMethod === "apple"
-                    ? "Pay with Apple Pay"
-                    : payMethod === "google"
-                      ? "Pay with Google Pay"
-                      : cardReady
-                        ? "Place Order"
-                        : "Loading payment…"}
+                : !allCupsLabeled
+                  ? "Preparing labels…"
+                  : isFreeRedeem
+                    ? "Redeem Free Drink"
+                    : payMethod === "apple"
+                      ? "Pay with Apple Pay"
+                      : payMethod === "google"
+                        ? "Pay with Google Pay"
+                        : cardReady
+                          ? "Place Order"
+                          : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
@@ -1203,6 +1225,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             disabled={
               submitting ||
               storeClosed ||
+              !allCupsLabeled ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1229,15 +1252,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               ? `Closed · ${orderingStatus?.nextLabel ?? ""}`
               : submitting
                 ? "Processing…"
-                : isFreeRedeem
-                  ? "Redeem Free Drink"
-                  : payMethod === "apple"
-                    ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-                    : payMethod === "google"
-                      ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-                      : cardReady
-                        ? <><CardIcon /> Place Order</>
-                        : "Loading…"}
+                : !allCupsLabeled
+                  ? "Preparing labels…"
+                  : isFreeRedeem
+                    ? "Redeem Free Drink"
+                    : payMethod === "apple"
+                      ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                      : payMethod === "google"
+                        ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                        : cardReady
+                          ? <><CardIcon /> Place Order</>
+                          : "Loading…"}
           </button>
         </div>
       </div>
