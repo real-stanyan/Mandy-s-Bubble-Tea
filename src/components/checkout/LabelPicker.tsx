@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { BRAND } from "@/lib/constants";
 import type { CupLabelSelection } from "@/store/cart";
+import { uploadPhotoForCupLabel, CupLabelClientError } from "@/lib/cup-label/client";
 
 type Manifest = { hashes: string[] };
 
@@ -63,8 +64,22 @@ export function LabelPicker({
 }: LabelPickerProps) {
   const [tab, setTab] = useState<Tab>(() => initialTabFor(current));
 
+  // Photo tab state — hoisted from PhotoTab so the staged upload survives
+  // tab switches while the Dialog is open. Reset whenever the Picker
+  // reopens or the cup we're picking for changes.
+  const [photoStaged, setPhotoStaged] = useState<
+    Extract<CupLabelSelection, { kind: "photo" }> | null
+  >(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (open) setTab(initialTabFor(current));
+    if (open) {
+      setTab(initialTabFor(current));
+      setPhotoStaged(current?.kind === "photo" ? current : null);
+      setPhotoError(null);
+      setPhotoBusy(false);
+    }
   }, [open, current]);
 
   return (
@@ -106,7 +121,19 @@ export function LabelPicker({
               }}
             />
           ) : tab === "photo" ? (
-            <PhotoTabPlaceholder isSignedIn={isSignedIn} />
+            <PhotoTab
+              isSignedIn={isSignedIn}
+              staged={photoStaged}
+              setStaged={setPhotoStaged}
+              busy={photoBusy}
+              setBusy={setPhotoBusy}
+              error={photoError}
+              setError={setPhotoError}
+              onSelect={(sel) => {
+                onSelect(sel);
+                onOpenChange(false);
+              }}
+            />
           ) : (
             <AiTabPlaceholder isSignedIn={isSignedIn} />
           )}
@@ -173,9 +200,90 @@ function GalleryTab({
   );
 }
 
-function PhotoTabPlaceholder({ isSignedIn }: { isSignedIn: boolean }) {
+function PhotoTab({
+  isSignedIn,
+  staged,
+  setStaged,
+  busy,
+  setBusy,
+  error,
+  setError,
+  onSelect,
+}: {
+  isSignedIn: boolean;
+  staged: Extract<CupLabelSelection, { kind: "photo" }> | null;
+  setStaged: (sel: Extract<CupLabelSelection, { kind: "photo" }> | null) => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  error: string | null;
+  setError: (error: string | null) => void;
+  onSelect: (sel: Extract<CupLabelSelection, { kind: "photo" }>) => void;
+}) {
   if (!isSignedIn) return <SignInGate label="Photo" />;
-  return <p className="text-sm text-zinc-500">Photo upload coming next.</p>;
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const { uploadedDoodleId, previewUrl } = await uploadPhotoForCupLabel(file);
+      setStaged({ kind: "photo", uploadedDoodleId, previewUrl });
+    } catch (err) {
+      const msg =
+        err instanceof CupLabelClientError
+          ? err.message
+          : "Upload failed — please try again.";
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-4 p-2">
+      {staged ? (
+        <Image
+          src={staged.previewUrl}
+          alt="Your uploaded photo (binarised preview)"
+          width={400}
+          height={400}
+          unoptimized
+          className="h-64 w-64 rounded-md border border-zinc-200 object-contain"
+        />
+      ) : (
+        <div className="flex h-64 w-64 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500">
+          No photo selected
+        </div>
+      )}
+
+      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium">
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFile}
+          disabled={busy}
+          className="hidden"
+        />
+        {busy ? "Uploading…" : staged ? "Choose different photo" : "Choose a photo"}
+      </label>
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      {staged ? (
+        <button
+          type="button"
+          onClick={() => onSelect(staged)}
+          className="rounded-md px-4 py-2 text-sm font-medium text-white"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        >
+          Use this photo
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function AiTabPlaceholder({ isSignedIn }: { isSignedIn: boolean }) {
