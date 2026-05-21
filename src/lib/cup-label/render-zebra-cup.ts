@@ -33,6 +33,12 @@ const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
 const TOP_STICKER_Y = 22;
 const TOP_DRINK_Y = 80;
+// Char cap for the right-column drink name. ZPL A0 font 32 in the
+// TOP_RIGHT_WIDTH (320 dots) field block reliably renders ~18 chars
+// before ^FB wraps; we pad slightly under that and add an ellipsis for
+// over-length names so ZD410 never paints a runaway second line over
+// the sticker number.
+const TOP_DRINK_MAX_CHARS = 20;
 // Doodle fills the label width edge-to-edge. ZPL ^GFA requires the raster
 // width to be a multiple of 8 dots (byte-row alignment), but the 590-dot
 // label width is not. We choose 592 (8×74) — 2 dots wider than the
@@ -193,9 +199,18 @@ function buildZpl(args: {
   parts.push(
     `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
   );
-  // Right column line 2: drink name (single-line, right-aligned, truncated)
+  // Right column line 2: drink name (single-line, right-aligned, truncated).
+  // ZPL ^FB with maxLines=1 doesn't reliably clip long content on ZD410 —
+  // the wrapped overflow visibly overlays the sticker number row above.
+  // Truncate upstream of ZPL so the field block always fits 320 dots at
+  // font 32 (~18 chars dependable). Names beyond TOP_DRINK_MAX_CHARS get
+  // an ellipsis. Examples: "Brown Sugar Milk Tea Frappe" → "Brown Sugar Milk Tea…".
+  const truncatedDrink =
+    args.drinkName.length > TOP_DRINK_MAX_CHARS
+      ? args.drinkName.slice(0, TOP_DRINK_MAX_CHARS) + "…"
+      : args.drinkName;
   parts.push(
-    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,32,32^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.drinkName)}^FS`,
+    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,32,32^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(truncatedDrink)}^FS`,
   );
 
   // Middle band: either a fortune-cookie sentence (POS / in-store path)

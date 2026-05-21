@@ -29,13 +29,27 @@ describe("Zebra cup-label compositor", () => {
     const out = await renderCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
-      drinkName: "Caret^Tilde~Slash\\Drink",
+      // Keep input under TOP_DRINK_MAX_CHARS (20) so the escape behavior
+      // is tested in isolation from the drink-name truncation guard.
+      drinkName: "A^B~C\\Drink",
       modifiersText: "",
       doodleSvg: POOL[0].svg,
     });
     // Raw ^ ~ \ would break ZPL parsing on the printer; verify replaced.
-    expect(out.zpl).not.toContain("Caret^Tilde");
-    expect(out.zpl).toContain("Caret-Tilde-Slash/Drink");
+    expect(out.zpl).not.toContain("A^B~C");
+    expect(out.zpl).toContain("A-B-C/Drink");
+  });
+
+  it("truncates long drink names with an ellipsis (ZD410 single-line guard)", async () => {
+    const out = await renderCupLabel({
+      stickerNumber: "OL000",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Brown Sugar Milk Tea Frappe", // 27 chars
+      modifiersText: "",
+      doodleSvg: POOL[0].svg,
+    });
+    expect(out.zpl).toContain("Brown Sugar Milk Tea…");
+    expect(out.zpl).not.toContain("Brown Sugar Milk Tea Frappe");
   });
 
   it("produces a preview PNG of the right pixel size", async () => {
