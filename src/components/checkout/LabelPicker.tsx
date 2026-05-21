@@ -430,16 +430,31 @@ function AiTab({
         {prompt.length}/{AI_PROMPT_MAX_LEN}
       </p>
 
-      <label className="flex cursor-pointer items-center gap-2 self-start rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium">
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleRefFile}
-          disabled={busy}
-          className="hidden"
-        />
-        {refDataUri ? "Reference image attached" : "Add a reference image (optional)"}
-      </label>
+      <div className="flex items-center gap-2 self-start">
+        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-zinc-50">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleRefFile}
+            disabled={busy}
+            className="hidden"
+          />
+          📎 {refDataUri ? "Change reference image" : "Add a reference image (optional)"}
+        </label>
+        {refDataUri ? (
+          <>
+            <span className="text-xs text-emerald-600">✓ attached</span>
+            <button
+              type="button"
+              onClick={() => setRefDataUri(null)}
+              disabled={busy}
+              className="text-xs text-zinc-500 underline hover:text-red-600"
+            >
+              Remove
+            </button>
+          </>
+        ) : null}
+      </div>
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
