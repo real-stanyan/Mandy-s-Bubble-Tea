@@ -210,23 +210,32 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // /api/orders: 0.5% of the pre-discount subtotal.
   const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
 
-  // Every cup must have a label selection (preset / photo / ai) before
-  // the user can pay. CupLabelSection's auto-random useEffect fills
-  // empty slots once the gallery manifest finishes loading — typically
-  // sub-second — but a rapid pay-click during that window would
-  // otherwise ship the order with no presetStickerHashes and the
-  // server would silently fall back to the small POOL default
-  // (boba_eyes / bunny / etc), bypassing the 78-sticker gallery and
-  // never surfacing in admin /cup-doodles. Gate Pay so the bug can't
-  // recur.
-  const allCupsLabeled = useMemo(() => {
+  // Every cup must have a *resolved* label selection before the user
+  // can pay. Two failure modes this guards against:
+  //   1. Empty slot — auto-random useEffect hasn't filled it yet
+  //      (manifest still loading). Without the gate, a rapid pay-click
+  //      ships no presetStickerHashes / aiDoodleIds and the server
+  //      silently falls back to the small POOL default (boba_eyes
+  //      etc), bypassing the 78-sticker gallery.
+  //   2. AI submission in flight — `{ kind:"ai", aiDoodleId:null }` is
+  //      the optimistic-close marker before the background
+  //      submitAiCupLabel resolves. buildPaymentSelections skips null
+  //      aiDoodleId so the server again falls back to default. We
+  //      want the user to actually print their AI image, so block Pay
+  //      until the real uuid lands on the cart.
+  const cupLabelGate = useMemo<
+    "ready" | "no-selection" | "ai-pending"
+  >(() => {
     for (const line of lines) {
       for (let i = 0; i < line.quantity; i++) {
-        if (!labelSelections[cupKey(line.id, i)]) return false;
+        const sel = labelSelections[cupKey(line.id, i)];
+        if (!sel) return "no-selection";
+        if (sel.kind === "ai" && sel.aiDoodleId === null) return "ai-pending";
       }
     }
-    return true;
+    return "ready";
   }, [lines, labelSelections]);
+  const allCupsLabeled = cupLabelGate === "ready";
 
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting on the checkout page across the Christmas
@@ -1163,7 +1172,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               : submitting
                 ? "Processing…"
                 : !allCupsLabeled
-                  ? "Preparing labels…"
+                  ? (cupLabelGate === "ai-pending" ? "Waiting for AI image…" : "Preparing labels…")
                   : isFreeRedeem
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
@@ -1253,7 +1262,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               : submitting
                 ? "Processing…"
                 : !allCupsLabeled
-                  ? "Preparing labels…"
+                  ? (cupLabelGate === "ai-pending" ? "Waiting for AI image…" : "Preparing labels…")
                   : isFreeRedeem
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
