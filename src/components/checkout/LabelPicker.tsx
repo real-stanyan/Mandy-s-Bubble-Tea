@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Dialog,
@@ -11,7 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { BRAND } from "@/lib/constants";
 import type { CupLabelSelection } from "@/store/cart";
-import { uploadPhotoForCupLabel, CupLabelClientError } from "@/lib/cup-label/client";
+import {
+  uploadPhotoForCupLabel,
+  submitAiCupLabel,
+  readFileAsDataUri,
+  AI_PROMPT_MAX_LEN,
+  CupLabelClientError,
+} from "@/lib/cup-label/client";
 
 type Manifest = { hashes: string[] };
 
@@ -56,8 +62,8 @@ async function loadManifest(): Promise<Manifest> {
 export function LabelPicker({
   open,
   onOpenChange,
-  slotKey: _slotKey,
-  cartSessionId: _cartSessionId,
+  slotKey,
+  cartSessionId,
   isSignedIn,
   current,
   onSelect,
@@ -135,7 +141,16 @@ export function LabelPicker({
               }}
             />
           ) : (
-            <AiTabPlaceholder isSignedIn={isSignedIn} />
+            <AiTab
+              isSignedIn={isSignedIn}
+              slotKey={slotKey}
+              cartSessionId={cartSessionId}
+              current={current?.kind === "ai" ? current : undefined}
+              onSelect={(sel) => {
+                onSelect(sel);
+                onOpenChange(false);
+              }}
+            />
           )}
         </div>
       </DialogContent>
@@ -286,9 +301,159 @@ function PhotoTab({
   );
 }
 
-function AiTabPlaceholder({ isSignedIn }: { isSignedIn: boolean }) {
+function AiTab({
+  isSignedIn,
+  slotKey,
+  cartSessionId,
+  current,
+  onSelect,
+}: {
+  isSignedIn: boolean;
+  slotKey: string;
+  cartSessionId: string;
+  current: Extract<CupLabelSelection, { kind: "ai" }> | undefined;
+  onSelect: (sel: Extract<CupLabelSelection, { kind: "ai" }>) => void;
+}) {
+  const [prompt, setPrompt] = useState(current?.prompt ?? "");
+  const [refDataUri, setRefDataUri] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState<Extract<
+    CupLabelSelection,
+    { kind: "ai" }
+  > | null>(current ?? null);
+  const isMountedRef = useRef(true);
+  useEffect(() => () => { isMountedRef.current = false; }, []);
+
   if (!isSignedIn) return <SignInGate label="AI" />;
-  return <p className="text-sm text-zinc-500">AI generation coming next.</p>;
+
+  const trimmed = prompt.trim();
+  // overLimit gates on raw length so the counter goes red as soon as the
+  // user crosses 200 chars (matches what the textarea actually contains).
+  // canSubmit additionally requires non-empty trimmed content.
+  const overLimit = prompt.length > AI_PROMPT_MAX_LEN;
+  const canSubmit = !busy && trimmed.length > 0 && !overLimit;
+
+  async function handleRefFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Reference image too large (max 8 MB)");
+      return;
+    }
+    setError(null);
+    try {
+      const dataUri = await readFileAsDataUri(file);
+      setRefDataUri(dataUri);
+    } catch {
+      setError("Could not read reference image");
+    }
+  }
+
+  async function handleGenerate() {
+    if (!canSubmit) return;
+    // Idempotent server returns the same aiDoodleId for an unchanged
+    // (user, slotKey) — but we still pay the round-trip. When the user
+    // hits Generate without changing the prompt or attaching a fresh
+    // reference image, just re-emit the existing selection.
+    if (current && trimmed === current.prompt && !refDataUri) {
+      onSelect(current);
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const { aiDoodleId } = await submitAiCupLabel({
+        slotKey,
+        prompt: trimmed,
+        sourceImageBase64: refDataUri ?? undefined,
+        cartSessionId,
+      });
+      if (!isMountedRef.current) return;
+      const sel = { kind: "ai" as const, aiDoodleId, prompt: trimmed };
+      setSubmitted(sel);
+      onSelect(sel);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      const msg =
+        err instanceof CupLabelClientError
+          ? err.message
+          : "AI submit failed — please try again.";
+      setError(msg);
+    } finally {
+      if (isMountedRef.current) setBusy(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col items-center gap-3 p-4 text-center">
+        <p className="text-3xl">✨</p>
+        <p className="text-sm font-medium">Submitted!</p>
+        <p className="max-w-md text-sm text-zinc-600">
+          Your AI image will be a surprise on your cup — we won&apos;t show you a
+          preview here. Prompt: <em>{submitted.prompt}</em>
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setSubmitted(null);
+            setPrompt(submitted.prompt);
+          }}
+          className="text-sm text-zinc-500 underline"
+        >
+          Change prompt
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-2">
+      <label className="text-sm font-medium">
+        Describe your design
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          maxLength={AI_PROMPT_MAX_LEN + 50}
+          rows={3}
+          placeholder="e.g. two cats reading on a moon, line drawing"
+          className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm"
+          disabled={busy}
+        />
+      </label>
+      <p
+        className="text-xs"
+        style={{ color: overLimit ? "#dc2626" : "#71717a" }}
+      >
+        {prompt.length}/{AI_PROMPT_MAX_LEN}
+      </p>
+
+      <label className="flex cursor-pointer items-center gap-2 self-start rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium">
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleRefFile}
+          disabled={busy}
+          className="hidden"
+        />
+        {refDataUri ? "Reference image attached" : "Add a reference image (optional)"}
+      </label>
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={!canSubmit}
+        className="self-end rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        style={{ backgroundColor: BRAND.primaryColor }}
+      >
+        {busy ? "Submitting…" : "Generate"}
+      </button>
+    </div>
+  );
 }
 
 function SignInGate({ label }: { label: string }) {
