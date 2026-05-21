@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { useCart, cupKey, type CartLine } from "@/store/cart";
+import { useCart, cupKey, type CartLine, type CupLabelSelection } from "@/store/cart";
 import { BRAND } from "@/lib/constants";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { LabelPicker } from "./LabelPicker";
 
 type GalleryManifest = { hashes: string[] };
@@ -51,6 +52,9 @@ export function CupLabelSection() {
   const lines = useCart((s) => s.lines);
   const labelSelections = useCart((s) => s.labelSelections);
   const setLabel = useCart((s) => s.setLabel);
+  const cartSessionId = useCart((s) => s.cartSessionId);
+  const { profile } = useAuth();
+  const isSignedIn = profile != null;
 
   const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
   const [manifest, setManifest] = useState<GalleryManifest | null>(manifestCache);
@@ -77,7 +81,7 @@ export function CupLabelSection() {
         // Only fill when no user selection yet (also covers persisted picks
         // hydrated from localStorage on reload).
         if (!labelSelections[key]) {
-          setLabel(key, pickRandomHash(manifest.hashes));
+          setLabel(key, { kind: "preset", hash: pickRandomHash(manifest.hashes) });
         }
       }
     }
@@ -103,7 +107,8 @@ export function CupLabelSection() {
         <ul className="space-y-2">
           {cups.map((cup) => {
             const key = cupKey(cup.lineId, cup.cupIdx);
-            const hash = labelSelections[key];
+            const sel: CupLabelSelection | undefined = labelSelections[key];
+            const hash = sel?.kind === "preset" ? sel.hash : undefined;
             return (
               <li
                 key={key}
@@ -155,9 +160,12 @@ export function CupLabelSection() {
         onOpenChange={(open) => {
           if (!open) setPickerCupKey(null);
         }}
+        slotKey={pickerCupKey ?? ""}
+        cartSessionId={cartSessionId}
+        isSignedIn={isSignedIn}
         current={pickerCupKey ? labelSelections[pickerCupKey] : undefined}
-        onSelect={(hash) => {
-          if (pickerCupKey) setLabel(pickerCupKey, hash);
+        onSelect={(selection) => {
+          if (pickerCupKey) setLabel(pickerCupKey, selection);
         }}
       />
     </>
