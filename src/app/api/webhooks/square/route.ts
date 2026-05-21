@@ -224,14 +224,15 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     // fortune-mode for true in-store POS orders so we don't race the
     // app's payment route and overwrite a logged-in user's doodle
     // choice with a fortune. Square sets `order.source.name` to
-    // "Square Point of Sale" / "Square Register" / "Square Terminal …"
-    // for POS-family orders, and the registered Application name
-    // ("Mandy's Bubble Tea") for API orders, so a `^Square ` prefix
-    // is a reliable POS signal. When unsure, default to "web" mode
-    // (hash POOL preset) — that matches the pre-fortune behavior, so
-    // the worst case for a misclassified order is the old behavior.
+    // "Point of Sale" for in-store register orders, "Mandy's Bubble Tea
+    // Online Shop" for app-driven web orders, and null for some
+    // server-API-created orders. Verified by aggregating 944 / 365 / 6
+    // rows across 7d of Mise's prod orders mirror (2026-05-21). When
+    // unsure, default to "web" mode (hash POOL preset / web doodleIds)
+    // — that matches the pre-fortune behavior, so the worst case for a
+    // misclassified order is the old behavior.
     const sourceName = order.source?.name ?? "";
-    const isPosOrder = /^Square /i.test(sourceName);
+    const isPosOrder = /point of sale/i.test(sourceName);
     const cupLabelMode = isPosOrder ? "pos" : "web";
     try {
       const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
