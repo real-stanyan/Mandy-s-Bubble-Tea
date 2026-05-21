@@ -50,3 +50,6 @@ next-env.d.ts
 /vitest.contract.config.ts
 /scripts/patch-testbaseline.ts
 test-results-contract.json
+
+# fortune seed scratch files
+scripts/.tmp/

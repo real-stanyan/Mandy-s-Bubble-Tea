@@ -20,8 +20,10 @@ import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
+import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
+import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
@@ -101,6 +103,7 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
+  const labelSelections = useCart((s) => s.labelSelections);
   const {
     profile,
     loyalty,
@@ -582,7 +585,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         verificationToken = verification.token;
       }
 
-      // 4) Finalize the order.
+      // 4) Finalize the order. labelSelections is a discriminated union
+      //    (preset | photo | ai); buildPaymentSelections splits it into the
+      //    two parallel maps /api/payment accepts. Empty buckets become
+      //    `undefined` so the route validator skips them and server enqueue
+      //    falls back to hash-default for slots without an explicit choice.
+      const { presetStickerHashes, aiDoodleIds } =
+        buildPaymentSelections(labelSelections);
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -590,6 +599,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           sourceId: sourceToken,
           orderId: orderJson.orderId,
           verificationToken,
+          presetStickerHashes,
+          aiDoodleIds,
         }),
       });
       const paymentJson = await paymentRes.json();
@@ -859,6 +870,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             </section>
           )}
+
+          {/* ── Cup Labels — per-cup gallery picker (web-only, gallery ship) ── */}
+          <CupLabelSection />
 
           {/* ── Your Details — signed-in summary + optional note ── */}
           <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      launchd job for the Mandy's Bubble Tea cup-label consumer (Zebra
+      ZD410). Runs ALONGSIDE the ZD411 print_jobs consumer — they share
+      the same .env.local and Supabase client but own independent CUPS
+      queues and consumer processes.
+
+      Install (replace REPLACE_* placeholders):
+        1. sed "s|REPLACE_NODE|$(which node)|g; s|REPLACE_REPO|$HOME/Github/mandys_bubble_tea|g; s|REPLACE_HOME|$HOME|g" \
+             ~/Github/mandys_bubble_tea/printer-client/deploy/com.mandysbubbletea.printer-client-cup-label.plist \
+             > ~/Library/LaunchAgents/com.mandysbubbletea.printer-client-cup-label.plist
+        2. launchctl load -w ~/Library/LaunchAgents/com.mandysbubbletea.printer-client-cup-label.plist
+        3. tail -f ~/Library/Logs/mandy-printer-client-cup-label.out.log
+
+      Uninstall:
+        launchctl unload -w ~/Library/LaunchAgents/com.mandysbubbletea.printer-client-cup-label.plist
+    -->
+    <key>Label</key>
+    <string>com.mandysbubbletea.printer-client-cup-label</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>REPLACE_NODE</string>
+        <string>REPLACE_REPO/printer-client/dist/cup-label-index.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPLACE_REPO/printer-client</string>
+
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>REPLACE_HOME/Library/Logs/mandy-printer-client-cup-label.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>REPLACE_HOME/Library/Logs/mandy-printer-client-cup-label.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>

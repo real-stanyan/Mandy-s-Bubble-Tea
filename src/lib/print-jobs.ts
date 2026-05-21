@@ -96,6 +96,16 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     for (let i = 0; i < q; i++) cups.push(cup);
   }
 
+  // Dev guard: skip the prod-Supabase insert that would cause the store's
+  // Mac mini printer-client to print a real Zebra sticker. We still return
+  // `queued: true` with a real stickerNumber so the downstream cup-label
+  // path runs (its own dev guard skips Supabase writes but keeps the
+  // ~/Desktop PNG dump for visual inspection).
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[print-jobs dev] skipped enqueue for order ${order.id} (sticker ${stickerNumber})`);
+    return { queued: true, stickerNumber };
+  }
+
   const { error: insertError } = await admin.from("print_jobs").insert(
     {
       square_order_id: order.id!,
