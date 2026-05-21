@@ -73,18 +73,24 @@ export function formatModifiersForLabel(line: OrderLineItem): string {
     }
   }
 
+  // Each attribute gets its own line so the bottom band reads vertically
+  // rather than smushing everything into a single `+`/` -> ` string. Order
+  // mirrors how staff scan a cup: milk substitution first, then toppings,
+  // then ice level, then sugar level. Lines are joined with `\n`; the
+  // renderer's wrapModifierLine splits on it before further word-wrap.
+  const lines: string[] = [];
+  if (milk) lines.push(milk);
+
   const toppingParts: string[] = [];
-  if (milk) toppingParts.push(milk);
   for (const [name, count] of toppingCounts) {
     toppingParts.push(count > 1 ? `${name}(${count})` : name);
   }
-  const toppings = toppingParts.join("+");
+  if (toppingParts.length > 0) lines.push(toppingParts.join(" + "));
 
-  const iceText = isDefaultLevel(ice) ? "" : abbreviate(ICE_ABBREVS, ice);
-  const sugarText = isDefaultLevel(sugar) ? "" : abbreviate(SUGAR_ABBREVS, sugar);
+  if (!isDefaultLevel(ice) && ice) lines.push(abbreviate(ICE_ABBREVS, ice));
+  if (!isDefaultLevel(sugar) && sugar) lines.push(abbreviate(SUGAR_ABBREVS, sugar));
 
-  // Match Zebra zpl.ts: when nothing to print (all defaults), emit empty
-  // string. The cup-label render's bottom band stays blank instead of
-  // showing a noisy placeholder.
-  return [toppings, iceText, sugarText].filter(s => s.length > 0).join(" -> ");
+  // All-default order → empty string keeps the bottom band blank, same
+  // as the previous single-line behaviour.
+  return lines.join("\n");
 }

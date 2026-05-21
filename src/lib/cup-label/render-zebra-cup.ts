@@ -416,9 +416,12 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
 
 // At 300 DPI with 30-dot font in a 550-dot inner band (590 - 40 padding),
 // roughly 28-32 chars fit per line. Cap at 28 for safety so wide chars
-// don't overflow. 4-line max keeps the bottom band readable.
+// don't overflow. 6-line max — bottom band height (223 dots) at font
+// 30 + 6 dot line spacing fits ~6 visual rows; format-modifiers emits
+// up to four groups (milk / toppings / ice / sugar) and the toppings
+// line may wrap into a second visual row.
 const MOD_MAX_CHARS_PER_LINE = 28;
-const MOD_MAX_LINES = 4;
+const MOD_MAX_LINES = 6;
 
 // Tokenizes the modifier line on both ` -> ` (section sep) and `+`
 // (topping sep) so a long toppings run wraps to additional rows. Sep
@@ -444,15 +447,28 @@ function tokenizeModLine(text: string): string[] {
 
 export function wrapModifierLine(text: string, maxChars: number): string[] {
   if (!text) return [];
-  const tokens = tokenizeModLine(text);
+  // format-modifiers emits one group per line, separated by `\n`. Honor
+  // those explicit breaks first so each attribute (milk / toppings /
+  // ice / sugar) keeps its own row. Long toppings lines that exceed
+  // `maxChars` get further word-wrapped via the existing `+` / ` -> `
+  // tokenization so they still fit within the band width.
+  const groups = text.split("\n");
   const lines: string[] = [];
-  let cur = "";
-  for (const t of tokens) {
-    if (cur.length === 0) cur = t;
-    else if (cur.length + t.length <= maxChars) cur += t;
-    else { lines.push(cur); cur = t; }
+  for (const group of groups) {
+    if (group.length === 0) continue;
+    if (group.length <= maxChars) {
+      lines.push(group);
+      continue;
+    }
+    const tokens = tokenizeModLine(group);
+    let cur = "";
+    for (const t of tokens) {
+      if (cur.length === 0) cur = t;
+      else if (cur.length + t.length <= maxChars) cur += t;
+      else { lines.push(cur); cur = t; }
+    }
+    if (cur) lines.push(cur);
   }
-  if (cur) lines.push(cur);
   if (lines.length <= MOD_MAX_LINES) return lines;
   const truncated = lines.slice(0, MOD_MAX_LINES);
   const last = truncated[MOD_MAX_LINES - 1];

@@ -136,12 +136,17 @@ describe("wrapModifierLine", () => {
     for (const line of r) expect(line.length).toBeLessThanOrEqual(28);
   });
 
-  it("appends ellipsis when truncating beyond 4 lines", () => {
+  it("appends ellipsis when truncating beyond MOD_MAX_LINES (6)", () => {
     const r = wrapModifierLine(
       "A -> B -> C -> D -> E -> F -> G -> H -> I -> J -> K -> L",
       3,
     );
-    expect(r.length).toBe(4);
-    expect(r[3]).toMatch(/…$/);
+    expect(r.length).toBe(6);
+    expect(r[5]).toMatch(/…$/);
+  });
+
+  it("treats embedded `\\n` as explicit per-group line breaks", () => {
+    const r = wrapModifierLine("Oat Milk\nPearls + Jelly Ball\nL.Ice\n50%S", 28);
+    expect(r).toEqual(["Oat Milk", "Pearls + Jelly Ball", "L.Ice", "50%S"]);
   });
 });
