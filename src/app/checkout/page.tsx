@@ -20,6 +20,7 @@ import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import { getOrderingStatus, type OrderingStatus } from "@/lib/store-status";
+import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
@@ -567,13 +568,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         verificationToken = verification.token;
       }
 
-      // 4) Finalize the order. labelSelections already uses the server's
-      //    slotKey format (`${lineId}:${cupIdx}` after cart-algo alignment),
-      //    so we forward it verbatim — no per-key transform needed. Empty
-      //    map is fine; payment route validator skips when undefined and
-      //    server enqueue falls back to hash-default for missing slots.
-      const presetStickerHashes =
-        Object.keys(labelSelections).length > 0 ? labelSelections : undefined;
+      // 4) Finalize the order. labelSelections is a discriminated union
+      //    (preset | photo | ai); buildPaymentSelections splits it into the
+      //    two parallel maps /api/payment accepts. Empty buckets become
+      //    `undefined` so the route validator skips them and server enqueue
+      //    falls back to hash-default for slots without an explicit choice.
+      const { presetStickerHashes, aiDoodleIds } =
+        buildPaymentSelections(labelSelections);
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -582,6 +583,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           orderId: orderJson.orderId,
           verificationToken,
           presetStickerHashes,
+          aiDoodleIds,
         }),
       });
       const paymentJson = await paymentRes.json();
