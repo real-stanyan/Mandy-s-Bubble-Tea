@@ -27,17 +27,30 @@ export type CartLine = {
   quantity: number;
 };
 
+/** Per-cup label selection. Discriminated by `kind`. Stored in
+ *  `labelSelections` under key `cupKey(lineId, cupIdx)`. Stays in sync
+ *  with the RN app's `DoodleSlot` source priority (ai > photo > preset).
+ */
+export type CupLabelSelection =
+  | { kind: "preset"; hash: string }
+  | { kind: "photo"; uploadedDoodleId: string; previewUrl: string }
+  | { kind: "ai"; aiDoodleId: string; prompt: string };
+
 type CartState = {
   lines: CartLine[];
   isOpen: boolean;
   hydrated: boolean;
 
-  // Per-cup gallery-label selection. Key = cupKey (`${lineId}:${cupIdx}`,
-  // 0-indexed), value = gallery hash from public/cup-label/gallery/.
-  // Matches the server's slotKey format in `src/lib/cup-label/enqueue.ts`
-  // so labelSelections can be forwarded as `presetStickerHashes` without
-  // key transformation.
-  labelSelections: Record<string, string>;
+  // Per-cup gallery / photo / AI selection. Key = cupKey
+  // (`${lineId}:${cupIdx}`, 0-indexed), value = discriminated union of
+  // the three source kinds. Matches the server `slotKey` exactly so
+  // labelSelections forwards verbatim into payment payload maps.
+  labelSelections: Record<string, CupLabelSelection>;
+
+  /** Scopes the per-slot AI submission quota on the server (see
+   *  `/api/cup-label/ai-submit`). Regenerated on `clear()` so a new
+   *  shopping session never inherits the previous cart's AI image. */
+  cartSessionId: string;
 
   // Actions
   addLine: (line: Omit<CartLine, "id" | "quantity">, quantity?: number) => void;
@@ -46,7 +59,7 @@ type CartState = {
   clear: () => void;
   openDrawer: () => void;
   closeDrawer: () => void;
-  setLabel: (cupKey: string, galleryHash: string) => void;
+  setLabel: (cupKey: string, selection: CupLabelSelection) => void;
   clearLabel: (cupKey: string) => void;
 };
 
@@ -62,11 +75,11 @@ export function cupKey(lineId: string, cupIdx: number): string {
 
 /** Drop every selection belonging to a removed line. */
 function pruneSelectionsForLine(
-  selections: Record<string, string>,
+  selections: Record<string, CupLabelSelection>,
   lineId: string,
-): Record<string, string> {
+): Record<string, CupLabelSelection> {
   const prefix = `${lineId}:`;
-  const next: Record<string, string> = {};
+  const next: Record<string, CupLabelSelection> = {};
   for (const [k, v] of Object.entries(selections)) {
     if (!k.startsWith(prefix)) next[k] = v;
   }
@@ -75,12 +88,12 @@ function pruneSelectionsForLine(
 
 /** Drop selections for cup indices that no longer exist after a qty cut. */
 function pruneSelectionsAboveCup(
-  selections: Record<string, string>,
+  selections: Record<string, CupLabelSelection>,
   lineId: string,
   maxQty: number,
-): Record<string, string> {
+): Record<string, CupLabelSelection> {
   const prefix = `${lineId}:`;
-  const next: Record<string, string> = {};
+  const next: Record<string, CupLabelSelection> = {};
   for (const [k, v] of Object.entries(selections)) {
     if (!k.startsWith(prefix)) {
       next[k] = v;
@@ -112,6 +125,19 @@ function signatureFor(
   return `${variationId}::${modIds}`;
 }
 
+/** UUID v4 with a graceful fallback for old Safari (pre-iOS 15.4). */
+function newCartSessionId(): string {
+  const c =
+    typeof globalThis !== "undefined" && "crypto" in globalThis
+      ? (globalThis.crypto as Crypto)
+      : undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const buf = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(buf);
+  else for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export const useCart = create<CartState>()(
   persist(
     (set) => ({
@@ -119,6 +145,7 @@ export const useCart = create<CartState>()(
       isOpen: false,
       hydrated: false,
       labelSelections: {},
+      cartSessionId: newCartSessionId(),
 
       addLine: (partial, quantity = 1) => {
         const id = signatureFor(
@@ -167,12 +194,17 @@ export const useCart = create<CartState>()(
           labelSelections: pruneSelectionsForLine(state.labelSelections, lineId),
         })),
 
-      clear: () => set({ lines: [], labelSelections: {} }),
+      clear: () =>
+        set({
+          lines: [],
+          labelSelections: {},
+          cartSessionId: newCartSessionId(),
+        }),
       openDrawer: () => set({ isOpen: true }),
       closeDrawer: () => set({ isOpen: false }),
-      setLabel: (key, galleryHash) =>
+      setLabel: (key, selection) =>
         set((state) => ({
-          labelSelections: { ...state.labelSelections, [key]: galleryHash },
+          labelSelections: { ...state.labelSelections, [key]: selection },
         })),
       clearLabel: (key) =>
         set((state) => {
@@ -183,6 +215,7 @@ export const useCart = create<CartState>()(
     }),
     {
       name: "mandy-cart",
+      version: 1,
       storage: createJSONStorage(() => localStorage, {
         replacer: (_key, value) =>
           typeof value === "bigint"
@@ -200,10 +233,22 @@ export const useCart = create<CartState>()(
           return value;
         },
       }),
-      // Don't persist drawer open state — always start closed.
+      migrate: (persistedState: unknown, fromVersion: number) => {
+        const next = (
+          persistedState && typeof persistedState === "object"
+            ? { ...(persistedState as Record<string, unknown>) }
+            : {}
+        ) as Partial<CartState>;
+        if (fromVersion < 1) {
+          next.labelSelections = {};
+        }
+        next.cartSessionId = newCartSessionId();
+        return next as CartState;
+      },
       partialize: (state) => ({
         lines: state.lines,
         labelSelections: state.labelSelections,
+        cartSessionId: state.cartSessionId,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) state.hydrated = true;
