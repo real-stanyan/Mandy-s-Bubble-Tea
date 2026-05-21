@@ -3,7 +3,10 @@
 // Read candidate fortune lines from a file path (first CLI arg) and
 // emit only those that:
 //   (a) pass `isSafeFortune` (the same validator runtime uses)
-//   (b) are between 5 and 12 words inclusive
+//   (b) are 5 to 12 words inclusive — the editorial target from the
+//       old SYSTEM_PROMPT, which is tighter than parseFortunes's 4–14
+//       tolerant parser. The seed pool is curated to the tight gate;
+//       parseFortunes is being deleted as part of this refactor anyway.
 //   (c) are unique across the entire input (case-insensitive)
 //
 // Output: validated lines to stdout, one per line. Stats + rejections
