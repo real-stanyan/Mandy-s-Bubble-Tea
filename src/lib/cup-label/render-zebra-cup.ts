@@ -31,10 +31,20 @@ export const LABEL_HEIGHT_DOTS = 945;
 const TOP_BAND_HEIGHT = 120;
 // Two-column top band: greeting on the left, order info on the right.
 // Greeting (left column) shifted right to leave room for the Mandy logo.
+// Width is narrow (140 dots) so a fixed font_40 ^FB overflows even on
+// 'Hi, Guest' and ZPL paints garbled overlap. Use a dynamic font size
+// scaled to the greeting length, same approach as drinkFontSizeFor.
 const TOP_GREETING_X = 104;
-const TOP_GREETING_Y = 38;
+const TOP_GREETING_Y = 44;
 const TOP_GREETING_WIDTH = 140;
-const TOP_GREETING_FONT = 40;
+
+function greetingFontSizeFor(text: string): number {
+  const len = text.length;
+  if (len <= 8) return 32;   // "Hi, Stan"  8 chars
+  if (len <= 10) return 28;  // "Hi, Mandy"  9
+  if (len <= 13) return 24;  // "Hi, Christine" 13
+  return 20;                 // longer names
+}
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
 const TOP_STICKER_Y = 22;
@@ -231,8 +241,11 @@ function buildZpl(args: {
     `^FO${LOGO_X},${LOGO_Y}^FR^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
   );
   // Greeting (vertically centered, right of the logo), e.g. "Hi, Stan".
+  // Font scales down for longer names so the field block always fits
+  // TOP_GREETING_WIDTH (140 dots) on a single line.
+  const greetingFont = greetingFontSizeFor(args.greeting);
   parts.push(
-    `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${TOP_GREETING_FONT},${TOP_GREETING_FONT}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
+    `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${greetingFont},${greetingFont}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
   // Right column line 1: sticker number + cup fraction (large, right-aligned)
   parts.push(
@@ -319,7 +332,7 @@ async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
   const rightEdge = LABEL_WIDTH_DOTS - 20;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
-    <text x="${TOP_GREETING_X}" y="78" font-family="sans-serif" font-size="${TOP_GREETING_FONT}" font-weight="700" fill="white">
+    <text x="${TOP_GREETING_X}" y="78" font-family="sans-serif" font-size="${greetingFontSizeFor(greeting)}" font-weight="700" fill="white">
       ${escapeXml(greeting)}
     </text>
     <text x="${rightEdge}" y="62" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
