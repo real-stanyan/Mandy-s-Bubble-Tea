@@ -54,7 +54,7 @@ describe("Zebra cup-label compositor", () => {
     expect(out.zpl).toContain("^A0N,20,20");
   });
 
-  it("embeds the Mandy logo as a ^GFA field-reverse block on the top band", async () => {
+  it("embeds the Mandy logo as a plain ^GFA block at the bottom-right (no ^FR)", async () => {
     const out = await renderCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
@@ -62,10 +62,19 @@ describe("Zebra cup-label compositor", () => {
       modifiersText: "",
       doodleSvg: POOL[0].svg,
     });
-    // ^FR before ^GFA inverts the bitmap so the dark logo outlines paint
-    // white on the already-black header band. Pinning the prefix keeps
-    // the layout contract under future refactors.
-    expect(out.zpl).toMatch(/\^FO\d+,\d+\^FR\^GFA,/);
+    // Bottom band is white, so the logo's pre-binarised print-bits paint
+    // as black ink directly — no ^FR needed (^FR was required on the
+    // previous top-band-on-black placement). Anchor point: x ≥ 400
+    // confirms it landed in the right half of the 590-dot label.
+    const logoMatch = out.zpl.match(/\^FO(\d+),(\d+)\^GFA,\d+,\d+,11,/);
+    expect(logoMatch).not.toBeNull();
+    const x = Number(logoMatch![1]);
+    const y = Number(logoMatch![2]);
+    expect(x).toBeGreaterThan(400);
+    expect(y).toBeGreaterThan(700);
+    // And there should not be a ^FR^GFA anywhere — that pattern was the
+    // pre-move (white-silhouette-on-black) contract.
+    expect(out.zpl).not.toMatch(/\^FR\^GFA,/);
   });
 
   it("produces a preview PNG of the right pixel size", async () => {

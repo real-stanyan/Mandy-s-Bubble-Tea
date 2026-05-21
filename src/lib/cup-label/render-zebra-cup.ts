@@ -30,13 +30,13 @@ export const LABEL_HEIGHT_DOTS = 945;
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
 const TOP_BAND_HEIGHT = 120;
 // Two-column top band: greeting on the left, order info on the right.
-// Greeting (left column) shifted right to leave room for the Mandy logo.
-// Width is narrow (140 dots) so a fixed font_40 ^FB overflows even on
-// 'Hi, Guest' and ZPL paints garbled overlap. Use a dynamic font size
-// scaled to the greeting length, same approach as drinkFontSizeFor.
-const TOP_GREETING_X = 104;
+// Greeting sits at the standard left padding (logo moved to bottom-right
+// 2026-05-21). Width budget = TOP_RIGHT_X - TOP_GREETING_X - 10 = 220 dots
+// so even long names like "Hi, Christine" fit at a readable font size
+// instead of getting scaled down to 20.
+const TOP_GREETING_X = 20;
 const TOP_GREETING_Y = 44;
-const TOP_GREETING_WIDTH = 140;
+const TOP_GREETING_WIDTH = 220;
 
 function greetingFontSizeFor(text: string): number {
   const len = text.length;
@@ -64,13 +64,13 @@ function drinkFontSizeFor(name: string): number {
   return 18;
 }
 
-// Mandy logo lives at the very top-left of the black header band,
-// rendered as a white silhouette via ZPL ^FR field-reverse on the
-// pre-binarised ^GFA bytes loaded from mandy-logo.ts.
-const LOGO_X = 6;
-const LOGO_Y = 10;
-const LOGO_BAND_WIDTH = 88;
-const LOGO_BAND_TOTAL_GAP = LOGO_X + LOGO_BAND_WIDTH + 10; // x + width + breathing room
+// Mandy logo now lives in the bottom-right corner of the white bottom
+// band (modifier text region). Rendered without ^FR — bottom band is
+// white so the pre-binarised logo's print-bits paint as black ink
+// directly. Reserved area: ~88×100 starting (LABEL_WIDTH-88-6, LABEL_HEIGHT-100-6).
+const LOGO_MARGIN = 6;
+const LOGO_X = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
+const LOGO_Y = LABEL_HEIGHT_DOTS - MANDY_LOGO_HEIGHT - LOGO_MARGIN;
 // Doodle fills the label width edge-to-edge. ZPL ^GFA requires the raster
 // width to be a multiple of 8 dots (byte-row alignment), but the 590-dot
 // label width is not. We choose 592 (8×74) — 2 dots wider than the
@@ -234,15 +234,9 @@ function buildZpl(args: {
   // Top band: black bar with white text. ^GB draws a filled rect using
   // the third arg as line thickness (set = height = solid fill).
   parts.push(`^FO0,0^GB${LABEL_WIDTH_DOTS},${TOP_BAND_HEIGHT},${TOP_BAND_HEIGHT}^FS`);
-  // Mandy logo at the top-left, drawn as a white silhouette on the
-  // black band via ZPL ^FR (field reverse on a ^GFA raster). Logo bytes
-  // are pre-computed and cached at module load — see ./mandy-logo.ts.
-  parts.push(
-    `^FO${LOGO_X},${LOGO_Y}^FR^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
-  );
-  // Greeting (vertically centered, right of the logo), e.g. "Hi, Stan".
-  // Font scales down for longer names so the field block always fits
-  // TOP_GREETING_WIDTH (140 dots) on a single line.
+  // Greeting (vertically centered) at the standard left padding, e.g.
+  // "Hi, Stan". Font scales down for longer names so the field block
+  // always fits TOP_GREETING_WIDTH on a single line.
   const greetingFont = greetingFontSizeFor(args.greeting);
   parts.push(
     `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${greetingFont},${greetingFont}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
@@ -284,13 +278,23 @@ function buildZpl(args: {
   }
 
   // Bottom band: modifier text. ^FB params: width, max-lines, line-spacing,
-  // alignment, hanging-indent.
+  // alignment, hanging-indent. Inner width is reduced from the standard
+  // band width so the last visual rows don't collide with the Mandy logo
+  // sitting in the bottom-right corner.
   if (modLines.length > 0) {
     const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+    const modWidth = innerWidth - (MANDY_LOGO_WIDTH + LOGO_MARGIN);
     parts.push(
-      `^FO20,${BOTTOM_BAND_Y}^A0N,30,30^FB${innerWidth},${lineCount},6,L,0^FD${modField}^FS`,
+      `^FO20,${BOTTOM_BAND_Y}^A0N,30,30^FB${modWidth},${lineCount},6,L,0^FD${modField}^FS`,
     );
   }
+
+  // Mandy logo at the bottom-right of the white bottom band. No ^FR
+  // here — the band is white so the logo's pre-binarised print-bits
+  // paint as black ink directly.
+  parts.push(
+    `^FO${LOGO_X},${LOGO_Y}^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
+  );
 
   parts.push("^XZ");
   return parts.join("\n");
@@ -332,7 +336,7 @@ async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
   const rightEdge = LABEL_WIDTH_DOTS - 20;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
-    <text x="${TOP_GREETING_X}" y="78" font-family="sans-serif" font-size="${greetingFontSizeFor(greeting)}" font-weight="700" fill="white">
+    <text x="${TOP_GREETING_X}" y="80" font-family="sans-serif" font-size="${greetingFontSizeFor(greeting)}" font-weight="700" fill="white">
       ${escapeXml(greeting)}
     </text>
     <text x="${rightEdge}" y="62" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
