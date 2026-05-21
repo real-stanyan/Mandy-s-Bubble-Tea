@@ -6,6 +6,7 @@ import { useCart, cupKey, type CartLine, type CupLabelSelection } from "@/store/
 import { BRAND } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LabelPicker } from "./LabelPicker";
+import { summaryFor } from "./cup-label-summary";
 
 type GalleryManifest = { hashes: string[] };
 
@@ -108,27 +109,13 @@ export function CupLabelSection() {
           {cups.map((cup) => {
             const key = cupKey(cup.lineId, cup.cupIdx);
             const sel: CupLabelSelection | undefined = labelSelections[key];
-            const hash = sel?.kind === "preset" ? sel.hash : undefined;
             return (
               <li
                 key={key}
                 className="flex items-center gap-3 rounded-xl border border-black/5 p-2 sm:p-3"
               >
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-zinc-50 sm:h-16 sm:w-16">
-                  {hash ? (
-                    <Image
-                      src={`/cup-label/gallery/${hash}/binarized.png`}
-                      alt=""
-                      fill
-                      sizes="64px"
-                      unoptimized
-                      className="object-contain"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
-                      —
-                    </div>
-                  )}
+                  {renderThumb(sel)}
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -139,6 +126,7 @@ export function CupLabelSection() {
                       ? ` · Cup ${cup.cupIdx + 1} of ${cup.totalCups}`
                       : ""}
                   </p>
+                  <p className="truncate text-xs text-zinc-400">{summaryFor(sel)}</p>
                 </div>
 
                 <button
@@ -169,5 +157,45 @@ export function CupLabelSection() {
         }}
       />
     </>
+  );
+}
+
+function renderThumb(sel: CupLabelSelection | undefined) {
+  if (!sel) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
+        —
+      </div>
+    );
+  }
+  if (sel.kind === "preset") {
+    return (
+      <Image
+        src={`/cup-label/gallery/${sel.hash}/binarized.png`}
+        alt=""
+        fill
+        sizes="64px"
+        unoptimized
+        className="object-contain"
+      />
+    );
+  }
+  if (sel.kind === "photo") {
+    return (
+      <Image
+        src={sel.previewUrl}
+        alt="Your uploaded photo"
+        fill
+        sizes="64px"
+        unoptimized
+        className="object-contain"
+      />
+    );
+  }
+  // kind === "ai" — no preview by design; placeholder star.
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
+      ✨
+    </div>
   );
 }
