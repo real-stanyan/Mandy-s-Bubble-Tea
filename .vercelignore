@@ -1,1 +1,7 @@
 printer-client/
+# scripts/ holds local dev / smoke / migration utilities. Several
+# dynamic-import printer-client modules that are already excluded
+# above, which trips Vercel's `next build` tsc step. None of them
+# are reachable from runtime code in src/, so strip them from the
+# deploy package entirely.
+scripts/
