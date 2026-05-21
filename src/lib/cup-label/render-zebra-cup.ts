@@ -1,6 +1,11 @@
 import "server-only";
 import sharp from "sharp";
 import { renderSvgToPng } from "../doodle/render-svg";
+import {
+  getMandyLogoZpl,
+  MANDY_LOGO_HEIGHT,
+  MANDY_LOGO_WIDTH,
+} from "./mandy-logo";
 
 // 50mm × 80mm direct-thermal cup label printed on a 300 DPI Zebra
 // (ZD410-300dpi). At 300 DPI: 25.4mm/inch ÷ 300 dots/inch ≈ 0.0847mm/dot,
@@ -25,20 +30,37 @@ export const LABEL_HEIGHT_DOTS = 945;
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
 const TOP_BAND_HEIGHT = 120;
 // Two-column top band: greeting on the left, order info on the right.
-const TOP_GREETING_X = 20;
+// Greeting (left column) shifted right to leave room for the Mandy logo.
+const TOP_GREETING_X = 104;
 const TOP_GREETING_Y = 38;
-const TOP_GREETING_WIDTH = 220;
-const TOP_GREETING_FONT = 44;
+const TOP_GREETING_WIDTH = 140;
+const TOP_GREETING_FONT = 40;
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
 const TOP_STICKER_Y = 22;
 const TOP_DRINK_Y = 80;
-// Char cap for the right-column drink name. ZPL A0 font 32 in the
-// TOP_RIGHT_WIDTH (320 dots) field block reliably renders ~18 chars
-// before ^FB wraps; we pad slightly under that and add an ellipsis for
-// over-length names so ZD410 never paints a runaway second line over
-// the sticker number.
-const TOP_DRINK_MAX_CHARS = 20;
+
+// Dynamic font sizing for the right-column drink name so long names
+// fit on a single line without ellipsis. Width budget: TOP_RIGHT_WIDTH
+// (320 dots). ZPL A0 character width ≈ 0.6 × height; we step down the
+// font as `drinkName.length` grows so the longest realistic name
+// ("Brown Sugar Milk Tea Frappe", 27 chars) still fits at one line.
+function drinkFontSizeFor(name: string): number {
+  const len = name.length;
+  if (len <= 17) return 32;
+  if (len <= 21) return 28;
+  if (len <= 25) return 24;
+  if (len <= 30) return 20;
+  return 18;
+}
+
+// Mandy logo lives at the very top-left of the black header band,
+// rendered as a white silhouette via ZPL ^FR field-reverse on the
+// pre-binarised ^GFA bytes loaded from mandy-logo.ts.
+const LOGO_X = 6;
+const LOGO_Y = 10;
+const LOGO_BAND_WIDTH = 88;
+const LOGO_BAND_TOTAL_GAP = LOGO_X + LOGO_BAND_WIDTH + 10; // x + width + breathing room
 // Doodle fills the label width edge-to-edge. ZPL ^GFA requires the raster
 // width to be a multiple of 8 dots (byte-row alignment), but the 590-dot
 // label width is not. We choose 592 (8×74) — 2 dots wider than the
@@ -106,6 +128,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
   // pipeline — the printer renders the glyphs natively from its stock
   // ^A0 scalable font, which is sharper and ~85KB smaller in ZPL.
   if (input.fortuneText) {
+    const logo = await getMandyLogoZpl();
     const zpl = buildZpl({
       sticker: input.stickerNumber,
       cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
@@ -113,6 +136,9 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
       greeting: formatGreeting(input.customerFirstName ?? null),
       modifiers: input.modifiersText,
       fortuneText: input.fortuneText,
+      logoHex: logo.hex,
+      logoTotalBytes: logo.totalBytes,
+      logoWidthBytes: logo.widthBytes,
     });
     const previewPng = await renderPreviewPng(input, null);
     return { zpl, previewPng };
@@ -142,6 +168,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
   const doodleTotalBytes = doodleBytes.length;
   const doodleHex = doodleBytes.toString("hex").toUpperCase();
 
+  const logo = await getMandyLogoZpl();
   const zpl = buildZpl({
     sticker: input.stickerNumber,
     cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
@@ -151,6 +178,9 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     doodleHex,
     doodleTotalBytes,
     doodleWidthBytes,
+    logoHex: logo.hex,
+    logoTotalBytes: logo.totalBytes,
+    logoWidthBytes: logo.widthBytes,
   });
 
   const previewPng = await renderPreviewPng(input, doodlePngBuffer);
@@ -168,6 +198,9 @@ function buildZpl(args: {
   doodleTotalBytes?: number;
   doodleWidthBytes?: number;
   fortuneText?: string;
+  logoHex: string;
+  logoTotalBytes: number;
+  logoWidthBytes: number;
 }): string {
   const innerWidth = LABEL_WIDTH_DOTS - 40; // 20px padding each side
 
@@ -191,7 +224,13 @@ function buildZpl(args: {
   // Top band: black bar with white text. ^GB draws a filled rect using
   // the third arg as line thickness (set = height = solid fill).
   parts.push(`^FO0,0^GB${LABEL_WIDTH_DOTS},${TOP_BAND_HEIGHT},${TOP_BAND_HEIGHT}^FS`);
-  // Left column: greeting (vertically centered), e.g. "Hi, Stan" or "Hi, Guest".
+  // Mandy logo at the top-left, drawn as a white silhouette on the
+  // black band via ZPL ^FR (field reverse on a ^GFA raster). Logo bytes
+  // are pre-computed and cached at module load — see ./mandy-logo.ts.
+  parts.push(
+    `^FO${LOGO_X},${LOGO_Y}^FR^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
+  );
+  // Greeting (vertically centered, right of the logo), e.g. "Hi, Stan".
   parts.push(
     `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${TOP_GREETING_FONT},${TOP_GREETING_FONT}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
@@ -199,18 +238,13 @@ function buildZpl(args: {
   parts.push(
     `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
   );
-  // Right column line 2: drink name (single-line, right-aligned, truncated).
-  // ZPL ^FB with maxLines=1 doesn't reliably clip long content on ZD410 —
-  // the wrapped overflow visibly overlays the sticker number row above.
-  // Truncate upstream of ZPL so the field block always fits 320 dots at
-  // font 32 (~18 chars dependable). Names beyond TOP_DRINK_MAX_CHARS get
-  // an ellipsis. Examples: "Brown Sugar Milk Tea Frappe" → "Brown Sugar Milk Tea…".
-  const truncatedDrink =
-    args.drinkName.length > TOP_DRINK_MAX_CHARS
-      ? args.drinkName.slice(0, TOP_DRINK_MAX_CHARS) + "…"
-      : args.drinkName;
+  // Right column line 2: drink name on a single line, right-aligned.
+  // Font size scales down for longer names (`drinkFontSizeFor`) so even
+  // "Brown Sugar Milk Tea Frappe" fits without ellipsis — no truncation,
+  // the full name always prints.
+  const drinkFont = drinkFontSizeFor(args.drinkName);
   parts.push(
-    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,32,32^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(truncatedDrink)}^FS`,
+    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,${drinkFont},${drinkFont}^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.drinkName)}^FS`,
   );
 
   // Middle band: either a fortune-cookie sentence (POS / in-store path)

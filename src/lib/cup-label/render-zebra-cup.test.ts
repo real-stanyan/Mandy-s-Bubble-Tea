@@ -40,7 +40,7 @@ describe("Zebra cup-label compositor", () => {
     expect(out.zpl).toContain("A-B-C/Drink");
   });
 
-  it("truncates long drink names with an ellipsis (ZD410 single-line guard)", async () => {
+  it("renders the full drink name without ellipsis, scaling the font down for long names", async () => {
     const out = await renderCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
@@ -48,8 +48,24 @@ describe("Zebra cup-label compositor", () => {
       modifiersText: "",
       doodleSvg: POOL[0].svg,
     });
-    expect(out.zpl).toContain("Brown Sugar Milk Tea…");
-    expect(out.zpl).not.toContain("Brown Sugar Milk Tea Frappe");
+    expect(out.zpl).toContain("Brown Sugar Milk Tea Frappe");
+    expect(out.zpl).not.toContain("…");
+    // Long name (27 chars) → drinkFontSizeFor returns 20.
+    expect(out.zpl).toContain("^A0N,20,20");
+  });
+
+  it("embeds the Mandy logo as a ^GFA field-reverse block on the top band", async () => {
+    const out = await renderCupLabel({
+      stickerNumber: "OL000",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Test",
+      modifiersText: "",
+      doodleSvg: POOL[0].svg,
+    });
+    // ^FR before ^GFA inverts the bitmap so the dark logo outlines paint
+    // white on the already-black header band. Pinning the prefix keeps
+    // the layout contract under future refactors.
+    expect(out.zpl).toMatch(/\^FO\d+,\d+\^FR\^GFA,/);
   });
 
   it("produces a preview PNG of the right pixel size", async () => {
