@@ -156,16 +156,28 @@ export async function enqueueCupLabelJobs({
   // collide on the same slot key, sending the same doodle to every cup.
   const groupCounter = new Map<string, number>();
 
-  // Pre-compute the total cup count per clientLineId so the printed
-  // "cup 2 / 3" footer reflects the whole drink group, not just the
-  // current split line's local quantity (always 1 after a split).
+  // Pre-compute the total cup count per clientLineId so the slotKey
+  // grouping inside enqueue stays consistent across Square's split
+  // lineItems. Separately, pre-compute the *order-wide* total — that's
+  // what the printed "cup N / M" footer shows so a 2-drink order
+  // reads "1/2" and "2/2" instead of two "1/1"s when each drink ships
+  // as its own line.
   const groupTotal = new Map<string, number>();
+  let orderTotalCups = 0;
   for (const line of lineItems) {
     const key = clientLineIdFromSquareLine(line);
     const q = Number(line.quantity ?? "1");
     const safeQ = Number.isFinite(q) ? Math.max(0, Math.floor(q)) : 0;
     groupTotal.set(key, (groupTotal.get(key) ?? 0) + safeQ);
+    orderTotalCups += safeQ;
   }
+  // Order-wide running cup counter — increments once per emitted cup
+  // and is used as the `idx` half of the printed `idx / orderTotalCups`
+  // footer. Independent from the per-line `cup_idx` column on
+  // cup_label_jobs, which still tracks position within a single
+  // clientLineId group (needed for the UNIQUE constraint + admin
+  // grouping by drink).
+  let orderCupSeq = 0;
 
   for (const [lineIdx, line] of lineItems.entries()) {
     const lineId = line.uid ?? line.catalogObjectId ?? `idx-${lineIdx}`;
@@ -328,10 +340,10 @@ export async function enqueueCupLabelJobs({
         poolKey = pool.key;
       }
 
-      const totalForGroup = groupTotal.get(clientLineId) ?? qty;
+      orderCupSeq++;
       const { zpl } = await renderCupLabel({
         stickerNumber,
-        cupIdxOf: { idx: cupIdx + 1, total: totalForGroup },
+        cupIdxOf: { idx: orderCupSeq, total: orderTotalCups },
         drinkName,
         modifiersText,
         doodleSvg,
