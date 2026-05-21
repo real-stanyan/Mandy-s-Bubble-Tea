@@ -277,7 +277,6 @@ function PhotoTab({
         <input
           type="file"
           accept="image/*"
-          capture="environment"
           onChange={handleFile}
           disabled={busy}
           className="hidden"
