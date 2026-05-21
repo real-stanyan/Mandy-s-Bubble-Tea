@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Order } from "square";
-import { pickDefaultForCup } from "@/lib/doodle/pool";
 
 const uploadMock = vi.fn();
 const upsertMock = vi.fn();
@@ -53,7 +52,7 @@ beforeEach(() => {
 });
 
 describe("enqueueCupLabelJobs (default path, regression)", () => {
-  it("inserts default-source rows when no doodleIds passed", async () => {
+  it("inserts tarot-fallback rows when no doodleIds passed", async () => {
     await enqueueCupLabelJobs({
       order: buildOrder() as never,
       stickerNumber: "OL001",
@@ -61,9 +60,11 @@ describe("enqueueCupLabelJobs (default path, regression)", () => {
     expect(upsertMock).toHaveBeenCalledTimes(1);
     const [rows] = upsertMock.mock.calls[0];
     expect(rows).toHaveLength(2);
-    expect(rows[0].doodle_source).toBe("default");
+    // No user choice → tarot card auto-fill. doodle_source = "preset_sticker",
+    // doodle_pool_key = md5 hash of the chosen card.
+    expect(rows[0].doodle_source).toBe("preset_sticker");
     expect(rows[0].doodle_paths).toBeNull();
-    expect(rows[0].doodle_pool_key).toBeTruthy();
+    expect(rows[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
   });
 });
 
@@ -93,10 +94,10 @@ describe("enqueueCupLabelJobs (user-doodle path)", () => {
     expect(cup0.doodle_paths).toEqual(userPaths);
 
     const cup1 = rows.find((r: { cup_idx: number }) => r.cup_idx === 1);
-    expect(cup1.doodle_source).toBe("default");
+    expect(cup1.doodle_source).toBe("preset_sticker");
   });
 
-  it("falls back to default if download fails (does not break the order)", async () => {
+  it("falls back to tarot if download fails (does not break the order)", async () => {
     downloadMock.mockResolvedValue({ data: null, error: { message: "not found" } });
     const clientLineId = `VAR1::MOD_50S,MOD_PEARL`;
     await enqueueCupLabelJobs({
@@ -107,7 +108,7 @@ describe("enqueueCupLabelJobs (user-doodle path)", () => {
     });
     const [rows] = upsertMock.mock.calls[0];
     const cup0 = rows.find((r: { cup_idx: number }) => r.cup_idx === 0);
-    expect(cup0.doodle_source).toBe("default");
+    expect(cup0.doodle_source).toBe("preset_sticker");
   });
 });
 
@@ -139,7 +140,7 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
     expect(inserted[1].cup_idx).toBe(1);
     expect(inserted[2].line_id).toBe("line-b");
     expect(inserted[2].cup_idx).toBe(0);
-    expect(inserted.every(r => r.doodle_source === "default")).toBe(true);
+    expect(inserted.every(r => r.doodle_source === "preset_sticker")).toBe(true);
     expect(inserted.every(r => typeof r.doodle_pool_key === "string")).toBe(true);
   });
 
@@ -231,20 +232,13 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
   });
 });
 
-// Fix #1 regression — seed mismatch
-describe("enqueueCupLabelJobs (Fix #1: clientLineId seeds the default pool)", () => {
-  it("doodle_pool_key matches pickDefaultForCup(clientLineId, cupIdx), NOT pickDefaultForCup(line.uid, cupIdx)", async () => {
-    // Build an order where line.uid and clientLineId are guaranteed to diverge
-    // so we can distinguish which seed was used.
-    // line.uid = "uid-A", line.catalogObjectId = "VAR1", modifiers = [MOD_PEARL]
-    // => clientLineId = "VAR1::MOD_PEARL", lineId = "uid-A"
-    // Verified: pickDefaultForCup("VAR1::MOD_PEARL", 0).key === "cloud"
-    //           pickDefaultForCup("uid-A",           0).key === "bunny"
-    const expectedKey = pickDefaultForCup("VAR1::MOD_PEARL", 0).key;
-    const wrongKey    = pickDefaultForCup("uid-A",           0).key;
-    // Sanity: ensure the test actually distinguishes the two seeds
-    expect(expectedKey).not.toBe(wrongKey);
-
+// Tarot fallback contract: an order with no user choice produces rows
+// with doodle_source="preset_sticker" and doodle_pool_key set to a
+// 32-char md5 hash pointing at public/cup-label/tarot/<hash>/. The
+// previous hash-based POOL.svg seeding (clientLineId-driven) was
+// replaced when in-store + web-default both moved to the tarot deck.
+describe("enqueueCupLabelJobs (tarot fallback for unchosen cups)", () => {
+  it("emits doodle_source='preset_sticker' with an md5 hash for cups without a choice", async () => {
     const inserted: any[] = [];
     const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
     (getSupabaseAdmin as any).mockReturnValue({
@@ -256,7 +250,7 @@ describe("enqueueCupLabelJobs (Fix #1: clientLineId seeds the default pool)", ()
 
     await enqueueCupLabelJobs({
       order: {
-        id: "ord-fix1",
+        id: "ord-tarot",
         lineItems: [
           {
             uid: "uid-A",
@@ -267,12 +261,15 @@ describe("enqueueCupLabelJobs (Fix #1: clientLineId seeds the default pool)", ()
           },
         ],
       } as unknown as Order,
-      stickerNumber: "OL-FIX1",
+      stickerNumber: "OL-TAROT",
     });
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0].doodle_pool_key).toBe(expectedKey);
-    expect(inserted[0].doodle_pool_key).not.toBe(wrongKey);
+    expect(inserted[0].doodle_source).toBe("preset_sticker");
+    expect(inserted[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
+    expect(inserted[0].original_image_path).toMatch(
+      /^cup-label\/tarot\/[a-f0-9]{32}\/binarized\.png$/,
+    );
   });
 });
 

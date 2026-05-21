@@ -16,10 +16,34 @@ import { formatModifiersForLabel } from "./format-modifiers";
 // labelSelections; we read the binarized PNG from disk and route it through
 // the same `doodlePngBuffer` path as AI-generated and user-photo doodles.
 const GALLERY_DIR = path.join(process.cwd(), "public", "cup-label", "gallery");
+// Random tarot card deck — used as the auto-fill for POS orders + web
+// orders where the user didn't pick a label. Built from ~/Desktop/塔罗牌
+// via `scripts/process-tarot-gallery.ts` and committed under public/.
+const TAROT_DIR = path.join(process.cwd(), "public", "cup-label", "tarot");
 // Hard cap on the hash string we accept from the client — md5 hex is 32
 // chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
 const GALLERY_HASH_MAX_LEN = 64;
 const GALLERY_HASH_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+async function listTarotHashes(): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(TAROT_DIR, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
+      .map((e) => e.name);
+  } catch (e) {
+    console.error("[cup-label] tarot dir scan failed", e);
+    return [];
+  }
+}
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+  return arr;
+}
 
 export type EnqueueCupLabelArgs = {
   order: Order;
@@ -128,28 +152,16 @@ export async function enqueueCupLabelJobs({
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
 
-  // POS path: pre-scan the gallery dir once, shuffle, then consume one
-  // hash per cup so a single POS ticket doesn't repeat the same sticker
-  // back-to-back (the gallery has ~80 entries, so the chance of an
-  // *order-wide* repeat is near zero for typical 1-5 cup tickets).
+  // Pre-scan the tarot deck once, shuffle, then consume one hash per
+  // cup that needs a fallback. Two cases use this:
+  //   1. POS (in-store): no app-side label choice → every cup auto-fills
+  //   2. Web/app: customer didn't pick anything (no preset / draw / AI
+  //      / photo) → fall back to a tarot card instead of the POOL.svg
+  //      default. The deck has 80 unique cards so a single 1-5 cup
+  //      ticket won't repeat back-to-back.
   // Read-once amortizes the directory listing across the whole order.
-  let posStickerHashes: string[] = [];
-  let posStickerCursor = 0;
-  if (mode === "pos") {
-    try {
-      const entries = await fs.readdir(GALLERY_DIR, { withFileTypes: true });
-      const candidates = entries
-        .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
-        .map((e) => e.name);
-      for (let i = candidates.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-      }
-      posStickerHashes = candidates;
-    } catch (e) {
-      console.error("[cup-label] POS gallery scan failed (falling back to hash default per cup)", e);
-    }
-  }
+  const tarotHashes = shuffleInPlace(await listTarotHashes());
+  let tarotCursor = 0;
 
   // Square may split a single cart line (quantity=N) into N separate
   // lineItems when applying per-cup loyalty rewards or other unit-level
@@ -232,7 +244,7 @@ export async function enqueueCupLabelJobs({
         );
       }
 
-      let doodleSvg: string;
+      let doodleSvg = "";
       let doodlePngBuffer: Buffer | undefined;
       let source: "user" | "default" | "ai" | "fortune" | "preset_sticker" = "default";
       let poolKey: string | null = null;
@@ -254,37 +266,54 @@ export async function enqueueCupLabelJobs({
         return pickDefaultForCup(clientLineId, cupIdx);
       };
 
-      // POS mode short-circuits the whole doodle resolution chain —
-      // there's no app, no user choice. Each cup gets the next gallery
-      // sticker off the pre-shuffled batch. Falls back to the hash-default
-      // POOL preset if the gallery directory is unreadable or empty.
-      if (mode === "pos") {
+      // Auto-fill helper for "no user choice" branches (POS + web
+      // default). Pulls one card off the pre-shuffled tarot deck and
+      // loads its binarized PNG. Returns false if the deck is exhausted
+      // or the file load fails — caller should fall back to pickPool()
+      // so we always print *something*.
+      const drawTarot = async (): Promise<boolean> => {
         const hash =
-          posStickerHashes.length > 0
-            ? posStickerHashes[posStickerCursor++ % posStickerHashes.length]
+          tarotHashes.length > 0
+            ? tarotHashes[tarotCursor++ % tarotHashes.length]
             : null;
-        if (hash) {
-          try {
-            const filePath = path.join(GALLERY_DIR, hash, "binarized.png");
-            doodlePngBuffer = await fs.readFile(filePath);
-            source = "preset_sticker";
-            poolKey = hash;
-            originalImagePath = `cup-label/gallery/${hash}/binarized.png`;
-            doodleSvg = "";
-          } catch (e) {
-            console.error(
-              "[cup-label] POS sticker load failed, falling back to hash default",
-              { hash, error: e instanceof Error ? e.message : e },
-            );
-            const pool = pickPool();
-            doodleSvg = pool.svg;
-            poolKey = pool.key;
-          }
-        } else {
-          const pool = pickPool();
-          doodleSvg = pool.svg;
-          poolKey = pool.key;
+        if (!hash) return false;
+        try {
+          const filePath = path.join(TAROT_DIR, hash, "binarized.png");
+          doodlePngBuffer = await fs.readFile(filePath);
+          source = "preset_sticker";
+          poolKey = hash;
+          originalImagePath = `cup-label/tarot/${hash}/binarized.png`;
+          doodleSvg = "";
+          return true;
+        } catch (e) {
+          console.error("[cup-label] tarot card load failed, falling back", {
+            hash,
+            error: e instanceof Error ? e.message : e,
+          });
+          return false;
         }
+      };
+
+      // Unified "give up — use whatever default works" fallback.
+      // Tries the tarot deck first; if that's unavailable, falls back
+      // to the hash-seeded POOL.svg preset that pre-dates the tarot
+      // pipeline. Used everywhere a primary source fails (user-doodle
+      // download error, gallery sticker missing, AI image lost, …).
+      const useDefaultFallback = async (): Promise<void> => {
+        if (await drawTarot()) return;
+        const pool = pickPool();
+        doodleSvg = pool.svg;
+        poolKey = pool.key;
+        source = "default";
+        originalImagePath = null;
+        doodlePngBuffer = undefined;
+      };
+
+      // POS mode short-circuits the whole doodle resolution chain —
+      // there's no app, no user choice. Each cup gets the next tarot
+      // card off the pre-shuffled deck.
+      if (mode === "pos") {
+        await useDefaultFallback();
       } else if (presetStickerHash) {
         // Static gallery sticker — committed PNG under public/cup-label/gallery.
         // Read the pre-binarized (1-bit Atkinson-dithered) variant directly so
@@ -298,12 +327,10 @@ export async function enqueueCupLabelJobs({
           doodleSvg = "";
         } catch (e) {
           console.error(
-            "[cup-label] preset sticker load failed, falling back to hash default",
+            "[cup-label] preset sticker load failed, falling back",
             { hash: presetStickerHash, error: e instanceof Error ? e.message : e },
           );
-          const pool = pickPool();
-          doodleSvg = pool.svg;
-          poolKey = pool.key;
+          await useDefaultFallback();
         }
       } else if (aiDoodleId && userId) {
         try {
@@ -346,9 +373,7 @@ export async function enqueueCupLabelJobs({
           }
         } catch (e) {
           console.error("[cup-label] ai doodle load failed, falling back", e);
-          const pool = pickPool();
-          doodleSvg = pool.svg;
-          poolKey = pool.key;
+          await useDefaultFallback();
         }
       } else if (userDoodleId && userId) {
         try {
@@ -357,15 +382,13 @@ export async function enqueueCupLabelJobs({
           source = "user";
           userPaths = paths;
         } catch (e) {
-          console.error("[cup-label] user doodle load failed, falling back to default", e);
-          const pool = pickPool();
-          doodleSvg = pool.svg;
-          poolKey = pool.key;
+          console.error("[cup-label] user doodle load failed, falling back", e);
+          await useDefaultFallback();
         }
       } else {
-        const pool = pickPool();
-        doodleSvg = pool.svg;
-        poolKey = pool.key;
+        // No customer choice on this slot — auto-fill via tarot deck
+        // (or POOL.svg if the deck is unavailable). Mirrors POS path.
+        await useDefaultFallback();
       }
 
       orderCupSeq++;
