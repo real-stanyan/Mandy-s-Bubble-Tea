@@ -34,7 +34,12 @@ export type CartLine = {
 export type CupLabelSelection =
   | { kind: "preset"; hash: string }
   | { kind: "photo"; uploadedDoodleId: string; previewUrl: string }
-  | { kind: "ai"; aiDoodleId: string; prompt: string };
+  // aiDoodleId is null while the background submission to
+  // /api/cup-label/ai-submit is in flight — committing the selection
+  // optimistically lets the user close the dialog and keep going
+  // through checkout while Doubao runs server-side. The real uuid
+  // gets stamped onto the cart entry once the route returns.
+  | { kind: "ai"; aiDoodleId: string | null; prompt: string };
 
 type CartState = {
   lines: CartLine[];

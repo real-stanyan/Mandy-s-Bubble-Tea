@@ -43,4 +43,15 @@ describe("buildPaymentSelections", () => {
       aiDoodleIds: { "A:1": "p-id", "A:2": "a-id" },
     });
   });
+
+  it("skips AI entries whose submission is still pending (aiDoodleId=null)", () => {
+    const sel: Record<string, CupLabelSelection> = {
+      "A:0": { kind: "ai", aiDoodleId: null, prompt: "still working" },
+      "A:1": { kind: "preset", hash: "h" },
+    };
+    expect(buildPaymentSelections(sel)).toEqual({
+      presetStickerHashes: { "A:1": "h" },
+      aiDoodleIds: undefined,
+    });
+  });
 });

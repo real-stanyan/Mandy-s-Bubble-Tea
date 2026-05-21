@@ -24,4 +24,9 @@ describe("summaryFor", () => {
       `✨ AI · ${prompt}`,
     );
   });
+  it("appends '(working…)' while the AI submission is in flight", () => {
+    expect(
+      summaryFor({ kind: "ai", aiDoodleId: null, prompt: "boba" }),
+    ).toBe("✨ AI · boba (working…)");
+  });
 });

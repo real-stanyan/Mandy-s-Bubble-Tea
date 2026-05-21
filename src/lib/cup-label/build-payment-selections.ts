@@ -18,7 +18,11 @@ export function buildPaymentSelections(
   for (const [slotKey, sel] of Object.entries(selections)) {
     if (sel.kind === "preset") presetStickerHashes[slotKey] = sel.hash;
     else if (sel.kind === "photo") aiDoodleIds[slotKey] = sel.uploadedDoodleId;
-    else aiDoodleIds[slotKey] = sel.aiDoodleId;
+    else if (sel.aiDoodleId !== null) aiDoodleIds[slotKey] = sel.aiDoodleId;
+    // ai with aiDoodleId=null → background submit still pending. Skip
+    // so the route doesn't get a missing id; server enqueue falls back
+    // to the gallery default for that slot (acceptable race rather than
+    // blocking the Pay button on the background submit).
   }
   return {
     presetStickerHashes: Object.keys(presetStickerHashes).length ? presetStickerHashes : undefined,

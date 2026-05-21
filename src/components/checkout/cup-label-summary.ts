@@ -9,5 +9,6 @@ export function summaryFor(selection: CupLabelSelection | undefined): string {
   const prompt = selection.prompt;
   const truncated = prompt.length > PROMPT_PREVIEW_MAX;
   const head = truncated ? prompt.slice(0, PROMPT_PREVIEW_MAX) : prompt;
-  return `✨ AI · ${head}${truncated ? "…" : ""}`;
+  const pending = selection.aiDoodleId === null ? " (working…)" : "";
+  return `✨ AI · ${head}${truncated ? "…" : ""}${pending}`;
 }

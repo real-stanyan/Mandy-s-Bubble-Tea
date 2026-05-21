@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { BRAND } from "@/lib/constants";
-import type { CupLabelSelection } from "@/store/cart";
+import { useCart, type CupLabelSelection } from "@/store/cart";
 import {
   uploadPhotoForCupLabel,
   submitAiCupLabel,
@@ -316,23 +316,13 @@ function AiTab({
 }) {
   const [prompt, setPrompt] = useState(current?.prompt ?? "");
   const [refDataUri, setRefDataUri] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState<Extract<
-    CupLabelSelection,
-    { kind: "ai" }
-  > | null>(current ?? null);
-  const isMountedRef = useRef(true);
-  useEffect(() => () => { isMountedRef.current = false; }, []);
 
   if (!isSignedIn) return <SignInGate label="AI" />;
 
   const trimmed = prompt.trim();
-  // overLimit gates on raw length so the counter goes red as soon as the
-  // user crosses 200 chars (matches what the textarea actually contains).
-  // canSubmit additionally requires non-empty trimmed content.
   const overLimit = prompt.length > AI_PROMPT_MAX_LEN;
-  const canSubmit = !busy && trimmed.length > 0 && !overLimit;
+  const canSubmit = trimmed.length > 0 && !overLimit;
 
   async function handleRefFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -351,62 +341,63 @@ function AiTab({
     }
   }
 
-  async function handleGenerate() {
+  function handleGenerate() {
     if (!canSubmit) return;
-    // Idempotent server returns the same aiDoodleId for an unchanged
-    // (user, slotKey) — but we still pay the round-trip. When the user
-    // hits Generate without changing the prompt or attaching a fresh
-    // reference image, just re-emit the existing selection.
-    if (current && trimmed === current.prompt && !refDataUri) {
+    // If the user re-hit Generate without changing prompt or attaching
+    // a new reference image AND the previous submission already
+    // resolved, just re-emit the same selection — no need to re-submit.
+    if (
+      current &&
+      trimmed === current.prompt &&
+      current.aiDoodleId !== null &&
+      !refDataUri
+    ) {
       onSelect(current);
       return;
     }
     setError(null);
-    setBusy(true);
-    try {
-      const { aiDoodleId } = await submitAiCupLabel({
-        slotKey,
-        prompt: trimmed,
-        sourceImageBase64: refDataUri ?? undefined,
-        cartSessionId,
-      });
-      if (!isMountedRef.current) return;
-      const sel = { kind: "ai" as const, aiDoodleId, prompt: trimmed };
-      setSubmitted(sel);
-      onSelect(sel);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      const msg =
-        err instanceof CupLabelClientError
-          ? err.message
-          : "AI submit failed — please try again.";
-      setError(msg);
-    } finally {
-      if (isMountedRef.current) setBusy(false);
-    }
-  }
 
-  if (submitted) {
-    return (
-      <div className="flex flex-col items-center gap-3 p-4 text-center">
-        <p className="text-3xl">✨</p>
-        <p className="text-sm font-medium">Submitted!</p>
-        <p className="max-w-md text-sm text-zinc-600">
-          Your AI image will be a surprise on your cup — we won&apos;t show you a
-          preview here. Prompt: <em>{submitted.prompt}</em>
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setSubmitted(null);
-            setPrompt(submitted.prompt);
-          }}
-          className="text-sm text-zinc-500 underline"
-        >
-          Change prompt
-        </button>
-      </div>
-    );
+    const promptSnapshot = trimmed;
+    const refSnapshot = refDataUri;
+
+    // Optimistic commit + close dialog immediately. Background submit
+    // runs server-side via after() and stamps the real aiDoodleId onto
+    // the cart entry once Doubao + binarize + Storage write completes.
+    // If the user clicks Pay before then, that cup falls back to the
+    // gallery default (buildPaymentSelections skips null aiDoodleId).
+    onSelect({ kind: "ai", aiDoodleId: null, prompt: promptSnapshot });
+
+    void submitAiCupLabel({
+      slotKey,
+      prompt: promptSnapshot,
+      sourceImageBase64: refSnapshot ?? undefined,
+      cartSessionId,
+    })
+      .then(({ aiDoodleId }) => {
+        // Only stamp the real id if the user hasn't already overwritten
+        // this slot with a new selection (e.g. picked Photo instead).
+        const cur = useCart.getState().labelSelections[slotKey];
+        if (
+          cur?.kind === "ai" &&
+          cur.prompt === promptSnapshot &&
+          cur.aiDoodleId === null
+        ) {
+          useCart.getState().setLabel(slotKey, {
+            kind: "ai",
+            aiDoodleId,
+            prompt: promptSnapshot,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("[cup-label] AI submit failed (background)", err);
+        // Clear the pending marker so auto-random refills with a gallery
+        // preset — better than leaving the cup row stuck at "working…".
+        const cur = useCart.getState().labelSelections[slotKey];
+        if (cur?.kind === "ai" && cur.aiDoodleId === null) {
+          useCart.getState().clearLabel(slotKey);
+        }
+      });
   }
 
   return (
@@ -420,7 +411,6 @@ function AiTab({
           rows={3}
           placeholder="e.g. two cats reading on a moon, line drawing"
           className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm"
-          disabled={busy}
         />
       </label>
       <p
@@ -445,7 +435,6 @@ function AiTab({
               type="file"
               accept="image/*"
               onChange={handleRefFile}
-              disabled={busy}
               className="hidden"
             />
             📎 {refDataUri ? "Change reference image" : "Add a reference image (optional)"}
@@ -454,7 +443,6 @@ function AiTab({
             <button
               type="button"
               onClick={() => setRefDataUri(null)}
-              disabled={busy}
               className="self-start text-xs text-zinc-500 underline hover:text-red-600"
             >
               Remove
@@ -472,7 +460,7 @@ function AiTab({
         className="self-end rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         style={{ backgroundColor: BRAND.primaryColor }}
       >
-        {busy ? "Submitting…" : "Generate"}
+        Generate
       </button>
     </div>
   );
