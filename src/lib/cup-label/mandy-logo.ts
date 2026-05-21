@@ -39,8 +39,14 @@ export function getMandyLogoZpl(): Promise<MandyLogoZpl> {
 }
 
 async function build(): Promise<MandyLogoZpl> {
+  // Logo lives under `public/` because Vercel's output-file-tracing
+  // automatically ships everything in there to the serverless function
+  // bundle, the same way the cup-label gallery PNGs do — files left in
+  // `src/` are tree-shaken out of the function bundle unless explicitly
+  // imported, so `fs.readFile` against `src/.../mandy-logo.png` would
+  // ENOENT in production.
   const buf = await fs.readFile(
-    path.join(process.cwd(), "src", "lib", "cup-label", "mandy-logo.png"),
+    path.join(process.cwd(), "public", "cup-label", "mandy-logo.png"),
   );
   // Resize keeping aspect inside the box, flatten transparency onto
   // white so transparent → "no print" later (bit 0 / band-black shows
