@@ -102,6 +102,7 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
+  const labelSelections = useCart((s) => s.labelSelections);
   const {
     profile,
     loyalty,
@@ -566,7 +567,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         verificationToken = verification.token;
       }
 
-      // 4) Finalize the order.
+      // 4) Finalize the order. labelSelections already uses the server's
+      //    slotKey format (`${lineId}:${cupIdx}` after cart-algo alignment),
+      //    so we forward it verbatim — no per-key transform needed. Empty
+      //    map is fine; payment route validator skips when undefined and
+      //    server enqueue falls back to hash-default for missing slots.
+      const presetStickerHashes =
+        Object.keys(labelSelections).length > 0 ? labelSelections : undefined;
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -574,6 +581,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           sourceId: sourceToken,
           orderId: orderJson.orderId,
           verificationToken,
+          presetStickerHashes,
         }),
       });
       const paymentJson = await paymentRes.json();

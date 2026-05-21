@@ -32,8 +32,11 @@ type CartState = {
   isOpen: boolean;
   hydrated: boolean;
 
-  // Per-cup gallery-label selection. Key = cupKey (`${lineId}::${cupIdx}`,
+  // Per-cup gallery-label selection. Key = cupKey (`${lineId}:${cupIdx}`,
   // 0-indexed), value = gallery hash from public/cup-label/gallery/.
+  // Matches the server's slotKey format in `src/lib/cup-label/enqueue.ts`
+  // so labelSelections can be forwarded as `presetStickerHashes` without
+  // key transformation.
   labelSelections: Record<string, string>;
 
   // Actions
@@ -47,9 +50,14 @@ type CartState = {
   clearLabel: (cupKey: string) => void;
 };
 
-/** Build the deterministic key for a single cup within a cart line. */
+/** Build the deterministic key for a single cup within a cart line.
+ *  Matches server `slotKey` in src/lib/cup-label/enqueue.ts (single colon
+ *  between lineId and cupIdx) so labelSelections forwards to presetStickerHashes
+ *  as-is, no key transform needed. lineId is `signatureFor` output, which
+ *  itself uses `::` internally — the trailing `:${cupIdx}` is unambiguous.
+ */
 export function cupKey(lineId: string, cupIdx: number): string {
-  return `${lineId}::${cupIdx}`;
+  return `${lineId}:${cupIdx}`;
 }
 
 /** Drop every selection belonging to a removed line. */
@@ -57,7 +65,7 @@ function pruneSelectionsForLine(
   selections: Record<string, string>,
   lineId: string,
 ): Record<string, string> {
-  const prefix = `${lineId}::`;
+  const prefix = `${lineId}:`;
   const next: Record<string, string> = {};
   for (const [k, v] of Object.entries(selections)) {
     if (!k.startsWith(prefix)) next[k] = v;
@@ -71,7 +79,7 @@ function pruneSelectionsAboveCup(
   lineId: string,
   maxQty: number,
 ): Record<string, string> {
-  const prefix = `${lineId}::`;
+  const prefix = `${lineId}:`;
   const next: Record<string, string> = {};
   for (const [k, v] of Object.entries(selections)) {
     if (!k.startsWith(prefix)) {
@@ -84,17 +92,24 @@ function pruneSelectionsAboveCup(
   return next;
 }
 
-/** Compute a signature that groups line items with identical contents. */
+/** Compute a signature that groups line items with identical contents.
+ *  Mirrors `buildLineId` in the RN app and `clientLineIdFromSquareLine`
+ *  on the server (src/lib/cup-label/client-line-id.ts) so the same
+ *  lineId reaches the cup-label enqueue path from web, app, and the
+ *  Square webhook. variationId already uniquely identifies the catalog
+ *  variation (which transitively pins the parent item), so itemId is
+ *  redundant and omitted to keep the algorithm aligned across surfaces.
+ *  itemId is still accepted for API stability but ignored. */
 function signatureFor(
-  itemId: string,
+  _itemId: string,
   variationId: string,
   modifiers: CartLineModifier[],
 ): string {
   const modIds = modifiers
     .map((m) => m.id)
     .sort()
-    .join("|");
-  return `${itemId}::${variationId}::${modIds}`;
+    .join(",");
+  return `${variationId}::${modIds}`;
 }
 
 export const useCart = create<CartState>()(

@@ -70,6 +70,9 @@ type PaymentBody = {
   doodleIds?: Record<string, string>;
   doodleDefaults?: Record<string, string>;
   aiDoodleIds?: Record<string, string>;
+  /** Gallery sticker picks, keyed `${clientLineId}:${cupIdx}`, value is the
+   *  md5 hash of the chosen sticker in `public/cup-label/gallery/`. */
+  presetStickerHashes?: Record<string, string>;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
@@ -92,6 +95,12 @@ function isValidBody(body: unknown): body is PaymentBody {
   if (b.aiDoodleIds !== undefined) {
     if (typeof b.aiDoodleIds !== "object" || b.aiDoodleIds === null) return false;
     for (const v of Object.values(b.aiDoodleIds)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.presetStickerHashes !== undefined) {
+    if (typeof b.presetStickerHashes !== "object" || b.presetStickerHashes === null) return false;
+    for (const v of Object.values(b.presetStickerHashes)) {
       if (typeof v !== "string") return false;
     }
   }
@@ -231,6 +240,7 @@ export async function POST(request: Request) {
               doodleIds: body.doodleIds,
               doodleDefaults: body.doodleDefaults,
               aiDoodleIds: body.aiDoodleIds,
+              presetStickerHashes: body.presetStickerHashes,
               userId: user.userId,
               customerFirstName: user.profile.first_name,
             }).catch((e) => {
@@ -292,6 +302,7 @@ export async function POST(request: Request) {
                 doodleIds: body.doodleIds,
                 doodleDefaults: body.doodleDefaults,
                 aiDoodleIds: body.aiDoodleIds,
+                presetStickerHashes: body.presetStickerHashes,
                 userId: user.userId,
                 customerFirstName: user.profile.first_name,
               }).catch((e) => {

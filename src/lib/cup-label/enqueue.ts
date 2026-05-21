@@ -1,4 +1,6 @@
 import "server-only";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import type { Order } from "square";
 import { getSupabaseAdmin } from "../supabase-server";
 import { POOL, pickDefaultForCup } from "../doodle/pool";
@@ -8,6 +10,17 @@ import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { generateFortunes } from "./fortune";
+
+// Static gallery preset stickers live in the Next.js public/ tree. They're
+// committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
+// hash. The web/app checkout LabelPicker writes the chosen hash into
+// labelSelections; we read the binarized PNG from disk and route it through
+// the same `doodlePngBuffer` path as AI-generated and user-photo doodles.
+const GALLERY_DIR = path.join(process.cwd(), "public", "cup-label", "gallery");
+// Hard cap on the hash string we accept from the client — md5 hex is 32
+// chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
+const GALLERY_HASH_MAX_LEN = 64;
+const GALLERY_HASH_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type EnqueueCupLabelArgs = {
   order: Order;
@@ -33,6 +46,18 @@ export type EnqueueCupLabelArgs = {
    * source: ai > user-drawn > preset > hash-default.
    */
   aiDoodleIds?: Record<string, string>;
+  /**
+   * Optional client-supplied gallery sticker picks, keyed the same way as
+   * `doodleIds`. Value is the md5-style hash of a sticker in
+   * `public/cup-label/gallery/`. The server reads
+   * `<repo>/public/cup-label/gallery/<hash>/binarized.png` from disk at
+   * enqueue time and routes the buffer through `renderCupLabel`'s
+   * `doodlePngBuffer` path — no Supabase Storage hop. Priority:
+   * ai > drawn > presetSticker > POOL preset (doodleDefaults) > hash-default.
+   * Unlike aiDoodleIds, this path does NOT require a userId — gallery
+   * stickers are public static assets.
+   */
+  presetStickerHashes?: Record<string, string>;
   /** Required when doodleIds is set — used to scope the storage lookup. */
   userId?: string;
   /** Customer's first name for the "Hi, {name}" header. Falls back to "Guest". */
@@ -58,7 +83,7 @@ type Row = {
   sticker_number: string;
   drink_name: string;
   modifiers_text: string;
-  doodle_source: "default" | "user" | "ai" | "fortune";
+  doodle_source: "default" | "user" | "ai" | "fortune" | "preset_sticker";
   doodle_pool_key: string | null;
   doodle_paths: SvgPath[] | null;
   // Legacy column from the Storage-backed pipeline. Always null on new
@@ -94,6 +119,7 @@ export async function enqueueCupLabelJobs({
   doodleIds,
   doodleDefaults,
   aiDoodleIds,
+  presetStickerHashes,
   userId,
   customerFirstName,
   mode = "web",
@@ -155,6 +181,13 @@ export async function enqueueCupLabelJobs({
       const slotKey = `${clientLineId}:${cupIdx}`;
       const userDoodleId = doodleIds && userId ? doodleIds[slotKey] : undefined;
       const aiDoodleId = aiDoodleIds && userId ? aiDoodleIds[slotKey] : undefined;
+      const presetStickerRaw = presetStickerHashes?.[slotKey];
+      const presetStickerHash =
+        typeof presetStickerRaw === "string" &&
+        presetStickerRaw.length <= GALLERY_HASH_MAX_LEN &&
+        GALLERY_HASH_RE.test(presetStickerRaw)
+          ? presetStickerRaw
+          : undefined;
       const presetKey = doodleDefaults?.[slotKey];
 
       // Dev-only diagnostic: surface any key-mismatch between the RN
@@ -164,21 +197,28 @@ export async function enqueueCupLabelJobs({
       if (process.env.NODE_ENV === "development") {
         const clientChose = aiDoodleId
           ? `ai:${aiDoodleId.slice(0, 8)}`
-          : presetKey
-            ? `preset:${presetKey}`
-            : userDoodleId
-              ? `drawn:${userDoodleId.slice(0, 8)}`
-              : "MISS";
+          : presetStickerHash
+            ? `sticker:${presetStickerHash.slice(0, 8)}`
+            : presetKey
+              ? `preset:${presetKey}`
+              : userDoodleId
+                ? `drawn:${userDoodleId.slice(0, 8)}`
+                : "MISS";
         console.log(
           `[cup-label dev] slot ${slotKey} → ${clientChose}` +
-          (doodleDefaults ? ` | doodleDefaults keys: ${JSON.stringify(Object.keys(doodleDefaults))}` : ""),
+          (presetStickerHashes
+            ? ` | presetStickerHashes keys: ${JSON.stringify(Object.keys(presetStickerHashes))}`
+            : "") +
+          (doodleDefaults
+            ? ` | doodleDefaults keys: ${JSON.stringify(Object.keys(doodleDefaults))}`
+            : ""),
         );
       }
 
       let doodleSvg: string;
       let doodlePngBuffer: Buffer | undefined;
       let fortuneText: string | undefined;
-      let source: "user" | "default" | "ai" | "fortune" = "default";
+      let source: "user" | "default" | "ai" | "fortune" | "preset_sticker" = "default";
       let poolKey: string | null = null;
       let userPaths: SvgPath[] | null = null;
       // Admin cup-doodles gallery — color-original tracking. Populated
@@ -205,6 +245,26 @@ export async function enqueueCupLabelJobs({
         fortuneText = fortunes[fortuneCursor++] ?? "Today is your lucky day";
         source = "fortune";
         doodleSvg = "";
+      } else if (presetStickerHash) {
+        // Static gallery sticker — committed PNG under public/cup-label/gallery.
+        // Read the pre-binarized (1-bit Atkinson-dithered) variant directly so
+        // sharp doesn't soften it back into greyscale before ZPL packing.
+        try {
+          const filePath = path.join(GALLERY_DIR, presetStickerHash, "binarized.png");
+          doodlePngBuffer = await fs.readFile(filePath);
+          source = "preset_sticker";
+          poolKey = presetStickerHash;
+          originalImagePath = `cup-label/gallery/${presetStickerHash}/binarized.png`;
+          doodleSvg = "";
+        } catch (e) {
+          console.error(
+            "[cup-label] preset sticker load failed, falling back to hash default",
+            { hash: presetStickerHash, error: e instanceof Error ? e.message : e },
+          );
+          const pool = pickPool();
+          doodleSvg = pool.svg;
+          poolKey = pool.key;
+        }
       } else if (aiDoodleId && userId) {
         try {
           doodlePngBuffer = await loadAiDoodleUpload(userId, aiDoodleId);
@@ -311,7 +371,9 @@ export async function enqueueCupLabelJobs({
   // skipped on conflict so the user's pick survives.
   const hasAuthoritativeChoice =
     (doodleIds && Object.keys(doodleIds).length > 0) ||
-    (doodleDefaults && Object.keys(doodleDefaults).length > 0);
+    (doodleDefaults && Object.keys(doodleDefaults).length > 0) ||
+    (aiDoodleIds && Object.keys(aiDoodleIds).length > 0) ||
+    (presetStickerHashes && Object.keys(presetStickerHashes).length > 0);
   const { error: insErr } = await sb
     .from("cup_label_jobs")
     .upsert(rows, {
