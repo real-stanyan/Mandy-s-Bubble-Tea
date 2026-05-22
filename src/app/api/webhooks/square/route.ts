@@ -5,6 +5,7 @@ import { squareClient } from "@/lib/square";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
 import { enqueuePrintJob } from "@/lib/print-jobs";
+import { reverseAccrualForOrder } from "@/lib/loyalty";
 
 // Square Webhook endpoint. Subscribed events (configured in Square
 // Developer Dashboard):
@@ -56,8 +57,22 @@ type SquareEvent = {
         state?: string;
         version?: number;
       };
+      refund?: {
+        id?: string;
+        order_id?: string;
+        payment_id?: string;
+        status?: string;
+        amount_money?: { amount?: number | bigint; currency?: string };
+      };
     };
   };
+};
+
+type RefundDetails = {
+  refundId: string;
+  orderId: string;
+  status: string;
+  amountCents: number;
 };
 
 function pickCustomerId(event: SquareEvent): string | null {
@@ -91,6 +106,25 @@ function pickUpdatedOrderId(event: SquareEvent): string | null {
   const payload = event.data?.object?.order_updated;
   if (!payload) return null;
   return payload.order_id ?? null;
+}
+
+/**
+ * Extract the refund details needed to decide whether to reverse stars.
+ * Returns null for events that don't carry a refund payload or are
+ * missing required fields.
+ */
+function pickRefundDetails(event: SquareEvent): RefundDetails | null {
+  const r = event.data?.object?.refund;
+  if (!r?.id || !r.order_id || !r.status) return null;
+  const amt = r.amount_money?.amount;
+  const amountCents = typeof amt === "bigint" ? Number(amt) : Number(amt ?? 0);
+  if (!Number.isFinite(amountCents)) return null;
+  return {
+    refundId: r.id,
+    orderId: r.order_id,
+    status: r.status,
+    amountCents,
+  };
 }
 
 /**
@@ -257,6 +291,56 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
   }
 }
 
+/**
+ * Refund landed (refund.created or refund.updated with status=COMPLETED).
+ * Reverses any loyalty stars that were earned for the underlying order
+ * via a negative Square loyalty.accounts.adjust. Partial refunds are
+ * logged but not auto-reversed — those are rare and the policy is
+ * "manual review" to avoid mis-clawing a legitimate accrual.
+ */
+async function handleRefund(
+  details: RefundDetails,
+  eventId?: string,
+): Promise<void> {
+  if (details.status !== "COMPLETED") {
+    return;
+  }
+
+  let orderTotal: number | null = null;
+  try {
+    const resp = await squareClient.orders.get({ orderId: details.orderId });
+    const amt = resp.order?.totalMoney?.amount;
+    if (amt != null) {
+      orderTotal = typeof amt === "bigint" ? Number(amt) : Number(amt);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[square-webhook] refund order fetch failed order=${details.orderId} refund=${details.refundId}: ${message}`,
+    );
+    return;
+  }
+
+  if (orderTotal != null && details.amountCents < orderTotal) {
+    console.warn(
+      `[square-webhook] partial refund order=${details.orderId} refund=${details.refundId} refunded=${details.amountCents} total=${orderTotal} — NOT auto-reversing stars (manual review)`,
+    );
+    return;
+  }
+
+  try {
+    const result = await reverseAccrualForOrder(details.orderId, details.refundId);
+    console.log(
+      `[square-webhook] refund reversed ${result.reversed} stars order=${details.orderId} refund=${details.refundId} account=${result.accountId ?? "none"} event_id=${eventId}`,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[square-webhook] refund reverse failed order=${details.orderId} refund=${details.refundId} event_id=${eventId}: ${message}`,
+    );
+  }
+}
+
 export async function POST(request: Request) {
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const notificationUrl = process.env.SQUARE_WEBHOOK_NOTIFICATION_URL;
@@ -352,6 +436,20 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
           `[print] handleOrderPaid threw for order ${orderId} event_id=${event.event_id}: ${message}`,
+        );
+      }
+    }
+  }
+
+  if (event.type === "refund.created" || event.type === "refund.updated") {
+    const refund = pickRefundDetails(event);
+    if (refund) {
+      try {
+        await handleRefund(refund, event.event_id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[square-webhook] handleRefund threw refund=${refund.refundId} event_id=${event.event_id}: ${message}`,
         );
       }
     }

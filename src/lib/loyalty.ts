@@ -344,3 +344,54 @@ export async function redeemReward(
     throw wrapped;
   }
 }
+
+/**
+ * Reverse the loyalty stars previously accrued for an order. Called
+ * from the Square webhook on refund.created/refund.updated COMPLETED.
+ * Idempotent: the idempotencyKey is derived from refundId so Square
+ * dedupes a duplicate call (e.g. Square re-delivers the webhook).
+ *
+ * Returns the count of stars reversed and the loyalty account id, or
+ * `{reversed: 0, accountId: null}` if the order had no accrual events
+ * (e.g. POS order with no enrolled customer, or already-reversed).
+ */
+export async function reverseAccrualForOrder(
+  orderId: string,
+  refundId: string,
+): Promise<{ reversed: number; accountId: string | null }> {
+  const response = await squareClient.loyalty.searchEvents({
+    query: {
+      filter: {
+        orderFilter: { orderId },
+        typeFilter: { types: ["ACCUMULATE_POINTS"] },
+      },
+    },
+    limit: 30,
+  });
+
+  const events = response.events ?? [];
+  let totalPoints = 0;
+  let accountId: string | null = null;
+  for (const e of events) {
+    const pts = Number(e.accumulatePoints?.points ?? 0);
+    if (Number.isFinite(pts) && pts > 0) {
+      totalPoints += pts;
+      if (!accountId && e.loyaltyAccountId) accountId = e.loyaltyAccountId;
+    }
+  }
+
+  if (totalPoints === 0 || !accountId) {
+    return { reversed: 0, accountId };
+  }
+
+  await squareClient.loyalty.accounts.adjust({
+    accountId,
+    idempotencyKey: `refund-reverse-${refundId}`,
+    adjustPoints: {
+      points: -totalPoints,
+      reason: `Refund reversal for refund ${refundId}`,
+    },
+  });
+
+  return { reversed: totalPoints, accountId };
+}

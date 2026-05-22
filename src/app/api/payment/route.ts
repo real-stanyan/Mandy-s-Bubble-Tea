@@ -337,9 +337,15 @@ export async function POST(request: Request) {
     // still accrue so the paid drinks earn their stars normally.
     const hasLoyaltyReward = (order.rewards?.length ?? 0) > 0;
     const skipAccrual = hasLoyaltyReward && amount === 0n;
+    // Settled = paid order completed cleanly, OR a $0 order (closed via
+    // orders.pay; throws would have hit the outer catch). Must gate
+    // accrual: PENDING/FAILED card charges that didn't throw must not
+    // mint stars.
+    const paymentSettled =
+      amount > 0n ? paymentStatus === "COMPLETED" : true;
 
     let loyaltyAccrued = false;
-    if (!skipAccrual) {
+    if (!skipAccrual && paymentSettled) {
       try {
         const account = await findOrCreateLoyaltyAccount(customerId, e164);
         await accrueForOrder(account.accountId, body.orderId);
@@ -365,8 +371,6 @@ export async function POST(request: Request) {
     // if it had thrown we'd already be in the outer catch).
     let welcomeDiscountConsumedCount = 0;
     let welcomeDrinksRemaining: number | null = null;
-    const paymentSettled =
-      amount > 0n ? paymentStatus === "COMPLETED" : true;
     const hadWelcomeDiscount = (order.discounts ?? []).some(
       (d) => d.uid === "welcome-discount",
     );
