@@ -400,11 +400,6 @@ export async function enqueueCupLabelJobs({
         doodleSvg,
         doodlePngBuffer,
         customerFirstName: customerFirstName ?? null,
-        // Hide bottom-right Mandy logo when the cup carries a customer-
-        // supplied image (AI generation or uploaded photo) — those
-        // already feel personal and the logo competes for attention.
-        // Preset stickers / drawn / tarot / fortune keep the logo.
-        hideLogo: source === "ai",
       });
 
       rows.push({

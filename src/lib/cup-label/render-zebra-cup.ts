@@ -119,13 +119,6 @@ export type CupLabelInput = {
    * fonts can't render CJK without a separate font-download step.
    */
   fortuneText?: string;
-  /**
-   * Suppress the bottom-right Mandy logo. Used for customer-supplied
-   * images (AI generation / photo upload) where the doodle area is
-   * already a personal image and a brand mark in the corner competes
-   * for attention. Preset stickers / drawn / tarot / fortune keep it.
-   */
-  hideLogo?: boolean;
 };
 
 function formatGreeting(name: string | null): string {
@@ -157,7 +150,6 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
       logoHex: logo.hex,
       logoTotalBytes: logo.totalBytes,
       logoWidthBytes: logo.widthBytes,
-      hideLogo: input.hideLogo,
     });
     const previewPng = await renderPreviewPng(input, null);
     return { zpl, previewPng };
@@ -200,7 +192,6 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     logoHex: logo.hex,
     logoTotalBytes: logo.totalBytes,
     logoWidthBytes: logo.widthBytes,
-    hideLogo: input.hideLogo,
   });
 
   const previewPng = await renderPreviewPng(input, doodlePngBuffer);
@@ -221,7 +212,6 @@ function buildZpl(args: {
   logoHex: string;
   logoTotalBytes: number;
   logoWidthBytes: number;
-  hideLogo?: boolean;
 }): string {
   const innerWidth = LABEL_WIDTH_DOTS - 40; // 20px padding each side
 
@@ -282,11 +272,16 @@ function buildZpl(args: {
 
   // Bottom band: drink name (top, large) + modifier list (below) +
   // optional Mandy logo (bottom-right corner). Layout 2026-05-22:
+  //   y_rel=0   2-dot horizontal divider across full label width
   //   y_rel=15  drink (one big line, narrow width to reserve logo column)
   //   y_rel=80  modifier list (4 lines max, narrow width to avoid logo)
   //   y_rel=147 logo footprint (when not hidden)
+  // ^GB draws a filled rect (last arg = stroke thickness, set = height
+  // when ≤ height → solid bar).
+  parts.push(`^FO0,${BOTTOM_BAND_Y}^GB${LABEL_WIDTH_DOTS},2,2^FS`);
+
   const drinkFont = drinkFontSizeFor(args.drinkName);
-  const reserveRight = args.hideLogo ? 0 : MANDY_LOGO_WIDTH + LOGO_MARGIN;
+  const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN;
   const drinkWidth = innerWidth - reserveRight;
   const modWidth = innerWidth - reserveRight;
   parts.push(
@@ -301,13 +296,10 @@ function buildZpl(args: {
 
   // Mandy logo at the bottom-right of the white bottom band. No ^FR
   // here — the band is white so the logo's pre-binarised print-bits
-  // paint as black ink directly. Suppressed when hideLogo=true (cup
-  // with customer-supplied AI/photo image).
-  if (!args.hideLogo) {
-    parts.push(
-      `^FO${LOGO_X},${LOGO_Y}^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
-    );
-  }
+  // paint as black ink directly.
+  parts.push(
+    `^FO${LOGO_X},${LOGO_Y}^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
+  );
 
   parts.push("^XZ");
   return parts.join("\n");
@@ -430,12 +422,12 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
   // Bottom band 2026-05-22 layout:
   //   y=15  drink name (1-2 lines, large)
   //   y=80  modifier list (4 lines max)
-  //   y=147 logo footprint (when not hidden)
-  const { drinkName, modifiersText, hideLogo } = input;
+  //   y=147 logo footprint
+  const { drinkName, modifiersText } = input;
   const fs = drinkFontSizeFor(drinkName);
 
-  // Width budget — reserve right side for the logo unless hidden.
-  const reserveRight = hideLogo ? 20 : MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
+  // Width budget — always reserve right side for the logo.
+  const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
   const innerW = LABEL_WIDTH_DOTS - 20 - reserveRight;
   // Char-width heuristic 0.55 calibrated from real ZD410 prints.
   const drinkMaxChars = Math.max(1, Math.floor(innerW / (fs * 0.55)));
@@ -459,16 +451,14 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
     )
     .join("");
 
-  let logoElem = "";
-  if (!hideLogo) {
-    const lx = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
-    const ly = BOTTOM_BAND_HEIGHT - MANDY_LOGO_HEIGHT - LOGO_MARGIN;
-    logoElem = `<rect x="${lx}" y="${ly}" width="${MANDY_LOGO_WIDTH}" height="${MANDY_LOGO_HEIGHT}" rx="8" fill="black"/>
+  const lx = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
+  const ly = BOTTOM_BAND_HEIGHT - MANDY_LOGO_HEIGHT - LOGO_MARGIN;
+  const logoElem = `<rect x="${lx}" y="${ly}" width="${MANDY_LOGO_WIDTH}" height="${MANDY_LOGO_HEIGHT}" rx="8" fill="black"/>
       <text x="${lx + MANDY_LOGO_WIDTH / 2}" y="${ly + MANDY_LOGO_HEIGHT / 2 + 5}" text-anchor="middle" font-family="serif" font-size="20" fill="white" font-style="italic">Mandy</text>`;
-  }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${BOTTOM_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="white"/>
+    <rect x="0" y="0" width="${LABEL_WIDTH_DOTS}" height="2" fill="black"/>
     ${drinkText}
     ${modText}
     ${logoElem}
