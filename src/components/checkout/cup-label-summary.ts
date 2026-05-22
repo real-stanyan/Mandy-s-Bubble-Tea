@@ -4,7 +4,7 @@ const PROMPT_PREVIEW_MAX = 32;
 
 export function summaryFor(selection: CupLabelSelection | undefined): string {
   if (!selection) return "Pick a design";
-  if (selection.kind === "preset") return `🎨 ${selection.hash.slice(0, 8)}…`;
+  if (selection.kind === "preset") return "🎨 Surprise sticker";
   if (selection.kind === "photo") return "📷 Your photo";
   if (selection.kind === "draw") {
     const pending = selection.userDoodleId === null ? " (saving…)" : "";

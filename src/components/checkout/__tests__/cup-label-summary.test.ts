@@ -5,8 +5,10 @@ describe("summaryFor", () => {
   it("renders 'Pick a design' when undefined", () => {
     expect(summaryFor(undefined)).toBe("Pick a design");
   });
-  it("renders preset hash prefix", () => {
-    expect(summaryFor({ kind: "preset", hash: "abcdef0123" })).toBe("🎨 abcdef01…");
+  it("renders friendly preset label (hashes are not user-facing)", () => {
+    expect(summaryFor({ kind: "preset", hash: "abcdef0123" })).toBe(
+      "🎨 Surprise sticker",
+    );
   });
   it("renders photo label", () => {
     expect(

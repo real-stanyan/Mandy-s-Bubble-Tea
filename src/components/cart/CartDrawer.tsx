@@ -14,6 +14,7 @@ import {
   platformFee,
   publicHolidaySurcharge,
   type CartLine,
+  type CupLabelSelection,
 } from "@/store/cart";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
@@ -21,7 +22,10 @@ import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { CartCupLabels } from "@/components/cart/CartCupLabels";
+import { useGalleryAutoFill } from "@/lib/cup-label/use-gallery-auto-fill";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
@@ -48,6 +52,9 @@ export function CartDrawer() {
   const closeDrawer = useCart((s) => s.closeDrawer);
   const setQuantity = useCart((s) => s.setQuantity);
   const removeLine = useCart((s) => s.removeLine);
+  const labelSelections = useCart((s) => s.labelSelections);
+  const setLabel = useCart((s) => s.setLabel);
+  const cartSessionId = useCart((s) => s.cartSessionId);
 
   // Close on ESC.
   useEffect(() => {
@@ -121,6 +128,9 @@ export function CartDrawer() {
           closeDrawer={closeDrawer}
           setQuantity={setQuantity}
           removeLine={removeLine}
+          labelSelections={labelSelections}
+          setLabel={setLabel}
+          cartSessionId={cartSessionId}
         />
       </aside>
     </div>
@@ -137,15 +147,22 @@ function CartBody({
   closeDrawer,
   setQuantity,
   removeLine,
+  labelSelections,
+  setLabel,
+  cartSessionId,
 }: {
   lines: CartLine[];
   isOpen: boolean;
   closeDrawer: () => void;
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
+  labelSelections: Record<string, CupLabelSelection>;
+  setLabel: (cupKey: string, selection: CupLabelSelection) => void;
+  cartSessionId: string;
 }) {
   const {
     profile,
+    loading: authLoading,
     loyalty,
     welcomeDiscount,
     igFollowDiscount,
@@ -173,6 +190,16 @@ function CartBody({
   useEffect(() => {
     if (isOpen && !everOpened) setEverOpened(true);
   }, [isOpen, everOpened]);
+
+  // Per-cup label picker — single modal instance covers all lines, the
+  // pickerCupKey state tracks which cup is currently being edited.
+  // Auto-fill random presets into each new cup the first time the drawer
+  // is opened so users see thumbnails instead of empty placeholders.
+  const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
+  useGalleryAutoFill({ active: everOpened });
+  const pickerCurrent: CupLabelSelection | undefined = pickerCupKey
+    ? labelSelections[pickerCupKey]
+    : undefined;
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const stars = loyalty?.balance ?? 0;
@@ -364,6 +391,7 @@ function CartBody({
                   line={line}
                   onQuantityChange={(q) => setQuantity(line.id, q)}
                   onRemove={() => removeLine(line.id)}
+                  onPickerOpen={setPickerCupKey}
                 />
               ))}
             </div>
@@ -386,6 +414,7 @@ function CartBody({
           platformFeeAmount={platformFeeAmount}
           phSurchargeAmount={phSurchargeAmount}
           hasProfile={!!profile}
+          authLoading={authLoading}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
           applePayRef={applePayRef}
@@ -395,6 +424,22 @@ function CartBody({
           paymentsRef={paymentsRef}
         />
       )}
+
+      {/* Single LabelPicker instance shared across every line — slotKey
+          switches as the user taps a different cup. */}
+      <LabelPicker
+        open={pickerCupKey !== null}
+        onOpenChange={(open) => {
+          if (!open) setPickerCupKey(null);
+        }}
+        slotKey={pickerCupKey ?? ""}
+        cartSessionId={cartSessionId}
+        isSignedIn={!!profile}
+        current={pickerCurrent}
+        onSelect={(selection) => {
+          if (pickerCupKey) setLabel(pickerCupKey, selection);
+        }}
+      />
     </>
   );
 }
@@ -515,10 +560,12 @@ const CartLineRow = memo(function CartLineRow({
   line,
   onQuantityChange,
   onRemove,
+  onPickerOpen,
 }: {
   line: CartLine;
   onQuantityChange: (q: number) => void;
   onRemove: () => void;
+  onPickerOpen: (cupKey: string) => void;
 }) {
   const total = lineTotal(line);
   const details = [
@@ -576,6 +623,10 @@ const CartLineRow = memo(function CartLineRow({
             Remove
           </button>
         </div>
+
+        {/* Per-cup label picker entry — auto-fills random preset on first
+            drawer open, tap any cup to swap design / draw / AI / photo. */}
+        <CartCupLabels line={line} onPickerOpen={onPickerOpen} />
       </div>
     </div>
   );
@@ -633,6 +684,7 @@ function CartFooter({
   platformFeeAmount,
   phSurchargeAmount,
   hasProfile,
+  authLoading,
   applePayReady,
   googlePayReady,
   applePayRef,
@@ -662,6 +714,7 @@ function CartFooter({
   platformFeeAmount: bigint;
   phSurchargeAmount: bigint;
   hasProfile: boolean;
+  authLoading: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
   applePayRef: React.RefObject<ApplePayInstance | null>;
@@ -908,9 +961,12 @@ function CartFooter({
     ],
   );
 
-  // Determine which wallet button to show.
-  const showApple = applePayReady;
-  const showGoogle = googlePayReady && !applePayReady; // prefer Apple Pay on iOS
+  // Determine which wallet button to show — only after the user is
+  // signed in. Guests get a single "Sign in to checkout" CTA and the
+  // Apple/Google Pay sheets stay hidden. SDK init can keep running in
+  // the background so the buttons appear instantly after sign-in.
+  const showApple = applePayReady && hasProfile;
+  const showGoogle = googlePayReady && !applePayReady && hasProfile;
 
   return (
     <footer className="border-t border-black/10 px-5 pb-6 pt-5">
@@ -1039,6 +1095,24 @@ function CartFooter({
         >
           Orders closed · {orderingStatus?.nextLabel ?? ""}
         </button>
+      ) : authLoading ? (
+        // Skeleton so the unauth CTA doesn't flash in front of an
+        // already-signed-in user before /api/me resolves.
+        <div
+          className="mt-5 h-[52px] w-full animate-pulse rounded-xl bg-zinc-100"
+          aria-hidden="true"
+        />
+      ) : !hasProfile ? (
+        // Not signed in — wallet sheets stay hidden, single CTA routes
+        // to /checkout where SignInCard guides the user.
+        <Link
+          href="/checkout"
+          onClick={closeDrawer}
+          className="mt-5 block w-full rounded-xl py-3.5 text-center text-base font-semibold text-white transition hover:opacity-90"
+          style={{ backgroundColor: BRAND.primaryColor }}
+        >
+          Sign in to checkout
+        </Link>
       ) : (
         <>
           {/* Wallet quick-pay — real payment, no redirect */}

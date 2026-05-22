@@ -1,53 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
-import { useCart, cupKey, type CartLine, type CupLabelSelection } from "@/store/cart";
+import { useCart, cupKey, type CupLabelSelection } from "@/store/cart";
 import { BRAND } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LabelPicker } from "./LabelPicker";
 import { summaryFor } from "./cup-label-summary";
-
-type GalleryManifest = { hashes: string[] };
-
-let manifestCache: GalleryManifest | null = null;
-
-async function loadGalleryManifest(): Promise<GalleryManifest> {
-  if (manifestCache) return manifestCache;
-  const res = await fetch("/cup-label/gallery/manifest.json");
-  if (!res.ok) throw new Error(`manifest fetch failed: ${res.status}`);
-  const data = (await res.json()) as GalleryManifest;
-  manifestCache = data;
-  return data;
-}
-
-function pickRandomHash(hashes: string[]): string {
-  return hashes[Math.floor(Math.random() * hashes.length)];
-}
-
-type Cup = {
-  lineId: string;
-  cupIdx: number;
-  itemName: string;
-  variationName: string;
-  totalCups: number;
-};
-
-function flattenCups(lines: CartLine[]): Cup[] {
-  const out: Cup[] = [];
-  for (const line of lines) {
-    for (let i = 0; i < line.quantity; i++) {
-      out.push({
-        lineId: line.id,
-        cupIdx: i,
-        itemName: line.itemName,
-        variationName: line.variationName,
-        totalCups: line.quantity,
-      });
-    }
-  }
-  return out;
-}
+import {
+  flattenCups,
+  useGalleryAutoFill,
+} from "@/lib/cup-label/use-gallery-auto-fill";
 
 export function CupLabelSection() {
   const lines = useCart((s) => s.lines);
@@ -58,35 +21,11 @@ export function CupLabelSection() {
   const isSignedIn = profile != null;
 
   const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
-  const [manifest, setManifest] = useState<GalleryManifest | null>(manifestCache);
 
-  // Track which cupKeys we've already considered for auto-random fill so
-  // that user-explicit clears (✕) don't get re-filled on the next render.
-  // Ref intentionally per-mount; on reload, persisted labelSelections still
-  // protect populated cups via the `!selections[key]` check below.
-  const seenCupKeys = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!manifest) {
-      loadGalleryManifest().then(setManifest).catch(() => {});
-    }
-  }, [manifest]);
-
-  useEffect(() => {
-    if (!manifest || manifest.hashes.length === 0) return;
-    for (const line of lines) {
-      for (let i = 0; i < line.quantity; i++) {
-        const key = cupKey(line.id, i);
-        if (seenCupKeys.current.has(key)) continue;
-        seenCupKeys.current.add(key);
-        // Only fill when no user selection yet (also covers persisted picks
-        // hydrated from localStorage on reload).
-        if (!labelSelections[key]) {
-          setLabel(key, { kind: "preset", hash: pickRandomHash(manifest.hashes) });
-        }
-      }
-    }
-  }, [lines, manifest, labelSelections, setLabel]);
+  // Auto-fill random preset for each new cup we haven't seen yet. The
+  // shared hook also covers the cart drawer, so both surfaces agree on
+  // which cup got which random sticker.
+  useGalleryAutoFill({ active: true });
 
   if (lines.length === 0) return null;
   const cups = flattenCups(lines);
