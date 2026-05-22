@@ -28,17 +28,16 @@ export const LABEL_HEIGHT_DOTS = 945;
 //                                  the 590-dot label width by 6 dots).
 //   • Bottom (~19.6mm = remainder): modifier text in zebra format
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
-// Top band height bumped 2026-05-22 to host both the greeting/sticker
-// header rows AND the modifier list (was bottom; swapped for cup-flip
-// ergonomics — modifiers visible from the front of the cup, drink name
-// dominant on the back).
-const TOP_BAND_HEIGHT = 220;
+// Top band: just greeting + sticker fraction. Drink name AND modifier
+// list both live in the bottom band (2026-05-22 layout — Stan wants the
+// front of the cup, post-flip, to carry all the prep info: drink + mods).
+const TOP_BAND_HEIGHT = 90;
 // Two-column top band: greeting on the left, order info on the right.
 // Greeting sits at the standard left padding. The right column now holds
 // just the sticker/cup-fraction line (drink name moved to bottom band
 // 2026-05-22 for full-width readability). Width budget restored.
 const TOP_GREETING_X = 20;
-const TOP_GREETING_Y = 44;
+const TOP_GREETING_Y = 28;
 const TOP_GREETING_WIDTH = 220;
 
 function greetingFontSizeFor(text: string): number {
@@ -50,11 +49,8 @@ function greetingFontSizeFor(text: string): number {
 }
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
-const TOP_STICKER_Y = 22;
-// Modifier list rendered in the top band (above the doodle). Sized to
-// fit MOD_MAX_LINES (4) at 28pt + 4-dot line-spacing within the
-// expanded TOP_BAND_HEIGHT 2026-05-22.
-const TOP_MODIFIER_Y = 90;
+const TOP_STICKER_Y = 14;
+// (Modifier list now lives in the bottom band — see BOTTOM_MODIFIER_Y_REL.)
 
 // Drink name now lives in the bottom band (full-width, large) — see
 // renderTopBand / renderBottomBand below. drinkFontSizeFor sizes for
@@ -257,20 +253,9 @@ function buildZpl(args: {
     `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${greetingFont},${greetingFont}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
   // Right column: sticker number + cup fraction (large, right-aligned).
-  // Drink name moved to bottom band 2026-05-22.
   parts.push(
     `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
   );
-
-  // Modifier list inside the top band (white text on black). Full label
-  // inner width since the bottom-right Mandy logo is no longer adjacent.
-  // ^FB params: width, max-lines, line-spacing, alignment, hanging-indent.
-  if (modLines.length > 0) {
-    const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
-    parts.push(
-      `^FO20,${TOP_MODIFIER_Y}^A0N,28,28^FR^FB${innerWidth},${lineCount},4,L,0^FD${modField}^FS`,
-    );
-  }
 
   // Middle band: either a fortune-cookie sentence (POS / in-store path)
   // or the doodle raster (web/app path). Mutually exclusive — the
@@ -295,15 +280,24 @@ function buildZpl(args: {
     );
   }
 
-  // Bottom band: drink name (large, full-width, left-aligned with space
-  // reserved on the right for the Mandy logo). Modifier moved to top
-  // 2026-05-22. ^FB max-lines=2 so a 5-word name like
-  // "Brown Sugar Milk Tea Frappe" can wrap rather than truncate.
+  // Bottom band: drink name (top, large) + modifier list (below) +
+  // optional Mandy logo (bottom-right corner). Layout 2026-05-22:
+  //   y_rel=15  drink (one big line, narrow width to reserve logo column)
+  //   y_rel=80  modifier list (4 lines max, narrow width to avoid logo)
+  //   y_rel=147 logo footprint (when not hidden)
   const drinkFont = drinkFontSizeFor(args.drinkName);
-  const drinkWidth = innerWidth - (MANDY_LOGO_WIDTH + LOGO_MARGIN + 6);
+  const reserveRight = args.hideLogo ? 0 : MANDY_LOGO_WIDTH + LOGO_MARGIN;
+  const drinkWidth = innerWidth - reserveRight;
+  const modWidth = innerWidth - reserveRight;
   parts.push(
-    `^FO20,${BOTTOM_BAND_Y + 12}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
+    `^FO20,${BOTTOM_BAND_Y + 15}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
   );
+  if (modLines.length > 0) {
+    const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+    parts.push(
+      `^FO20,${BOTTOM_BAND_Y + 80}^A0N,28,28^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
+    );
+  }
 
   // Mandy logo at the bottom-right of the white bottom band. No ^FR
   // here — the band is white so the logo's pre-binarised print-bits
@@ -348,21 +342,22 @@ async function renderPreviewPng(
 }
 
 async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
-  const { stickerNumber, cupIdxOf, drinkName, customerFirstName } = input;
+  // Slim top band (90 dots): just greeting + sticker fraction.
+  // Drink name + modifier moved to bottom band 2026-05-22.
+  const { stickerNumber, cupIdxOf, customerFirstName } = input;
   const total = Math.max(1, cupIdxOf.total);
   const idx = Math.min(Math.max(1, cupIdxOf.idx), total);
   const greeting = formatGreeting(customerFirstName ?? null);
   const rightEdge = LABEL_WIDTH_DOTS - 20;
+  const greetingFs = greetingFontSizeFor(greeting);
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
-    <text x="${TOP_GREETING_X}" y="80" font-family="sans-serif" font-size="${greetingFontSizeFor(greeting)}" font-weight="700" fill="white">
+    <text x="${TOP_GREETING_X}" y="60" font-family="sans-serif" font-size="${greetingFs}" font-weight="700" fill="white">
       ${escapeXml(greeting)}
     </text>
-    <text x="${rightEdge}" y="62" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
+    <text x="${rightEdge}" y="55" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
       ${escapeXml(stickerNumber)} · ${idx}/${total}
-    </text>
-    <text x="${rightEdge}" y="110" text-anchor="end" font-family="sans-serif" font-size="28" font-weight="700" fill="white">
-      ${escapeXml(drinkName)}
     </text>
   </svg>`;
   return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: TOP_BAND_HEIGHT });
@@ -432,20 +427,73 @@ async function renderMiddleBandPng(doodlePng: Buffer): Promise<Buffer> {
 }
 
 async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
-  const lines = input.modifiersText.length > 0
-    ? wrapModifierLine(input.modifiersText, MOD_MAX_CHARS_PER_LINE)
-    : [];
-  const textElems = lines
+  // Bottom band 2026-05-22 layout:
+  //   y=15  drink name (1-2 lines, large)
+  //   y=80  modifier list (4 lines max)
+  //   y=147 logo footprint (when not hidden)
+  const { drinkName, modifiersText, hideLogo } = input;
+  const fs = drinkFontSizeFor(drinkName);
+
+  // Width budget — reserve right side for the logo unless hidden.
+  const reserveRight = hideLogo ? 20 : MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
+  const innerW = LABEL_WIDTH_DOTS - 20 - reserveRight;
+  // Char-width heuristic 0.55 calibrated from real ZD410 prints.
+  const drinkMaxChars = Math.max(1, Math.floor(innerW / (fs * 0.55)));
+  const drinkLines = wrapWords(drinkName, drinkMaxChars, 2);
+  const drinkLineHeight = Math.round(fs * 1.05);
+  const drinkText = drinkLines
     .map(
       (line, i) =>
-        `<text x="20" y="${36 + i * 36}" font-family="sans-serif" font-size="28" fill="black">${escapeXml(line)}</text>`,
+        `<text x="20" y="${15 + fs + i * drinkLineHeight}" font-family="sans-serif" font-size="${fs}" font-weight="700" fill="black">${escapeXml(line)}</text>`,
     )
     .join("");
+
+  // Modifier list (left-aligned, narrow width to clear the logo).
+  const modLines = modifiersText.length > 0
+    ? wrapModifierLine(modifiersText, MOD_MAX_CHARS_PER_LINE).slice(0, MOD_MAX_LINES)
+    : [];
+  const modText = modLines
+    .map(
+      (line, i) =>
+        `<text x="20" y="${80 + 28 + i * 32}" font-family="sans-serif" font-size="28" fill="black">${escapeXml(line)}</text>`,
+    )
+    .join("");
+
+  let logoElem = "";
+  if (!hideLogo) {
+    const lx = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
+    const ly = BOTTOM_BAND_HEIGHT - MANDY_LOGO_HEIGHT - LOGO_MARGIN;
+    logoElem = `<rect x="${lx}" y="${ly}" width="${MANDY_LOGO_WIDTH}" height="${MANDY_LOGO_HEIGHT}" rx="8" fill="black"/>
+      <text x="${lx + MANDY_LOGO_WIDTH / 2}" y="${ly + MANDY_LOGO_HEIGHT / 2 + 5}" text-anchor="middle" font-family="serif" font-size="20" fill="white" font-style="italic">Mandy</text>`;
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${BOTTOM_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="white"/>
-    ${textElems}
+    ${drinkText}
+    ${modText}
+    ${logoElem}
   </svg>`;
   return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: BOTTOM_BAND_HEIGHT });
+}
+
+/** Greedy word-wrap with a hard cap on lines. */
+function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur.length === 0) cur = w;
+    else if (cur.length + 1 + w.length <= maxChars) cur = `${cur} ${w}`;
+    else {
+      lines.push(cur);
+      cur = w;
+      if (lines.length === maxLines - 1) break;
+    }
+  }
+  // Anything remaining goes on the last line, possibly truncated with …
+  const remaining = cur + (words.slice(lines.length === 0 ? 1 : lines.join(" ").split(/\s+/).length).join(" "));
+  if (lines.length < maxLines && cur) lines.push(cur);
+  return lines.length === 0 ? [text] : lines;
 }
 
 // ---- Modifier wrapping ----
