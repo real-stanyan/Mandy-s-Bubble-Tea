@@ -9,6 +9,7 @@
 
 import { config } from "./config";
 import { replayOnStart, subscribeCupLabelJobs, startPollFallback } from "./cup-label/queue";
+import { startCupLabelHeartbeat, startCupLabelPendingAgeWatch } from "./cup-label/heartbeat";
 import { maybeAlert } from "./alert";
 
 async function main() {
@@ -18,9 +19,13 @@ async function main() {
   await replayOnStart();
   const sub = subscribeCupLabelJobs();
   const pollTimer = startPollFallback();
+  const hbTimer = startCupLabelHeartbeat();
+  const ageTimer = startCupLabelPendingAgeWatch();
 
   const shutdown = (sig: string) => {
     console.log(`[cup-label/main] ${sig} received, shutting down`);
+    clearInterval(hbTimer);
+    clearInterval(ageTimer);
     clearInterval(pollTimer);
     sub.close();
     process.exit(0);
