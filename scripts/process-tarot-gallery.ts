@@ -21,13 +21,29 @@
 // Run: pnpm tsx scripts/process-tarot-gallery.ts
 
 import { readdir, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, basename, extname } from "node:path";
+import { join, basename, extname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { Resvg } from "@resvg/resvg-js";
 import { binarizeForThermal, DOODLE_SIZE } from "../src/lib/doodle/binarize";
 import { getTarotMetadata } from "../src/lib/cup-label/tarot-catalog";
+
+// Covered By Your Grace (handwritten) for the card-name strip,
+// Akt (sans-serif) for the meaning strip. Both fonts registered
+// explicitly so Resvg resolves them on Mac dev + Linux/Vercel
+// identically (Resvg doesn't read system fonts by family-name in a
+// portable way). OFL licenses sit beside each TTF.
+const FONT_DIR = resolve(
+  __dirname,
+  "..",
+  "src",
+  "lib",
+  "cup-label",
+  "fonts",
+);
+const COVERED_FONT_PATH = resolve(FONT_DIR, "CoveredByYourGrace-Regular.ttf");
+const AKT_FONT_PATH = resolve(FONT_DIR, "Akt-Regular.ttf");
 
 const SRC_DIR = join(homedir(), "Desktop", "塔罗牌");
 const OUT_DIR = join(process.cwd(), "public", "cup-label", "tarot");
@@ -102,7 +118,7 @@ async function buildOverlayPng(
       const yOffset = (i - (meaningLines.length - 1) / 2) * meaningLineSpacing;
       const lineY = midY + yOffset;
       return `<text x="${meaningX}" y="${lineY}" text-anchor="middle" dominant-baseline="central"
-              font-family="sans-serif" font-size="${meaningFontSize}" font-weight="600"
+              font-family="Akt" font-size="${meaningFontSize}" font-weight="500"
               letter-spacing="1" fill="black">${escapeXml(line)}</text>`;
     })
     .join("");
@@ -110,7 +126,7 @@ async function buildOverlayPng(
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DOODLE_SIZE}" height="${DOODLE_SIZE}">
     <g transform="rotate(-90 ${nameX} ${midY})">
       <text x="${nameX}" y="${midY}" text-anchor="middle" dominant-baseline="central"
-            font-family="sans-serif" font-size="${nameFontSize}" font-weight="900"
+            font-family="Covered By Your Grace" font-size="${nameFontSize}"
             letter-spacing="2" fill="black">${escapeXml(cardName)}</text>
     </g>
     <g transform="rotate(-90 ${meaningX} ${midY})">
@@ -121,6 +137,11 @@ async function buildOverlayPng(
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: DOODLE_SIZE },
     background: "rgba(0,0,0,0)",
+    font: {
+      fontFiles: [COVERED_FONT_PATH, AKT_FONT_PATH],
+      loadSystemFonts: true,
+      defaultFontFamily: "Akt",
+    },
   });
   return Buffer.from(resvg.render().asPng());
 }
