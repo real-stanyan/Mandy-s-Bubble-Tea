@@ -7,6 +7,7 @@ import { POOL, pickDefaultForCup } from "../doodle/pool";
 import { pathsJsonToSvg, type SvgPath } from "../doodle/render-svg";
 import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store";
 import { renderCupLabel } from "./render-zebra-cup";
+import { TAROT_DENYLIST } from "./tarot-denylist";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 
@@ -30,7 +31,8 @@ async function listTarotHashes(): Promise<string[]> {
     const entries = await fs.readdir(TAROT_DIR, { withFileTypes: true });
     return entries
       .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
-      .map((e) => e.name);
+      .map((e) => e.name)
+      .filter((h) => !TAROT_DENYLIST.has(h));
   } catch (e) {
     console.error("[cup-label] tarot dir scan failed", e);
     return [];
