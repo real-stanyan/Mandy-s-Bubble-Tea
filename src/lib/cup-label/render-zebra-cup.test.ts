@@ -146,13 +146,13 @@ describe("wrapModifierLine", () => {
     for (const line of r) expect(line.length).toBeLessThanOrEqual(28);
   });
 
-  it("appends ellipsis when truncating beyond MOD_MAX_LINES (4)", () => {
+  it("appends ellipsis when truncating beyond MOD_MAX_LINES (5)", () => {
     const r = wrapModifierLine(
       "A -> B -> C -> D -> E -> F -> G -> H -> I -> J -> K -> L",
       3,
     );
-    expect(r.length).toBe(4);
-    expect(r[3]).toMatch(/…$/);
+    expect(r.length).toBe(5);
+    expect(r[4]).toMatch(/…$/);
   });
 
   it("treats embedded `\\n` as explicit per-group line breaks", () => {

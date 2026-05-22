@@ -49,7 +49,12 @@ function greetingFontSizeFor(text: string): number {
 }
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
-const TOP_STICKER_Y = 14;
+// Both top-row elements vertically centered in the 90-dot black band.
+// For ZPL ^A0N: text top sits at ^FO y. Center for largest font (46pt
+// sticker): y = (90-46)/2 = 22. Greeting font scales (42/36/30/24); we
+// use the 42pt center y=24, smaller fonts sit slightly above-center but
+// the visual difference is within ~9 dots.
+const TOP_STICKER_Y = 22;
 // (Modifier list now lives in the bottom band — see BOTTOM_MODIFIER_Y_REL.)
 
 // Drink name now lives in the bottom band (full-width, large) — see
@@ -290,7 +295,7 @@ function buildZpl(args: {
   if (modLines.length > 0) {
     const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
     parts.push(
-      `^FO20,${BOTTOM_BAND_Y + 80}^A0N,28,28^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
+      `^FO20,${BOTTOM_BAND_Y + 70}^A0N,32,32^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
     );
   }
 
@@ -447,7 +452,7 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
   const modText = modLines
     .map(
       (line, i) =>
-        `<text x="20" y="${80 + 28 + i * 32}" font-family="sans-serif" font-size="28" fill="black">${escapeXml(line)}</text>`,
+        `<text x="20" y="${70 + 32 + i * 36}" font-family="sans-serif" font-size="32" fill="black">${escapeXml(line)}</text>`,
     )
     .join("");
 
@@ -494,12 +499,12 @@ function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
 // 30 + 6 dot line spacing fits ~6 visual rows; format-modifiers emits
 // up to four groups (milk / toppings / ice / sugar) and the toppings
 // line may wrap into a second visual row.
-// Modifier wrap params updated 2026-05-22 — list moved to top band at
-// full label width (was bottom band with logo cutout). MAX_LINES dropped
-// 6→4 to fit within 220-dot top-band budget at 28pt + 4-dot spacing
-// (28×4 + 4×3 = 124 dots starting at y=90, ends y=214).
-const MOD_MAX_CHARS_PER_LINE = 36;
-const MOD_MAX_LINES = 4;
+// Modifier wrap params updated 2026-05-22 v4 — font 32pt, 5 lines max
+// with tight 4-dot inter-line spacing so the typical 6-group modifier
+// (milk + 2-3 toppings + ice + sugar%) doesn't lose the critical
+// last-line sugar level to truncation. 5 × (32+4) = 180 dots, fits.
+const MOD_MAX_CHARS_PER_LINE = 26;
+const MOD_MAX_LINES = 5;
 
 // Tokenizes the modifier line on both ` -> ` (section sep) and `+`
 // (topping sep) so a long toppings run wraps to additional rows. Sep
