@@ -40,10 +40,10 @@ const TOP_GREETING_WIDTH = 220;
 
 function greetingFontSizeFor(text: string): number {
   const len = text.length;
-  if (len <= 8) return 32;   // "Hi, Stan"  8 chars
-  if (len <= 10) return 28;  // "Hi, Mandy"  9
-  if (len <= 13) return 24;  // "Hi, Christine" 13
-  return 20;                 // longer names
+  if (len <= 8) return 42;   // "Hi, Stan"  8 chars
+  if (len <= 10) return 36;  // "Hi, Mandy"  9
+  if (len <= 13) return 30;  // "Hi, Christine" 13
+  return 24;                 // longer names
 }
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
@@ -57,11 +57,11 @@ const TOP_DRINK_Y = 80;
 // ("Brown Sugar Milk Tea Frappe", 27 chars) still fits at one line.
 function drinkFontSizeFor(name: string): number {
   const len = name.length;
-  if (len <= 17) return 32;
-  if (len <= 21) return 28;
-  if (len <= 25) return 24;
-  if (len <= 30) return 20;
-  return 18;
+  if (len <= 17) return 40;
+  if (len <= 21) return 34;
+  if (len <= 25) return 28;
+  if (len <= 30) return 24;
+  return 20;
 }
 
 // Mandy logo now lives in the bottom-right corner of the white bottom
