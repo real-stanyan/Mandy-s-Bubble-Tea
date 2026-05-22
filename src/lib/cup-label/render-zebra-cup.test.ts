@@ -50,8 +50,9 @@ describe("Zebra cup-label compositor", () => {
     });
     expect(out.zpl).toContain("Brown Sugar Milk Tea Frappe");
     expect(out.zpl).not.toContain("…");
-    // Long name (27 chars) → drinkFontSizeFor returns 20.
-    expect(out.zpl).toContain("^A0N,20,20");
+    // Long name (27 chars) → drinkFontSizeFor returns 34 (was 20 before
+    // 2026-05-22 layout swap moved drink to bottom band with wider budget).
+    expect(out.zpl).toContain("^A0N,34,34");
   });
 
   it("embeds the Mandy logo as a plain ^GFA block at the bottom-right (no ^FR)", async () => {
@@ -145,13 +146,13 @@ describe("wrapModifierLine", () => {
     for (const line of r) expect(line.length).toBeLessThanOrEqual(28);
   });
 
-  it("appends ellipsis when truncating beyond MOD_MAX_LINES (6)", () => {
+  it("appends ellipsis when truncating beyond MOD_MAX_LINES (4)", () => {
     const r = wrapModifierLine(
       "A -> B -> C -> D -> E -> F -> G -> H -> I -> J -> K -> L",
       3,
     );
-    expect(r.length).toBe(6);
-    expect(r[5]).toMatch(/…$/);
+    expect(r.length).toBe(4);
+    expect(r[3]).toMatch(/…$/);
   });
 
   it("treats embedded `\\n` as explicit per-group line breaks", () => {

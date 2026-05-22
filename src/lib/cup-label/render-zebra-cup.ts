@@ -28,12 +28,15 @@ export const LABEL_HEIGHT_DOTS = 945;
 //                                  the 590-dot label width by 6 dots).
 //   • Bottom (~19.6mm = remainder): modifier text in zebra format
 //                                 (Pearls(2)+Pudding -> L.Ice -> 50%S).
-const TOP_BAND_HEIGHT = 120;
+// Top band height bumped 2026-05-22 to host both the greeting/sticker
+// header rows AND the modifier list (was bottom; swapped for cup-flip
+// ergonomics — modifiers visible from the front of the cup, drink name
+// dominant on the back).
+const TOP_BAND_HEIGHT = 220;
 // Two-column top band: greeting on the left, order info on the right.
-// Greeting sits at the standard left padding (logo moved to bottom-right
-// 2026-05-21). Width budget = TOP_RIGHT_X - TOP_GREETING_X - 10 = 220 dots
-// so even long names like "Hi, Christine" fit at a readable font size
-// instead of getting scaled down to 20.
+// Greeting sits at the standard left padding. The right column now holds
+// just the sticker/cup-fraction line (drink name moved to bottom band
+// 2026-05-22 for full-width readability). Width budget restored.
 const TOP_GREETING_X = 20;
 const TOP_GREETING_Y = 44;
 const TOP_GREETING_WIDTH = 220;
@@ -48,20 +51,22 @@ function greetingFontSizeFor(text: string): number {
 const TOP_RIGHT_X = 250;
 const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
 const TOP_STICKER_Y = 22;
-const TOP_DRINK_Y = 80;
+// Modifier list rendered in the top band (above the doodle). Sized to
+// fit MOD_MAX_LINES (4) at 28pt + 4-dot line-spacing within the
+// expanded TOP_BAND_HEIGHT 2026-05-22.
+const TOP_MODIFIER_Y = 90;
 
-// Dynamic font sizing for the right-column drink name so long names
-// fit on a single line without ellipsis. Width budget: TOP_RIGHT_WIDTH
-// (320 dots). ZPL A0 character width ≈ 0.6 × height; we step down the
-// font as `drinkName.length` grows so the longest realistic name
-// ("Brown Sugar Milk Tea Frappe", 27 chars) still fits at one line.
+// Drink name now lives in the bottom band (full-width, large) — see
+// renderTopBand / renderBottomBand below. drinkFontSizeFor sizes for
+// the full label inner width (LABEL_WIDTH - 40 padding - logo width
+// reservation ≈ 480 dots), so short names print big.
 function drinkFontSizeFor(name: string): number {
   const len = name.length;
-  if (len <= 17) return 40;
-  if (len <= 21) return 34;
-  if (len <= 25) return 28;
-  if (len <= 30) return 24;
-  return 20;
+  if (len <= 14) return 60;
+  if (len <= 18) return 50;
+  if (len <= 22) return 42;
+  if (len <= 27) return 34;
+  return 28;
 }
 
 // Mandy logo now lives in the bottom-right corner of the white bottom
@@ -118,6 +123,13 @@ export type CupLabelInput = {
    * fonts can't render CJK without a separate font-download step.
    */
   fortuneText?: string;
+  /**
+   * Suppress the bottom-right Mandy logo. Used for customer-supplied
+   * images (AI generation / photo upload) where the doodle area is
+   * already a personal image and a brand mark in the corner competes
+   * for attention. Preset stickers / drawn / tarot / fortune keep it.
+   */
+  hideLogo?: boolean;
 };
 
 function formatGreeting(name: string | null): string {
@@ -149,6 +161,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
       logoHex: logo.hex,
       logoTotalBytes: logo.totalBytes,
       logoWidthBytes: logo.widthBytes,
+      hideLogo: input.hideLogo,
     });
     const previewPng = await renderPreviewPng(input, null);
     return { zpl, previewPng };
@@ -191,6 +204,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     logoHex: logo.hex,
     logoTotalBytes: logo.totalBytes,
     logoWidthBytes: logo.widthBytes,
+    hideLogo: input.hideLogo,
   });
 
   const previewPng = await renderPreviewPng(input, doodlePngBuffer);
@@ -211,6 +225,7 @@ function buildZpl(args: {
   logoHex: string;
   logoTotalBytes: number;
   logoWidthBytes: number;
+  hideLogo?: boolean;
 }): string {
   const innerWidth = LABEL_WIDTH_DOTS - 40; // 20px padding each side
 
@@ -241,18 +256,21 @@ function buildZpl(args: {
   parts.push(
     `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${greetingFont},${greetingFont}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
-  // Right column line 1: sticker number + cup fraction (large, right-aligned)
+  // Right column: sticker number + cup fraction (large, right-aligned).
+  // Drink name moved to bottom band 2026-05-22.
   parts.push(
     `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
   );
-  // Right column line 2: drink name on a single line, right-aligned.
-  // Font size scales down for longer names (`drinkFontSizeFor`) so even
-  // "Brown Sugar Milk Tea Frappe" fits without ellipsis — no truncation,
-  // the full name always prints.
-  const drinkFont = drinkFontSizeFor(args.drinkName);
-  parts.push(
-    `^FO${TOP_RIGHT_X},${TOP_DRINK_Y}^A0N,${drinkFont},${drinkFont}^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.drinkName)}^FS`,
-  );
+
+  // Modifier list inside the top band (white text on black). Full label
+  // inner width since the bottom-right Mandy logo is no longer adjacent.
+  // ^FB params: width, max-lines, line-spacing, alignment, hanging-indent.
+  if (modLines.length > 0) {
+    const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+    parts.push(
+      `^FO20,${TOP_MODIFIER_Y}^A0N,28,28^FR^FB${innerWidth},${lineCount},4,L,0^FD${modField}^FS`,
+    );
+  }
 
   // Middle band: either a fortune-cookie sentence (POS / in-store path)
   // or the doodle raster (web/app path). Mutually exclusive — the
@@ -277,24 +295,25 @@ function buildZpl(args: {
     );
   }
 
-  // Bottom band: modifier text. ^FB params: width, max-lines, line-spacing,
-  // alignment, hanging-indent. Inner width is reduced from the standard
-  // band width so the last visual rows don't collide with the Mandy logo
-  // sitting in the bottom-right corner.
-  if (modLines.length > 0) {
-    const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
-    const modWidth = innerWidth - (MANDY_LOGO_WIDTH + LOGO_MARGIN);
-    parts.push(
-      `^FO20,${BOTTOM_BAND_Y}^A0N,30,30^FB${modWidth},${lineCount},6,L,0^FD${modField}^FS`,
-    );
-  }
+  // Bottom band: drink name (large, full-width, left-aligned with space
+  // reserved on the right for the Mandy logo). Modifier moved to top
+  // 2026-05-22. ^FB max-lines=2 so a 5-word name like
+  // "Brown Sugar Milk Tea Frappe" can wrap rather than truncate.
+  const drinkFont = drinkFontSizeFor(args.drinkName);
+  const drinkWidth = innerWidth - (MANDY_LOGO_WIDTH + LOGO_MARGIN + 6);
+  parts.push(
+    `^FO20,${BOTTOM_BAND_Y + 12}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
+  );
 
   // Mandy logo at the bottom-right of the white bottom band. No ^FR
   // here — the band is white so the logo's pre-binarised print-bits
-  // paint as black ink directly.
-  parts.push(
-    `^FO${LOGO_X},${LOGO_Y}^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
-  );
+  // paint as black ink directly. Suppressed when hideLogo=true (cup
+  // with customer-supplied AI/photo image).
+  if (!args.hideLogo) {
+    parts.push(
+      `^FO${LOGO_X},${LOGO_Y}^GFA,${args.logoTotalBytes},${args.logoTotalBytes},${args.logoWidthBytes},${args.logoHex}^FS`,
+    );
+  }
 
   parts.push("^XZ");
   return parts.join("\n");
@@ -437,8 +456,12 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
 // 30 + 6 dot line spacing fits ~6 visual rows; format-modifiers emits
 // up to four groups (milk / toppings / ice / sugar) and the toppings
 // line may wrap into a second visual row.
-const MOD_MAX_CHARS_PER_LINE = 28;
-const MOD_MAX_LINES = 6;
+// Modifier wrap params updated 2026-05-22 — list moved to top band at
+// full label width (was bottom band with logo cutout). MAX_LINES dropped
+// 6→4 to fit within 220-dot top-band budget at 28pt + 4-dot spacing
+// (28×4 + 4×3 = 124 dots starting at y=90, ends y=214).
+const MOD_MAX_CHARS_PER_LINE = 36;
+const MOD_MAX_LINES = 4;
 
 // Tokenizes the modifier line on both ` -> ` (section sep) and `+`
 // (topping sep) so a long toppings run wraps to additional rows. Sep
