@@ -26,6 +26,7 @@ import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { CartCupLabels } from "@/components/cart/CartCupLabels";
 import { useGalleryAutoFill } from "@/lib/cup-label/use-gallery-auto-fill";
+import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
@@ -916,15 +917,22 @@ function CartFooter({
           verificationToken = verification.token;
         }
 
-        // 4) Pay.
+        // 4) Pay. Build the body through the shared helper so the per-cup
+        //    label selections are forwarded exactly like the /checkout page
+        //    does — the drawer omitting them was the OL829 tarot-fallback
+        //    bug. Read the latest selections from the store at click time
+        //    to avoid any stale closure over labelSelections.
         const paymentRes = await fetch("/api/payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sourceId: sourceToken,
-            orderId: orderJson.orderId,
-            verificationToken,
-          }),
+          body: JSON.stringify(
+            buildPaymentRequestBody({
+              sourceId: sourceToken,
+              orderId: orderJson.orderId,
+              verificationToken,
+              labelSelections: useCart.getState().labelSelections,
+            }),
+          ),
         });
         const paymentJson = await paymentRes.json();
         if (!paymentRes.ok || !paymentJson.ok) {

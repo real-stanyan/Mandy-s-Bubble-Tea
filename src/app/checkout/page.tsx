@@ -21,7 +21,7 @@ import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
-import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
+import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
@@ -614,24 +614,23 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         verificationToken = verification.token;
       }
 
-      // 4) Finalize the order. labelSelections is a discriminated union
-      //    (preset | photo | ai); buildPaymentSelections splits it into the
-      //    two parallel maps /api/payment accepts. Empty buckets become
-      //    `undefined` so the route validator skips them and server enqueue
-      //    falls back to hash-default for slots without an explicit choice.
-      const { presetStickerHashes, aiDoodleIds, doodleIds } =
-        buildPaymentSelections(labelSelections);
+      // 4) Finalize the order. buildPaymentRequestBody bakes the per-cup
+      //    label selections (preset | photo | ai | draw) into the body via
+      //    buildPaymentSelections. Shared with the cart drawer's wallet-pay
+      //    handler so neither path can drop the selections (the OL829 bug).
+      //    Empty buckets stay `undefined` so the server enqueue falls back
+      //    to hash-default for slots without an explicit choice.
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceId: sourceToken,
-          orderId: orderJson.orderId,
-          verificationToken,
-          presetStickerHashes,
-          aiDoodleIds,
-          doodleIds,
-        }),
+        body: JSON.stringify(
+          buildPaymentRequestBody({
+            sourceId: sourceToken,
+            orderId: orderJson.orderId,
+            verificationToken,
+            labelSelections,
+          }),
+        ),
       });
       const paymentJson = await paymentRes.json();
       if (!paymentRes.ok || !paymentJson.ok) {
