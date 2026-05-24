@@ -14,6 +14,7 @@ import { getAuthedUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { aiDoodlePreviewUrl } from "@/lib/doodle/upload-store";
 import { binarizeForThermal } from "@/lib/doodle/binarize";
+import { autoOrientImage } from "@/lib/doodle/orient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +65,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { ok: false, error: `Image too large (max ${MAX_PAYLOAD_BYTES / 1024 / 1024} MB)` },
       { status: 413 },
+    );
+  }
+
+  // Bake EXIF orientation into the pixels up front. Camera selfies arrive
+  // with an Orientation tag (portrait shots are stored landscape); without
+  // this the binarised print + the color original both came out rotated
+  // 90° (OL848). Do it once here so both downstream sharp passes below get
+  // upright pixels. Non-fatal: fall back to the raw bytes if it throws.
+  try {
+    raw = await autoOrientImage(raw);
+  } catch (e) {
+    console.warn(
+      "[upload-image] auto-orient failed, using raw bytes:",
+      e instanceof Error ? e.message : e,
     );
   }
 
