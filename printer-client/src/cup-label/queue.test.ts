@@ -66,8 +66,13 @@ vi.mock("../config", () => ({
   },
 }));
 
+vi.mock("./online-order-alert", () => ({
+  playOnlineOrderAlert: vi.fn(() => Promise.resolve()),
+}));
+
 import { handleJob } from "./queue";
 import { supabase } from "../supabase";
+import { playOnlineOrderAlert } from "./online-order-alert";
 import { printCupLabelZPL, getCupLabelPrinterStatus } from "./printer";
 import { downloadRasterZPL } from "./storage";
 import { maybeAlert } from "../alert";
@@ -191,6 +196,38 @@ describe("cup-label queue.handleJob", () => {
     const failurePatch = patches.find((p) => p.last_error?.toString().includes("paper out"));
     expect(failurePatch?.status).toBe("pending");
     expect(maybeAlert).not.toHaveBeenCalled();
+  });
+
+  it("plays the online-order cue once per OL order, deduped across cups", async () => {
+    const sticker = "OL-DEDUP-7";
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      sticker_number: sticker,
+      status: "printing",
+      attempts: 1,
+    };
+    vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
+    vi.mocked(printCupLabelZPL).mockResolvedValue();
+
+    await handleJob({ ...baseRow, sticker_number: sticker, cup_idx: 0 });
+    await handleJob({ ...baseRow, sticker_number: sticker, cup_idx: 1 });
+
+    expect(playOnlineOrderAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not play the cue for in-store (non-OL) orders", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      sticker_number: "78",
+      status: "printing",
+      attempts: 1,
+    };
+    vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
+    vi.mocked(printCupLabelZPL).mockResolvedValue();
+
+    await handleJob({ ...baseRow, sticker_number: "78" });
+
+    expect(playOnlineOrderAlert).not.toHaveBeenCalled();
   });
 
   it("alerts and marks 'failed' on the 3rd consecutive print failure (attempts >= 3)", async () => {

@@ -10,7 +10,6 @@
 import { config } from "./config";
 import { replayOnStart, subscribeCupLabelJobs, startPollFallback } from "./cup-label/queue";
 import { startCupLabelHeartbeat, startCupLabelPendingAgeWatch } from "./cup-label/heartbeat";
-import { subscribeOnlineOrderAlerts } from "./cup-label/online-order-alert";
 import { maybeAlert } from "./alert";
 
 async function main() {
@@ -19,7 +18,6 @@ async function main() {
   );
   await replayOnStart();
   const sub = subscribeCupLabelJobs();
-  const alertSub = subscribeOnlineOrderAlerts();
   const pollTimer = startPollFallback();
   const hbTimer = startCupLabelHeartbeat();
   const ageTimer = startCupLabelPendingAgeWatch();
@@ -30,7 +28,6 @@ async function main() {
     clearInterval(ageTimer);
     clearInterval(pollTimer);
     sub.close();
-    alertSub.close();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
