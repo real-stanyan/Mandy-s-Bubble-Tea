@@ -8,10 +8,13 @@ import { BRAND } from "@/lib/constants";
 // treatment mirrors DailySpecial / the peach welcome cards. Gated by
 // FRAGRANCE_BLIND_BOX_PROMO in page.tsx — flip that to retire it.
 
+// Background-removed cut-outs (transparent PNG) so each hanging tag shows
+// in full on the gradient. width/height are the baked intrinsic sizes;
+// laid out as a left→right fan so all three read clearly.
 const TAGS = [
-  { src: "/image/promo/fragrance-tags/cherry.png", rotate: "-8deg", top: "0", right: "1.75rem" },
-  { src: "/image/promo/fragrance-tags/black-opium.png", rotate: "7deg", top: "2.25rem", right: "0" },
-  { src: "/image/promo/fragrance-tags/new-car.png", rotate: "-4deg", top: "4.5rem", right: "2rem" },
+  { src: "/image/promo/fragrance-tags/black-opium.png", w: 417, h: 520, rotate: "-10deg", z: 1 },
+  { src: "/image/promo/fragrance-tags/ocean.png", w: 335, h: 520, rotate: "0deg", z: 3 },
+  { src: "/image/promo/fragrance-tags/crisp-apple.png", w: 469, h: 520, rotate: "10deg", z: 2 },
 ] as const;
 
 export function FragranceBlindBoxPromo() {
@@ -49,26 +52,23 @@ export function FragranceBlindBoxPromo() {
             </span>
           </div>
 
-          {/* Right — fanned blind-box teaser (3 of 10 tags) */}
-          <div
-            className="relative w-[104px] shrink-0 self-center sm:w-[168px]"
-            style={{ height: "152px" }}
-            aria-hidden
-          >
+          {/* Right — blind-box teaser: 3 of the 10 hanging tags, background
+              removed so each shows in full, fanned left→right on the gradient. */}
+          <div className="flex shrink-0 items-end justify-center -space-x-5 self-center sm:-space-x-6">
             {TAGS.map((t) => (
-              <span
+              <Image
                 key={t.src}
-                className="absolute h-[64px] w-[64px] overflow-hidden rounded-[10px] bg-white shadow-md sm:h-[92px] sm:w-[92px]"
-                style={{ top: t.top, right: t.right, transform: `rotate(${t.rotate})` }}
-              >
-                <Image
-                  src={t.src}
-                  alt=""
-                  width={184}
-                  height={184}
-                  className="h-full w-full object-cover"
-                />
-              </span>
+                src={t.src}
+                alt=""
+                width={t.w}
+                height={t.h}
+                className="h-[88px] w-auto sm:h-[128px]"
+                style={{
+                  transform: `rotate(${t.rotate})`,
+                  zIndex: t.z,
+                  filter: "drop-shadow(0 6px 8px rgba(42,30,20,0.30))",
+                }}
+              />
             ))}
           </div>
         </Link>
