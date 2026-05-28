@@ -9,6 +9,12 @@ export const BRAND = {
   bgColor: "#F2E8DF", // warm beige page background
 } as const;
 
+// ---- Limited-time campaigns ----
+// Homepage "Buy 2 drinks, get a fragrance-tag blind box" promo. Flip to
+// false to retire the campaign — the homepage section disappears with no
+// other cleanup needed.
+export const FRAGRANCE_BLIND_BOX_PROMO = true;
+
 export const BUSINESS = {
   name: "Mandy's Bubble Tea",
   address: "34 Davenport St, Southport QLD 4215",

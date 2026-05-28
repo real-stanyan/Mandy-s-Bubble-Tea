@@ -1,10 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { getMenu, type MenuItem } from "@/lib/catalog";
-import { BRAND, BUSINESS } from "@/lib/constants";
+import { BRAND, BUSINESS, FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
+import { FragranceBlindBoxPromo } from "@/components/home/FragranceBlindBoxPromo";
 
 // Branded home page for Mandy's Bubble Tea. Server-rendered so
 // featured categories come straight from Square without any client
@@ -155,6 +156,7 @@ export default async function Home() {
       <WelcomeDiscountBanner />
       <Hero imageUrl={heroImageUrl} review={review} />
       <FeaturedProducts items={featuredItems} />
+      {FRAGRANCE_BLIND_BOX_PROMO && <FragranceBlindBoxPromo />}
       <OurStory />
       <AppPromo />
       <LoyaltyPopup />
