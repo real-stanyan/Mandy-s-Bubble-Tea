@@ -35,6 +35,8 @@ type LabelPickerProps = {
   isSignedIn: boolean;
   current: CupLabelSelection | undefined;
   onSelect: (selection: CupLabelSelection) => void;
+  /** Clear this cup's pick so it falls back to a random surprise tarot card. */
+  onClear: () => void;
 };
 
 type Tab = "preset" | "draw" | "ai" | "photo";
@@ -72,6 +74,7 @@ export function LabelPicker({
   isSignedIn,
   current,
   onSelect,
+  onClear,
 }: LabelPickerProps) {
   const [tab, setTab] = useState<Tab>(() => initialTabFor(current));
 
@@ -97,11 +100,29 @@ export function LabelPicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Choose a label</DialogTitle>
+          <DialogTitle>Choose a label (optional)</DialogTitle>
           <DialogDescription>
-            Pick a design and we&apos;ll print it onto your cup.
+            Totally optional — leave it and your cup gets a random tarot card 🔮.
+            Or pick your own design below.
           </DialogDescription>
         </DialogHeader>
+
+        <button
+          type="button"
+          onClick={() => {
+            onClear();
+            onOpenChange(false);
+          }}
+          className="flex items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-sm transition hover:bg-zinc-50"
+          style={{ borderColor: BRAND.primaryColor }}
+        >
+          <span className="font-medium" style={{ color: BRAND.primaryColor }}>
+            🔮 Surprise me — random tarot card
+          </span>
+          {current === undefined ? (
+            <span className="text-xs font-semibold text-zinc-500">✓ Current</span>
+          ) : null}
+        </button>
 
         <div className="flex gap-1 rounded-lg bg-zinc-100 p-1">
           {TABS.map((t) => (

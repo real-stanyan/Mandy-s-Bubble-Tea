@@ -25,7 +25,6 @@ import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { CartCupLabels } from "@/components/cart/CartCupLabels";
-import { useGalleryAutoFill } from "@/lib/cup-label/use-gallery-auto-fill";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
@@ -55,6 +54,7 @@ export function CartDrawer() {
   const removeLine = useCart((s) => s.removeLine);
   const labelSelections = useCart((s) => s.labelSelections);
   const setLabel = useCart((s) => s.setLabel);
+  const clearLabel = useCart((s) => s.clearLabel);
   const cartSessionId = useCart((s) => s.cartSessionId);
 
   // Close on ESC.
@@ -131,6 +131,7 @@ export function CartDrawer() {
           removeLine={removeLine}
           labelSelections={labelSelections}
           setLabel={setLabel}
+          clearLabel={clearLabel}
           cartSessionId={cartSessionId}
         />
       </aside>
@@ -150,6 +151,7 @@ function CartBody({
   removeLine,
   labelSelections,
   setLabel,
+  clearLabel,
   cartSessionId,
 }: {
   lines: CartLine[];
@@ -159,6 +161,7 @@ function CartBody({
   removeLine: (id: string) => void;
   labelSelections: Record<string, CupLabelSelection>;
   setLabel: (cupKey: string, selection: CupLabelSelection) => void;
+  clearLabel: (cupKey: string) => void;
   cartSessionId: string;
 }) {
   const {
@@ -193,11 +196,10 @@ function CartBody({
   }, [isOpen, everOpened]);
 
   // Per-cup label picker — single modal instance covers all lines, the
-  // pickerCupKey state tracks which cup is currently being edited.
-  // Auto-fill random presets into each new cup the first time the drawer
-  // is opened so users see thumbnails instead of empty placeholders.
+  // pickerCupKey state tracks which cup is currently being edited. Cup
+  // labels are optional: a cup left untouched carries no selection and the
+  // server prints a random surprise tarot card for it (no pre-fill here).
   const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
-  useGalleryAutoFill({ active: everOpened });
   const pickerCurrent: CupLabelSelection | undefined = pickerCupKey
     ? labelSelections[pickerCupKey]
     : undefined;
@@ -439,6 +441,9 @@ function CartBody({
         current={pickerCurrent}
         onSelect={(selection) => {
           if (pickerCupKey) setLabel(pickerCupKey, selection);
+        }}
+        onClear={() => {
+          if (pickerCupKey) clearLabel(pickerCupKey);
         }}
       />
     </>

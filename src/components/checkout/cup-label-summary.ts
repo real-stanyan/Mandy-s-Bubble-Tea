@@ -3,8 +3,8 @@ import type { CupLabelSelection } from "@/store/cart";
 const PROMPT_PREVIEW_MAX = 32;
 
 export function summaryFor(selection: CupLabelSelection | undefined): string {
-  if (!selection) return "Pick a design";
-  if (selection.kind === "preset") return "🎨 Surprise sticker";
+  if (!selection) return "🔮 Surprise tarot card";
+  if (selection.kind === "preset") return "🎨 Gallery design";
   if (selection.kind === "photo") return "📷 Your photo";
   if (selection.kind === "draw") {
     const pending = selection.userDoodleId === null ? " (saving…)" : "";

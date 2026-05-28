@@ -26,10 +26,14 @@ export const CartCupLabels = memo(function CartCupLabels({
       className="mt-2.5 rounded-xl bg-zinc-50/80 p-2"
       aria-label={`Cup labels for ${line.itemName}`}
     >
-      <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+      <div className="mb-0.5 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
         <span aria-hidden="true">🎨</span>
         <span>{cups.length > 1 ? "Cup labels" : "Cup label"}</span>
+        <span className="text-zinc-400">· Optional</span>
       </div>
+      <p className="mb-1.5 px-1 text-[10px] leading-snug text-zinc-400">
+        Leave it for a surprise tarot card 🔮, or tap to choose your own.
+      </p>
       <ul className="space-y-1">
         {cups.map((cupIdx) => {
           const key = cupKey(line.id, cupIdx);
@@ -116,8 +120,8 @@ function CupRow({
 function Thumb({ selection }: { selection: CupLabelSelection | undefined }) {
   if (!selection) {
     return (
-      <span className="flex h-full w-full items-center justify-center text-xs text-zinc-300">
-        —
+      <span className="flex h-full w-full items-center justify-center bg-zinc-50 text-base">
+        🔮
       </span>
     );
   }
