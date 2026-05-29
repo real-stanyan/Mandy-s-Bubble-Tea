@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getMenu, type Menu } from "@/lib/catalog";
+import { displayNameFor } from "@/lib/menu/top10-presets";
 import {
   MenuBrowser,
   type MenuBrowserSection,
@@ -35,7 +36,7 @@ function toSections(menu: Menu): MenuBrowserSection[] {
       const firstVariation = item.variations[0] ?? null;
       return {
         id: item.id,
-        name: item.name,
+        name: displayNameFor(cat.slug, item.name),
         imageUrl: item.imageUrl,
         priceCents: item.priceCents == null ? null : Number(item.priceCents),
         variationLabel: item.variationLabel,
