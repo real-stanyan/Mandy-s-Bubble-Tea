@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
+import { displayNameFor } from "@/lib/menu/top10-presets";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -89,14 +90,14 @@ export default async function CategoryPage({ params }: PageProps) {
             <li key={item.id}>
               {item.soldOut ? (
                 <div aria-disabled="true" className="block cursor-not-allowed">
-                  <ItemCard item={item} />
+                  <ItemCard item={item} displayName={displayNameFor(category.slug, item.name)} />
                 </div>
               ) : (
                 <Link
                   href={`/menu/${category.slug}/${item.id}`}
                   className="block"
                 >
-                  <ItemCard item={item} />
+                  <ItemCard item={item} displayName={displayNameFor(category.slug, item.name)} />
                 </Link>
               )}
             </li>
@@ -152,7 +153,7 @@ function MenuCrumb({ current }: { current: string }) {
   );
 }
 
-function ItemCard({ item }: { item: MenuItem }) {
+function ItemCard({ item, displayName }: { item: MenuItem; displayName?: string }) {
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
@@ -182,7 +183,7 @@ function ItemCard({ item }: { item: MenuItem }) {
         </div>
       )}
       <div className="p-3 sm:p-4">
-        <h2 className="text-sm font-semibold text-zinc-900 sm:text-lg">{item.name}</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 sm:text-lg">{displayName ?? item.name}</h2>
         {item.variationLabel && (
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500 sm:mt-1 sm:text-xs">
             {item.variationLabel}
