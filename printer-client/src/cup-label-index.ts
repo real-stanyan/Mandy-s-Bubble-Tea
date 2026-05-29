@@ -10,6 +10,7 @@
 import { config } from "./config";
 import { replayOnStart, subscribeCupLabelJobs, startPollFallback } from "./cup-label/queue";
 import { startCupLabelHeartbeat, startCupLabelPendingAgeWatch } from "./cup-label/heartbeat";
+import { startBluetoothKeepalive } from "./cup-label/online-order-alert";
 import { maybeAlert } from "./alert";
 
 async function main() {
@@ -21,12 +22,22 @@ async function main() {
   const pollTimer = startPollFallback();
   const hbTimer = startCupLabelHeartbeat();
   const ageTimer = startCupLabelPendingAgeWatch();
+  const keepaliveTimer =
+    config.bluetoothKeepaliveMs > 0
+      ? startBluetoothKeepalive(config.bluetoothKeepaliveMs)
+      : null;
+  if (keepaliveTimer) {
+    console.log(
+      `[cup-label/main] BT audio keepalive every ${config.bluetoothKeepaliveMs}ms`,
+    );
+  }
 
   const shutdown = (sig: string) => {
     console.log(`[cup-label/main] ${sig} received, shutting down`);
     clearInterval(hbTimer);
     clearInterval(ageTimer);
     clearInterval(pollTimer);
+    if (keepaliveTimer) clearInterval(keepaliveTimer);
     sub.close();
     process.exit(0);
   };

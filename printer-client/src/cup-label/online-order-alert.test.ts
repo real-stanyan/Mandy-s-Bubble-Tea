@@ -9,13 +9,17 @@
 // play, BEFORE shelling out to afplay.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { spawnCalls } = vi.hoisted(() => ({ spawnCalls: [] as string[] }));
+const { spawnCalls, spawnArgs } = vi.hoisted(() => ({
+  spawnCalls: [] as string[],
+  spawnArgs: [] as string[][],
+}));
 
 // Fake child_process.spawn that records the command sequence and drives
 // each fake process to a clean exit so the awaited helpers resolve.
 vi.mock("node:child_process", () => ({
-  spawn: vi.fn((cmd: string) => {
+  spawn: vi.fn((cmd: string, args?: string[]) => {
     spawnCalls.push(cmd);
+    spawnArgs.push(args ?? []);
     const proc = {
       stdout: {
         on: (ev: string, cb: (chunk: Buffer) => void) => {
@@ -42,10 +46,13 @@ vi.mock("../config", () => ({
   config: { audioOutputDevice: "Test Soundbar" },
 }));
 
-const { playOnlineOrderAlert } = await import("./online-order-alert");
+const { playOnlineOrderAlert, startBluetoothKeepalive } = await import(
+  "./online-order-alert"
+);
 
 beforeEach(() => {
   spawnCalls.length = 0;
+  spawnArgs.length = 0;
 });
 
 describe("playOnlineOrderAlert", () => {
@@ -65,5 +72,39 @@ describe("playOnlineOrderAlert", () => {
   it("still plays the afplay cue", async () => {
     await playOnlineOrderAlert();
     expect(spawnCalls.filter((c) => c === "afplay")).toHaveLength(1);
+  });
+});
+
+// 2026-05-29: the soundbar plays both music and the order cue over
+// Bluetooth. macOS/the soundbar idle-disconnects the A2DP link when no
+// audio streams between orders, so a cue landing on a cold link is
+// silent. A periodic INAUDIBLE play keeps the link warm. It must NOT
+// touch the output device — switching the default away from the BT
+// soundbar is itself what drops the link (observed same day).
+describe("startBluetoothKeepalive", () => {
+  it("plays an inaudible (-v 0) keepalive on its interval", async () => {
+    vi.useFakeTimers();
+    const timer = startBluetoothKeepalive(1000);
+    try {
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(spawnCalls).toContain("afplay");
+      const idx = spawnCalls.indexOf("afplay");
+      expect(spawnArgs[idx].slice(0, 2)).toEqual(["-v", "0"]);
+    } finally {
+      clearInterval(timer);
+      vi.useRealTimers();
+    }
+  });
+
+  it("never switches the output device (switching away drops the BT link)", async () => {
+    vi.useFakeTimers();
+    const timer = startBluetoothKeepalive(1000);
+    try {
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(spawnCalls).not.toContain("SwitchAudioSource");
+    } finally {
+      clearInterval(timer);
+      vi.useRealTimers();
+    }
   });
 });

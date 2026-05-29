@@ -50,6 +50,40 @@ async function ensureAlertFile(): Promise<void> {
   return alertFileReady;
 }
 
+// Inaudible gain. Playing the cue at -v 0 streams silence into the
+// current default output, keeping the Bluetooth soundbar's A2DP link
+// warm so it never idle-disconnects between orders. Without this the
+// soundbar (music + cue both ride it over Bluetooth) drops its link
+// during quiet spells and the next order's cue lands on a dead link.
+const KEEPALIVE_GAIN = "0";
+
+/**
+ * Periodically streams silence into whatever the current default output
+ * is, to stop the Bluetooth soundbar idle-disconnecting between orders.
+ *
+ * Deliberately does NOT call ensureAudioOutput / SwitchAudioSource:
+ * switching the default output AWAY from an active BT device is itself
+ * what tears down the A2DP link (observed 2026-05-29 — forcing TYPE C on
+ * every cue dropped Bluetooth on every order). The keepalive's whole job
+ * is the opposite: keep the existing link streaming so it stays up.
+ */
+export function startBluetoothKeepalive(intervalMs: number): NodeJS.Timeout {
+  const tick = () => {
+    void (async () => {
+      try {
+        await ensureAlertFile();
+        spawn("afplay", ["-v", KEEPALIVE_GAIN, ALERT_FILE], {
+          detached: true,
+          stdio: "ignore",
+        }).unref();
+      } catch {
+        /* keepalive failure must never block anything else */
+      }
+    })();
+  };
+  return setInterval(tick, intervalMs);
+}
+
 export async function playOnlineOrderAlert(): Promise<void> {
   try {
     // Re-assert the output device on EVERY alert, not just at startup.

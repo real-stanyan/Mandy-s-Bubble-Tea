@@ -48,6 +48,13 @@ export const config = {
   // Set to empty string to disable enforcement entirely.
   audioOutputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? "[ AV ] Samsung Soundbar T4-Series",
 
+  // The soundbar plays both music and the OL-arrival cue over Bluetooth.
+  // macOS/the soundbar idle-disconnects the A2DP link during quiet spells
+  // between orders, so a cue landing on a cold link is silent. Stream an
+  // inaudible keepalive into the default output every N ms to keep the
+  // link warm. Set to 0 to disable (e.g. if the soundbar is wired).
+  bluetoothKeepaliveMs: Number(process.env.BT_KEEPALIVE_MS ?? "15000"),
+
   // ZD410 cup-label consumer — runs as a separate launchd job alongside
   // the ZD411 print_jobs consumer. Shares supabase + alert endpoint, but
   // owns its own CUPS queue, deviceId, and timing knobs so the two
