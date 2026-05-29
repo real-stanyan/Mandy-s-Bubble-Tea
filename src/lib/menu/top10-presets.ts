@@ -16,7 +16,9 @@ export type Top10Preset = {
   displayName?: string;
 };
 
-export const TOP10_PRESETS: Record<string, Top10Preset> = {
+type ModifierListLike = { id: string; modifiers: { id: string; name: string }[] };
+
+const TOP10_PRESETS: Record<string, Top10Preset> = {
   "brown sugar milk tea": { lockedToppings: ["Pearls"] },
   "chocolate frappe": { lockedToppings: ["Chocolate Popping (New)"] },
   "lychee iced green tea": { lockedToppings: ["Lychee Jelly"] },
@@ -62,7 +64,7 @@ export function isLockedToppingName(
 }
 
 export function lockedModifierIds(
-  modifierLists: { id: string; modifiers: { id: string; name: string }[] }[],
+  modifierLists: ModifierListLike[],
   lockedToppings: string[],
 ): { listId: string; modifierId: string }[] {
   if (lockedToppings.length === 0) return [];

@@ -61,5 +61,6 @@ describe("top10-presets", () => {
       { listId: "L1", modifierId: "m2" },
     ]);
     expect(lockedModifierIds(lists, ["Mango Jelly"])).toEqual([]);
+    expect(lockedModifierIds([], ["Pearls"])).toEqual([]);
   });
 });
