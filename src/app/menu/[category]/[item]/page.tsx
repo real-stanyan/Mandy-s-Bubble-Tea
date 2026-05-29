@@ -46,11 +46,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const detail = getItemDetail(menu, categorySlug, itemId);
   if (!detail) return { title: "Not Found" };
   const { item } = detail;
+  // Match the visible H1: inside TOP 10 the item may be display-renamed.
+  const shownName = displayNameFor(detail.category.slug, item.name);
   return {
-    title: item.name,
+    title: shownName,
     description:
       item.description ??
-      `Order ${item.name} from Mandy's Bubble Tea — pickup at Southport.`,
+      `Order ${shownName} from Mandy's Bubble Tea — pickup at Southport.`,
     openGraph: item.imageUrl ? { images: [{ url: item.imageUrl }] } : undefined,
   };
 }
