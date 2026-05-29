@@ -61,15 +61,14 @@ describe("backfillAccrualForOrder", () => {
   it("skips an unpaid order", async () => {
     mockOrdersGet.mockResolvedValue(paidOrder({ state: "OPEN", tenders: [] }));
     const r = await backfillAccrualForOrder("ord1", "cron");
-    expect(r.status).toBe("skipped");
-    expect(r.reason).toBe("not_paid");
+    expect(r).toMatchObject({ status: "skipped", reason: "not_paid" });
     expect(mockClaim).not.toHaveBeenCalled();
   });
 
   it("skips an order with no customer", async () => {
     mockOrdersGet.mockResolvedValue(paidOrder({ customerId: undefined }));
     const r = await backfillAccrualForOrder("ord1", "cron");
-    expect(r.reason).toBe("no_customer");
+    expect(r).toMatchObject({ reason: "no_customer" });
     expect(mockClaim).not.toHaveBeenCalled();
   });
 
@@ -77,7 +76,7 @@ describe("backfillAccrualForOrder", () => {
     mockOrdersGet.mockResolvedValue(paidOrder());
     mockClaim.mockResolvedValue(false);
     const r = await backfillAccrualForOrder("ord1", "cron");
-    expect(r.reason).toBe("already_logged");
+    expect(r).toMatchObject({ reason: "already_logged" });
     expect(mockAccrue).not.toHaveBeenCalled();
   });
 
@@ -101,7 +100,7 @@ describe("backfillAccrualForOrder", () => {
     mockOrdersGet.mockResolvedValue(paidOrder());
     mockCustomersGet.mockResolvedValue({ customer: { phoneNumber: undefined } });
     const r = await backfillAccrualForOrder("ord1", "cron");
-    expect(r.reason).toBe("no_phone");
+    expect(r).toMatchObject({ reason: "no_phone" });
     expect(mockRelease).toHaveBeenCalledWith("ord1");
   });
 
@@ -109,8 +108,7 @@ describe("backfillAccrualForOrder", () => {
     mockOrdersGet.mockResolvedValue(paidOrder());
     mockAccrue.mockRejectedValue(new Error("square down"));
     const r = await backfillAccrualForOrder("ord1", "cron");
-    expect(r.status).toBe("skipped");
-    expect(r.reason).toBe("error");
+    expect(r).toMatchObject({ status: "skipped", reason: "error" });
     expect(mockRelease).toHaveBeenCalledWith("ord1");
   });
 });
