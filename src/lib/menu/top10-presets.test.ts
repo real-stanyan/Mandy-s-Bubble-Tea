@@ -34,8 +34,15 @@ describe("top10-presets", () => {
     expect(displayNameFor("top-10", "Original Milk Tea")).toBe(
       "Original Milk Tea Trio (Pearl, Grass Jelly & Pudding)",
     );
+    expect(displayNameFor("top-10", "Taro Milk Tea")).toBe("Taro Milk Tea (with Pudding)");
+    expect(displayNameFor("top-10", "Brown Sugar Milk Tea")).toBe(
+      "Brown Sugar Milk Tea (with Pearls)",
+    );
+    // outside top-10 the raw catalog name is always used
     expect(displayNameFor("milk-tea", "Original Milk Tea")).toBe("Original Milk Tea");
-    expect(displayNameFor("top-10", "Taro Milk Tea")).toBe("Taro Milk Tea");
+    expect(displayNameFor("milk-tea", "Taro Milk Tea")).toBe("Taro Milk Tea");
+    // a top-10 item without a preset still falls back to itemName
+    expect(displayNameFor("top-10", "Lemon Black Tea")).toBe("Lemon Black Tea");
   });
 
   it("isLockedToppingName matches case-insensitively and trims", () => {

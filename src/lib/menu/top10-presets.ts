@@ -19,16 +19,34 @@ export type Top10Preset = {
 type ModifierListLike = { id: string; modifiers: { id: string; name: string }[] };
 
 const TOP10_PRESETS: Record<string, Top10Preset> = {
-  "brown sugar milk tea": { lockedToppings: ["Pearls"] },
-  "chocolate frappe": { lockedToppings: ["Chocolate Popping (New)"] },
-  "lychee iced green tea": { lockedToppings: ["Lychee Jelly"] },
-  "mango slushy": { lockedToppings: ["Mango Jelly"] },
+  "brown sugar milk tea": {
+    lockedToppings: ["Pearls"],
+    displayName: "Brown Sugar Milk Tea (with Pearls)",
+  },
+  "chocolate frappe": {
+    lockedToppings: ["Chocolate Popping (New)"],
+    displayName: "Chocolate Frappe (with Choc Popping)",
+  },
+  "lychee iced green tea": {
+    lockedToppings: ["Lychee Jelly"],
+    displayName: "Lychee Iced Green Tea (with Lychee Jelly)",
+  },
+  "mango slushy": {
+    lockedToppings: ["Mango Jelly"],
+    displayName: "Mango Slushy (with Mango Jelly)",
+  },
   "original milk tea": {
     lockedToppings: ["Pearls", "Herbal Jelly", "Pudding"],
     displayName: "Original Milk Tea Trio (Pearl, Grass Jelly & Pudding)",
   },
-  "red dragon fruit slushy": { lockedToppings: ["Aloe Vera"] },
-  "taro milk tea": { lockedToppings: ["Pudding"] },
+  "red dragon fruit slushy": {
+    lockedToppings: ["Aloe Vera"],
+    displayName: "Red Dragon Fruit Slushy (with Aloe Vera)",
+  },
+  "taro milk tea": {
+    lockedToppings: ["Pudding"],
+    displayName: "Taro Milk Tea (with Pudding)",
+  },
 };
 
 function norm(s: string): string {
