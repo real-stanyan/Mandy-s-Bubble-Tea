@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getMenu, type Menu } from "@/lib/catalog";
+import { getMenu, top10SurchargeCents, type Menu } from "@/lib/catalog";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
 import {
   MenuBrowser,
@@ -34,11 +34,12 @@ function toSections(menu: Menu): MenuBrowserSection[] {
     if (items.length === 0) continue;
     const rows: ProductRowData[] = items.map((item) => {
       const firstVariation = item.variations[0] ?? null;
+      const surcharge = top10SurchargeCents(menu, cat.slug, item);
       return {
         id: item.id,
         name: displayNameFor(cat.slug, item.name),
         imageUrl: imageUrlFor(cat.slug, item.name) ?? item.imageUrl,
-        priceCents: item.priceCents == null ? null : Number(item.priceCents),
+        priceCents: item.priceCents == null ? null : Number(item.priceCents + surcharge),
         variationLabel: item.variationLabel,
         soldOut: item.soldOut,
         categorySlug: cat.slug,

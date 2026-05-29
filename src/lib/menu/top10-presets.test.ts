@@ -6,6 +6,7 @@ import {
   displayNameFor,
   imageSlugFor,
   imageUrlFor,
+  lockedToppingsPriceCents,
   lockedModifierIds,
   isLockedToppingName,
 } from "./top10-presets";
@@ -78,6 +79,25 @@ describe("top10-presets", () => {
       expect(imageSlugFor("top-10", name), name).not.toBeNull();
       expect(displayNameFor("top-10", name), name).not.toBe(name);
     }
+  });
+
+  it("lockedToppingsPriceCents sums matched locked modifier prices inside top-10", () => {
+    const mods = [
+      { name: "Pearls", priceCents: 80 },
+      { name: "Herbal Jelly", priceCents: 80 },
+      { name: "Pudding", priceCents: 80 },
+      { name: "Mango Jelly", priceCents: 80 },
+    ];
+    // single locked topping
+    expect(lockedToppingsPriceCents("top-10", "Brown Sugar Milk Tea", mods)).toBe(80);
+    // trio: three locked toppings
+    expect(lockedToppingsPriceCents("top-10", "Original Milk Tea", mods)).toBe(240);
+    // outside top-10: no surcharge even if modifiers exist
+    expect(lockedToppingsPriceCents("milk-tea", "Brown Sugar Milk Tea", mods)).toBe(0);
+    // top-10 item with no preset
+    expect(lockedToppingsPriceCents("top-10", "Lemon Black Tea", mods)).toBe(0);
+    // locked name missing from this item's modifiers → contributes 0 (no crash)
+    expect(lockedToppingsPriceCents("top-10", "Brown Sugar Milk Tea", [])).toBe(0);
   });
 
   it("isLockedToppingName matches case-insensitively and trims", () => {

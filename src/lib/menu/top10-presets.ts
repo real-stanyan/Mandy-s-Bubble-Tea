@@ -84,6 +84,25 @@ export function displayNameFor(
   return getTop10Preset(itemName)?.displayName ?? itemName;
 }
 
+// Total upcharge (in cents) of the locked toppings for this drink inside
+// TOP 10 — i.e. how much the curated toppings add on top of the base price.
+// 0 outside TOP 10 or for drinks with no preset. `modifiers` is the flattened
+// list of the item's available modifiers (name + numeric cents). Shared.
+export function lockedToppingsPriceCents(
+  categorySlug: string | undefined,
+  itemName: string,
+  modifiers: { name: string; priceCents: number }[],
+): number {
+  const locked = lockedToppingsFor(categorySlug, itemName);
+  if (locked.length === 0) return 0;
+  let sum = 0;
+  for (const name of locked) {
+    const match = modifiers.find((m) => norm(m.name) === norm(name));
+    if (match) sum += match.priceCents;
+  }
+  return sum;
+}
+
 // Slug of the TOP-10-only product photo, or null when this drink has no
 // override (or is being viewed outside TOP 10). Shared, platform-agnostic.
 export function imageSlugFor(

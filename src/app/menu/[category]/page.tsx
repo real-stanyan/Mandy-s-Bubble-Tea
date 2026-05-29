@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
+import { getMenu, getCategoryBySlug, top10SurchargeCents, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
@@ -94,6 +94,11 @@ export default async function CategoryPage({ params }: PageProps) {
                     item={item}
                     displayName={displayNameFor(category.slug, item.name)}
                     imageUrl={imageUrlFor(category.slug, item.name)}
+                    priceCents={
+                      item.priceCents == null
+                        ? null
+                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
+                    }
                   />
                 </div>
               ) : (
@@ -105,6 +110,11 @@ export default async function CategoryPage({ params }: PageProps) {
                     item={item}
                     displayName={displayNameFor(category.slug, item.name)}
                     imageUrl={imageUrlFor(category.slug, item.name)}
+                    priceCents={
+                      item.priceCents == null
+                        ? null
+                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
+                    }
                   />
                 </Link>
               )}
@@ -165,12 +175,15 @@ function ItemCard({
   item,
   displayName,
   imageUrl,
+  priceCents,
 }: {
   item: MenuItem;
   displayName?: string;
   imageUrl?: string | null;
+  priceCents?: bigint | null;
 }) {
   const shownImage = imageUrl ?? item.imageUrl;
+  const shownPrice = priceCents !== undefined ? priceCents : item.priceCents;
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
@@ -210,7 +223,7 @@ function ItemCard({
           className="mt-1 text-base font-semibold sm:mt-2 sm:text-xl"
           style={{ color: BRAND.primaryColor }}
         >
-          {item.priceCents != null ? formatPrice(item.priceCents) : "—"}
+          {shownPrice != null ? formatPrice(shownPrice) : "—"}
         </p>
       </div>
     </div>

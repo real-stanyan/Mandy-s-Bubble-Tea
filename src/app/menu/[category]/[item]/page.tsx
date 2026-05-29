@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { getMenu, getItemDetail } from "@/lib/catalog";
+import { getMenu, getItemDetail, top10SurchargeCents } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { ItemOrderForm } from "@/components/menu/ItemOrderForm";
@@ -87,6 +87,12 @@ export default async function ItemDetailPage({ params }: PageProps) {
   const lockedToppings = lockedToppingsFor(category.slug, item.name);
   const shownName = displayNameFor(category.slug, item.name);
   const heroImage = imageUrlFor(category.slug, item.name) ?? item.imageUrl;
+  // Inside TOP 10 the locked toppings are mandatory, so the headline price
+  // shows the real starting price (base + locked toppings).
+  const displayPriceCents =
+    item.priceCents == null
+      ? null
+      : item.priceCents + top10SurchargeCents(menu, category.slug, item);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
@@ -168,9 +174,9 @@ export default async function ItemDetailPage({ params }: PageProps) {
             </p>
           )}
 
-          {item.priceCents != null && (
+          {displayPriceCents != null && (
             <p className="mt-4 text-2xl font-bold text-zinc-900">
-              {formatPrice(item.priceCents)}
+              {formatPrice(displayPriceCents)}
             </p>
           )}
 

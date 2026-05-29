@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getMenu } from "@/lib/catalog";
+import { getMenu, top10SurchargeCents } from "@/lib/catalog";
+import { TOP10_CATEGORY_SLUG } from "@/lib/menu/top10-presets";
 import { serializeSquareResponse } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,10 @@ export async function GET() {
           itemData: {
             name: item.name,
             description: item.description,
+            // Cents the locked TOP 10 toppings add on top of base price (0
+            // for non-TOP-10 drinks). The app applies it when rendering a row
+            // inside the TOP 10 section so listing prices match the real cost.
+            top10SurchargeCents: Number(top10SurchargeCents(menu, TOP10_CATEGORY_SLUG, item)),
             categories: item.categoryIds.map((catId) => {
               const cat = menu.categories.find((c) => c.id === catId);
               return { id: catId, name: cat?.squareName ?? "" };

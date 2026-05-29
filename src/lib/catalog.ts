@@ -2,6 +2,7 @@ import "server-only";
 import type { Square } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { slugify } from "@/lib/slugs";
+import { lockedToppingsFor, lockedToppingsPriceCents } from "@/lib/menu/top10-presets";
 
 // Catalog data layer. Fetches raw Square objects once, then builds
 // view-model types that the UI can consume directly. All price amounts
@@ -548,4 +549,26 @@ export function getItemDetail(
     item,
     modifierLists: sortModifierLists(modifierLists),
   };
+}
+
+/**
+ * Cents the locked TOP 10 toppings add on top of an item's base price, when
+ * the item is shown inside the given category. 0n outside TOP 10 or for items
+ * with no preset. Used so listing prices reflect the real with-topping price.
+ */
+export function top10SurchargeCents(
+  menu: Menu,
+  categorySlug: string | undefined,
+  item: MenuItem,
+): bigint {
+  if (lockedToppingsFor(categorySlug, item.name).length === 0) return 0n;
+  const mods: { name: string; priceCents: number }[] = [];
+  for (const ref of item.modifierListRefs) {
+    const ml = menu.modifierLists.get(ref.id);
+    if (!ml) continue;
+    for (const m of ml.modifiers) {
+      mods.push({ name: m.name, priceCents: Number(m.priceCents ?? 0n) });
+    }
+  }
+  return BigInt(lockedToppingsPriceCents(categorySlug, item.name, mods));
 }
