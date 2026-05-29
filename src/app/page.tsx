@@ -154,9 +154,9 @@ export default async function Home() {
   return (
     <div className="flex flex-1 flex-col">
       <WelcomeDiscountBanner />
+      {FRAGRANCE_BLIND_BOX_PROMO && <FragranceBlindBoxPromo />}
       <Hero imageUrl={heroImageUrl} review={review} />
       <FeaturedProducts items={featuredItems} />
-      {FRAGRANCE_BLIND_BOX_PROMO && <FragranceBlindBoxPromo />}
       <OurStory />
       <AppPromo />
       <LoyaltyPopup />
