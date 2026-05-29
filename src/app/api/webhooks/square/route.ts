@@ -231,6 +231,25 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
  * then enqueues a cup-sticker print job. Idempotent via
  * unique(square_order_id) on print_jobs.
  */
+/**
+ * Enqueue a delayed loyalty-backfill job for an order that has a
+ * customer attached. The ~5 min delay lets Square's own POS check-in
+ * accrual settle first, so the worker only backfills genuine misses.
+ */
+async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
+  const { Client: QStashClient } = await import("@upstash/qstash");
+  const { walletEnv } = await import("@/lib/wallet/env");
+  const env = walletEnv();
+  const qstash = new QStashClient({ token: env.qstashToken, baseUrl: env.qstashUrl });
+  const workerUrl = `${env.webServiceUrl.replace(/\/api\/wallet\/?$/, "")}/api/loyalty/backfill-worker`;
+  await qstash.publishJSON({
+    url: workerUrl,
+    body: { orderId },
+    delay: "5m",
+    retries: 3,
+  });
+}
+
 async function handleOrderPaid(orderId: string, eventId?: string): Promise<void> {
   let order;
   try {
@@ -288,6 +307,17 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
         result.detail ? ` detail=${result.detail}` : ""
       } event_id=${eventId}`,
     );
+  }
+
+  // Loyalty safety net: if a customer is attached, schedule a delayed
+  // backfill so a missed POS check-in still earns the star.
+  if (order.customerId) {
+    try {
+      await enqueueLoyaltyBackfill(orderId);
+      console.log(`[loyalty-backfill] enqueued order ${orderId} event_id=${eventId}`);
+    } catch (e) {
+      console.error("[loyalty-backfill] enqueue failed (non-fatal)", e);
+    }
   }
 }
 
