@@ -227,11 +227,6 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
 }
 
 /**
- * Called on order.updated. Fetches the full order, checks it is paid,
- * then enqueues a cup-sticker print job. Idempotent via
- * unique(square_order_id) on print_jobs.
- */
-/**
  * Enqueue a delayed loyalty-backfill job for an order that has a
  * customer attached. The ~5 min delay lets Square's own POS check-in
  * accrual settle first, so the worker only backfills genuine misses.
@@ -250,6 +245,11 @@ async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
   });
 }
 
+/**
+ * Called on order.updated. Fetches the full order, checks it is paid,
+ * then enqueues a cup-sticker print job. Idempotent via
+ * unique(square_order_id) on print_jobs.
+ */
 async function handleOrderPaid(orderId: string, eventId?: string): Promise<void> {
   let order;
   try {
