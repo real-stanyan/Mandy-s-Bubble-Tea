@@ -28,6 +28,7 @@ import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
+import { reportClientError, describeError } from "@/lib/client-error-report";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { order, payment } through our API
@@ -496,10 +497,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     }
 
     setSubmitting(true);
+    let step = "start";
+    let createdOrderId: string | undefined;
     try {
       // 0) Tokenize wallet IMMEDIATELY — must stay in the user-gesture frame.
       let sourceToken: string | undefined;
       if (!expectFreeOrder && (payMethod === "apple" || payMethod === "google")) {
+        step = "tokenize-wallet";
         const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
@@ -524,6 +528,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
       // 1) Create the order. The server derives customer/phone/name
       // from the Supabase session — no need to send them.
+      step = "create-order";
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -551,10 +556,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       if (!orderRes.ok || !orderJson.ok) {
         throw new Error(orderJson.error ?? "Order creation failed");
       }
+      createdOrderId = orderJson.orderId;
 
       // 2) Optionally redeem loyalty rewards against the order.
       let amountCents: string = orderJson.amountCents;
       if (rewardCount > 0) {
+        step = "redeem";
         const redeemRes = await fetch("/api/loyalty/redeem", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -576,6 +583,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       if (!isFreeOrder) {
         if (payMethod === "card") {
           if (!cardRef.current) throw new Error("Card form is not ready yet.");
+          step = "tokenize-card";
           const tokenResult = await cardRef.current.tokenize();
           if (tokenResult.status !== "OK" || !tokenResult.token) {
             const detail =
@@ -595,6 +603,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         const amountMajor = (Number(amountCents) / 100).toFixed(2);
         const givenName = profile.first_name ?? "";
         const familyName = profile.last_name ?? "";
+        step = "verifyBuyer";
         const verification = await paymentsRef.current.verifyBuyer(
           sourceToken,
           {
@@ -620,6 +629,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       //    handler so neither path can drop the selections (the OL829 bug).
       //    Empty buckets stay `undefined` so the server enqueue falls back
       //    to hash-default for slots without an explicit choice.
+      step = "payment";
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -647,8 +657,21 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setPaymentError(message);
+      const described = describeError(err);
+      reportClientError({
+        scope: "checkout",
+        step,
+        message: described.message,
+        meta: {
+          name: described.name,
+          squareErrors: described.squareErrors,
+          payMethod,
+          createdOrderId,
+          expectFreeOrder,
+          sdkReady,
+        },
+      });
+      setPaymentError(described.message);
       setSubmitting(false);
     }
   }

@@ -26,6 +26,7 @@ import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { CartCupLabels } from "@/components/cart/CartCupLabels";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
+import { reportClientError, describeError } from "@/lib/client-error-report";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
@@ -814,6 +815,8 @@ function CartFooter({
       }
 
       setPaying(true);
+      let step = "start";
+      let createdOrderId: string | undefined;
       try {
         // 0) Refresh the wallet sheet's amount to the live displayTotal
         // BEFORE tokenize. Without this the sheet shows whatever amount
@@ -840,6 +843,7 @@ function CartFooter({
         const walletInstance =
           method === "apple" ? applePayRef.current : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet not ready");
+        step = "tokenize-wallet";
         const tokenResult = await walletInstance.tokenize();
         if (tokenResult.status !== "OK" || !tokenResult.token) {
           const detail =
@@ -850,6 +854,7 @@ function CartFooter({
         const sourceToken = tokenResult.token;
 
         // 1) Create order — customer/phone derived server-side from session.
+        step = "create-order";
         const orderRes = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -875,10 +880,12 @@ function CartFooter({
         if (!orderRes.ok || !orderJson.ok) {
           throw new Error(orderJson.error ?? "Order creation failed");
         }
+        createdOrderId = orderJson.orderId;
 
         // 2) Optionally redeem loyalty reward.
         let amountCents: string = orderJson.amountCents;
         if (useReward) {
+          step = "redeem";
           const redeemRes = await fetch("/api/loyalty/redeem", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -903,6 +910,7 @@ function CartFooter({
           const amountMajor = (Number(amountCents) / 100).toFixed(2);
           const givenName = profile.first_name ?? "";
           const familyName = profile.last_name ?? "";
+          step = "verifyBuyer";
           const verification = await paymentsRef.current.verifyBuyer(
             sourceToken,
             {
@@ -927,6 +935,7 @@ function CartFooter({
         //    does — the drawer omitting them was the OL829 tarot-fallback
         //    bug. Read the latest selections from the store at click time
         //    to avoid any stale closure over labelSelections.
+        step = "payment";
         const paymentRes = await fetch("/api/payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -959,8 +968,19 @@ function CartFooter({
         closeDrawer();
         router.push(`/order-confirmation/${orderJson.orderId}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        const described = describeError(err);
+        reportClientError({
+          scope: "cart-drawer",
+          step,
+          message: described.message,
+          meta: {
+            name: described.name,
+            squareErrors: described.squareErrors,
+            method,
+            createdOrderId,
+          },
+        });
+        setError(described.message);
         setPaying(false);
       }
     },
