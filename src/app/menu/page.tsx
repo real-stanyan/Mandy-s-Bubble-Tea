@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getMenu, type Menu } from "@/lib/catalog";
-import { displayNameFor } from "@/lib/menu/top10-presets";
+import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
 import {
   MenuBrowser,
   type MenuBrowserSection,
@@ -37,7 +37,7 @@ function toSections(menu: Menu): MenuBrowserSection[] {
       return {
         id: item.id,
         name: displayNameFor(cat.slug, item.name),
-        imageUrl: item.imageUrl,
+        imageUrl: imageUrlFor(cat.slug, item.name) ?? item.imageUrl,
         priceCents: item.priceCents == null ? null : Number(item.priceCents),
         variationLabel: item.variationLabel,
         soldOut: item.soldOut,

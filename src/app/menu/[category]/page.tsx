@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
-import { displayNameFor } from "@/lib/menu/top10-presets";
+import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -90,14 +90,22 @@ export default async function CategoryPage({ params }: PageProps) {
             <li key={item.id}>
               {item.soldOut ? (
                 <div aria-disabled="true" className="block cursor-not-allowed">
-                  <ItemCard item={item} displayName={displayNameFor(category.slug, item.name)} />
+                  <ItemCard
+                    item={item}
+                    displayName={displayNameFor(category.slug, item.name)}
+                    imageUrl={imageUrlFor(category.slug, item.name)}
+                  />
                 </div>
               ) : (
                 <Link
                   href={`/menu/${category.slug}/${item.id}`}
                   className="block"
                 >
-                  <ItemCard item={item} displayName={displayNameFor(category.slug, item.name)} />
+                  <ItemCard
+                    item={item}
+                    displayName={displayNameFor(category.slug, item.name)}
+                    imageUrl={imageUrlFor(category.slug, item.name)}
+                  />
                 </Link>
               )}
             </li>
@@ -153,7 +161,16 @@ function MenuCrumb({ current }: { current: string }) {
   );
 }
 
-function ItemCard({ item, displayName }: { item: MenuItem; displayName?: string }) {
+function ItemCard({
+  item,
+  displayName,
+  imageUrl,
+}: {
+  item: MenuItem;
+  displayName?: string;
+  imageUrl?: string | null;
+}) {
+  const shownImage = imageUrl ?? item.imageUrl;
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
@@ -165,11 +182,11 @@ function ItemCard({ item, displayName }: { item: MenuItem; displayName?: string 
           Sold out
         </span>
       )}
-      {item.imageUrl ? (
+      {shownImage ? (
         <div className="relative aspect-square w-full">
           <Image
-            src={item.imageUrl}
-            alt={item.name}
+            src={shownImage}
+            alt={displayName ?? item.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
             className={`object-cover ${item.soldOut ? "grayscale" : ""}`}

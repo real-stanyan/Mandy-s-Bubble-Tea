@@ -5,7 +5,7 @@ import { getMenu, getItemDetail } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { ItemOrderForm } from "@/components/menu/ItemOrderForm";
-import { lockedToppingsFor, displayNameFor } from "@/lib/menu/top10-presets";
+import { lockedToppingsFor, displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -48,12 +48,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { item } = detail;
   // Match the visible H1: inside TOP 10 the item may be display-renamed.
   const shownName = displayNameFor(detail.category.slug, item.name);
+  const ogImage = imageUrlFor(detail.category.slug, item.name) ?? item.imageUrl;
   return {
     title: shownName,
     description:
       item.description ??
       `Order ${shownName} from Mandy's Bubble Tea — pickup at Southport.`,
-    openGraph: item.imageUrl ? { images: [{ url: item.imageUrl }] } : undefined,
+    openGraph: ogImage ? { images: [{ url: ogImage }] } : undefined,
   };
 }
 
@@ -85,6 +86,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
   const { category, item, modifierLists } = detail;
   const lockedToppings = lockedToppingsFor(category.slug, item.name);
   const shownName = displayNameFor(category.slug, item.name);
+  const heroImage = imageUrlFor(category.slug, item.name) ?? item.imageUrl;
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
@@ -114,11 +116,11 @@ export default async function ItemDetailPage({ params }: PageProps) {
         {/* Left — product image */}
         <div className="relative">
           <div className="overflow-hidden rounded-2xl">
-            {item.imageUrl ? (
+            {heroImage ? (
               <div className="relative aspect-square w-full" style={{ backgroundColor: BRAND.accentColor }}>
                 <Image
-                  src={item.imageUrl}
-                  alt={item.name}
+                  src={heroImage}
+                  alt={shownName}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-contain"

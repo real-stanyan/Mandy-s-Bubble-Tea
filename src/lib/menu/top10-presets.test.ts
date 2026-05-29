@@ -4,6 +4,8 @@ import {
   getTop10Preset,
   lockedToppingsFor,
   displayNameFor,
+  imageSlugFor,
+  imageUrlFor,
   lockedModifierIds,
   isLockedToppingName,
 } from "./top10-presets";
@@ -43,6 +45,39 @@ describe("top10-presets", () => {
     expect(displayNameFor("milk-tea", "Taro Milk Tea")).toBe("Taro Milk Tea");
     // a top-10 item without a preset still falls back to itemName
     expect(displayNameFor("top-10", "Lemon Black Tea")).toBe("Lemon Black Tea");
+  });
+
+  it("imageSlugFor returns the override slug only inside top-10", () => {
+    expect(imageSlugFor("top-10", "Brown Sugar Milk Tea")).toBe("brown-sugar-milk-tea");
+    expect(imageSlugFor("top-10", "Original Milk Tea")).toBe("original-milk-tea");
+    // outside top-10: no override
+    expect(imageSlugFor("milk-tea", "Brown Sugar Milk Tea")).toBeNull();
+    expect(imageSlugFor(undefined, "Brown Sugar Milk Tea")).toBeNull();
+    // top-10 item without a custom image
+    expect(imageSlugFor("top-10", "Lemon Black Tea")).toBeNull();
+  });
+
+  it("imageUrlFor builds the public webp path or null", () => {
+    expect(imageUrlFor("top-10", "Taro Milk Tea")).toBe("/image/top10/taro-milk-tea.webp");
+    expect(imageUrlFor("top-10", "Mango Slushy")).toBe("/image/top10/mango-slushy.webp");
+    expect(imageUrlFor("frozen", "Mango Slushy")).toBeNull();
+    expect(imageUrlFor("top-10", "Lemon Black Tea")).toBeNull();
+  });
+
+  it("every preset with a displayName also ships a custom image", () => {
+    // all 7 curated TOP 10 drinks should have both a rename and a photo
+    for (const name of [
+      "Brown Sugar Milk Tea",
+      "Chocolate Frappe",
+      "Lychee Iced Green Tea",
+      "Mango Slushy",
+      "Original Milk Tea",
+      "Red Dragon Fruit Slushy",
+      "Taro Milk Tea",
+    ]) {
+      expect(imageSlugFor("top-10", name), name).not.toBeNull();
+      expect(displayNameFor("top-10", name), name).not.toBe(name);
+    }
   });
 
   it("isLockedToppingName matches case-insensitively and trims", () => {
