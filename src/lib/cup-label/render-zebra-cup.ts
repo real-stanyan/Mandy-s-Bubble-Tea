@@ -111,7 +111,7 @@ export type CupLabelInput = {
    * DOODLE_SIZE × DOODLE_SIZE.
    */
   doodlePngBuffer?: Buffer;
-  /** Logged-in customer's first name. Falls back to "Guest" when null/empty/undefined. */
+  /** Logged-in customer's first name. Falls back to "Soul" when null/empty/undefined. */
   customerFirstName?: string | null;
   /**
    * Fortune-cookie-style sentence rendered in place of the middle
@@ -128,7 +128,7 @@ export type CupLabelInput = {
 
 function formatGreeting(name: string | null): string {
   const trimmed = name?.trim();
-  return trimmed && trimmed.length > 0 ? `Hi, ${trimmed}` : "Hi, Guest";
+  return trimmed && trimmed.length > 0 ? `Hi, ${trimmed}` : "Hi, Soul";
 }
 
 export type CupLabelOutput = {

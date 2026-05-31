@@ -85,7 +85,7 @@ export type EnqueueCupLabelArgs = {
   presetStickerHashes?: Record<string, string>;
   /** Required when doodleIds is set — used to scope the storage lookup. */
   userId?: string;
-  /** Customer's first name for the "Hi, {name}" header. Falls back to "Guest". */
+  /** Customer's first name for the "Hi, {name}" header. Falls back to "Soul". */
   customerFirstName?: string | null;
   /**
    * "web" (default): web/app checkout — honor doodleIds / aiDoodleIds /
