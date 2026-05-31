@@ -276,19 +276,20 @@ export async function findOrCreateLoyaltyAccount(
 export async function accrueForOrder(
   accountId: string,
   orderId: string,
+  idempotencyKey?: string,
 ): Promise<void> {
   if (!SQUARE_LOCATION_ID) {
     throw new Error("SQUARE_LOCATION_ID is not set");
-   }
+  }
 
   await squareClient.loyalty.accounts.accumulatePoints({
     accountId,
-    idempotencyKey: randomUUID(),
+    idempotencyKey: idempotencyKey ?? randomUUID(),
     locationId: SQUARE_LOCATION_ID,
     accumulatePoints: {
       orderId,
-      },
-   });
+    },
+  });
 }
 
 /**
