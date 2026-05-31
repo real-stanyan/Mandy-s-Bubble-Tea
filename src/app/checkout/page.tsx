@@ -22,6 +22,7 @@ import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/li
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
+import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
@@ -224,18 +225,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   //      aiDoodleId so the server again falls back to default. We
   //      want the user to actually print their AI image, so block Pay
   //      until the real uuid lands on the cart.
-  const cupLabelGate = useMemo<
-    "ready" | "no-selection" | "ai-pending" | "draw-pending"
-  >(() => {
-    for (const line of lines) {
-      for (let i = 0; i < line.quantity; i++) {
-        const sel = labelSelections[cupKey(line.id, i)];
-        if (!sel) return "no-selection";
-        if (sel.kind === "ai" && sel.aiDoodleId === null) return "ai-pending";
-        if (sel.kind === "draw" && sel.userDoodleId === null) return "draw-pending";
-      }
-    }
-    return "ready";
+  const cupLabelGate = useMemo(() => {
+    const sels = lines.flatMap((line) =>
+      Array.from({ length: line.quantity }, (_, i) => labelSelections[cupKey(line.id, i)]),
+    );
+    return computeCupLabelGate(sels);
   }, [lines, labelSelections]);
   const allCupsLabeled = cupLabelGate === "ready";
 
