@@ -1,32 +1,18 @@
 import "server-only";
 import type { OrderLineItem } from "square";
 
-// Mirror of printer-client/src/zpl.ts modifier formatting so cup labels
-// printed via TSP100 read the same way as Zebra stickers.
-// Format: `Topping1+Topping2(N) -> L.Ice -> 50%S`
+// Modifier formatting for the live ZD410 70mm cup label (back sticker).
+// Diverges intentionally from printer-client/src/zpl.ts, which still
+// abbreviates ice/sugar because it targets the retired 40x30mm ZD411
+// sticker where the bottom band can't fit full names. The wider ZD410
+// layout has room, so we spell them out here.
+// Format: `Topping1+Topping2(N) -> Less Ice -> Half Sugar`
 //   - Toppings joined with `+`. Same-name aggregated as `Name(N)` when N>1.
 //   - Non-default milk prepended to toppings (Oat Milk / Soy / Almond / Fresh).
 //   - Defaults ("Normal Ice", "Standard Sugar", "Standard(Recommended)") omitted.
-//   - Ice / sugar abbreviated to fit in the bottom band of the cup label.
-
-const ICE_ABBREVS: Record<string, string> = {
-  "less ice": "L.Ice",
-  "extra ice": "E.Ice",
-  "no ice": "N.Ice",
-  "warm": "Warm",
-};
-
-const SUGAR_ABBREVS: Record<string, string> = {
-  "less sugar (75%)": "75%S",
-  "less sugar 75%": "75%S",
-  "less sugar": "75%S",
-  "half sugar": "50%S",
-  "little sugar (25%)": "25%S",
-  "little sugar 25%": "25%S",
-  "little sugar": "25%S",
-  "no sugar": "0%S",
-  "extra sugar": "+S",
-};
+//   - Ice / sugar printed with their full Square modifier names — the wider
+//     2026 cup-label layout has room for the bottom band to spell them out
+//     (e.g. "Less Ice" / "Less Sugar (75%)") instead of the old abbreviations.
 
 function isDefaultLevel(v: string | null | undefined): boolean {
   if (!v) return false;
@@ -35,12 +21,6 @@ function isDefaultLevel(v: string | null | undefined): boolean {
 
 function isDefaultMilk(name: string): boolean {
   return /\brecommended\b|^\s*standard\b/i.test(name);
-}
-
-function abbreviate(table: Record<string, string>, v: string | null): string {
-  if (!v) return "";
-  const key = v.trim().toLowerCase().replace(/\s+/g, " ");
-  return table[key] ?? v.trim();
 }
 
 function bucketOf(name: string): "sugar" | "ice" | "milk" | "topping" {
@@ -87,8 +67,8 @@ export function formatModifiersForLabel(line: OrderLineItem): string {
   }
   if (toppingParts.length > 0) lines.push(toppingParts.join(" + "));
 
-  if (!isDefaultLevel(ice) && ice) lines.push(abbreviate(ICE_ABBREVS, ice));
-  if (!isDefaultLevel(sugar) && sugar) lines.push(abbreviate(SUGAR_ABBREVS, sugar));
+  if (!isDefaultLevel(ice) && ice) lines.push(ice.trim());
+  if (!isDefaultLevel(sugar) && sugar) lines.push(sugar.trim());
 
   // All-default order → empty string keeps the bottom band blank, same
   // as the previous single-line behaviour.
