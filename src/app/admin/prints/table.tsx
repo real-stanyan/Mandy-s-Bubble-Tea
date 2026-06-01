@@ -58,10 +58,28 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
         </tr>
       </thead>
       <tbody>
-        {jobs.map((j) => (
-          <tr key={j.id} className="border-b">
+        {jobs.map((j) => {
+          // Online (web/app) orders are the ones staff can miss — highlight them.
+          const online = j.source === "web";
+          return (
+          <tr
+            key={j.id}
+            className={
+              online
+                ? "border-b border-l-4 border-l-[#C43A10] bg-[#FBEDE7]"
+                : "border-b"
+            }
+          >
             <td className="p-2 font-mono">{j.sticker_number}</td>
-            <td className="p-2">{j.source}</td>
+            <td className="p-2">
+              {online ? (
+                <span className="inline-flex items-center rounded bg-[#C43A10] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                  线上
+                </span>
+              ) : (
+                <span className="text-gray-600">{j.source}</span>
+              )}
+            </td>
             <td className="p-2">
               <span className={
                 j.status === "printed" ? "text-green-700"
@@ -93,7 +111,8 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
               )}
             </td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
