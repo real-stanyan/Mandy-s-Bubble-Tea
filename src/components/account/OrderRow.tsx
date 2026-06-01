@@ -8,7 +8,6 @@ export type OrderHistoryItem = {
   state: string | null;
   fulfillmentState: string | null;
   fulfillmentType?: string | null;
-  uberTrackingUrl?: string | null;
   totalCents: string;
   itemSummary: string;
   lineCount: number;
@@ -17,11 +16,7 @@ export type OrderHistoryItem = {
 export function OrderRow({ order }: { order: OrderHistoryItem }) {
   const stateKey = effectiveState(order.state, order.fulfillmentState);
   const badge = STATE_STYLES[stateKey];
-  const showTrack =
-    order.fulfillmentType === "DELIVERY" &&
-    !!order.uberTrackingUrl &&
-    order.state !== "COMPLETED" &&
-    order.state !== "CANCELED";
+  const isDelivery = order.fulfillmentType === "DELIVERY";
 
   return (
     <Link
@@ -46,17 +41,13 @@ export function OrderRow({ order }: { order: OrderHistoryItem }) {
               {badge.label}
             </span>
           )}
-          {showTrack && (
-            <a
-              href={order.uberTrackingUrl ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+          {isDelivery && (
+            <span
               className="rounded-full border border-line px-2 py-0.5 uppercase text-[#C43A10]"
               style={{ fontSize: 10, letterSpacing: 0.5, fontWeight: 600 }}
             >
-              Track →
-            </a>
+              🚚 Delivery
+            </span>
           )}
         </div>
         <h3

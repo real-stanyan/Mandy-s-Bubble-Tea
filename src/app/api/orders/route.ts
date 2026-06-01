@@ -12,6 +12,7 @@ import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
+import { deliveryFulfillmentNote, deliveryTicketName } from "@/lib/delivery-ticket";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -54,7 +55,6 @@ type CreateOrderBody = {
     lng: number;
     unit?: string;
     driverNote?: string;
-    quoteId: string;
   };
 };
 
@@ -80,7 +80,6 @@ function isValidBody(body: unknown): body is CreateOrderBody {
       const d = b.delivery;
       if (typeof d.address !== "string" || d.address.length < 3) return false;
       if (typeof d.lat !== "number" || typeof d.lng !== "number") return false;
-      if (typeof d.quoteId !== "string" || d.quoteId.length === 0) return false;
     }
     return true;
   })();
@@ -212,6 +211,12 @@ export async function POST(request: Request) {
   }, 0n);
 
   const isDelivery = body.fulfillmentType === "DELIVERY";
+  const deliveryFullAddress =
+    isDelivery && body.delivery
+      ? body.delivery.unit
+        ? `${body.delivery.unit}, ${body.delivery.address}`
+        : body.delivery.address
+      : null;
 
   // Delivery prerequisites — eligibility, hours, radius. These run regardless
   // of free-redeem because they're not surcharges, they're "is this even a
@@ -392,7 +397,7 @@ export async function POST(request: Request) {
         locationId: SQUARE_LOCATION_ID,
         customerId,
         referenceId: pickupNumber,
-        ticketName: pickupNumber,
+        ticketName: isDelivery ? deliveryTicketName(pickupNumber) : pickupNumber,
         lineItems,
         discounts: welcomeDiscounts,
         // Passes Square card-processing fees (and PH surcharge) through
@@ -401,54 +406,48 @@ export async function POST(request: Request) {
         // applied. taxable:false → menu items are already GST-inclusive;
         // these are pass-through fees listed separately.
         serviceCharges: orderServiceCharges.length > 0 ? orderServiceCharges : undefined,
-        fulfillments: isDelivery && body.delivery
-          ? [
-              {
-                type: "DELIVERY" as const,
-                state: "PROPOSED" as const,
-                deliveryDetails: {
-                  scheduleType: "ASAP" as const,
-                  recipient: {
-                    customerId,
-                    displayName: pickupNumber,
-                    phoneNumber: recipientPhone,
-                  },
-                  note: [pickupNumber, body.note, body.delivery.driverNote]
-                    .filter(Boolean)
-                    .join(" — "),
-                },
+        // Self-delivery orders are created as PICKUP fulfillments — Square hides
+        // DELIVERY-type orders from the seller POS without a partnership. The
+        // 🚚 delivery address + phone are stamped into the note (the field
+        // Square Register displays) so staff see where to drive it.
+        fulfillments: [
+          {
+            type: "PICKUP" as const,
+            state: "PROPOSED" as const,
+            pickupDetails: {
+              scheduleType: "ASAP" as const,
+              pickupAt,
+              recipient: {
+                customerId,
+                displayName: pickupNumber,
+                phoneNumber: recipientPhone,
               },
-            ]
-          : [
-              {
-                type: "PICKUP" as const,
-                state: "PROPOSED" as const,
-                pickupDetails: {
-                  scheduleType: "ASAP" as const,
-                  pickupAt,
-                  recipient: {
-                    customerId,
-                    displayName: pickupNumber,
-                    phoneNumber: recipientPhone,
-                  },
-                  note: [pickupNumber, body.note].filter(Boolean).join(" — "),
-                },
-              },
-            ],
+              note:
+                isDelivery && body.delivery && deliveryFullAddress
+                  ? deliveryFulfillmentNote({
+                      address: deliveryFullAddress,
+                      phone: recipientPhone,
+                      driverNote: body.delivery.driverNote,
+                      orderNote: body.note,
+                    })
+                  : [pickupNumber, body.note].filter(Boolean).join(" — "),
+            },
+          },
+        ],
         metadata: {
           source: "web",
           site: BUSINESS.domain,
           ...(welcomeDrinksCovered > 0
             ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
             : {}),
-          ...(isDelivery && body.delivery
+          ...(isDelivery && body.delivery && deliveryFullAddress
             ? {
-                delivery_address: body.delivery.unit
-                  ? `${body.delivery.unit}, ${body.delivery.address}`
-                  : body.delivery.address,
+                // Mandy's own admin / forecast / fee accounting read this to
+                // know the order is a delivery even though Square sees a pickup.
+                fulfillment_type: "DELIVERY",
+                delivery_address: deliveryFullAddress,
                 delivery_lat: String(body.delivery.lat),
                 delivery_lng: String(body.delivery.lng),
-                delivery_quote_id: body.delivery.quoteId,
               }
             : {}),
         },

@@ -84,7 +84,7 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
   { name: "Boxing Day (observed)", date: "2026-12-28" },
 ];
 
-// ---- Delivery (Uber Direct) ----
+// ---- Delivery (self-delivery by store staff) ----
 
 export const DELIVERY = {
   feeCents: 499n,

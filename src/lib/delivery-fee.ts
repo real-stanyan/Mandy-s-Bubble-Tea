@@ -12,7 +12,8 @@ export function deliveryFeeCents(drinksSubtotalCents: bigint): bigint {
 
 // 8% Service Fee on drinks subtotal. Charged on every delivery order,
 // including those that qualify for FREE delivery — the Service Fee
-// partially offsets the shop's Uber bill. Truncates to whole cents.
+// partially offsets the cost of self-delivery (staff time + petrol).
+// Truncates to whole cents.
 export function serviceFeeCents(drinksSubtotalCents: bigint): bigint {
   if (drinksSubtotalCents <= 0n) return 0n;
   return (drinksSubtotalCents * DELIVERY.serviceFeeBps) / 10000n;

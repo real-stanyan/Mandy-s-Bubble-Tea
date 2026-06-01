@@ -138,8 +138,12 @@ export async function GET(request: Request) {
         updatedAt: order.updatedAt ?? null,
         state: order.state ?? null,
         fulfillmentState: fulfillment?.state ?? null,
-        fulfillmentType: fulfillment?.type ?? null,
-        uberTrackingUrl: order.metadata?.uber_tracking_url ?? null,
+        // Self-delivery orders carry a PICKUP fulfillment but record the truth
+        // in metadata.fulfillment_type — prefer that so the UI shows "Delivery".
+        fulfillmentType:
+          (order.metadata?.fulfillment_type as string | undefined) ??
+          fulfillment?.type ??
+          null,
         totalCents: order.totalMoney?.amount?.toString() ?? "0",
         itemSummary: rawLines
           .map((li) => `${li.quantity}× ${li.name ?? "Item"}`)

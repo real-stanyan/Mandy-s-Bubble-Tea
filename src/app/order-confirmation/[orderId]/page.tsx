@@ -11,7 +11,6 @@ import {
   OrderStatusHero,
   type FulfillmentState,
 } from "./OrderStatusHero";
-import { LiveDeliveryStatus } from "@/components/order/LiveDeliveryStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -109,8 +108,11 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
   const fulfillment = order.fulfillments?.[0];
   const initialState =
     (fulfillment?.state as FulfillmentState | undefined) ?? null;
-  const isDelivery = fulfillment?.type === "DELIVERY";
-  const trackingUrl = order.metadata?.uber_tracking_url ?? null;
+  // Self-delivery orders carry a PICKUP fulfillment (Square hides DELIVERY-type
+  // orders from the POS) — the truth lives in metadata.fulfillment_type.
+  const isDelivery =
+    order.metadata?.fulfillment_type === "DELIVERY" ||
+    fulfillment?.type === "DELIVERY";
   const deliveryAddress = order.metadata?.delivery_address ?? null;
 
   // Pickup number is written to Square's ticketName at order creation
@@ -164,8 +166,6 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8 sm:px-6 sm:py-12">
       <OrderStatusHero orderId={orderId} initialState={initialState} isDelivery={isDelivery} />
 
-      {isDelivery && <LiveDeliveryStatus orderId={orderId} />}
-
       {/* Pickup number — big, so staff and customer can match on it */}
       <div
         className="mb-6 rounded-2xl border border-black/5 bg-white p-5 text-center shadow-sm"
@@ -181,7 +181,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         </p>
         <p className="mt-2 text-xs text-zinc-500">
           {isDelivery
-            ? "Your driver will reference this number on arrival."
+            ? "Our team will reference this number when they deliver."
             : "Show this number at the counter to collect your order."}
         </p>
       </div>
@@ -196,17 +196,9 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             <p className="mt-1.5 text-sm font-bold text-zinc-900">
               {deliveryAddress ?? "Address on file"}
             </p>
-            {trackingUrl && (
-              <a
-                href={trackingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-block text-xs font-semibold underline"
-                style={{ color: BRAND.primaryColor }}
-              >
-                Track delivery →
-              </a>
-            )}
+            <p className="mt-2 text-xs text-zinc-500">
+              Delivered by our team
+            </p>
           </div>
         ) : (
           <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">

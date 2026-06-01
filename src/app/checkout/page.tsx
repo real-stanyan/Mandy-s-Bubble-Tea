@@ -253,11 +253,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       .then((data) => {
         if (cancelled) return;
         if (data.ok) {
-          setQuoteState({ kind: "ok", quoteId: data.quoteId, etaMin: data.etaMin, expiresAt: data.expiresAt });
+          setQuoteState({ kind: "ok", feeCents: data.feeCents, serviceFeeCents: data.serviceFeeCents });
         } else {
           const map: Record<string, string> = {
             out_of_zone: "Sorry, we don't deliver to that address",
-            no_driver: "No driver available right now — try pickup or check back",
             closed: "Delivery hours: 11am–9:30pm",
             min_order: "Add more to qualify for delivery",
             auth: "Sign in to get a delivery quote",
@@ -554,7 +553,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   lng: deliveryAddress.lng,
                   unit: deliveryAddress.unit || undefined,
                   driverNote: deliveryAddress.driverNote || undefined,
-                  quoteId: quoteState.quoteId,
                 }
               : undefined,
           lines: lines.map((l) => ({

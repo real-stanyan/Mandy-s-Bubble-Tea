@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { quoteDelivery } from "@/lib/uber-direct";
 import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { isDeliveryEligible } from "@/lib/delivery-fee";
+import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { getAuthedUser } from "@/lib/auth";
 
 type QuoteBody = {
@@ -26,10 +25,10 @@ function isValidBody(b: unknown): b is QuoteBody {
   );
 }
 
-// Validates address against our 10 km radius + delivery hours + min order
-// and proxies to Uber Direct for ETA + quote_id. The customer is required
-// to be signed in (so we have a phone for Uber later). The quote_id is
-// the source of truth — if Uber says no, we say no.
+// Self-delivery quote: a pure internal validator. There is no third-party
+// courier to call — Mandy's own staff deliver — so a "quote" just means
+// "is this address eligible, in range, and are we open?" plus the fee math.
+// The customer must be signed in (orders require a phone), matching /api/orders.
 export async function POST(request: Request) {
   const user = await getAuthedUser(request);
   if (!user?.profile?.phone_e164) {
@@ -49,7 +48,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "invalid_body" }, { status: 400 });
   }
 
-  if (!isDeliveryEligible(BigInt(Math.max(0, Math.floor(body.drinksSubtotalCents))))) {
+  const drinksSubtotalCents = BigInt(Math.max(0, Math.floor(body.drinksSubtotalCents)));
+
+  if (!isDeliveryEligible(drinksSubtotalCents)) {
     return NextResponse.json({ ok: false, reason: "min_order" });
   }
   if (!isDeliveryHoursOpen()) {
@@ -59,26 +60,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "out_of_zone" });
   }
 
-  const fullAddress = body.unit
-    ? `${body.unit}, ${body.address}`
-    : body.address;
-
-  const result = await quoteDelivery({
-    dropoffAddress: fullAddress,
-    dropoffLat: body.lat,
-    dropoffLng: body.lng,
-    dropoffPhone: user.profile.phone_e164,
-    dropoffName: [user.profile.first_name, user.profile.last_name].filter(Boolean).join(" ") || "Customer",
-    orderValueCents: body.drinksSubtotalCents,
-  });
-
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, reason: result.reason });
-  }
   return NextResponse.json({
     ok: true,
-    quoteId: result.quoteId,
-    etaMin: result.etaMin,
-    expiresAt: result.expiresAt,
+    feeCents: Number(deliveryFeeCents(drinksSubtotalCents)),
+    serviceFeeCents: Number(serviceFeeCents(drinksSubtotalCents)),
   });
 }

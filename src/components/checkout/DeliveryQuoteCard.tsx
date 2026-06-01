@@ -3,7 +3,7 @@
 export type QuoteState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ok"; quoteId: string; etaMin: number; expiresAt: string }
+  | { kind: "ok"; feeCents: number; serviceFeeCents: number }
   | { kind: "error"; message: string };
 
 type Props = { state: QuoteState };
@@ -29,7 +29,7 @@ export function DeliveryQuoteCard({ state }: Props) {
 
   return (
     <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">
-      ✓ Delivery available · ETA ~{state.etaMin} min
+      ✓ Delivery available — our team brings it to your door
     </div>
   );
 }
