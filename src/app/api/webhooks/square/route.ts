@@ -228,8 +228,12 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
 
 /**
  * Enqueue a delayed loyalty-backfill job for an order that has a
- * customer attached. The ~5 min delay lets Square's own POS check-in
- * accrual settle first, so the worker only backfills genuine misses.
+ * customer attached. The 90s delay lets Square's own POS check-in
+ * accrual settle first (native accrual lands within seconds), so the
+ * worker only backfills genuine misses — while keeping the counter wait
+ * short enough that staff don't feel the need to hand-add the star.
+ * The dedup gate in backfillAccrualForOrder (searchEvents for an
+ * existing ACCUMULATE_POINTS) prevents double-accrual against native.
  */
 async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
   const { Client: QStashClient } = await import("@upstash/qstash");
@@ -240,7 +244,7 @@ async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
   await qstash.publishJSON({
     url: workerUrl,
     body: { orderId },
-    delay: "5m",
+    delay: "90s",
     retries: 3,
   });
 }
