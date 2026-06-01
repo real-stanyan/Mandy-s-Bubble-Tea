@@ -227,13 +227,11 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
 }
 
 /**
- * Enqueue a delayed loyalty-backfill job for an order that has a
- * customer attached. The 90s delay lets Square's own POS check-in
- * accrual settle first (native accrual lands within seconds), so the
- * worker only backfills genuine misses — while keeping the counter wait
- * short enough that staff don't feel the need to hand-add the star.
- * The dedup gate in backfillAccrualForOrder (searchEvents for an
- * existing ACCUMULATE_POINTS) prevents double-accrual against native.
+ * Fallback path: enqueue a delayed loyalty-backfill job. handleOrderPaid
+ * now accrues inline (immediately) on the webhook; this queue is only used
+ * when that inline attempt hits a transient error, giving a retry with
+ * QStash's own retry policy on top. The cron sweep is the final backstop.
+ * Square dedups accrual by orderId, so neither this nor native can double.
  */
 async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
   const { Client: QStashClient } = await import("@upstash/qstash");
@@ -313,14 +311,35 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     );
   }
 
-  // Loyalty safety net: if a customer is attached, schedule a delayed
-  // backfill so a missed POS check-in still earns the star.
+  // Loyalty: accrue the star IMMEDIATELY (inline) so an in-store member's
+  // star lands at the counter, not minutes later. Square dedups accrual by
+  // orderId (verified in prod), so racing Square's own native POS check-in
+  // can NOT double-count — whichever lands first wins, the other is a no-op.
+  // This removes the old delayed-queue lag that forced staff to hand-add
+  // stars. On a transient failure we fall back to the delayed queue, and the
+  // 15-min cron sweep remains the final backstop, so nothing is ever lost.
   if (order.customerId) {
     try {
-      await enqueueLoyaltyBackfill(orderId);
-      console.log(`[loyalty-backfill] enqueued order ${orderId} event_id=${eventId}`);
+      const { backfillAccrualForOrder } = await import("@/lib/loyalty-backfill");
+      const result = await backfillAccrualForOrder(orderId, "webhook");
+      console.log(
+        `[loyalty] inline accrual order ${orderId}: ${result.status}${
+          result.status === "skipped" ? `/${result.reason}` : ""
+        } event_id=${eventId}`,
+      );
+      // Only a transient Square/network error warrants a retry; not_paid
+      // (a pre-payment order.updated) will be handled by a later webhook or
+      // the cron sweep, and already/accrued/no_customer are terminal.
+      if (result.status === "skipped" && result.reason === "error") {
+        await enqueueLoyaltyBackfill(orderId);
+      }
     } catch (e) {
-      console.error("[loyalty-backfill] enqueue failed (non-fatal)", e);
+      console.error("[loyalty] inline accrual threw — falling back to queue", e);
+      try {
+        await enqueueLoyaltyBackfill(orderId);
+      } catch (e2) {
+        console.error("[loyalty] queue fallback also failed (non-fatal)", e2);
+      }
     }
   }
 }
