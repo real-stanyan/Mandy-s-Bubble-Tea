@@ -83,7 +83,14 @@ export async function GET(request: Request) {
     : 0;
   const shouldVerify = Date.now() - verifiedAtMs > SQUARE_VERIFY_TTL_MS;
 
-  if (shouldVerify) {
+  // Cross-environment safety guard. This verify path fires purgeAccount on a
+  // Square 404. On localhost/dev the Square client points at SANDBOX while
+  // Supabase is PRODUCTION, so a real account's square_customer_id always
+  // 404s in sandbox and purgeAccount would delete that customer's live data.
+  // Only run the verify+purge path in production. In dev, trust the profile.
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (shouldVerify && isProd) {
     try {
       await squareClient.customers.get({
         customerId: user.profile.square_customer_id,

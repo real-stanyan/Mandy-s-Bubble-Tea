@@ -89,6 +89,17 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         if (!(err instanceof SquareError) || err.statusCode !== 404) throw err;
+        // Cross-environment safety guard (see /api/me). Sandbox Square + prod
+        // Supabase makes real customers 404 locally; don't purge live data in
+        // dev — trust the cached profile instead.
+        if (process.env.NODE_ENV !== "production") {
+          return NextResponse.json({
+            ok: true,
+            profile: user.profile,
+            customerId: user.profile.square_customer_id,
+            created: false,
+          });
+        }
         await purgeAccount({
           userId: user.userId,
           customerId: user.profile.square_customer_id,
