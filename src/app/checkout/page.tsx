@@ -276,7 +276,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       return;
     }
     if (!hoursOpen) {
-      setQuoteState({ kind: "error", message: "Delivery hours: 11am–9:30pm" });
+      setQuoteState({ kind: "error", message: "Delivery hours: 10:30am–10:30pm" });
       return;
     }
     if (!isDeliveryEligible(subtotal)) {
@@ -305,7 +305,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         } else {
           const map: Record<string, string> = {
             out_of_zone: "Sorry, we don't deliver to that address",
-            closed: "Delivery hours: 11am–9:30pm",
+            closed: "Delivery hours: 10:30am–10:30pm",
             min_order: "Add more to qualify for delivery",
             auth: "Sign in to get a delivery quote",
             invalid_body: "Address looks invalid — try a fuller address",

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { coordsAreValid } from "@/lib/places";
 
 export type DeliveryAddress = {
   address: string;
@@ -43,7 +44,8 @@ declare global {
 
 // Loads the Google Places script once per page. Idempotent — multiple
 // instances of this form share the same `<script>` tag. No-op when the
-// API key is missing, so the form degrades to a plain text input.
+// API key is missing (autocomplete then cannot load, and delivery cannot
+// proceed — by design, addresses must be selected, not typed).
 function ensureGoogleScript() {
   if (typeof window === "undefined") return;
   if (!PLACES_KEY) return;
@@ -60,11 +62,15 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
+  // The formatted_address of the last confirmed Places selection. Manual edits
+  // that diverge from this invalidate the captured coordinates.
+  const confirmedAddressRef = useRef<string>(
+    coordsAreValid(value.lat, value.lng) ? value.address : "",
+  );
   const [phoneSeed, setPhoneSeed] = useState(defaultPhone ?? "");
 
   // Keep refs current so the autocomplete listener (attached once) always
-  // reads the latest value/onChange without triggering re-attachment on every
-  // parent re-render.
+  // reads the latest value/onChange without re-attaching on every re-render.
   useEffect(() => {
     valueRef.current = value;
     onChangeRef.current = onChange;
@@ -88,6 +94,7 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
         const place = ac.getPlace();
         const loc = place.geometry?.location;
         if (place.formatted_address && loc) {
+          confirmedAddressRef.current = place.formatted_address;
           onChangeRef.current({
             ...valueRef.current,
             address: place.formatted_address,
@@ -103,6 +110,22 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
     };
   }, []);
 
+  const confirmed = coordsAreValid(value.lat, value.lng);
+
+  // Manual typing. Mirror the text into state, and invalidate coordinates the
+  // moment the text diverges from the confirmed selection. Google writes the
+  // chosen text into the input and fires this before `place_changed`; the
+  // listener above then re-confirms, so the final state is valid.
+  const handleAddressInput = (e: ChangeEvent<HTMLInputElement>) => {
+    const typed = e.target.value;
+    const diverged = typed !== confirmedAddressRef.current;
+    onChange({
+      ...value,
+      address: typed,
+      ...(diverged ? { lat: 0, lng: 0 } : {}),
+    });
+  };
+
   return (
     <div className="space-y-3">
       <div>
@@ -114,26 +137,20 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
           type="text"
           placeholder="Start typing your address…"
           defaultValue={value.address}
-          onChange={
-            PLACES_KEY
-              ? undefined
-              : (e) =>
-                  onChange({
-                    ...value,
-                    address: e.target.value,
-                    // Dev fallback: store coords so the radius check passes
-                    // and mock quotes resolve. Real prod uses Places autocomplete.
-                    lat: -28.0084,
-                    lng: 153.4116,
-                  })
-          }
+          onChange={handleAddressInput}
           className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
         />
-        {!PLACES_KEY && (
+        {!PLACES_KEY ? (
           <p className="mt-1 text-xs text-amber-700">
-            Google Places key missing — autocomplete disabled (dev mode).
+            Address autocomplete unavailable — delivery needs a selectable address.
           </p>
-        )}
+        ) : confirmed ? (
+          <p className="mt-1 text-xs text-emerald-700">✓ Address confirmed</p>
+        ) : value.address.trim().length > 0 ? (
+          <p className="mt-1 text-xs text-amber-700">
+            Pick your address from the suggestions to continue.
+          </p>
+        ) : null}
       </div>
 
       <div>
