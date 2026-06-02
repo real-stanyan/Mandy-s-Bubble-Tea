@@ -91,7 +91,7 @@ export async function getDevicePushTokensForUser(
  */
 export async function claimOrderPushSlot(
   orderId: string,
-  kind: "ready",
+  kind: "ready" | "new_delivery",
 ): Promise<boolean> {
   const admin = getSupabaseAdmin();
   const { error } = await admin
