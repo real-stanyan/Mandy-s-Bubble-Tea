@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mandysbubbletea.app",
+      "sha256_cert_fingerprints": [
+        "7F:3C:F8:F9:72:0C:A7:E7:D3:90:81:9A:0A:75:4B:80:D8:E3:26:0C:56:9B:4B:DD:E0:C3:59:66:0D:C7:3A:69"
+      ]
+    }
+  }
+]

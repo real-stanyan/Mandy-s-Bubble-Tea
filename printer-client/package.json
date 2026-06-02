@@ -7,14 +7,19 @@
     "build": "tsc && mkdir -p dist/ui/public && cp src/ui/public/* dist/ui/public/",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "start:cup-label": "node dist/cup-label-index.js",
+    "dev:cup-label": "tsx watch src/cup-label-index.ts",
     "test": "vitest run",
     "test-print": "tsx scripts/test-print.ts",
+    "test-print:zd410": "tsx scripts/test-print-zd410.ts",
+    "calibrate:zd410": "tsx scripts/calibrate-zd410.ts",
     "seed-fake-job": "tsx scripts/seed-fake-job.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "usb": "^2.17.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {

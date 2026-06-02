@@ -31,6 +31,49 @@ export const config = {
   // don't silently drop stickers for orders the POS already accepted.
   staleWindowMs: Number(process.env.STALE_WINDOW_MS ?? String(2 * 60 * 60 * 1000)),
   // Fallback poll cadence. The primary delivery channel is Supabase
-  // Realtime; this poll covers the gap if the socket silently drops.
-  pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "60000"),
+  // Realtime; this poll covers the gap if the socket silently drops
+  // an INSERT event without changing channel status (observed ~2-3%
+  // of jobs in production). 8s keeps worst-case customer wait
+  // basically invisible while costing ~7 Supabase calls/min on a
+  // table that's empty 99% of the time.
+  pollFallbackMs: Number(process.env.POLL_FALLBACK_MS ?? "8000"),
+  // macOS audio output device to enforce on startup. Mandy's Mac mini
+  // is paired with a Samsung Soundbar over AirPlay — owner wants the
+  // OL-arrival alert played there because the store is loud. macOS
+  // sometimes drops the soundbar from default selection (TYPE C
+  // dongle, Mac mini Speakers, or whichever was last connected wins);
+  // this nudges it back on every startup. If the soundbar is offline
+  // the switch silently fails and the alert simply doesn't play —
+  // owner accepts that trade-off (keep soundbar powered on).
+  // Set to empty string to disable enforcement entirely.
+  audioOutputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? "[ AV ] Samsung Soundbar T4-Series",
+
+  // The soundbar plays both music and the OL-arrival cue over Bluetooth.
+  // macOS/the soundbar idle-disconnects the A2DP link during quiet spells
+  // between orders, so a cue landing on a cold link is silent. Stream an
+  // inaudible keepalive into the default output every N ms to keep the
+  // link warm. Set to 0 to disable (e.g. if the soundbar is wired).
+  bluetoothKeepaliveMs: Number(process.env.BT_KEEPALIVE_MS ?? "15000"),
+
+  // ZD410 cup-label consumer — runs as a separate launchd job alongside
+  // the ZD411 print_jobs consumer. Shares supabase + alert endpoint, but
+  // owns its own CUPS queue, deviceId, and timing knobs so the two
+  // pipelines stay isolated (one crashing/restarting doesn't disturb
+  // the other).
+  cupLabelPrinterName: process.env.CUP_LABEL_PRINTER_NAME ?? "Zebra_ZD410",
+  cupLabelDeviceId: process.env.CUP_LABEL_DEVICE_ID ?? "",
+  cupLabelLpTimeoutMs: Number(process.env.CUP_LABEL_LP_TIMEOUT_MS ?? "15000"),
+  // Cup-label jobs are time-insensitive (doodle is a keepsake feature),
+  // so the poll fallback can be slower than the ZD411 hot path.
+  cupLabelPollFallbackMs: Number(process.env.CUP_LABEL_POLL_FALLBACK_MS ?? "15000"),
+  // Same 2h default as print_jobs — jobs older than this on startup are
+  // marked 'failed' (cup_label_jobs has no 'stale' status, only
+  // pending/printing/printed/failed).
+  cupLabelStaleWindowMs: Number(
+    process.env.CUP_LABEL_STALE_WINDOW_MS ?? String(2 * 60 * 60 * 1000),
+  ),
+  // Supabase Storage bucket where the rendered ZPL II files live —
+  // path is the `raster_path` column on cup_label_jobs (e.g.
+  // `<orderId>/<lineId>_<cupIdx>.zpl`).
+  cupLabelStorageBucket: process.env.CUP_LABEL_STORAGE_BUCKET ?? "doodles",
 };

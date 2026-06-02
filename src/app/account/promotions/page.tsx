@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
 
 type PromotionItem = {
   id: string;
@@ -74,6 +75,7 @@ export default function PromotionsPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            <IgFollowPromoCard />
             {promotions.length === 0 ? (
               <div className="rounded-2xl border border-black/10 bg-white p-8 text-center">
                 <p className="text-sm text-zinc-500">No promotions available right now.</p>

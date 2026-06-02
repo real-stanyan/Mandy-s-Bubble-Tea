@@ -11,16 +11,22 @@ import {
   lineUnitPrice,
   cartSubtotal,
   cardSurcharge,
+  platformFee,
   publicHolidaySurcharge,
   type CartLine,
+  type CupLabelSelection,
 } from "@/store/cart";
 import { isPublicHolidayActive } from "@/lib/holiday";
+import type { OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE } from "@/lib/constants";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
+import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
-
-const REDEEM_STORAGE_KEY = "mbt:cart:useReward";
+import { CartCupLabels } from "@/components/cart/CartCupLabels";
+import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
+import { reportClientError, describeError } from "@/lib/client-error-report";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
@@ -47,6 +53,10 @@ export function CartDrawer() {
   const closeDrawer = useCart((s) => s.closeDrawer);
   const setQuantity = useCart((s) => s.setQuantity);
   const removeLine = useCart((s) => s.removeLine);
+  const labelSelections = useCart((s) => s.labelSelections);
+  const setLabel = useCart((s) => s.setLabel);
+  const clearLabel = useCart((s) => s.clearLabel);
+  const cartSessionId = useCart((s) => s.cartSessionId);
 
   // Close on ESC.
   useEffect(() => {
@@ -120,6 +130,10 @@ export function CartDrawer() {
           closeDrawer={closeDrawer}
           setQuantity={setQuantity}
           removeLine={removeLine}
+          labelSelections={labelSelections}
+          setLabel={setLabel}
+          clearLabel={clearLabel}
+          cartSessionId={cartSessionId}
         />
       </aside>
     </div>
@@ -136,15 +150,29 @@ function CartBody({
   closeDrawer,
   setQuantity,
   removeLine,
+  labelSelections,
+  setLabel,
+  clearLabel,
+  cartSessionId,
 }: {
   lines: CartLine[];
   isOpen: boolean;
   closeDrawer: () => void;
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
+  labelSelections: Record<string, CupLabelSelection>;
+  setLabel: (cupKey: string, selection: CupLabelSelection) => void;
+  clearLabel: (cupKey: string) => void;
+  cartSessionId: string;
 }) {
-  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward } =
-    useAuth();
+  const {
+    profile,
+    loading: authLoading,
+    loyalty,
+    welcomeDiscount,
+    igFollowDiscount,
+    starsPerReward: authStarsPerReward,
+  } = useAuth();
   const [useReward, setUseReward] = useState(false);
 
   // SDK state for wallet quick-pay.
@@ -154,11 +182,28 @@ function CartBody({
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
   const paymentsRef = useRef<PaymentsInstance | null>(null);
+  // Hold the paymentRequest objects so handleWalletPay can call .update()
+  // with the current displayTotal right before tokenize. Without this the
+  // wallet sheet shows the amount captured at SDK init time, which gets
+  // stale when the cart changes (more items, welcome discount applied,
+  // PH cutoff crossed) — Apple Pay rejects authorization when the
+  // server-charged amount exceeds what the sheet displayed.
+  const applePayRequestRef = useRef<any>(null);
+  const googlePayRequestRef = useRef<any>(null);
   // Defer SDK loading until the drawer has been opened at least once.
   const [everOpened, setEverOpened] = useState(false);
   useEffect(() => {
     if (isOpen && !everOpened) setEverOpened(true);
   }, [isOpen, everOpened]);
+
+  // Per-cup label picker — single modal instance covers all lines, the
+  // pickerCupKey state tracks which cup is currently being edited. Cup
+  // labels are optional: a cup left untouched carries no selection and the
+  // server prints a random surprise tarot card for it (no pre-fill here).
+  const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
+  const pickerCurrent: CupLabelSelection | undefined = pickerCupKey
+    ? labelSelections[pickerCupKey]
+    : undefined;
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const stars = loyalty?.balance ?? 0;
@@ -167,6 +212,7 @@ function CartBody({
   // Initialize Square SDK + wallet payment methods.
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+  const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting in the drawer across the Christmas
   // Eve 18:00 cutoff (or any midnight boundary) sees the correct total before
@@ -181,26 +227,53 @@ function CartBody({
     [phActive, subtotal],
   );
 
-  const welcomeCoverage = useMemo(() => {
-    if (!welcomeDiscount.available || lines.length === 0) {
-      return { coveredCount: 0, discountCents: 0n };
+  const promoCoverage = useMemo(() => {
+    if (lines.length === 0) {
+      return {
+        welcomeCount: 0,
+        welcomeDiscountCents: 0n,
+        igFollowCount: 0,
+        igFollowDiscountCents: 0n,
+      };
     }
     const unitPrices: bigint[] = [];
     for (const line of lines) {
       const unit = lineUnitPrice(line);
       for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
     }
-    unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    const K = Math.min(welcomeDiscount.drinksRemaining, unitPrices.length);
-    if (K === 0) return { coveredCount: 0, discountCents: 0n };
-    const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
+    const welcomeK = welcomeDiscount.available
+      ? welcomeDiscount.drinksRemaining
+      : 0;
+    const igK = igFollowDiscount.available
+      ? igFollowDiscount.drinksRemaining
+      : 0;
+    const { welcomeCups, igFollowCups } = pickPromoCups({
+      unitPrices,
+      welcomeK,
+      igFollowK: igK,
+      loyaltyRewardCount: 0,
+    });
+    const welcomeDiscountCents =
+      welcomeCups.length > 0
+        ? (welcomeCups.reduce((s, p) => s + p, 0n) *
+            BigInt(welcomeDiscount.percentage || 30)) /
+          100n
+        : 0n;
+    const igFollowDiscountCents =
+      igFollowCups.length > 0
+        ? (igFollowCups.reduce((s, p) => s + p, 0n) *
+            BigInt(igFollowDiscount.percentage || 10)) /
+          100n
+        : 0n;
     return {
-      coveredCount: K,
-      discountCents:
-        (coveredSum * BigInt(welcomeDiscount.percentage)) / 100n,
+      welcomeCount: welcomeCups.length,
+      welcomeDiscountCents,
+      igFollowCount: igFollowCups.length,
+      igFollowDiscountCents,
     };
-  }, [lines, welcomeDiscount]);
-  const welcomeDiscountAmount = welcomeCoverage.discountCents;
+  }, [lines, welcomeDiscount, igFollowDiscount]);
+  const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
+  const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
   useEffect(() => {
     if (!sdkReady || lines.length === 0) return;
@@ -219,10 +292,11 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + platformFeeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
+        applePayRequestRef.current = pr;
         const ap = await payments.applePay(pr);
         applePayRef.current = ap;
         setApplePayReady(true);
@@ -239,10 +313,11 @@ function CartBody({
           countryCode: "AU",
           currencyCode: "AUD",
           total: {
-            amount: (Number(subtotal + surchargeAmount + phSurchargeAmount) / 100).toFixed(2),
+            amount: (Number(subtotal + surchargeAmount + platformFeeAmount + phSurchargeAmount) / 100).toFixed(2),
             label: BRAND.name,
           },
         });
+        googlePayRequestRef.current = pr;
         const gp = await payments.googlePay(pr);
         if (gpCancelled) { gp.destroy().catch(() => {}); return; }
         await gp.attach("#cart-google-pay-container");
@@ -259,12 +334,15 @@ function CartBody({
       googlePayRef.current?.destroy().catch(() => {});
       googlePayRef.current = null;
       applePayRef.current = null;
+      applePayRequestRef.current = null;
+      googlePayRequestRef.current = null;
       paymentsRef.current = null;
       setApplePayReady(false);
       setGooglePayReady(false);
     };
-    // Only init once when SDK becomes ready — subtotal changes are fine
-    // since we re-create the paymentRequest at tokenize time anyway.
+    // Only init once when SDK becomes ready — handleWalletPay calls
+    // applePayRequestRef/googlePayRequestRef.update() with current
+    // displayTotal right before tokenize, so subtotal changes are fine.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sdkReady, lines.length > 0]);
 
@@ -278,17 +356,6 @@ function CartBody({
     }
     return cheapest;
   }, [lines]);
-
-  // Persist redeem preference so checkout can pick it up.
-  useEffect(() => {
-    try {
-      if (useReward) {
-        window.localStorage.setItem(REDEEM_STORAGE_KEY, "1");
-      } else {
-        window.localStorage.removeItem(REDEEM_STORAGE_KEY);
-      }
-    } catch { /* noop */ }
-  }, [useReward]);
 
   // Reset redeem when user no longer qualifies.
   useEffect(() => {
@@ -328,6 +395,7 @@ function CartBody({
                   line={line}
                   onQuantityChange={(q) => setQuantity(line.id, q)}
                   onRemove={() => removeLine(line.id)}
+                  onPickerOpen={setPickerCupKey}
                 />
               ))}
             </div>
@@ -342,17 +410,43 @@ function CartBody({
           rewardDiscount={rewardDiscount}
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
-          welcomeCoveredCount={welcomeCoverage.coveredCount}
+          welcomeCoveredCount={promoCoverage.welcomeCount}
+          igFollowDiscount={igFollowDiscount}
+          igFollowDiscountAmount={igFollowDiscountAmount}
+          igFollowCoveredCount={promoCoverage.igFollowCount}
           surchargeAmount={surchargeAmount}
+          platformFeeAmount={platformFeeAmount}
           phSurchargeAmount={phSurchargeAmount}
           hasProfile={!!profile}
+          authLoading={authLoading}
           applePayReady={applePayReady}
           googlePayReady={googlePayReady}
           applePayRef={applePayRef}
           googlePayRef={googlePayRef}
+          applePayRequestRef={applePayRequestRef}
+          googlePayRequestRef={googlePayRequestRef}
           paymentsRef={paymentsRef}
         />
       )}
+
+      {/* Single LabelPicker instance shared across every line — slotKey
+          switches as the user taps a different cup. */}
+      <LabelPicker
+        open={pickerCupKey !== null}
+        onOpenChange={(open) => {
+          if (!open) setPickerCupKey(null);
+        }}
+        slotKey={pickerCupKey ?? ""}
+        cartSessionId={cartSessionId}
+        isSignedIn={!!profile}
+        current={pickerCurrent}
+        onSelect={(selection) => {
+          if (pickerCupKey) setLabel(pickerCupKey, selection);
+        }}
+        onClear={() => {
+          if (pickerCupKey) clearLabel(pickerCupKey);
+        }}
+      />
     </>
   );
 }
@@ -473,10 +567,12 @@ const CartLineRow = memo(function CartLineRow({
   line,
   onQuantityChange,
   onRemove,
+  onPickerOpen,
 }: {
   line: CartLine;
   onQuantityChange: (q: number) => void;
   onRemove: () => void;
+  onPickerOpen: (cupKey: string) => void;
 }) {
   const total = lineTotal(line);
   const details = [
@@ -534,6 +630,10 @@ const CartLineRow = memo(function CartLineRow({
             Remove
           </button>
         </div>
+
+        {/* Per-cup label picker entry — auto-fills random preset on first
+            drawer open, tap any cup to swap design / draw / AI / photo. */}
+        <CartCupLabels line={line} onPickerOpen={onPickerOpen} />
       </div>
     </div>
   );
@@ -584,13 +684,20 @@ function CartFooter({
   welcomeDiscount,
   welcomeDiscountAmount,
   welcomeCoveredCount,
+  igFollowDiscount,
+  igFollowDiscountAmount,
+  igFollowCoveredCount,
   surchargeAmount,
+  platformFeeAmount,
   phSurchargeAmount,
   hasProfile,
+  authLoading,
   applePayReady,
   googlePayReady,
   applePayRef,
   googlePayRef,
+  applePayRequestRef,
+  googlePayRequestRef,
   paymentsRef,
 }: {
   lines: CartLine[];
@@ -603,13 +710,24 @@ function CartFooter({
   };
   welcomeDiscountAmount: bigint;
   welcomeCoveredCount: number;
+  igFollowDiscount: {
+    available: boolean;
+    percentage: number;
+    drinksRemaining: number;
+  };
+  igFollowDiscountAmount: bigint;
+  igFollowCoveredCount: number;
   surchargeAmount: bigint;
+  platformFeeAmount: bigint;
   phSurchargeAmount: bigint;
   hasProfile: boolean;
+  authLoading: boolean;
   applePayReady: boolean;
   googlePayReady: boolean;
   applePayRef: React.RefObject<ApplePayInstance | null>;
   googlePayRef: React.RefObject<GooglePayInstance | null>;
+  applePayRequestRef: React.RefObject<any>;
+  googlePayRequestRef: React.RefObject<any>;
   paymentsRef: React.RefObject<PaymentsInstance | null>;
 }) {
   const subtotal = cartSubtotal(lines);
@@ -623,24 +741,56 @@ function CartFooter({
   const [error, setError] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<"apple" | "google" | null>(null);
 
-  // Reward and welcome display are mutually exclusive in the total math
+  // Ordering window — poll /api/store-status every 30s so the button flips
+  // at the 22:15 cutoff (or pos_backup_mode toggle) while the drawer is
+  // open. Server gate at /api/orders is authoritative; this is display-only.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function pull() {
+      try {
+        const res = await fetch("/api/store-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as OrderingStatus;
+        if (!cancelled) setOrderingStatus(data);
+      } catch {
+        /* keep last-known good value */
+      }
+    }
+    pull();
+    const id = setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+  const orderingKnown = orderingStatus !== null;
+  const orderingOpen = orderingStatus?.open === true;
+  // Pre-fetch: treat as open to avoid flashing a "closed" state on first
+  // paint. The server gate is still authoritative.
+  const storeClosed = orderingKnown && !orderingOpen;
+
+  // Reward and welcome/IG display are mutually exclusive in the total math
   // (matches /checkout). Square still applies both at charge time — the
   // server-trusted totalMoney is authoritative.
+  const promoDiscountTotal = welcomeDiscountAmount + igFollowDiscountAmount;
   const discountedTotal = useReward
     ? subtotal - rewardDiscount > 0n
       ? subtotal - rewardDiscount
       : 0n
-    : welcomeDiscount.available
-      ? subtotal - welcomeDiscountAmount > 0n
-        ? subtotal - welcomeDiscountAmount
+    : promoDiscountTotal > 0n
+      ? subtotal - promoDiscountTotal > 0n
+        ? subtotal - promoDiscountTotal
         : 0n
       : subtotal;
   // Loyalty reward that fully covers the drinks → no card is charged,
   // so the server skips the surcharge and the footer hides it.
   const isFreeRedeem = useReward && subtotal - rewardDiscount <= 0n;
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
+  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
-  const displayTotal = discountedTotal + effectiveSurcharge + effectivePhSurcharge;
+  const displayTotal =
+    discountedTotal + effectiveSurcharge + effectivePlatformFee + effectivePhSurcharge;
 
   // Full wallet payment flow — runs entirely in the cart drawer.
   const handleWalletPay = useCallback(
@@ -648,6 +798,14 @@ function CartFooter({
       if (paying) return;
       setError(null);
       setLastMethod(method);
+
+      // Defense in depth: button is already disabled when storeClosed,
+      // but a stale render or race could still fire onClick. Only block
+      // here once we have confirmed status from the server (orderingKnown).
+      if (orderingKnown && !orderingOpen) {
+        setError(`Orders closed · ${orderingStatus?.nextLabel ?? ""}`);
+        return;
+      }
 
       if (!hasProfile || !profile) {
         // No signed-in user — punt to checkout where SignInCard will guide them.
@@ -657,11 +815,35 @@ function CartFooter({
       }
 
       setPaying(true);
+      let step = "start";
+      let createdOrderId: string | undefined;
       try {
-        // 0) Tokenize IMMEDIATELY — must stay in the user gesture frame.
+        // 0) Refresh the wallet sheet's amount to the live displayTotal
+        // BEFORE tokenize. Without this the sheet shows whatever amount
+        // was captured at SDK init time, which goes stale when the cart
+        // changes after init (more items, welcome discount applied, PH
+        // cutoff crossed). Apple Pay rejects authorization when the
+        // server-charged amount exceeds what the sheet displayed.
+        const requestRef =
+          method === "apple" ? applePayRequestRef.current : googlePayRequestRef.current;
+        if (requestRef?.update) {
+          try {
+            requestRef.update({
+              total: {
+                amount: (Number(displayTotal) / 100).toFixed(2),
+                label: BRAND.name,
+              },
+            });
+          } catch {
+            // SDK may reject update for trivial cases — non-fatal, the
+            // tokenize will still proceed against the original amount.
+          }
+        }
+        // Tokenize IMMEDIATELY — must stay in the user gesture frame.
         const walletInstance =
           method === "apple" ? applePayRef.current : googlePayRef.current;
         if (!walletInstance) throw new Error("Wallet not ready");
+        step = "tokenize-wallet";
         const tokenResult = await walletInstance.tokenize();
         if (tokenResult.status !== "OK" || !tokenResult.token) {
           const detail =
@@ -672,11 +854,13 @@ function CartFooter({
         const sourceToken = tokenResult.token;
 
         // 1) Create order — customer/phone derived server-side from session.
+        step = "create-order";
         const orderRes = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             applyWelcomeDiscount: welcomeDiscount.available,
+            applyIgFollowDiscount: igFollowDiscount.available,
             applyLoyaltyReward: isFreeRedeem,
             lines: lines.map((l) => ({
               itemName: l.itemName,
@@ -696,10 +880,12 @@ function CartFooter({
         if (!orderRes.ok || !orderJson.ok) {
           throw new Error(orderJson.error ?? "Order creation failed");
         }
+        createdOrderId = orderJson.orderId;
 
         // 2) Optionally redeem loyalty reward.
         let amountCents: string = orderJson.amountCents;
         if (useReward) {
+          step = "redeem";
           const redeemRes = await fetch("/api/loyalty/redeem", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -724,6 +910,7 @@ function CartFooter({
           const amountMajor = (Number(amountCents) / 100).toFixed(2);
           const givenName = profile.first_name ?? "";
           const familyName = profile.last_name ?? "";
+          step = "verifyBuyer";
           const verification = await paymentsRef.current.verifyBuyer(
             sourceToken,
             {
@@ -743,24 +930,36 @@ function CartFooter({
           verificationToken = verification.token;
         }
 
-        // 4) Pay.
+        // 4) Pay. Build the body through the shared helper so the per-cup
+        //    label selections are forwarded exactly like the /checkout page
+        //    does — the drawer omitting them was the OL829 tarot-fallback
+        //    bug. Read the latest selections from the store at click time
+        //    to avoid any stale closure over labelSelections.
+        step = "payment";
         const paymentRes = await fetch("/api/payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sourceId: sourceToken,
-            orderId: orderJson.orderId,
-            verificationToken,
-          }),
+          body: JSON.stringify(
+            buildPaymentRequestBody({
+              sourceId: sourceToken,
+              orderId: orderJson.orderId,
+              verificationToken,
+              labelSelections: useCart.getState().labelSelections,
+            }),
+          ),
         });
         const paymentJson = await paymentRes.json();
         if (!paymentRes.ok || !paymentJson.ok) {
           throw new Error(paymentJson.error ?? "Payment failed");
         }
 
-        // If the server consumed our welcome discount, refresh auth state so
-        // welcomeDiscount.available flips back to false everywhere.
-        if (paymentJson.welcomeDiscountConsumed) {
+        // If the server consumed welcome or IG-follow ticket, refresh auth
+        // state so the matching `available` flag flips back to false in cart
+        // / checkout / promotions UI without forcing a manual page reload.
+        if (
+          paymentJson.welcomeDiscountConsumed ||
+          paymentJson.igFollowDiscountConsumed
+        ) {
           void refresh();
         }
 
@@ -769,8 +968,19 @@ function CartFooter({
         closeDrawer();
         router.push(`/order-confirmation/${orderJson.orderId}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        const described = describeError(err);
+        reportClientError({
+          scope: "cart-drawer",
+          step,
+          message: described.message,
+          meta: {
+            name: described.name,
+            squareErrors: described.squareErrors,
+            method,
+            createdOrderId,
+          },
+        });
+        setError(described.message);
         setPaying(false);
       }
     },
@@ -779,12 +989,17 @@ function CartFooter({
       useReward, lines, applePayRef, googlePayRef, paymentsRef,
       clear, closeDrawer, router, refresh,
       welcomeDiscount.available,
+      igFollowDiscount.available,
+      orderingKnown, orderingOpen, orderingStatus?.nextLabel,
     ],
   );
 
-  // Determine which wallet button to show.
-  const showApple = applePayReady;
-  const showGoogle = googlePayReady && !applePayReady; // prefer Apple Pay on iOS
+  // Determine which wallet button to show — only after the user is
+  // signed in. Guests get a single "Sign in to checkout" CTA and the
+  // Apple/Google Pay sheets stay hidden. SDK init can keep running in
+  // the background so the buttons appear instantly after sign-in.
+  const showApple = applePayReady && hasProfile;
+  const showGoogle = googlePayReady && !applePayReady && hasProfile;
 
   return (
     <footer className="border-t border-black/10 px-5 pb-6 pt-5">
@@ -833,6 +1048,26 @@ function CartFooter({
               </span>
             </div>
           )}
+        {!useReward &&
+          igFollowDiscount.available &&
+          igFollowCoveredCount > 0 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: BRAND.primaryColor }}
+                />
+                IG Follow {igFollowDiscount.percentage || 10}% Off
+                <span className="text-xs text-zinc-500">
+                  ({igFollowCoveredCount} drink
+                  {igFollowCoveredCount === 1 ? "" : "s"})
+                </span>
+              </span>
+              <span style={{ color: BRAND.primaryColor }}>
+                −{formatPrice(igFollowDiscountAmount)}
+              </span>
+            </div>
+          )}
         {effectivePhSurcharge > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
@@ -841,6 +1076,17 @@ function CartFooter({
             </span>
             <span className="font-semibold text-zinc-900">
               {formatPrice(effectivePhSurcharge)}
+            </span>
+          </div>
+        )}
+        {effectivePlatformFee > 0n && (
+          <div className="flex justify-between text-sm text-zinc-600">
+            <span>
+              {PLATFORM_FEE.name}{" "}
+              <span className="text-xs text-zinc-400">({PLATFORM_FEE.percentage}%)</span>
+            </span>
+            <span className="font-semibold text-zinc-900">
+              {formatPrice(effectivePlatformFee)}
             </span>
           </div>
         )}
@@ -874,55 +1120,85 @@ function CartFooter({
         </span>
       </div>
 
-      {/* Wallet quick-pay — real payment, no redirect */}
-      {showApple && (
+      {storeClosed ? (
         <button
           type="button"
-          disabled={paying}
-          onClick={() => handleWalletPay("apple")}
-          className="mt-5 flex w-full items-center justify-center gap-0.5 rounded-xl bg-black py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+          disabled
+          className="mt-5 w-full cursor-not-allowed rounded-xl bg-zinc-200 py-3.5 text-base font-semibold text-zinc-500"
         >
-          {paying ? "Processing…" : <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>}
+          Orders closed · {orderingStatus?.nextLabel ?? ""}
         </button>
-      )}
-      {showGoogle && (
-        <button
-          type="button"
-          disabled={paying}
-          onClick={() => handleWalletPay("google")}
-          className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl bg-[#3c4043] py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
-        >
-          {paying ? "Processing…" : <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>}
-        </button>
-      )}
-      {/* Fallback if wallet not ready yet — still a link */}
-      {!showApple && !showGoogle && (
+      ) : authLoading ? (
+        // Skeleton so the unauth CTA doesn't flash in front of an
+        // already-signed-in user before /api/me resolves.
+        <div
+          className="mt-5 h-[52px] w-full animate-pulse rounded-xl bg-zinc-100"
+          aria-hidden="true"
+        />
+      ) : !hasProfile ? (
+        // Not signed in — wallet sheets stay hidden, single CTA routes
+        // to /checkout where SignInCard guides the user.
         <Link
           href="/checkout"
           onClick={closeDrawer}
-          className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
-            isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
-          }`}
+          className="mt-5 block w-full rounded-xl py-3.5 text-center text-base font-semibold text-white transition hover:opacity-90"
+          style={{ backgroundColor: BRAND.primaryColor }}
         >
-          {isIOS ? (
-            <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-          ) : (
-            <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-          )}
+          Sign in to checkout
         </Link>
-      )}
+      ) : (
+        <>
+          {/* Wallet quick-pay — real payment, no redirect */}
+          {showApple && (
+            <button
+              type="button"
+              disabled={paying}
+              onClick={() => handleWalletPay("apple")}
+              className="mt-5 flex w-full items-center justify-center gap-0.5 rounded-xl bg-black py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {paying ? "Processing…" : <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>}
+            </button>
+          )}
+          {showGoogle && (
+            <button
+              type="button"
+              disabled={paying}
+              onClick={() => handleWalletPay("google")}
+              className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl bg-[#3c4043] py-3.5 text-base text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {paying ? "Processing…" : <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>}
+            </button>
+          )}
+          {/* Fallback if wallet not ready yet — still a link */}
+          {!showApple && !showGoogle && (
+            <Link
+              href="/checkout"
+              onClick={closeDrawer}
+              className={`mt-5 flex w-full items-center justify-center gap-1 rounded-xl py-3.5 text-base transition hover:opacity-90 ${
+                isIOS ? "bg-black text-white" : "bg-[#3c4043] text-white"
+              }`}
+            >
+              {isIOS ? (
+                <>Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+              ) : (
+                <>Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+              )}
+            </Link>
+          )}
 
-      <Link
-        href="/checkout"
-        onClick={closeDrawer}
-        className="mt-3 block w-full rounded-full border-2 py-3 text-center text-sm font-semibold transition hover:opacity-90"
-        style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
-      >
-        Checkout
-      </Link>
-      <p className="mt-2 text-center text-xs text-zinc-500">
-        Pickup or delivery? Choose at checkout →
-      </p>
+          <Link
+            href="/checkout"
+            onClick={closeDrawer}
+            className="mt-3 block w-full rounded-full border-2 py-3 text-center text-sm font-semibold transition hover:opacity-90"
+            style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+          >
+            Checkout
+          </Link>
+          <p className="mt-2 text-center text-xs text-zinc-500">
+            Pickup or delivery? Choose at checkout →
+          </p>
+        </>
+      )}
     </footer>
   );
 }

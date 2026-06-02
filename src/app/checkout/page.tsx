@@ -7,26 +7,34 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCart,
+  cupKey,
   lineTotal,
   lineUnitPrice,
   cartSubtotal,
   cardSurcharge,
+  platformFee,
   publicHolidaySurcharge,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, SERVICE_FEE } from "@/lib/constants";
+import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliveryEligible, deliveryFeeCents, serviceFeeCents } from "@/lib/delivery-fee";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { isPublicHolidayActive } from "@/lib/holiday";
+import type { OrderingStatus } from "@/lib/store-status";
+import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
+import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
+import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
+import { reportClientError, describeError } from "@/lib/client-error-report";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { order, payment } through our API
@@ -52,36 +60,6 @@ const WEB_SDK_SRC =
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID ?? "";
 const SQUARE_LOCATION_ID =
   process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID ?? "";
-
-/**
- * Mirrors the server-side cheapest-K algorithm in /api/orders. Expands
- * each cart line into `quantity` unit-price entries, sorts ascending,
- * picks the cheapest `K = min(drinksRemaining, totalUnits)`, and returns
- * both K and the 30%-discount amount. Kept in sync with the server by
- * hand — if the server algorithm changes, update this too.
- */
-function computeWelcomeDiscount(
-  lines: CartLine[],
-  drinksRemaining: number,
-  percentage: number,
-): { coveredCount: number; discountCents: bigint } {
-  if (drinksRemaining <= 0 || lines.length === 0 || percentage <= 0) {
-    return { coveredCount: 0, discountCents: 0n };
-  }
-  const unitPrices: bigint[] = [];
-  for (const line of lines) {
-    const unit = lineUnitPrice(line);
-    for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
-  }
-  unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  const K = Math.min(drinksRemaining, unitPrices.length);
-  if (K === 0) return { coveredCount: 0, discountCents: 0n };
-  const coveredSum = unitPrices.slice(0, K).reduce((s, p) => s + p, 0n);
-  return {
-    coveredCount: K,
-    discountCents: (coveredSum * BigInt(percentage)) / 100n,
-  };
-}
 
 export default function CheckoutPage() {
   const hydrated = useCart((s) => s.hydrated);
@@ -133,8 +111,15 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
-  const { profile, loyalty, welcomeDiscount, starsPerReward: authStarsPerReward, refresh } =
-    useAuth();
+  const labelSelections = useCart((s) => s.labelSelections);
+  const {
+    profile,
+    loyalty,
+    welcomeDiscount,
+    igFollowDiscount,
+    starsPerReward: authStarsPerReward,
+    refresh,
+  } = useAuth();
   if (!profile) {
     // Should never happen — parent gates this. But TS can't prove it.
     throw new Error("CheckoutSignedIn rendered without profile");
@@ -162,7 +147,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const walletAvailable = applePayAvailable || googlePayAvailable;
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
 
-  const [useReward, setUseReward] = useState(false);
+  const [rewardCount, setRewardCount] = useState(0);
 
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
@@ -173,33 +158,96 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
 
-  // The cheapest single-drink unit price — used as the reward discount
-  // (Square's "Free Drink" reward covers the cheapest item).
-  const rewardDiscount = useMemo(() => {
-    if (lines.length === 0) return 0n;
-    let cheapest = lineUnitPrice(lines[0]);
-    for (const l of lines) {
-      const up = lineUnitPrice(l);
-      if (up < cheapest) cheapest = up;
+  // Expand all cup unit prices, sorted ascending — used for multi-reward discount.
+  const sortedUnitPrices = useMemo(() => {
+    const cups: bigint[] = [];
+    for (const line of lines) {
+      const unit = lineUnitPrice(line);
+      for (let i = 0; i < line.quantity; i++) cups.push(unit);
     }
-    return cheapest;
+    return cups.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }, [lines]);
 
-  const welcomeCoverage = useMemo(() => {
-    if (!welcomeDiscount.available) {
-      return { coveredCount: 0, discountCents: 0n };
+  // Sum of the cheapest N cup prices — the reward discount for rewardCount cups.
+  const rewardDiscount = useMemo(
+    () =>
+      sortedUnitPrices
+        .slice(0, rewardCount)
+        .reduce((sum, p) => sum + p, 0n),
+    [sortedUnitPrices, rewardCount],
+  );
+
+  const promoCoverage = useMemo(() => {
+    if (sortedUnitPrices.length === 0) {
+      return {
+        welcomeCount: 0,
+        welcomeDiscountCents: 0n,
+        igFollowCount: 0,
+        igFollowDiscountCents: 0n,
+      };
     }
-    return computeWelcomeDiscount(
-      lines,
-      welcomeDiscount.drinksRemaining,
-      welcomeDiscount.percentage,
-    );
-  }, [lines, welcomeDiscount]);
-  const welcomeDiscountAmount = welcomeCoverage.discountCents;
+    const welcomeK = welcomeDiscount.available
+      ? welcomeDiscount.drinksRemaining
+      : 0;
+    const igK = igFollowDiscount.available
+      ? igFollowDiscount.drinksRemaining
+      : 0;
+    const { welcomeCups, igFollowCups } = pickPromoCups({
+      unitPrices: sortedUnitPrices,
+      welcomeK,
+      igFollowK: igK,
+      loyaltyRewardCount: rewardCount,
+    });
+    const welcomeDiscountCents =
+      welcomeCups.length > 0
+        ? (welcomeCups.reduce((s, p) => s + p, 0n) *
+            BigInt(welcomeDiscount.percentage || 30)) /
+          100n
+        : 0n;
+    const igFollowDiscountCents =
+      igFollowCups.length > 0
+        ? (igFollowCups.reduce((s, p) => s + p, 0n) *
+            BigInt(igFollowDiscount.percentage || 10)) /
+          100n
+        : 0n;
+    return {
+      welcomeCount: welcomeCups.length,
+      welcomeDiscountCents,
+      igFollowCount: igFollowCups.length,
+      igFollowDiscountCents,
+    };
+  }, [sortedUnitPrices, rewardCount, welcomeDiscount, igFollowDiscount]);
+  const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
+  const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
   // Card surcharge mirrors the Square service charge attached in
   // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+
+  // Platform Fee mirrors the SUBTOTAL_PHASE service charge attached in
+  // /api/orders: 0.5% of the pre-discount subtotal.
+  const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
+
+  // Every cup must have a *resolved* label selection before the user
+  // can pay. Two failure modes this guards against:
+  //   1. Empty slot — auto-random useEffect hasn't filled it yet
+  //      (manifest still loading). Without the gate, a rapid pay-click
+  //      ships no presetStickerHashes / aiDoodleIds and the server
+  //      silently falls back to the small POOL default (boba_eyes
+  //      etc), bypassing the 78-sticker gallery.
+  //   2. AI submission in flight — `{ kind:"ai", aiDoodleId:null }` is
+  //      the optimistic-close marker before the background
+  //      submitAiCupLabel resolves. buildPaymentSelections skips null
+  //      aiDoodleId so the server again falls back to default. We
+  //      want the user to actually print their AI image, so block Pay
+  //      until the real uuid lands on the cart.
+  const cupLabelGate = useMemo(() => {
+    const sels = lines.flatMap((line) =>
+      Array.from({ length: line.quantity }, (_, i) => labelSelections[cupKey(line.id, i)]),
+    );
+    return computeCupLabelGate(sels);
+  }, [lines, labelSelections]);
+  const allCupsLabeled = cupLabelGate === "ready";
 
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting on the checkout page across the Christmas
@@ -273,6 +321,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return () => { cancelled = true; };
   }, [fulfillment, deliveryAddress, hoursOpen, subtotal]);
 
+  // Ordering window — poll /api/store-status every 30s so the Place Order
+  // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
+  // needing a page reload. Server gates the actual order in /api/orders.
+  const [orderingStatus, setOrderingStatus] = useState<OrderingStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function pull() {
+      try {
+        const res = await fetch("/api/store-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as OrderingStatus;
+        if (!cancelled) setOrderingStatus(data);
+      } catch {
+        /* keep last-known good value */
+      }
+    }
+    pull();
+    const id = setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+  const orderingKnown = orderingStatus !== null;
+  const orderingOpen = orderingStatus?.open === true;
+  // Pre-fetch: treat as open so we don't flash a "closed" state on first
+  // paint. The server gate is still authoritative.
+  const storeClosed = orderingKnown && !orderingOpen;
   const phSurchargeAmount = useMemo(
     () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
     [phActive, subtotal],
@@ -291,59 +367,52 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
-  const canRedeem = loyaltyBalance >= starsPerReward && starsPerReward > 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
   const progressPct = Math.min((loyaltyBalance / starsPerReward) * 100, 100);
-  // Reward covers the cheapest drink (no modifier upcharges).
-  const canRedeemFully = canRedeem && subtotal - rewardDiscount <= 0n;
+
+  // Maximum rewards the user can apply — bounded by stars balance and cup count.
+  const cupCount = starsThisOrder; // 1 cup per quantity unit
+  const maxRewardCount = useMemo(() => {
+    if (starsPerReward <= 0) return 0;
+    return Math.min(
+      Math.floor(loyaltyBalance / starsPerReward),
+      cupCount,
+    );
+  }, [loyaltyBalance, starsPerReward, cupCount]);
+
+  // Clamp rewardCount if maxRewardCount shrinks (e.g. user removes an item).
+  useEffect(() => {
+    if (rewardCount > maxRewardCount) setRewardCount(maxRewardCount);
+  }, [maxRewardCount, rewardCount]);
+
   // True reward redemption path — server skips the card surcharge and
   // client skips tokenization entirely because Square's total comes out
   // to $0 after the reward discount.
-  const isFreeRedeem = canRedeemFully && useReward;
+  const totalDiscount =
+    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount;
+  const afterDiscount =
+    subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
+  const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
 
   const displayTotal = useMemo(() => {
     if (isFreeRedeem) return 0n;
-    const afterDiscount =
-      canRedeem && useReward
-        ? (subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n)
-        : welcomeDiscount.available
-          ? (subtotal - welcomeDiscountAmount > 0n
-              ? subtotal - welcomeDiscountAmount
-              : 0n)
-          : subtotal;
-    return afterDiscount + surchargeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
+    return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
   }, [
     isFreeRedeem,
-    subtotal,
-    canRedeem,
-    useReward,
-    rewardDiscount,
-    welcomeDiscount.available,
-    welcomeDiscountAmount,
+    afterDiscount,
     surchargeAmount,
+    platformFeeAmount,
     phSurchargeAmount,
     deliveryFeeAmount,
     serviceFeeAmount,
   ]);
-  // Hide the surcharge line from the order summary when the reward
-  // will cover the order — the backend won't charge it.
+  // Hide the surcharge lines from the order summary when the reward
+  // will cover the order — the backend won't charge them.
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
+  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
   const effectiveDeliveryFee = isFreeRedeem ? 0n : deliveryFeeAmount;
   const effectiveServiceFee = isFreeRedeem ? 0n : serviceFeeAmount;
-
-  // Pre-fill redeem toggle from cart drawer preference.
-  useEffect(() => {
-    if (!canRedeem) return;
-    try {
-      const saved = window.localStorage.getItem("mbt:cart:useReward");
-      if (saved === "1") setUseReward(true);
-    } catch { /* noop */ }
-  }, [canRedeem]);
-
-  useEffect(() => {
-    if (canRedeemFully) setUseReward(true);
-  }, [canRedeemFully]);
 
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
@@ -490,6 +559,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     setError(null);
     setPaymentError(null);
 
+    // Defense in depth — button is already disabled when storeClosed,
+    // but a stale render could still fire onSubmit. Server is authoritative.
+    if (storeClosed) {
+      setError(`Orders closed · ${orderingStatus?.nextLabel ?? ""}`);
+      return;
+    }
+
     const expectFreeOrder = isFreeRedeem;
     if (!expectFreeOrder) {
       if (payMethod === "apple") {
@@ -509,10 +585,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     }
 
     setSubmitting(true);
+    let step = "start";
+    let createdOrderId: string | undefined;
     try {
       // 0) Tokenize wallet IMMEDIATELY — must stay in the user-gesture frame.
       let sourceToken: string | undefined;
       if (!expectFreeOrder && (payMethod === "apple" || payMethod === "google")) {
+        step = "tokenize-wallet";
         const walletInstance = payMethod === "apple"
           ? applePayRef.current
           : googlePayRef.current;
@@ -537,13 +616,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
       // 1) Create the order. The server derives customer/phone/name
       // from the Supabase session — no need to send them.
+      step = "create-order";
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           note: note.trim() || undefined,
           applyWelcomeDiscount: welcomeDiscount.available,
-          applyLoyaltyReward: isFreeRedeem,
+          applyIgFollowDiscount: igFollowDiscount.available,
+          applyLoyaltyReward: rewardCount > 0,
+          loyaltyRewardCount: rewardCount,
           fulfillmentType: fulfillment,
           delivery:
             fulfillment === "DELIVERY" && quoteState.kind === "ok"
@@ -573,14 +655,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       if (!orderRes.ok || !orderJson.ok) {
         throw new Error(orderJson.error ?? "Order creation failed");
       }
+      createdOrderId = orderJson.orderId;
 
-      // 2) Optionally redeem a loyalty reward against the order.
+      // 2) Optionally redeem loyalty rewards against the order.
       let amountCents: string = orderJson.amountCents;
-      if (useReward) {
+      if (rewardCount > 0) {
+        step = "redeem";
         const redeemRes = await fetch("/api/loyalty/redeem", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId: orderJson.orderId }),
+          body: JSON.stringify({ orderId: orderJson.orderId, count: rewardCount }),
         });
         const redeemJson = await redeemRes.json();
         if (!redeemRes.ok || !redeemJson.ok) {
@@ -598,6 +682,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       if (!isFreeOrder) {
         if (payMethod === "card") {
           if (!cardRef.current) throw new Error("Card form is not ready yet.");
+          step = "tokenize-card";
           const tokenResult = await cardRef.current.tokenize();
           if (tokenResult.status !== "OK" || !tokenResult.token) {
             const detail =
@@ -617,6 +702,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         const amountMajor = (Number(amountCents) / 100).toFixed(2);
         const givenName = profile.first_name ?? "";
         const familyName = profile.last_name ?? "";
+        step = "verifyBuyer";
         const verification = await paymentsRef.current.verifyBuyer(
           sourceToken,
           {
@@ -636,30 +722,55 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         verificationToken = verification.token;
       }
 
-      // 4) Finalize the order.
+      // 4) Finalize the order. buildPaymentRequestBody bakes the per-cup
+      //    label selections (preset | photo | ai | draw) into the body via
+      //    buildPaymentSelections. Shared with the cart drawer's wallet-pay
+      //    handler so neither path can drop the selections (the OL829 bug).
+      //    Empty buckets stay `undefined` so the server enqueue falls back
+      //    to hash-default for slots without an explicit choice.
+      step = "payment";
       const paymentRes = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceId: sourceToken,
-          orderId: orderJson.orderId,
-          verificationToken,
-        }),
+        body: JSON.stringify(
+          buildPaymentRequestBody({
+            sourceId: sourceToken,
+            orderId: orderJson.orderId,
+            verificationToken,
+            labelSelections,
+          }),
+        ),
       });
       const paymentJson = await paymentRes.json();
       if (!paymentRes.ok || !paymentJson.ok) {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
-      if (paymentJson.welcomeDiscountConsumed) {
+      if (
+        paymentJson.welcomeDiscountConsumed ||
+        paymentJson.igFollowDiscountConsumed
+      ) {
         void refresh();
       }
 
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setPaymentError(message);
+      const described = describeError(err);
+      reportClientError({
+        scope: "checkout",
+        step,
+        message: described.message,
+        meta: {
+          name: described.name,
+          squareErrors: described.squareErrors,
+          payMethod,
+          createdOrderId,
+          expectFreeOrder,
+          sdkReady,
+        },
+      });
+      setPaymentError(described.message);
       setSubmitting(false);
     }
   }
@@ -751,21 +862,59 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <span>{starsPerReward} for Free Drink</span>
             </div>
 
-            {canRedeem && (
-              <label className="mt-2.5 flex cursor-pointer items-center gap-3 rounded-lg border border-white/60 bg-white/50 p-2.5 sm:mt-3 sm:p-3">
-                <input
-                  type="checkbox"
-                  checked={useReward}
-                  onChange={(e) => setUseReward(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: BRAND.primaryColor }}
-                >
-                  Redeem free drink ({starsPerReward} stars)
-                </span>
-              </label>
+            {maxRewardCount > 0 && (
+              <div
+                className="mt-2.5 flex items-center justify-between rounded-lg border px-4 py-3 sm:mt-3"
+                style={{
+                  borderColor: `${BRAND.primaryColor}4D`, // 30% alpha
+                  backgroundColor: `${BRAND.accentColor}66`, // ~40% alpha
+                }}
+              >
+                <div>
+                  <div
+                    className="text-sm font-medium"
+                    style={{ color: BRAND.primaryColor }}
+                  >
+                    Use rewards
+                  </div>
+                  {rewardCount > 0 && (
+                    <div className="mt-0.5 text-xs text-neutral-600">
+                      −{formatPrice(rewardDiscount)} off {rewardCount} cheapest drink
+                      {rewardCount > 1 ? "s" : ""}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRewardCount((n) => Math.max(0, n - 1))}
+                    disabled={rewardCount === 0}
+                    className="h-8 w-8 rounded-full border disabled:opacity-30"
+                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+                    aria-label="Decrease reward count"
+                  >
+                    <span aria-hidden="true">−</span>
+                  </button>
+                  <span
+                    className="min-w-[1.5rem] text-center font-medium"
+                    style={{ color: BRAND.primaryColor }}
+                  >
+                    {rewardCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRewardCount((n) => Math.min(maxRewardCount, n + 1))
+                    }
+                    disabled={rewardCount === maxRewardCount}
+                    className="h-8 w-8 rounded-full border disabled:opacity-30"
+                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+                    aria-label="Increase reward count"
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                </div>
+              </div>
             )}
           </section>
 
@@ -784,7 +933,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
-                {welcomeDiscount.available && (
+                {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
                   <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
                     <span className="flex items-center gap-1.5">
                       <span
@@ -792,22 +941,38 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                         style={{ backgroundColor: BRAND.primaryColor }}
                       />
                       Welcome {welcomeDiscount.percentage}% Off
-                      {welcomeCoverage.coveredCount > 0 && (
-                        <span className="text-xs text-zinc-500">
-                          ({welcomeCoverage.coveredCount} drink
-                          {welcomeCoverage.coveredCount === 1 ? "" : "s"})
-                        </span>
-                      )}
+                      <span className="text-xs text-zinc-500">
+                        ({promoCoverage.welcomeCount} drink
+                        {promoCoverage.welcomeCount === 1 ? "" : "s"})
+                      </span>
                     </span>
                     <span style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(welcomeDiscountAmount)}
                     </span>
                   </div>
                 )}
-                {canRedeem && useReward && (
+                {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+                  <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: BRAND.primaryColor }}
+                      />
+                      IG Follow {igFollowDiscount.percentage || 10}% Off
+                      <span className="text-xs text-zinc-500">
+                        ({promoCoverage.igFollowCount} drink
+                        {promoCoverage.igFollowCount === 1 ? "" : "s"})
+                      </span>
+                    </span>
+                    <span style={{ color: BRAND.primaryColor }}>
+                      −{formatPrice(igFollowDiscountAmount)}
+                    </span>
+                  </div>
+                )}
+                {rewardCount > 0 && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm">
                     <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                      Free Drink Reward
+                      Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
                     </span>
                     <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
                       −{formatPrice(rewardDiscount)}
@@ -855,6 +1020,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </div>
                 )}
+                {effectivePlatformFee > 0n && (
+                  <div className="flex justify-between text-sm text-zinc-600">
+                    <span>
+                      {PLATFORM_FEE.name}{" "}
+                      <span className="text-xs text-zinc-400">
+                        ({PLATFORM_FEE.percentage}%)
+                      </span>
+                    </span>
+                    <span className="font-semibold text-zinc-900">
+                      {formatPrice(effectivePlatformFee)}
+                    </span>
+                  </div>
+                )}
                 {effectiveSurcharge > 0n && (
                   <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm text-zinc-600">
                     <span>
@@ -889,6 +1067,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             </section>
           )}
+
+          {/* ── Cup Labels — per-cup gallery picker (web-only, gallery ship) ── */}
+          <CupLabelSection />
 
           {/* ── Your Details — signed-in summary + optional note ── */}
           <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
@@ -1038,7 +1219,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 {formatPrice(subtotal)}
               </span>
             </div>
-            {welcomeDiscount.available && (
+            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5">
                   <span
@@ -1046,22 +1227,38 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
                   Welcome {welcomeDiscount.percentage}% Off
-                  {welcomeCoverage.coveredCount > 0 && (
-                    <span className="text-xs text-zinc-500">
-                      ({welcomeCoverage.coveredCount} drink
-                      {welcomeCoverage.coveredCount === 1 ? "" : "s"})
-                    </span>
-                  )}
+                  <span className="text-xs text-zinc-500">
+                    ({promoCoverage.welcomeCount} drink
+                    {promoCoverage.welcomeCount === 1 ? "" : "s"})
+                  </span>
                 </span>
                 <span style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(welcomeDiscountAmount)}
                 </span>
               </div>
             )}
-            {canRedeem && useReward && (
+            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: BRAND.primaryColor }}
+                  />
+                  IG Follow {igFollowDiscount.percentage || 10}% Off
+                  <span className="text-xs text-zinc-500">
+                    ({promoCoverage.igFollowCount} drink
+                    {promoCoverage.igFollowCount === 1 ? "" : "s"})
+                  </span>
+                </span>
+                <span style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(igFollowDiscountAmount)}
+                </span>
+              </div>
+            )}
+            {rewardCount > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                  Free Drink Reward
+                  Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
                 </span>
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(rewardDiscount)}
@@ -1109,6 +1306,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
+            {effectivePlatformFee > 0n && (
+              <div className="flex justify-between text-sm text-zinc-600">
+                <span>
+                  {PLATFORM_FEE.name}{" "}
+                  <span className="text-xs text-zinc-400">
+                    ({PLATFORM_FEE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-zinc-900">
+                  {formatPrice(effectivePlatformFee)}
+                </span>
+              </div>
+            )}
             {effectiveSurcharge > 0n && (
               <div className="flex justify-between text-sm text-zinc-600">
                 <span>
@@ -1140,6 +1350,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             type="submit"
             disabled={
               submitting ||
+              storeClosed ||
+              !allCupsLabeled ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1147,19 +1359,31 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ backgroundColor: BRAND.primaryColor }}
+            style={
+              storeClosed
+                ? { backgroundColor: "#a1a1aa" }
+                : { backgroundColor: BRAND.primaryColor }
+            }
           >
-            {submitting
-              ? "Processing…"
-              : isFreeRedeem
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? "Pay with Apple Pay"
-                  : payMethod === "google"
-                    ? "Pay with Google Pay"
-                    : cardReady
-                      ? "Place Order"
-                      : "Loading payment…"}
+            {storeClosed
+              ? `Orders closed · ${orderingStatus?.nextLabel ?? ""}`
+              : submitting
+                ? "Processing…"
+                : !allCupsLabeled
+                  ? (cupLabelGate === "ai-pending"
+                      ? "Waiting for AI image…"
+                      : cupLabelGate === "draw-pending"
+                        ? "Saving your drawing…"
+                        : "Preparing labels…")
+                  : isFreeRedeem
+                    ? "Redeem Free Drink"
+                    : payMethod === "apple"
+                      ? "Pay with Apple Pay"
+                      : payMethod === "google"
+                        ? "Pay with Google Pay"
+                        : cardReady
+                          ? "Place Order"
+                          : "Loading payment…"}
           </button>
 
           <p className="mt-3 text-center text-[11px] text-zinc-400">
@@ -1178,18 +1402,29 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             <p className="text-lg font-bold text-zinc-900">
               {formatPrice(displayTotal)}
             </p>
-            {welcomeDiscount.available && welcomeCoverage.coveredCount > 0 && (
+            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
               <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
                 Welcome {welcomeDiscount.percentage}% Off ·{" "}
-                {welcomeCoverage.coveredCount} drink
-                {welcomeCoverage.coveredCount === 1 ? "" : "s"} · −
+                {promoCoverage.welcomeCount} drink
+                {promoCoverage.welcomeCount === 1 ? "" : "s"} · −
                 {formatPrice(welcomeDiscountAmount)}
+              </p>
+            )}
+            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+              <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
+                IG Follow {igFollowDiscount.percentage || 10}% Off ·{" "}
+                {promoCoverage.igFollowCount} drink
+                {promoCoverage.igFollowCount === 1 ? "" : "s"} · −
+                {formatPrice(igFollowDiscountAmount)}
               </p>
             )}
             {effectiveSurcharge > 0n && (
               <p className="text-[11px] text-zinc-500">
                 {effectivePhSurcharge > 0n && (
                   <>Incl. {PH_SURCHARGE.name} {formatPrice(effectivePhSurcharge)} · </>
+                )}
+                {effectivePlatformFee > 0n && (
+                  <>Incl. {PLATFORM_FEE.name} {formatPrice(effectivePlatformFee)} · </>
                 )}
                 Incl. {CARD_SURCHARGE.name} {formatPrice(effectiveSurcharge)}
               </p>
@@ -1200,6 +1435,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             form="checkout-form"
             disabled={
               submitting ||
+              storeClosed ||
+              !allCupsLabeled ||
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1207,29 +1444,41 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
-              payMethod === "apple"
-                ? "bg-black"
-                : payMethod === "google"
-                  ? "bg-[#3c4043]"
-                  : ""
+              storeClosed
+                ? ""
+                : payMethod === "apple"
+                  ? "bg-black"
+                  : payMethod === "google"
+                    ? "bg-[#3c4043]"
+                    : ""
             }`}
             style={
-              payMethod !== "apple" && payMethod !== "google"
-                ? { backgroundColor: BRAND.primaryColor }
-                : undefined
+              storeClosed
+                ? { backgroundColor: "#a1a1aa" }
+                : payMethod !== "apple" && payMethod !== "google"
+                  ? { backgroundColor: BRAND.primaryColor }
+                  : undefined
             }
           >
-            {submitting
-              ? "Processing…"
-              : isFreeRedeem
-                ? "Redeem Free Drink"
-                : payMethod === "apple"
-                  ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
-                  : payMethod === "google"
-                    ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
-                    : cardReady
-                      ? <><CardIcon /> Place Order</>
-                      : "Loading…"}
+            {storeClosed
+              ? `Closed · ${orderingStatus?.nextLabel ?? ""}`
+              : submitting
+                ? "Processing…"
+                : !allCupsLabeled
+                  ? (cupLabelGate === "ai-pending"
+                      ? "Waiting for AI image…"
+                      : cupLabelGate === "draw-pending"
+                        ? "Saving your drawing…"
+                        : "Preparing labels…")
+                  : isFreeRedeem
+                    ? "Redeem Free Drink"
+                    : payMethod === "apple"
+                      ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
+                      : payMethod === "google"
+                        ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
+                        : cardReady
+                          ? <><CardIcon /> Place Order</>
+                          : "Loading…"}
           </button>
         </div>
       </div>

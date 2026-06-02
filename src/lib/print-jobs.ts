@@ -2,7 +2,7 @@
 import "server-only";
 import type { Order, OrderLineItem, OrderLineItemModifier } from "square";
 import { getSupabaseAdmin } from "./supabase-server";
-import { encodeStoreStickerNumber } from "./sticker-number";
+import { looksLikePhoneNumber } from "./sticker-number";
 import type { ModifierBucket } from "./modifier-buckets";
 
 type CupRow = {
@@ -67,14 +67,28 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   // when "Assign ticket numbers" is enabled). This is what prints on the
   // customer's receipt / ticket dispenser, so the cup sticker matches.
   //
-  // Fallback: our own TA-series counter. Kicks in only if a POS order
-  // arrives with no ticketName (Register auto-numbering turned off,
-  // or a source we don't handle). Keeps us printing so staff isn't
-  // handed a blank cup.
+  // Exception: Square Register names the ticket after the attached
+  // customer's PHONE NUMBER when a member is left attached to the order
+  // ("auto-logged-in member"). We must never print a raw phone number on
+  // a public cup sticker — staff can't match it to an order and it leaks
+  // the customer's phone. Treat a phone-like ticketName as "no usable
+  // ticketName" and fall through to the store counter. (2026-05-31
+  // incident: a cup printed "+61451519606" instead of an order number.)
+  //
+  // Fallback: our own daily store counter (next_store_order_number,
+  // resets daily Brisbane). Emitted as a plain number to match the look
+  // of Square's own ticket numbers. Kicks in if a POS order arrives with
+  // no usable ticketName (phone-like, Register auto-numbering turned off,
+  // or a source we don't handle). Keeps us printing so staff isn't handed
+  // a blank cup. Note: this is a separate sequence from Square's, so on a
+  // rare fallback the number may coincide with a real Square ticket the
+  // same day — acceptable since the fallback is extremely rare.
   let stickerNumber: string;
   const admin = getSupabaseAdmin();
-  if (order.ticketName) {
-    stickerNumber = order.ticketName;
+  const usableTicketName =
+    order.ticketName && !looksLikePhoneNumber(order.ticketName) ? order.ticketName : null;
+  if (usableTicketName) {
+    stickerNumber = usableTicketName;
   } else if (source === "web") {
     return { queued: false, reason: "error", detail: "web order missing ticketName" };
   } else {
@@ -82,9 +96,12 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     if (error) {
       return { queued: false, reason: "error", detail: `counter rpc failed: ${error.message}` };
     }
-    stickerNumber = encodeStoreStickerNumber(Number(data));
+    stickerNumber = String(Number(data));
+    const reason = order.ticketName
+      ? `phone-like ticketName "${order.ticketName}" (attached member)`
+      : "no ticketName";
     console.warn(
-      `[print-jobs] POS order ${order.id} has no ticketName; fell back to TA counter (${stickerNumber}). Check Square Register "Assign ticket numbers" setting.`,
+      `[print-jobs] POS order ${order.id} ${reason}; fell back to store counter (${stickerNumber}). Check Square Register "Assign ticket numbers" + attached-customer.`,
     );
   }
 
@@ -94,6 +111,16 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     const q = Number(line.quantity ?? "1");
     const cup = cupFromLineItem(line);
     for (let i = 0; i < q; i++) cups.push(cup);
+  }
+
+  // Dev guard: skip the prod-Supabase insert that would cause the store's
+  // Mac mini printer-client to print a real Zebra sticker. We still return
+  // `queued: true` with a real stickerNumber so the downstream cup-label
+  // path runs (its own dev guard skips Supabase writes but keeps the
+  // ~/Desktop PNG dump for visual inspection).
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[print-jobs dev] skipped enqueue for order ${order.id} (sticker ${stickerNumber})`);
+    return { queued: true, stickerNumber };
   }
 
   const { error: insertError } = await admin.from("print_jobs").insert(

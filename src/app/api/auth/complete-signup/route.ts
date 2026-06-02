@@ -28,6 +28,7 @@ import { findOrCreateLoyaltyAccount } from "@/lib/loyalty";
 type Body = {
   firstName?: unknown;
   lastName?: unknown;
+  channel?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -65,6 +66,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const channelRaw = typeof body.channel === "string" ? body.channel : "";
+  const channel: "web" | "app" | null =
+    channelRaw === "web" || channelRaw === "app" ? channelRaw : null;
+  // channel is optional — older clients (and the RN app pre-release)
+  // do not send it. NULL is allowed in DB until Phase 2 migration.
 
   const e164 = user.phone;
 
@@ -157,20 +164,28 @@ export async function POST(request: Request) {
           first_name: firstName,
           last_name: lastName || null,
           square_verified_at: new Date().toISOString(),
+          signup_channel: channel,
         },
         { onConflict: "user_id" },
       )
       .select(
-        "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at",
+        "user_id, square_customer_id, phone_e164, first_name, last_name, square_verified_at, signup_channel",
       )
       .single();
     if (upsertErr) throw upsertErr;
 
-    // Only brand-new Square customers get the welcome discount. Linking
-    // to a legacy in-store customer does NOT re-grant it.
-    if (customerCreated) {
-      await grantWelcomeDiscount(customerId);
-    }
+    // Always attempt to grant the welcome discount. grantWelcomeDiscount
+    // is idempotent via upsert(onConflict, ignoreDuplicates), so existing
+    // welcome rows are left untouched. Previously this was gated on
+    // customerCreated, but Square has a `creation_source: MERGE` path
+    // that auto-creates a customer record before our complete-signup
+    // call lands — findCustomerByPhone then hit the MERGE row and
+    // customerCreated flipped to false, silently denying welcome to real
+    // new web signups (~6 affected users observed 2026-04-24..26).
+    // Letting a rare in-store-only customer pick up a welcome on web
+    // signup is much cheaper than denying every Squarish edge-case new
+    // user their welcome.
+    await grantWelcomeDiscount(customerId);
 
     // Enroll the customer in the Square loyalty program at signup time so
     // the very first POS scan of their member QR earns a star — even if
@@ -193,7 +208,21 @@ export async function POST(request: Request) {
       created: customerCreated,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // Supabase PostgrestError, Square errors, and other "error-shaped"
+    // plain objects are not Error instances. Extract `.message` before
+    // falling back to String() so we don't ship "[object Object]" to the
+    // client. Always log the raw error so PostgrestError's
+    // details/hint/code stay visible in Vercel logs.
+    console.error("[complete-signup] failed:", err);
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" &&
+            err !== null &&
+            "message" in err &&
+            typeof (err as { message: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : String(err);
     return NextResponse.json(
       { ok: false, error: message },
       { status: 502 },

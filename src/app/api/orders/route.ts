@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import type { Currency, OrderServiceCharge } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, SERVICE_FEE } from "@/lib/constants";
+import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
+import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
+import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
+import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
@@ -42,6 +45,7 @@ type CreateOrderBody = {
   lines: ClientLine[];
   note?: string;
   applyWelcomeDiscount?: boolean;
+  applyIgFollowDiscount?: boolean;
   /** Client signals a loyalty reward will fully cover the order. When
    *  true we skip the card surcharge because no card is charged
    *  (payment amount is $0 after reward redemption). Trusted the same
@@ -56,6 +60,17 @@ type CreateOrderBody = {
     unit?: string;
     driverNote?: string;
   };
+  /** Number of loyalty rewards the client wants applied to this order.
+   *  Must be a non-negative integer (fractional values are floored by
+   *  pickPromoCups). When > 0, gates skipSurcharges on its own —
+   *  applyLoyaltyReward boolean above is the legacy field for old app
+   *  binaries that don't send this count. When the order ALSO has a
+   *  welcome/IG discount, pickPromoCups uses this to remove the cheapest
+   *  N cups from the discount candidate set so server agrees with client
+   *  on which cups belong to rewards vs promos. (When neither welcome
+   *  nor IG discount is active on this order, pickPromoCups isn't called
+   *  and this field only affects skipSurcharges.) */
+  loyaltyRewardCount?: number;
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
@@ -115,6 +130,23 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { ok: false, error: "Missing or invalid fields" },
       { status: 400 },
+    );
+  }
+
+  // Hard ordering-window guard. Brisbane 10:30am – 22:15pm. Server is
+  // authoritative — clients place orders only when their cart UI says
+  // open, but a stale tab / clock skew / direct API call could still
+  // land here outside hours.
+  const ordering = await getEffectiveOrderingStatus(new Date());
+  if (!ordering.open) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Sorry, online orders are closed. ${ordering.nextLabel}.`,
+        closed: true,
+        nextLabel: ordering.nextLabel,
+      },
+      { status: 409 },
     );
   }
 
@@ -275,15 +307,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Server-verify welcome discount before attaching it. Client is NOT
-    // trusted — a request with applyWelcomeDiscount:true but no unused
-    // row in Supabase is silently treated as "no discount".
-    // Compute the welcome-discount amount server-side from client-sent unit
-    // prices. The client has authoritative prices (they came from our catalog
-    // API at add-to-cart time); a malicious client can only shift *which*
-    // drinks are chosen as cheapest, and since the rate is always 30% of a
-    // real line's price, the merchant's downside is bounded. If we later
-    // harden this we'll call `squareClient.orders.calculate()` first to get
+    // Server-verify welcome and IG-follow discounts before attaching them.
+    // Client is NOT trusted — a request with applyWelcomeDiscount or
+    // applyIgFollowDiscount: true but no unused row in Supabase is silently
+    // treated as "no discount".
+    // Compute the discount amounts server-side from client-sent unit prices.
+    // The client has authoritative prices (they came from our catalog API
+    // at add-to-cart time); a malicious client can only shift *which*
+    // drinks are chosen as cheapest, and since the rates are bounded
+    // percentages, the merchant's downside is bounded. If we later harden
+    // this we'll call `squareClient.orders.calculate()` first to get
     // Square's authoritative line totals, but for now trust-client is fine.
     let welcomeDiscounts:
       | Array<{
@@ -294,10 +327,44 @@ export async function POST(request: Request) {
           scope: "ORDER";
         }>
       | undefined;
+    let igFollowDiscounts:
+      | Array<{
+          uid: string;
+          name: string;
+          type: "FIXED_AMOUNT";
+          amountMoney: { amount: bigint; currency: Currency };
+          scope: "ORDER";
+        }>
+      | undefined;
     let welcomeDrinksCovered = 0;
-    if (body.applyWelcomeDiscount) {
-      const status = await getWelcomeDiscountStatus(customerId);
-      if (status.available && status.drinksRemaining > 0) {
+    let igFollowDrinksCovered = 0;
+
+    if (body.applyWelcomeDiscount || body.applyIgFollowDiscount) {
+      const [welcomeStatus, igStatus] = await Promise.all([
+        body.applyWelcomeDiscount
+          ? getWelcomeDiscountStatus(customerId)
+          : Promise.resolve({ available: false, percentage: 0, drinksRemaining: 0 }),
+        body.applyIgFollowDiscount
+          ? getIgFollowDiscountStatus(customerId)
+          : Promise.resolve({
+              available: false,
+              percentage: 0,
+              drinksRemaining: 0,
+              claimedAt: null,
+              redeemedAt: null,
+            }),
+      ]);
+
+      const welcomeK =
+        welcomeStatus.available && welcomeStatus.drinksRemaining > 0
+          ? welcomeStatus.drinksRemaining
+          : 0;
+      const igK =
+        igStatus.available && igStatus.drinksRemaining > 0
+          ? igStatus.drinksRemaining
+          : 0;
+
+      if (welcomeK > 0 || igK > 0) {
         const unitPrices: bigint[] = [];
         for (const line of body.lines) {
           const modSum = line.modifiers.reduce(
@@ -308,31 +375,62 @@ export async function POST(request: Request) {
             BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
           for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
         }
-        unitPrices.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-        const K = Math.min(status.drinksRemaining, unitPrices.length);
-        if (K > 0) {
-          const coveredSum = unitPrices
-            .slice(0, K)
-            .reduce((s, p) => s + p, 0n);
-          const amount = (coveredSum * BigInt(status.percentage || 30)) / 100n;
+
+        const { welcomeCups, igFollowCups } = pickPromoCups({
+          unitPrices,
+          welcomeK,
+          igFollowK: igK,
+          loyaltyRewardCount: body.loyaltyRewardCount ?? 0,
+        });
+
+        if (welcomeCups.length > 0) {
+          const coveredSum = welcomeCups.reduce((s, p) => s + p, 0n);
+          const amount =
+            (coveredSum * BigInt(welcomeStatus.percentage || 30)) / 100n;
           if (amount > 0n) {
             welcomeDiscounts = [
               {
                 uid: "welcome-discount",
                 name:
-                  K === 1
-                    ? `Welcome ${status.percentage || 30}% Off (1 drink)`
-                    : `Welcome ${status.percentage || 30}% Off (${K} drinks)`,
+                  welcomeCups.length === 1
+                    ? `Welcome ${welcomeStatus.percentage || 30}% Off (1 drink)`
+                    : `Welcome ${welcomeStatus.percentage || 30}% Off (${welcomeCups.length} drinks)`,
                 type: "FIXED_AMOUNT",
                 amountMoney: { amount, currency: BUSINESS.currency as Currency },
                 scope: "ORDER",
               },
             ];
-            welcomeDrinksCovered = K;
+            welcomeDrinksCovered = welcomeCups.length;
+          }
+        }
+
+        if (igFollowCups.length > 0) {
+          const coveredSum = igFollowCups.reduce((s, p) => s + p, 0n);
+          const amount =
+            (coveredSum * BigInt(igStatus.percentage || 10)) / 100n;
+          if (amount > 0n) {
+            igFollowDiscounts = [
+              {
+                uid: "ig-follow-discount",
+                name:
+                  igFollowCups.length === 1
+                    ? `IG Follow ${igStatus.percentage || 10}% Off (1 drink)`
+                    : `IG Follow ${igStatus.percentage || 10}% Off (${igFollowCups.length} drinks)`,
+                type: "FIXED_AMOUNT",
+                amountMoney: { amount, currency: BUSINESS.currency as Currency },
+                scope: "ORDER",
+              },
+            ];
+            igFollowDrinksCovered = igFollowCups.length;
           }
         }
       }
     }
+
+    const allDiscounts = [
+      ...(welcomeDiscounts ?? []),
+      ...(igFollowDiscounts ?? []),
+    ];
 
     // Note: loyalty rewards are NOT attached here. Square's order
     // create request has no loyaltyRewards field — the discount is
@@ -346,7 +444,9 @@ export async function POST(request: Request) {
     // (no card charged → nothing to pass through). The PH surcharge follows
     // the same rule: a fully-redeemed free drink skips both.
     const activePH = getActivePublicHoliday(new Date());
-    const skipSurcharges = body.applyLoyaltyReward === true;
+    const skipSurcharges =
+      (body.loyaltyRewardCount ?? 0) > 0 ||
+      body.applyLoyaltyReward === true;
 
     const orderServiceCharges: OrderServiceCharge[] = [];
 
@@ -362,6 +462,14 @@ export async function POST(request: Request) {
     }
 
     if (!skipSurcharges) {
+      orderServiceCharges.push({
+        uid: "platform-fee",
+        name: PLATFORM_FEE.name,
+        percentage: PLATFORM_FEE.percentage,
+        calculationPhase: "SUBTOTAL_PHASE",
+        taxable: false,
+      });
+
       orderServiceCharges.push({
         uid: "card-surcharge",
         name: CARD_SURCHARGE.name,
@@ -404,7 +512,7 @@ export async function POST(request: Request) {
         referenceId: pickupNumber,
         ticketName: pickupNumber,
         lineItems,
-        discounts: welcomeDiscounts,
+        discounts: allDiscounts.length > 0 ? allDiscounts : undefined,
         // Passes Square card-processing fees (and PH surcharge) through
         // to the customer. SUBTOTAL_PHASE → computed on the pre-discount
         // subtotal so surcharges don't shrink when a welcome discount is
@@ -454,6 +562,9 @@ export async function POST(request: Request) {
                 delivery_lat: String(body.delivery.lat),
                 delivery_lng: String(body.delivery.lng),
               }
+            : {}),
+          ...(igFollowDrinksCovered > 0
+            ? { igFollowDiscountDrinksCovered: String(igFollowDrinksCovered) }
             : {}),
         },
       },

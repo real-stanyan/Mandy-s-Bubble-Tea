@@ -7,14 +7,11 @@ import {
 import { squareClient } from "@/lib/square";
 import { getAuthedUser } from "@/lib/auth";
 
-// Redeems a loyalty reward for the signed-in user. Must be called
-// AFTER the order has been created — we pass Square the orderId so it
-// can apply the reward's discount to the line items. Without an orderId
-// the reward is created in ISSUED state but no money comes off the
-// order.
+const MAX_REWARDS_PER_ORDER = 10;
 
 type RedeemBody = {
   orderId?: string;
+  count?: number;
 };
 
 export async function POST(request: Request) {
@@ -44,6 +41,21 @@ export async function POST(request: Request) {
     );
   }
 
+  const count = body.count ?? 1;
+  if (
+    !Number.isInteger(count) ||
+    count < 1 ||
+    count > MAX_REWARDS_PER_ORDER
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `count must be an integer between 1 and ${MAX_REWARDS_PER_ORDER} (got ${count})`,
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     // Lookup only — never create a zero-balance account during a
     // redemption. A silent create would turn a lookup miss into a
@@ -61,11 +73,12 @@ export async function POST(request: Request) {
     }
 
     const { starsPerReward, rewardTierId } = await getActiveProgram();
-    if (account.balance < starsPerReward) {
+    const starsNeeded = starsPerReward * count;
+    if (account.balance < starsNeeded) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Not enough stars for a reward — you have ${account.balance}, need ${starsPerReward}.`,
+          error: `Not enough stars — you have ${account.balance}, need ${starsNeeded} for ${count} reward${count > 1 ? "s" : ""}.`,
           balance: account.balance,
           starsPerReward,
         },
@@ -73,32 +86,79 @@ export async function POST(request: Request) {
       );
     }
 
-    const { loyaltyRewardId } = await redeemReward(
-      account.accountId,
-      rewardTierId,
-      body.orderId,
-    );
-
-    // If an orderId was provided, Square has now applied the reward
-    // discount to that order. Re-fetch it so the client can use the
-    // updated total for verifyBuyer + payment. Without this the
-    // buyer verification amount would reflect the pre-discount
-    // price and Square would reject the payment.
-    let updatedAmountCents: string | null = null;
     if (body.orderId) {
-      const refetched = await squareClient.orders.get({
+      // TOCTOU: the order could be edited between this check and the loop
+      // below. Square allows order edits and applies loyalty rewards
+      // independently of cup count, so the worst case is N rewards
+      // attached to fewer cups (extra rewards yield $0 discount on
+      // already-free items). Acceptable — a stricter guarantee would
+      // require Square order versioning.
+      const preCheck = await squareClient.orders.get({
         orderId: body.orderId,
       });
-      const amount = refetched.order?.totalMoney?.amount;
-      if (amount != null) {
-        updatedAmountCents = amount.toString();
+      const cupCount = (preCheck.order?.lineItems ?? []).reduce(
+        (sum, li) => sum + Number(li.quantity ?? "0"),
+        0,
+      );
+      if (count > cupCount) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Cannot redeem ${count} rewards on a ${cupCount}-cup order.`,
+          },
+          { status: 400 },
+        );
       }
+    }
+
+    const createdIds: string[] = [];
+    let updatedAmountCents: string | null = null;
+    try {
+      for (let i = 0; i < count; i++) {
+        const { loyaltyRewardId } = await redeemReward(
+          account.accountId,
+          rewardTierId,
+          body.orderId,
+        );
+        createdIds.push(loyaltyRewardId);
+      }
+      if (body.orderId) {
+        const refetched = await squareClient.orders.get({
+          orderId: body.orderId,
+        });
+        const amount = refetched.order?.totalMoney?.amount;
+        if (amount != null) updatedAmountCents = amount.toString();
+      }
+    } catch (err) {
+      // Rollback every reward we created. Points return to the account
+      // automatically and the order's discount lines vanish.
+      const rollbacks = await Promise.allSettled(
+        createdIds.map((id) =>
+          squareClient.loyalty.rewards.delete({ rewardId: id }),
+        ),
+      );
+      const failedRollbacks = rollbacks
+        .map((r, i) => ({ r, id: createdIds[i] }))
+        .filter((x) => x.r.status === "rejected");
+      if (failedRollbacks.length > 0) {
+        console.error("[loyalty-rollback-failed]", {
+          rewardIds: failedRollbacks.map((x) => x.id),
+          originalError: err instanceof Error ? err.message : String(err),
+        });
+      }
+      throw err;
     }
 
     return NextResponse.json({
       ok: true,
-      loyaltyRewardId,
-      remainingBalance: account.balance - starsPerReward,
+      loyaltyRewardIds: createdIds,
+      // Back-compat for older app binaries that read `loyaltyRewardId`
+      loyaltyRewardId: createdIds[0],
+      // Computed from the pre-loop balance snapshot. If a concurrent
+      // redemption on the same account ran in parallel, the displayed
+      // value can be briefly stale until the client refetches; the
+      // server-side balance check above prevents over-redemption.
+      remainingBalance: account.balance - starsNeeded,
       updatedAmountCents,
     });
   } catch (error) {

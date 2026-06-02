@@ -6,6 +6,7 @@ import { BUSINESS } from "@/lib/constants";
 import { serializeSquareResponse } from "@/lib/utils";
 import { findOrCreateLoyaltyAccount, accrueForOrder } from "@/lib/loyalty";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
+import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
@@ -66,16 +67,44 @@ type PaymentBody = {
   sourceId?: string;
   orderId: string;
   verificationToken?: string; // from payments.verifyBuyer() for SCA
+  doodleIds?: Record<string, string>;
+  doodleDefaults?: Record<string, string>;
+  aiDoodleIds?: Record<string, string>;
+  /** Gallery sticker picks, keyed `${clientLineId}:${cupIdx}`, value is the
+   *  md5 hash of the chosen sticker in `public/cup-label/gallery/`. */
+  presetStickerHashes?: Record<string, string>;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<PaymentBody>;
-  return (
-    typeof b.orderId === "string" &&
-    b.orderId.length > 0 &&
-    (b.sourceId === undefined || typeof b.sourceId === "string")
-  );
+  if (typeof b.orderId !== "string" || b.orderId.length === 0) return false;
+  if (b.sourceId !== undefined && typeof b.sourceId !== "string") return false;
+  if (b.doodleIds !== undefined) {
+    if (typeof b.doodleIds !== "object" || b.doodleIds === null) return false;
+    for (const v of Object.values(b.doodleIds)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.doodleDefaults !== undefined) {
+    if (typeof b.doodleDefaults !== "object" || b.doodleDefaults === null) return false;
+    for (const v of Object.values(b.doodleDefaults)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.aiDoodleIds !== undefined) {
+    if (typeof b.aiDoodleIds !== "object" || b.aiDoodleIds === null) return false;
+    for (const v of Object.values(b.aiDoodleIds)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  if (b.presetStickerHashes !== undefined) {
+    if (typeof b.presetStickerHashes !== "object" || b.presetStickerHashes === null) return false;
+    for (const v of Object.values(b.presetStickerHashes)) {
+      if (typeof v !== "string") return false;
+    }
+  }
+  return true;
 }
 
 export async function POST(request: Request) {
@@ -167,6 +196,64 @@ export async function POST(request: Request) {
       paymentId = id;
       paymentStatus = payment.payment?.status ?? null;
       paymentForResponse = serializeSquareResponse(payment.payment);
+
+      // Cup-label (Zebra ZD410-300dpi) parallel path — enqueue cup-label
+      // jobs with user-selected doodleIds OR doodleDefaults when present.
+      // Runs before the webhook fires so user-choice rows win on upsert
+      // conflict.
+      const hasUserDoodleChoice =
+        (body.doodleIds && Object.keys(body.doodleIds).length > 0) ||
+        (body.doodleDefaults && Object.keys(body.doodleDefaults).length > 0) ||
+        (body.presetStickerHashes &&
+          Object.keys(body.presetStickerHashes).length > 0) ||
+        (body.aiDoodleIds && Object.keys(body.aiDoodleIds).length > 0);
+      if (paymentStatus === "COMPLETED" && hasUserDoodleChoice) {
+        try {
+          const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+          const result = await enqueuePrintJob({ order, assumeSettled: true });
+          let stickerNumber: string | null = null;
+          if (result.queued) {
+            stickerNumber = result.stickerNumber;
+          } else if (result.reason === "conflict") {
+            // Webhook beat us to print_jobs. Fetch the existing sticker_number so
+            // user-doodle rows still get enqueued; the upsert below overrides
+            // any default rows the webhook may have already written.
+            const { getSupabaseAdmin } = await import("@/lib/supabase-server");
+            const { data, error } = await getSupabaseAdmin()
+              .from("print_jobs")
+              .select("sticker_number")
+              .eq("square_order_id", order.id!)
+              .maybeSingle();
+            if (!error && data?.sticker_number) {
+              stickerNumber = data.sticker_number;
+            } else {
+              console.warn("[cup-label] paid-branch: print_jobs conflict but sticker_number not found", { orderId: order.id, error });
+            }
+          }
+          if (stickerNumber) {
+            // Fire-and-forget. enqueueCupLabelJobs loads N doodles +
+            // renders N ZPL labels + upserts the rows; under load that
+            // can add hundreds of ms to the payment response. Print
+            // failures here are non-fatal — the user already paid, and
+            // the cup-label job table's own alert pipeline will page
+            // staff if the printer never picks them up.
+            void enqueueCupLabelJobs({
+              order,
+              stickerNumber,
+              doodleIds: body.doodleIds,
+              doodleDefaults: body.doodleDefaults,
+              aiDoodleIds: body.aiDoodleIds,
+              presetStickerHashes: body.presetStickerHashes,
+              userId: user.userId,
+              customerFirstName: user.profile.first_name,
+            }).catch((e) => {
+              console.error("[cup-label] paid-branch enqueue threw (background)", e);
+            });
+          }
+        } catch (e) {
+          console.error("[cup-label] paid-branch user-doodle enqueue setup failed (non-fatal)", e);
+        }
+      }
     } else {
       // Zero-total order: fully covered by a loyalty reward (or other
       // discount). Square rejects zero-amount Payment objects, so we
@@ -207,6 +294,27 @@ export async function POST(request: Request) {
               `$0 order ${body.orderId} NOT queued: ${result.reason}${result.detail ? ` (${result.detail})` : ""}`,
             );
           }
+          if (result.queued) {
+            // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
+            try {
+              const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+              // Fire-and-forget — see the paid-branch comment above.
+              void enqueueCupLabelJobs({
+                order: paidOrder,
+                stickerNumber: result.stickerNumber,
+                doodleIds: body.doodleIds,
+                doodleDefaults: body.doodleDefaults,
+                aiDoodleIds: body.aiDoodleIds,
+                presetStickerHashes: body.presetStickerHashes,
+                userId: user.userId,
+                customerFirstName: user.profile.first_name,
+              }).catch((e) => {
+                console.error("[cup-label] $0-branch enqueue threw (background)", e);
+              });
+            } catch (e) {
+              console.error("[cup-label] $0-branch enqueue setup failed (non-fatal)", e);
+            }
+          }
         }
       } catch (printError) {
         const msg = printError instanceof Error ? printError.message : String(printError);
@@ -229,9 +337,15 @@ export async function POST(request: Request) {
     // still accrue so the paid drinks earn their stars normally.
     const hasLoyaltyReward = (order.rewards?.length ?? 0) > 0;
     const skipAccrual = hasLoyaltyReward && amount === 0n;
+    // Settled = paid order completed cleanly, OR a $0 order (closed via
+    // orders.pay; throws would have hit the outer catch). Must gate
+    // accrual: PENDING/FAILED card charges that didn't throw must not
+    // mint stars.
+    const paymentSettled =
+      amount > 0n ? paymentStatus === "COMPLETED" : true;
 
     let loyaltyAccrued = false;
-    if (!skipAccrual) {
+    if (!skipAccrual && paymentSettled) {
       try {
         const account = await findOrCreateLoyaltyAccount(customerId, e164);
         await accrueForOrder(account.accountId, body.orderId);
@@ -257,8 +371,6 @@ export async function POST(request: Request) {
     // if it had thrown we'd already be in the outer catch).
     let welcomeDiscountConsumedCount = 0;
     let welcomeDrinksRemaining: number | null = null;
-    const paymentSettled =
-      amount > 0n ? paymentStatus === "COMPLETED" : true;
     const hadWelcomeDiscount = (order.discounts ?? []).some(
       (d) => d.uid === "welcome-discount",
     );
@@ -288,6 +400,32 @@ export async function POST(request: Request) {
     // so it surfaces in Square Register like any online order and store staff
     // deliver it themselves. No courier call, no auto-refund.
 
+    let igFollowDiscountConsumedCount = 0;
+    let igFollowDrinksRemaining: number | null = null;
+    const hadIgFollowDiscount = (order.discounts ?? []).some(
+      (d) => d.uid === "ig-follow-discount",
+    );
+    if (paymentSettled && hadIgFollowDiscount) {
+      const rawCovered = order.metadata?.igFollowDiscountDrinksCovered;
+      const parsedCovered = rawCovered ? parseInt(rawCovered, 10) : 0;
+      const coveredCount =
+        Number.isFinite(parsedCovered) && parsedCovered > 0 ? parsedCovered : 0;
+      if (coveredCount > 0) {
+        const result = await consumeIgFollowDiscount(
+          customerId,
+          body.orderId,
+          coveredCount,
+        );
+        igFollowDiscountConsumedCount = result.consumedCount;
+        igFollowDrinksRemaining = result.drinksRemaining;
+      }
+    }
+    if (amount > 0n && !paymentSettled && hadIgFollowDiscount) {
+      console.warn(
+        `[payment] payment ${paymentId} did not settle (status=${paymentStatus}); ig-follow discount preserved`,
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       paymentId,
@@ -298,6 +436,8 @@ export async function POST(request: Request) {
       // Preserve the old boolean flag so existing clients still have a truthy
       // signal to refresh auth. They can upgrade to the count at their own pace.
       welcomeDiscountConsumed: welcomeDiscountConsumedCount > 0,
+      igFollowDiscountConsumed: igFollowDiscountConsumedCount > 0,
+      igFollowDrinksRemaining,
       payment: paymentForResponse,
     });
   } catch (error) {

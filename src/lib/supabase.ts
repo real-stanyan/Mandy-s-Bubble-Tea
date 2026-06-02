@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { getSupabaseAdmin } from "./supabase-server";
 
 // Business-logic helpers built on top of the service-role Supabase
@@ -76,11 +77,14 @@ export async function getWelcomeDiscountStatus(
 /**
  * Tear down every Supabase-side trace of an account when the Square
  * customer is gone (deleted in Square Dashboard, or detected missing on
- * session resume). Deletes the auth.users row (user_profiles cascades
- * via FK) and the welcome_discounts row (not FK-linked). Pass whichever
- * handle you have; we look up the missing one.
+ * session resume). Pass whichever handle you have; we look up the
+ * missing one.
  *
- * Idempotent and swallows errors — callers must not block on cleanup.
+ * Throws if releasing the unique-constrained columns (phone/email)
+ * fails so the caller can surface the failure to the user — leaving
+ * those columns intact would block the customer from re-registering
+ * with the same number. Best-effort steps (welcome_discounts delete,
+ * auth user deletion) are logged but don't throw.
  */
 export async function purgeAccount(args: {
   userId?: string;
@@ -89,37 +93,97 @@ export async function purgeAccount(args: {
   const admin = getSupabase();
   let { userId, customerId } = args;
 
-  try {
-    if (!userId && customerId) {
-      const { data } = await admin
-        .from("user_profiles")
-        .select("user_id")
-        .eq("square_customer_id", customerId)
-        .maybeSingle();
-      userId = data?.user_id ?? undefined;
-    } else if (userId && !customerId) {
-      const { data } = await admin
-        .from("user_profiles")
-        .select("square_customer_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-      customerId = data?.square_customer_id ?? undefined;
+  if (!userId && customerId) {
+    const { data } = await admin
+      .from("user_profiles")
+      .select("user_id")
+      .eq("square_customer_id", customerId)
+      .maybeSingle();
+    userId = data?.user_id ?? undefined;
+  } else if (userId && !customerId) {
+    const { data } = await admin
+      .from("user_profiles")
+      .select("square_customer_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    customerId = data?.square_customer_id ?? undefined;
+  }
+
+  if (customerId) {
+    const { error } = await admin
+      .from("welcome_discounts")
+      .delete()
+      .eq("customer_id", customerId);
+    if (error) console.error("[purge] welcome_discounts delete", error);
+
+    const { error: igErr } = await admin
+      .from("ig_follow_discounts")
+      .delete()
+      .eq("customer_id", customerId);
+    if (igErr) console.error("[purge] ig_follow_discounts delete", igErr);
+  }
+
+  if (userId) {
+    const { error: ocErr } = await admin
+      .from("order_complaints")
+      .delete()
+      .eq("user_id", userId);
+    if (ocErr) console.error("[purge] order_complaints delete", ocErr);
+  }
+
+  if (userId) {
+    // CRITICAL: explicitly delete user_profiles BEFORE touching auth.users.
+    // user_profiles owns its own UNIQUE constraint on phone_e164 (separate
+    // from auth.users.phone) and we previously relied on ON DELETE CASCADE
+    // from auth.users → user_profiles to clean it up. When
+    // `auth.admin.deleteUser` silently fails (the swallowed error case
+    // below) the cascade never fires and a zombie user_profiles row keeps
+    // claiming the phone, blocking the same customer from re-registering
+    // with "duplicate key value violates unique constraint
+    // user_profiles_phone_e164_key". Doing it explicitly here releases
+    // phone_e164 + square_customer_id regardless of whether the auth-side
+    // delete succeeds.
+    const { error: profErr } = await admin
+      .from("user_profiles")
+      .delete()
+      .eq("user_id", userId);
+    if (profErr) {
+      console.error("[purge] user_profiles delete failed", profErr);
+      throw new Error(
+        `Failed to release user_profiles row: ${profErr.message}`,
+      );
     }
 
-    if (customerId) {
-      const { error } = await admin
-        .from("welcome_discounts")
-        .delete()
-        .eq("customer_id", customerId);
-      if (error) console.error("[purge] welcome_discounts delete", error);
+    // CRITICAL: rewrite phone + email to inert markers BEFORE deleting
+    // the auth user. Reported 2026-04-26: customers saw "Phone number
+    // in use" when re-registering after Account → Delete because
+    // `auth.admin.deleteUser` was silently failing (FK / soft-delete
+    // mode / RLS) and the swallowed error left auth.users intact with
+    // the phone column still claiming the unique constraint.
+    //
+    // We can't pass NULL via the SDK (typings disallow it and GoTrue
+    // ignores explicit nulls in the JSON body — verified). Phone must
+    // be a valid E.164 string, so we write a 14-digit number prefixed
+    // "+9" (an unassigned E.164 country code). 12 random digits gives
+    // a 1-in-10^12 collision space — effectively unique for one shop.
+    const inertNumber = randomBytes(8).readBigUInt64BE() % 1000000000000n;
+    const inertPhone = `+9${inertNumber.toString().padStart(12, "0")}`;
+    const { error: clearErr } = await admin.auth.admin.updateUserById(userId, {
+      phone: inertPhone,
+      email: `${userId}@deleted.invalid`,
+    });
+    if (clearErr) {
+      console.error("[purge] clear phone/email failed", clearErr);
+      throw new Error(
+        `Failed to release account unique fields: ${clearErr.message}`,
+      );
     }
 
-    if (userId) {
-      const { error } = await admin.auth.admin.deleteUser(userId);
-      if (error) console.error("[purge] auth.admin.deleteUser", error);
-    }
-  } catch (err) {
-    console.error("[purge] failed", err);
+    // Best-effort hard delete. Phone/email are already released, so a
+    // failure here just leaves an inert row that does not block the
+    // customer from signing up again.
+    const { error: delErr } = await admin.auth.admin.deleteUser(userId);
+    if (delErr) console.error("[purge] auth.admin.deleteUser", delErr);
   }
 }
 

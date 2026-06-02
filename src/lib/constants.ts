@@ -9,6 +9,12 @@ export const BRAND = {
   bgColor: "#F2E8DF", // warm beige page background
 } as const;
 
+// ---- Limited-time campaigns ----
+// Homepage "Buy 2 drinks, get a fragrance-tag blind box" promo. Flip to
+// false to retire the campaign — the homepage section disappears with no
+// other cleanup needed.
+export const FRAGRANCE_BLIND_BOX_PROMO = true;
+
 export const BUSINESS = {
   name: "Mandy's Bubble Tea",
   address: "34 Davenport St, Southport QLD 4215",
@@ -49,6 +55,18 @@ export const CARD_SURCHARGE = {
 
 /** 1.9% as basis-points-per-10000 for BigInt math: 190 / 10000. */
 export const CARD_SURCHARGE_BPS = 190n;
+
+// Platform Fee — additional online-ordering pass-through service charge.
+// Same SUBTOTAL_PHASE / non-taxable / skipped-on-free-redeem pattern as
+// CARD_SURCHARGE. Customer-visible on every receipt surface.
+export const PLATFORM_FEE = {
+  name: "Platform Fee",
+  /** Percentage as a string — matches Square's OrderServiceCharge.percentage format. */
+  percentage: "0.5",
+} as const;
+
+/** 0.5% as basis-points-per-10000 for BigInt math: 50 / 10000. */
+export const PLATFORM_FEE_BPS = 50n;
 
 // ---- Public holiday surcharge ----
 

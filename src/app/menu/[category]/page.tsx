@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getMenu, getCategoryBySlug, type MenuItem } from "@/lib/catalog";
+import { getMenu, getCategoryBySlug, top10SurchargeCents, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
+import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -89,14 +90,32 @@ export default async function CategoryPage({ params }: PageProps) {
             <li key={item.id}>
               {item.soldOut ? (
                 <div aria-disabled="true" className="block cursor-not-allowed">
-                  <ItemCard item={item} />
+                  <ItemCard
+                    item={item}
+                    displayName={displayNameFor(category.slug, item.name)}
+                    imageUrl={imageUrlFor(category.slug, item.name)}
+                    priceCents={
+                      item.priceCents == null
+                        ? null
+                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
+                    }
+                  />
                 </div>
               ) : (
                 <Link
                   href={`/menu/${category.slug}/${item.id}`}
                   className="block"
                 >
-                  <ItemCard item={item} />
+                  <ItemCard
+                    item={item}
+                    displayName={displayNameFor(category.slug, item.name)}
+                    imageUrl={imageUrlFor(category.slug, item.name)}
+                    priceCents={
+                      item.priceCents == null
+                        ? null
+                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
+                    }
+                  />
                 </Link>
               )}
             </li>
@@ -152,7 +171,19 @@ function MenuCrumb({ current }: { current: string }) {
   );
 }
 
-function ItemCard({ item }: { item: MenuItem }) {
+function ItemCard({
+  item,
+  displayName,
+  imageUrl,
+  priceCents,
+}: {
+  item: MenuItem;
+  displayName?: string;
+  imageUrl?: string | null;
+  priceCents?: bigint | null;
+}) {
+  const shownImage = imageUrl ?? item.imageUrl;
+  const shownPrice = priceCents !== undefined ? priceCents : item.priceCents;
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
@@ -164,11 +195,11 @@ function ItemCard({ item }: { item: MenuItem }) {
           Sold out
         </span>
       )}
-      {item.imageUrl ? (
+      {shownImage ? (
         <div className="relative aspect-square w-full">
           <Image
-            src={item.imageUrl}
-            alt={item.name}
+            src={shownImage}
+            alt={displayName ?? item.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
             className={`object-cover ${item.soldOut ? "grayscale" : ""}`}
@@ -182,7 +213,7 @@ function ItemCard({ item }: { item: MenuItem }) {
         </div>
       )}
       <div className="p-3 sm:p-4">
-        <h2 className="text-sm font-semibold text-zinc-900 sm:text-lg">{item.name}</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 sm:text-lg">{displayName ?? item.name}</h2>
         {item.variationLabel && (
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500 sm:mt-1 sm:text-xs">
             {item.variationLabel}
@@ -192,7 +223,7 @@ function ItemCard({ item }: { item: MenuItem }) {
           className="mt-1 text-base font-semibold sm:mt-2 sm:text-xl"
           style={{ color: BRAND.primaryColor }}
         >
-          {item.priceCents != null ? formatPrice(item.priceCents) : "—"}
+          {shownPrice != null ? formatPrice(shownPrice) : "—"}
         </p>
       </div>
     </div>

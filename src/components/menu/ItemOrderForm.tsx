@@ -10,18 +10,43 @@ import type {
   ModifierOption,
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
+import { isLockedToppingName, lockedModifierIds } from "@/lib/menu/top10-presets";
 
 type Props = {
   item: MenuItem;
   modifierLists: ModifierList[];
+  /** Topping names locked-on for this view (TOP 10 only). Default none. */
+  lockedToppings?: string[];
+  /** Customer-facing name override used as the cart line label. */
+  displayName?: string;
 };
 
 type CountMap = Record<string, Record<string, number>>;
 
 const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
+const WARM_ICE_NAME = "warm";
 
 function isExclusiveModifier(mod: ModifierOption): boolean {
   return EXCLUSIVE_TOPPINGS.includes(mod.name);
+}
+
+function isWarmIceModifier(mod: ModifierOption): boolean {
+  return mod.name.trim().toLowerCase() === WARM_ICE_NAME;
+}
+
+function someSelectedAcrossLists(
+  counts: CountMap,
+  modifierLists: ModifierList[],
+  predicate: (mod: ModifierOption) => boolean,
+): boolean {
+  for (const ml of modifierLists) {
+    const map = counts[ml.id];
+    if (!map) continue;
+    for (const mod of ml.modifiers) {
+      if ((map[mod.id] ?? 0) > 0 && predicate(mod)) return true;
+    }
+  }
+  return false;
 }
 
 function supportsMultiCount(list: ModifierList): boolean {
@@ -51,7 +76,12 @@ function countOf(counts: CountMap, listId: string, modId: string): number {
   return counts[listId]?.[modId] ?? 0;
 }
 
-export function ItemOrderForm({ item, modifierLists }: Props) {
+export function ItemOrderForm({
+  item,
+  modifierLists,
+  lockedToppings = [],
+  displayName,
+}: Props) {
   const addLine = useCart((s) => s.addLine);
 
   const [variationId, setVariationId] = useState<string>(
@@ -59,10 +89,13 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
   );
 
   const [selectedByList, setSelectedByList] = useState<CountMap>(() =>
-    buildDefaults(modifierLists),
+    buildDefaults(modifierLists, lockedToppings),
   );
 
   const [quantity, setQuantity] = useState(1);
+
+  const isLocked = (mod: ModifierOption) =>
+    isLockedToppingName(mod.name, lockedToppings);
 
   const selectedVariation: ItemVariation | undefined = item.variations.find(
     (v) => v.id === variationId,
@@ -136,6 +169,20 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     const mod = list.modifiers.find((m) => m.id === modifierId);
     if (!mod || mod.soldOut) return false;
     const current = countOf(selectedByList, list.id, modifierId);
+    // Cross-list mutex: Warm ice ⊥ Cheese Cream / Brulee toppings.
+    // Hot drinks don't pair with cold cream / torched-sugar toppings.
+    if (
+      isWarmIceModifier(mod) &&
+      someSelectedAcrossLists(selectedByList, modifierLists, isExclusiveModifier)
+    ) {
+      return false;
+    }
+    if (
+      isExclusiveModifier(mod) &&
+      someSelectedAcrossLists(selectedByList, modifierLists, isWarmIceModifier)
+    ) {
+      return false;
+    }
     // Single-select list (maxSelected=1 overall)
     if (list.maxSelected === 1) {
       return current < 1;
@@ -188,6 +235,9 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
       const listMap = { ...(prev[list.id] ?? {}) };
       const current = listMap[modifierId] ?? 0;
       if (current <= 0) return prev;
+      const mod = list.modifiers.find((m) => m.id === modifierId);
+      // TOP 10 locked toppings cannot be removed — floor at 1.
+      if (mod && isLocked(mod) && current <= 1) return prev;
       listMap[modifierId] = current - 1;
       return { ...prev, [list.id]: listMap };
     });
@@ -212,7 +262,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
     addLine(
       {
         itemId: item.id,
-        itemName: item.name,
+        itemName: displayName ?? item.name,
         itemImageUrl: item.imageUrl,
         variationId: selectedVariation.id,
         variationName: selectedVariation.name,
@@ -222,7 +272,7 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
       quantity,
     );
 
-    setSelectedByList(buildDefaults(modifierLists));
+    setSelectedByList(buildDefaults(modifierLists, lockedToppings));
     setQuantity(1);
   }
 
@@ -287,27 +337,33 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                 const count = countOf(selectedByList, ml.id, mod.id);
                 const modCanMulti = multi;
                 if (modCanMulti && count > 0) {
+                  const locked = isLocked(mod);
                   return (
                     <ModifierStepper
                       key={mod.id}
                       label={mod.name}
                       count={count}
                       priceText={priceLabel(mod)}
+                      locked={locked}
                       canIncrement={canIncrement(ml, mod.id)}
+                      canDecrement={!(locked && count <= 1)}
                       onIncrement={() => incrementModifier(ml, mod.id)}
                       onDecrement={() => decrementModifier(ml, mod.id)}
                     />
                   );
                 }
                 const selected = count > 0;
+                const locked = isLocked(mod);
                 const disabled =
                   mod.soldOut ||
+                  locked ||
                   (!selected && !canIncrement(ml, mod.id));
                 return (
                   <button
                     key={mod.id}
                     type="button"
                     onClick={() => {
+                      if (locked) return; // locked = non-removable
                       if (selected && !modCanMulti) {
                         decrementModifier(ml, mod.id);
                       } else if (!selected) {
@@ -316,14 +372,14 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                     }}
                     disabled={disabled}
                     className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                      selected
+                      selected || locked
                         ? "border-transparent text-white"
                         : disabled
                           ? "cursor-not-allowed border-black/5 bg-zinc-50 text-zinc-300"
                           : "border-black/10 bg-white text-zinc-700 hover:bg-black/5"
                     }`}
                     style={
-                      selected
+                      selected || locked
                         ? { backgroundColor: BRAND.primaryColor }
                         : undefined
                     }
@@ -337,11 +393,16 @@ export function ItemOrderForm({ item, modifierLists }: Props) {
                       strokeWidth="3"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      className={selected ? "" : "invisible"}
+                      className={selected || locked ? "" : "invisible"}
                     >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                     {mod.name}
+                    {locked && (
+                      <span className="ml-1 rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                        Included
+                      </span>
+                    )}
                     {mod.soldOut && (
                       <span className="text-xs font-normal">(Sold out)</span>
                     )}
@@ -403,14 +464,18 @@ function ModifierStepper({
   label,
   count,
   priceText,
+  locked = false,
   canIncrement,
+  canDecrement = true,
   onIncrement,
   onDecrement,
 }: {
   label: string;
   count: number;
   priceText: string;
+  locked?: boolean;
   canIncrement: boolean;
+  canDecrement?: boolean;
   onIncrement: () => void;
   onDecrement: () => void;
 }) {
@@ -422,15 +487,19 @@ function ModifierStepper({
       <button
         type="button"
         onClick={onDecrement}
+        disabled={!canDecrement}
         aria-label={`Decrease ${label}`}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-base text-white/90 transition hover:bg-white/15 active:scale-90"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-base text-white/90 transition hover:bg-white/15 active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         −
       </button>
       <span className="px-1">
         {label}
-        {count > 1 && (
-          <span className="ml-1 text-white/85">× {count}</span>
+        {count > 1 && <span className="ml-1 text-white/85">× {count}</span>}
+        {locked && (
+          <span className="ml-1 rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            Included
+          </span>
         )}
       </span>
       <button
@@ -531,7 +600,10 @@ function describeSelection(ml: ModifierList, multi: boolean): string {
   return `Pick ${minSelected}–${maxSelected}`;
 }
 
-function buildDefaults(modifierLists: ModifierList[]): CountMap {
+function buildDefaults(
+  modifierLists: ModifierList[],
+  lockedToppings: string[] = [],
+): CountMap {
   const initial: CountMap = {};
   for (const ml of modifierLists) {
     const defaults = ml.modifiers.filter((m) => m.onByDefault);
@@ -540,6 +612,12 @@ function buildDefaults(modifierLists: ModifierList[]): CountMap {
       for (const m of defaults) map[m.id] = 1;
       initial[ml.id] = map;
     }
+  }
+  // Seed TOP 10 locked toppings to count 1 (on top of Square onByDefault).
+  for (const { listId, modifierId } of lockedModifierIds(modifierLists, lockedToppings)) {
+    const map = initial[listId] ?? {};
+    if ((map[modifierId] ?? 0) < 1) map[modifierId] = 1;
+    initial[listId] = map;
   }
   return initial;
 }

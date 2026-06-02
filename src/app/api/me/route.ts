@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { SquareError } from "square";
 import { getAuthedUser } from "@/lib/auth";
 import { getWelcomeDiscountStatus, purgeAccount } from "@/lib/supabase";
+import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { squareClient } from "@/lib/square";
 import {
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
       profile: null,
       loyalty: null,
       welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+      igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       starsPerReward,
     });
   }
@@ -63,6 +65,7 @@ export async function GET(request: Request) {
       phone: user.phone,
       loyalty: null,
       welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+      igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       starsPerReward,
     });
   }
@@ -118,6 +121,7 @@ export async function GET(request: Request) {
           profile: null,
           loyalty: null,
           welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+          igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
           starsPerReward,
         });
       }
@@ -127,9 +131,10 @@ export async function GET(request: Request) {
     }
   }
 
-  let [loyaltyAccount, welcomeDiscount] = await Promise.all([
+  let [loyaltyAccount, welcomeDiscount, igFollowDiscount] = await Promise.all([
     findLoyaltyAccountByPhone(user.profile.phone_e164).catch(() => null),
     getWelcomeDiscountStatus(user.profile.square_customer_id),
+    getIgFollowDiscountStatus(user.profile.square_customer_id),
   ]);
 
   // Self-heal for users who signed up before loyalty enrollment moved
@@ -164,6 +169,11 @@ export async function GET(request: Request) {
         }
       : null,
     welcomeDiscount,
+    igFollowDiscount: {
+      available: igFollowDiscount.available,
+      percentage: igFollowDiscount.percentage,
+      drinksRemaining: igFollowDiscount.drinksRemaining,
+    },
     starsPerReward,
   });
 }

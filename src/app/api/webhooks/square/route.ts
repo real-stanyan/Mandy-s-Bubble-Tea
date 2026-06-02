@@ -5,6 +5,7 @@ import { squareClient } from "@/lib/square";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
 import { enqueuePrintJob } from "@/lib/print-jobs";
+import { reverseAccrualForOrder } from "@/lib/loyalty";
 
 // Square Webhook endpoint. Subscribed events (configured in Square
 // Developer Dashboard):
@@ -56,8 +57,22 @@ type SquareEvent = {
         state?: string;
         version?: number;
       };
+      refund?: {
+        id?: string;
+        order_id?: string;
+        payment_id?: string;
+        status?: string;
+        amount_money?: { amount?: number | bigint; currency?: string };
+      };
     };
   };
+};
+
+type RefundDetails = {
+  refundId: string;
+  orderId: string;
+  status: string;
+  amountCents: number;
 };
 
 function pickCustomerId(event: SquareEvent): string | null {
@@ -91,6 +106,25 @@ function pickUpdatedOrderId(event: SquareEvent): string | null {
   const payload = event.data?.object?.order_updated;
   if (!payload) return null;
   return payload.order_id ?? null;
+}
+
+/**
+ * Extract the refund details needed to decide whether to reverse stars.
+ * Returns null for events that don't carry a refund payload or are
+ * missing required fields.
+ */
+function pickRefundDetails(event: SquareEvent): RefundDetails | null {
+  const r = event.data?.object?.refund;
+  if (!r?.id || !r.order_id || !r.status) return null;
+  const amt = r.amount_money?.amount;
+  const amountCents = typeof amt === "bigint" ? Number(amt) : Number(amt ?? 0);
+  if (!Number.isFinite(amountCents)) return null;
+  return {
+    refundId: r.id,
+    orderId: r.order_id,
+    status: r.status,
+    amountCents,
+  };
 }
 
 /**
@@ -193,6 +227,27 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
 }
 
 /**
+ * Fallback path: enqueue a delayed loyalty-backfill job. handleOrderPaid
+ * now accrues inline (immediately) on the webhook; this queue is only used
+ * when that inline attempt hits a transient error, giving a retry with
+ * QStash's own retry policy on top. The cron sweep is the final backstop.
+ * Square dedups accrual by orderId, so neither this nor native can double.
+ */
+async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
+  const { Client: QStashClient } = await import("@upstash/qstash");
+  const { walletEnv } = await import("@/lib/wallet/env");
+  const env = walletEnv();
+  const qstash = new QStashClient({ token: env.qstashToken, baseUrl: env.qstashUrl });
+  const workerUrl = `${env.webServiceUrl.replace(/\/api\/wallet\/?$/, "")}/api/loyalty/backfill-worker`;
+  await qstash.publishJSON({
+    url: workerUrl,
+    body: { orderId },
+    delay: "90s",
+    retries: 3,
+  });
+}
+
+/**
  * Called on order.updated. Fetches the full order, checks it is paid,
  * then enqueues a cup-sticker print job. Idempotent via
  * unique(square_order_id) on print_jobs.
@@ -217,6 +272,33 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     console.log(
       `[print] queued order ${orderId} as ${result.stickerNumber} event_id=${eventId}`,
     );
+
+    // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
+    //
+    // Webhook fires for both POS *and* API-created orders. We only want
+    // fortune-mode for true in-store POS orders so we don't race the
+    // app's payment route and overwrite a logged-in user's doodle
+    // choice with a fortune. Square sets `order.source.name` to
+    // "Point of Sale" for in-store register orders, "Mandy's Bubble Tea
+    // Online Shop" for app-driven web orders, and null for some
+    // server-API-created orders. Verified by aggregating 944 / 365 / 6
+    // rows across 7d of Mise's prod orders mirror (2026-05-21). When
+    // unsure, default to "web" mode (hash POOL preset / web doodleIds)
+    // — that matches the pre-fortune behavior, so the worst case for a
+    // misclassified order is the old behavior.
+    const sourceName = order.source?.name ?? "";
+    const isPosOrder = /point of sale/i.test(sourceName);
+    const cupLabelMode = isPosOrder ? "pos" : "web";
+    try {
+      const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+      await enqueueCupLabelJobs({
+        order,
+        stickerNumber: result.stickerNumber,
+        mode: cupLabelMode,
+      });
+    } catch (e) {
+      console.error("[cup-label] enqueue failed (non-fatal)", e);
+    }
   } else if (result.reason === "conflict") {
     // Expected on the 2nd+ order.updated event for the same order.
   } else if (result.reason === "not_paid") {
@@ -226,6 +308,88 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
       `[print] enqueue skipped order=${orderId} reason=${result.reason}${
         result.detail ? ` detail=${result.detail}` : ""
       } event_id=${eventId}`,
+    );
+  }
+
+  // Loyalty: accrue the star IMMEDIATELY (inline) so an in-store member's
+  // star lands at the counter, not minutes later. Square dedups accrual by
+  // orderId (verified in prod), so racing Square's own native POS check-in
+  // can NOT double-count — whichever lands first wins, the other is a no-op.
+  // This removes the old delayed-queue lag that forced staff to hand-add
+  // stars. On a transient failure we fall back to the delayed queue, and the
+  // 15-min cron sweep remains the final backstop, so nothing is ever lost.
+  if (order.customerId) {
+    try {
+      const { backfillAccrualForOrder } = await import("@/lib/loyalty-backfill");
+      const result = await backfillAccrualForOrder(orderId, "webhook");
+      console.log(
+        `[loyalty] inline accrual order ${orderId}: ${result.status}${
+          result.status === "skipped" ? `/${result.reason}` : ""
+        } event_id=${eventId}`,
+      );
+      // Only a transient Square/network error warrants a retry; not_paid
+      // (a pre-payment order.updated) will be handled by a later webhook or
+      // the cron sweep, and already/accrued/no_customer are terminal.
+      if (result.status === "skipped" && result.reason === "error") {
+        await enqueueLoyaltyBackfill(orderId);
+      }
+    } catch (e) {
+      console.error("[loyalty] inline accrual threw — falling back to queue", e);
+      try {
+        await enqueueLoyaltyBackfill(orderId);
+      } catch (e2) {
+        console.error("[loyalty] queue fallback also failed (non-fatal)", e2);
+      }
+    }
+  }
+}
+
+/**
+ * Refund landed (refund.created or refund.updated with status=COMPLETED).
+ * Reverses any loyalty stars that were earned for the underlying order
+ * via a negative Square loyalty.accounts.adjust. Partial refunds are
+ * logged but not auto-reversed — those are rare and the policy is
+ * "manual review" to avoid mis-clawing a legitimate accrual.
+ */
+async function handleRefund(
+  details: RefundDetails,
+  eventId?: string,
+): Promise<void> {
+  if (details.status !== "COMPLETED") {
+    return;
+  }
+
+  let orderTotal: number | null = null;
+  try {
+    const resp = await squareClient.orders.get({ orderId: details.orderId });
+    const amt = resp.order?.totalMoney?.amount;
+    if (amt != null) {
+      orderTotal = typeof amt === "bigint" ? Number(amt) : Number(amt);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[square-webhook] refund order fetch failed order=${details.orderId} refund=${details.refundId}: ${message}`,
+    );
+    return;
+  }
+
+  if (orderTotal != null && details.amountCents < orderTotal) {
+    console.warn(
+      `[square-webhook] partial refund order=${details.orderId} refund=${details.refundId} refunded=${details.amountCents} total=${orderTotal} — NOT auto-reversing stars (manual review)`,
+    );
+    return;
+  }
+
+  try {
+    const result = await reverseAccrualForOrder(details.orderId, details.refundId);
+    console.log(
+      `[square-webhook] refund reversed ${result.reversed} stars order=${details.orderId} refund=${details.refundId} account=${result.accountId ?? "none"} event_id=${eventId}`,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[square-webhook] refund reverse failed order=${details.orderId} refund=${details.refundId} event_id=${eventId}: ${message}`,
     );
   }
 }
@@ -325,6 +489,20 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
           `[print] handleOrderPaid threw for order ${orderId} event_id=${event.event_id}: ${message}`,
+        );
+      }
+    }
+  }
+
+  if (event.type === "refund.created" || event.type === "refund.updated") {
+    const refund = pickRefundDetails(event);
+    if (refund) {
+      try {
+        await handleRefund(refund, event.event_id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[square-webhook] handleRefund threw refund=${refund.refundId} event_id=${event.event_id}: ${message}`,
         );
       }
     }
