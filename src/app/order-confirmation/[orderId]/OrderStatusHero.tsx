@@ -14,6 +14,7 @@ export type FulfillmentState =
 type Props = {
   orderId: string;
   initialState: FulfillmentState | null;
+  isDelivery?: boolean;
 };
 
 const POLL_MS = 5000;
@@ -24,7 +25,7 @@ const TERMINAL: ReadonlySet<FulfillmentState> = new Set([
   "FAILED",
 ]);
 
-export function OrderStatusHero({ orderId, initialState }: Props) {
+export function OrderStatusHero({ orderId, initialState, isDelivery = false }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -60,7 +61,7 @@ export function OrderStatusHero({ orderId, initialState }: Props) {
     };
   }, [orderId, state]);
 
-  const ui = stateToUi(state);
+  const ui = stateToUi(state, isDelivery);
 
   return (
     <>
@@ -101,19 +102,21 @@ type Ui = {
   icon: React.ReactNode;
 };
 
-function stateToUi(state: FulfillmentState | null): Ui {
+function stateToUi(state: FulfillmentState | null, isDelivery: boolean): Ui {
   switch (state) {
     case "PREPARED":
       return {
-        heading: "Ready for Pickup!",
-        body: "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
+        heading: isDelivery ? "Out for Delivery!" : "Ready for Pickup!",
+        body: isDelivery
+          ? "Your order is made and our team is on the way to your address."
+          : "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
         headingColor: BRAND.primaryColor,
         iconBg: "#FDE5DD",
         icon: <BagIcon color={BRAND.primaryColor} />,
       };
     case "COMPLETED":
       return {
-        heading: "Picked Up",
+        heading: isDelivery ? "Delivered" : "Picked Up",
         body: "Enjoy your drink! Thanks for visiting Mandy's Bubble Tea.",
         headingColor: "#5B7A52",
         iconBg: "#D5E3D0",
@@ -132,8 +135,10 @@ function stateToUi(state: FulfillmentState | null): Ui {
     case "RESERVED":
     default:
       return {
-        heading: "Ready for Pickup Soon!",
-        body: "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
+        heading: isDelivery ? "Order Confirmed!" : "Ready for Pickup Soon!",
+        body: isDelivery
+          ? "Our tea masters are crafting your order — our team will deliver it to your door shortly."
+          : "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
         headingColor: "#5B7A52",
         iconBg: "#D5E3D0",
         icon: <CheckIcon color="#5B7A52" />,

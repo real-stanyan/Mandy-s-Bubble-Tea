@@ -101,3 +101,27 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
   { name: "Boxing Day",            date: "2026-12-26" },
   { name: "Boxing Day (observed)", date: "2026-12-28" },
 ];
+
+// ---- Delivery (self-delivery by store staff) ----
+
+export const DELIVERY = {
+  feeCents: 499n,
+  feeFreeAtSubtotalCents: 3500n,
+  minimumSubtotalCents: 1800n,
+  serviceFeeBps: 800n,           // 8% × drinks subtotal
+  maxKm: 10,
+  hoursOpen: 11,                 // 11:00 Brisbane
+  hoursClose: 21.5,              // 21:30 Brisbane (decimal hour)
+} as const;
+
+export const SERVICE_FEE = {
+  name: "Service Fee",
+  percentage: "8",
+} as const;
+
+export const DELIVERY_FEE_NAME = "Delivery Fee";
+
+// Mandy's Bubble Tea — 34 Davenport St, Southport QLD 4215.
+// TODO: confirm exact lat/lng with Google Maps before Phase 4.
+export const STORE_LAT = -28.0084;
+export const STORE_LNG = 153.4116;

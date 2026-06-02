@@ -395,6 +395,11 @@ export async function POST(request: Request) {
       );
     }
 
+    // Self-delivery: nothing to dispatch. The order was created with a PICKUP
+    // fulfillment carrying the 🚚 delivery address in its note (see /api/orders),
+    // so it surfaces in Square Register like any online order and store staff
+    // deliver it themselves. No courier call, no auto-refund.
+
     let igFollowDiscountConsumedCount = 0;
     let igFollowDrinksRemaining: number | null = null;
     const hadIgFollowDiscount = (order.discounts ?? []).some(

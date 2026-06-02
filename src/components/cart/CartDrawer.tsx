@@ -1194,6 +1194,9 @@ function CartFooter({
           >
             Checkout
           </Link>
+          <p className="mt-2 text-center text-xs text-zinc-500">
+            Pickup or delivery? Choose at checkout →
+          </p>
         </>
       )}
     </footer>

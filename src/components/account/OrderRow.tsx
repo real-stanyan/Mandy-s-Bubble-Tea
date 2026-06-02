@@ -7,6 +7,7 @@ export type OrderHistoryItem = {
   createdAt: string | null;
   state: string | null;
   fulfillmentState: string | null;
+  fulfillmentType?: string | null;
   totalCents: string;
   itemSummary: string;
   lineCount: number;
@@ -15,6 +16,7 @@ export type OrderHistoryItem = {
 export function OrderRow({ order }: { order: OrderHistoryItem }) {
   const stateKey = effectiveState(order.state, order.fulfillmentState);
   const badge = STATE_STYLES[stateKey];
+  const isDelivery = order.fulfillmentType === "DELIVERY";
 
   return (
     <Link
@@ -37,6 +39,14 @@ export function OrderRow({ order }: { order: OrderHistoryItem }) {
               style={{ fontSize: 10, letterSpacing: 0.5, fontWeight: 600 }}
             >
               {badge.label}
+            </span>
+          )}
+          {isDelivery && (
+            <span
+              className="rounded-full border border-line px-2 py-0.5 uppercase text-[#C43A10]"
+              style={{ fontSize: 10, letterSpacing: 0.5, fontWeight: 600 }}
+            >
+              🚚 Delivery
             </span>
           )}
         </div>

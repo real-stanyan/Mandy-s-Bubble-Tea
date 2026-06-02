@@ -17,8 +17,13 @@ import {
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
+import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
+import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
+import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
+import { isDeliveryEligible, deliveryFeeCents, serviceFeeCents } from "@/lib/delivery-fee";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
-import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
@@ -124,6 +129,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [fulfillment, setFulfillment] = useState<FulfillmentType>("PICKUP");
+  const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddress>({
+    address: "",
+    lat: 0,
+    lng: 0,
+    unit: "",
+    driverNote: "",
+    phone: profile.phone_e164,
+  });
+  const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "idle" });
+  const [hoursOpen, setHoursOpen] = useState(() => isDeliveryHoursOpen());
   const [sdkReady, setSdkReady] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const [applePayAvailable, setApplePayAvailable] = useState(false);
@@ -242,6 +258,69 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return () => clearInterval(id);
   }, []);
 
+  // Re-check delivery hours every 60s so a session stays accurate across the
+  // 11:00 / 21:30 boundaries.
+  useEffect(() => {
+    const id = setInterval(() => setHoursOpen(isDeliveryHoursOpen()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Trigger quote when address + lat/lng + phone are populated and we're in DELIVERY mode.
+  useEffect(() => {
+    if (fulfillment !== "DELIVERY") {
+      setQuoteState({ kind: "idle" });
+      return;
+    }
+    if (!deliveryAddress.lat || !deliveryAddress.lng || !deliveryAddress.address) {
+      setQuoteState({ kind: "idle" });
+      return;
+    }
+    if (!hoursOpen) {
+      setQuoteState({ kind: "error", message: "Delivery hours: 11am–9:30pm" });
+      return;
+    }
+    if (!isDeliveryEligible(subtotal)) {
+      setQuoteState({ kind: "error", message: "Add more to qualify for delivery" });
+      return;
+    }
+    setQuoteState({ kind: "loading" });
+    let cancelled = false;
+    fetch("/api/delivery/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        address: deliveryAddress.address,
+        lat: deliveryAddress.lat,
+        lng: deliveryAddress.lng,
+        unit: deliveryAddress.unit,
+        driverNote: deliveryAddress.driverNote,
+        drinksSubtotalCents: Number(subtotal),
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok) {
+          setQuoteState({ kind: "ok", feeCents: data.feeCents, serviceFeeCents: data.serviceFeeCents });
+        } else {
+          const map: Record<string, string> = {
+            out_of_zone: "Sorry, we don't deliver to that address",
+            closed: "Delivery hours: 11am–9:30pm",
+            min_order: "Add more to qualify for delivery",
+            auth: "Sign in to get a delivery quote",
+            invalid_body: "Address looks invalid — try a fuller address",
+            invalid_json: "Address looks invalid — try a fuller address",
+          };
+          setQuoteState({ kind: "error", message: map[data.reason] ?? "Delivery unavailable" });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setQuoteState({ kind: "error", message: "Couldn't reach delivery service" });
+      });
+    return () => { cancelled = true; };
+  }, [fulfillment, deliveryAddress, hoursOpen, subtotal]);
+
   // Ordering window — poll /api/store-status every 30s so the Place Order
   // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
   // needing a page reload. Server gates the actual order in /api/orders.
@@ -275,6 +354,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     [phActive, subtotal],
   );
 
+  // Delivery + service fees — only displayed (and added to total) when DELIVERY is chosen.
+  // Both are SUBTOTAL_PHASE service charges on the server (T18+), so client mirrors that math.
+  const deliveryFeeAmount = useMemo(
+    () => (fulfillment === "DELIVERY" ? deliveryFeeCents(subtotal) : 0n),
+    [fulfillment, subtotal],
+  );
+  const serviceFeeAmount = useMemo(
+    () => (fulfillment === "DELIVERY" ? serviceFeeCents(subtotal) : 0n),
+    [fulfillment, subtotal],
+  );
+
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
   const starsThisOrder = lines.reduce((n, l) => n + l.quantity, 0);
@@ -306,19 +396,23 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const displayTotal = useMemo(() => {
     if (isFreeRedeem) return 0n;
-    return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount;
+    return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
   }, [
     isFreeRedeem,
     afterDiscount,
     surchargeAmount,
     platformFeeAmount,
     phSurchargeAmount,
+    deliveryFeeAmount,
+    serviceFeeAmount,
   ]);
   // Hide the surcharge lines from the order summary when the reward
   // will cover the order — the backend won't charge them.
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
   const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
+  const effectiveDeliveryFee = isFreeRedeem ? 0n : deliveryFeeAmount;
+  const effectiveServiceFee = isFreeRedeem ? 0n : serviceFeeAmount;
 
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
@@ -532,6 +626,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           applyIgFollowDiscount: igFollowDiscount.available,
           applyLoyaltyReward: rewardCount > 0,
           loyaltyRewardCount: rewardCount,
+          fulfillmentType: fulfillment,
+          delivery:
+            fulfillment === "DELIVERY" && quoteState.kind === "ok"
+              ? {
+                  address: deliveryAddress.address,
+                  lat: deliveryAddress.lat,
+                  lng: deliveryAddress.lng,
+                  unit: deliveryAddress.unit || undefined,
+                  driverNote: deliveryAddress.driverNote || undefined,
+                }
+              : undefined,
           lines: lines.map((l) => ({
             itemName: l.itemName,
             variationId: l.variationId,
@@ -702,6 +807,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       >
         {/* ── Left column ── */}
         <div className="space-y-5 sm:space-y-6">
+          {/* Fulfillment + delivery quote */}
+          <FulfillmentSelector
+            value={fulfillment}
+            onChange={setFulfillment}
+            drinksSubtotalCents={subtotal}
+          />
+
+          {fulfillment === "DELIVERY" && (
+            <div className="space-y-3">
+              <DeliveryAddressForm
+                value={deliveryAddress}
+                onChange={setDeliveryAddress}
+                defaultPhone={profile.phone_e164}
+              />
+              <DeliveryQuoteCard state={quoteState} />
+            </div>
+          )}
+
           {/* Rewards Progress */}
           <section
             className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
@@ -855,6 +978,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       −{formatPrice(rewardDiscount)}
                     </span>
                   </div>
+                )}
+                {fulfillment === "DELIVERY" && (
+                  <>
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>{DELIVERY_FEE_NAME}</span>
+                      <span className="font-semibold text-zinc-900">
+                        {effectiveDeliveryFee === 0n ? (
+                          <>
+                            <span className="mr-1 text-zinc-400 line-through">$4.99</span>
+                            <span className="text-emerald-600">FREE</span>
+                          </>
+                        ) : (
+                          formatPrice(effectiveDeliveryFee)
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>
+                        {SERVICE_FEE.name}{" "}
+                        <span className="text-xs text-zinc-400">
+                          ({SERVICE_FEE.percentage}%)
+                        </span>
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        {formatPrice(effectiveServiceFee)}
+                      </span>
+                    </div>
+                  </>
                 )}
                 {effectivePhSurcharge > 0n && (
                   <div className="flex justify-between text-sm text-zinc-600">
@@ -1114,6 +1265,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </div>
             )}
+            {fulfillment === "DELIVERY" && (
+              <>
+                <div className="flex justify-between text-sm text-zinc-600">
+                  <span>{DELIVERY_FEE_NAME}</span>
+                  <span className="font-semibold text-zinc-900">
+                    {effectiveDeliveryFee === 0n ? (
+                      <>
+                        <span className="mr-1 text-zinc-400 line-through">$4.99</span>
+                        <span className="text-emerald-600">FREE</span>
+                      </>
+                    ) : (
+                      formatPrice(effectiveDeliveryFee)
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm text-zinc-600">
+                  <span>
+                    {SERVICE_FEE.name}{" "}
+                    <span className="text-xs text-zinc-400">
+                      ({SERVICE_FEE.percentage}%)
+                    </span>
+                  </span>
+                  <span className="font-semibold text-zinc-900">
+                    {formatPrice(effectiveServiceFee)}
+                  </span>
+                </div>
+              </>
+            )}
             {effectivePhSurcharge > 0n && (
               <div className="flex justify-between text-sm text-zinc-600">
                 <span>
@@ -1176,7 +1355,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+                  : !googlePayAvailable)) ||
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={
@@ -1260,7 +1440,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (!isFreeRedeem &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
-                  : !googlePayAvailable))
+                  : !googlePayAvailable)) ||
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
             className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               storeClosed
