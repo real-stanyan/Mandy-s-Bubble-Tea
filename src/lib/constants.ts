@@ -105,18 +105,26 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
 // ---- Delivery (self-delivery by store staff) ----
 
 export const DELIVERY = {
-  feeCents: 499n,
-  feeFreeAtSubtotalCents: 3500n,
-  minimumSubtotalCents: 1800n,
-  serviceFeeBps: 800n,           // 8% × drinks subtotal
-  maxKm: 10,
-  hoursOpen: 11,                 // 11:00 Brisbane
-  hoursClose: 21.5,              // 21:30 Brisbane (decimal hour)
+  // Distance bands, ascending. First band whose maxKm >= distance wins.
+  // Transcribed from the Square Online dashboard (2026-06-02). Square's
+  // settings are dashboard-only (no API), so this is the source of truth.
+  tiers: [
+    { maxKm: 2, feeCents: 399n, freeAtSubtotalCents: 3500n },
+    { maxKm: 4, feeCents: 499n, freeAtSubtotalCents: 3500n },
+    { maxKm: 6, feeCents: 699n, freeAtSubtotalCents: 5000n },
+    { maxKm: 8, feeCents: 899n, freeAtSubtotalCents: 5000n },
+  ],
+  fallbackFeeCents: 1200n,        // 8–10km, beyond last band — always charged
+  maxKm: 10,                      // delivery radius (straight-line km)
+  minimumSubtotalCents: 1200n,    // $12 minimum order
+  serviceFeeBps: 500n,            // 5% × drinks subtotal
+  hoursOpen: 10.5,                // 10:30 Brisbane
+  hoursClose: 22.5,               // 22:30 Brisbane (decimal hour)
 } as const;
 
 export const SERVICE_FEE = {
   name: "Service Fee",
-  percentage: "8",
+  percentage: "5",
 } as const;
 
 export const DELIVERY_FEE_NAME = "Delivery Fee";

@@ -14,7 +14,7 @@ import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
+import { distanceKm, isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 
 // Creates a Square order from the client cart. Identity is derived
@@ -481,8 +481,12 @@ export async function POST(request: Request) {
 
     // Delivery + service fees only when DELIVERY mode AND not a free-redeem.
     // Both are SUBTOTAL_PHASE amount-money charges on the line-item subtotal.
-    if (isDelivery && !skipSurcharges) {
-      const fee = deliveryFeeCents(drinksSubtotalCents);
+    if (isDelivery && body.delivery && !skipSurcharges) {
+      const distKm = distanceKm(STORE_COORDS, {
+        lat: body.delivery.lat,
+        lng: body.delivery.lng,
+      });
+      const fee = deliveryFeeCents(drinksSubtotalCents, distKm);
       if (fee > 0n) {
         orderServiceCharges.push({
           uid: "delivery-fee",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
+import { distanceKm, isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { getAuthedUser } from "@/lib/auth";
@@ -56,13 +56,15 @@ export async function POST(request: Request) {
   if (!isDeliveryHoursOpen()) {
     return NextResponse.json({ ok: false, reason: "closed" });
   }
-  if (!isWithinDeliveryRadius(STORE_COORDS, { lat: body.lat, lng: body.lng })) {
+  const dest = { lat: body.lat, lng: body.lng };
+  if (!isWithinDeliveryRadius(STORE_COORDS, dest)) {
     return NextResponse.json({ ok: false, reason: "out_of_zone" });
   }
 
+  const distKm = distanceKm(STORE_COORDS, dest);
   return NextResponse.json({
     ok: true,
-    feeCents: Number(deliveryFeeCents(drinksSubtotalCents)),
+    feeCents: Number(deliveryFeeCents(drinksSubtotalCents, distKm)),
     serviceFeeCents: Number(serviceFeeCents(drinksSubtotalCents)),
   });
 }
