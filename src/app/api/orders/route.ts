@@ -12,7 +12,7 @@ import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
-import { deliveryFulfillmentNote, deliveryTicketName } from "@/lib/delivery-ticket";
+import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -262,6 +262,11 @@ export async function POST(request: Request) {
   let pickupNumber: string;
   try {
     pickupNumber = await nextOnlineOrderNumber();
+    // Delivery orders get a DE-prefixed number (DE800 vs the OL800 pickup
+    // series) so staff distinguish them at a glance in Square Register —
+    // more robust than an emoji, which Register hardware can garble. Same
+    // atomic counter, just a relabelled prefix.
+    if (isDelivery) pickupNumber = pickupNumber.replace(/^OL/, "DE");
   } catch {
     return NextResponse.json(
       { ok: false, error: "Failed to generate order number" },
@@ -397,7 +402,7 @@ export async function POST(request: Request) {
         locationId: SQUARE_LOCATION_ID,
         customerId,
         referenceId: pickupNumber,
-        ticketName: isDelivery ? deliveryTicketName(pickupNumber) : pickupNumber,
+        ticketName: pickupNumber,
         lineItems,
         discounts: welcomeDiscounts,
         // Passes Square card-processing fees (and PH surcharge) through

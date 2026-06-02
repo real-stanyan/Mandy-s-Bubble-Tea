@@ -30,11 +30,3 @@ export function deliveryFulfillmentNote(args: {
     .filter(Boolean)
     .join(SEP);
 }
-
-/**
- * Ticket name shown in the Square Register order list. The 🚚 prefix lets staff
- * distinguish delivery tickets from pickup tickets at a glance.
- */
-export function deliveryTicketName(orderNumber: string): string {
-  return `🚚 ${orderNumber}`;
-}

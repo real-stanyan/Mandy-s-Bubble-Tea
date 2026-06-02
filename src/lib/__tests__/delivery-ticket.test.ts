@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deliveryFulfillmentNote, deliveryTicketName } from "../delivery-ticket";
+import { deliveryFulfillmentNote } from "../delivery-ticket";
 
 describe("deliveryFulfillmentNote", () => {
   it("leads with the truck marker + address so staff see where to drive", () => {
@@ -25,11 +25,5 @@ describe("deliveryFulfillmentNote", () => {
   it("omits empty optional fields with no dangling separators", () => {
     const note = deliveryFulfillmentNote({ address: "1 A St", phone: "+61400000000" });
     expect(note).toBe("🚚 DELIVERY · 1 A St · +61400000000");
-  });
-});
-
-describe("deliveryTicketName", () => {
-  it("prefixes the order number with the truck marker", () => {
-    expect(deliveryTicketName("OL801")).toBe("🚚 OL801");
   });
 });
