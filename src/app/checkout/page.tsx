@@ -22,7 +22,7 @@ import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { isDeliveryEligible, deliveryFeeCents, serviceFeeCents } from "@/lib/delivery-fee";
+import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
@@ -355,14 +355,22 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   );
 
   // Delivery + service fees — only displayed (and added to total) when DELIVERY is chosen.
-  // Both are SUBTOTAL_PHASE service charges on the server (T18+), so client mirrors that math.
+  // The delivery fee is distance-based, so the client cannot recompute it (no distance
+  // here). We mirror the authoritative amounts the server returned in the quote; until a
+  // valid quote resolves there is no fee to show.
   const deliveryFeeAmount = useMemo(
-    () => (fulfillment === "DELIVERY" ? deliveryFeeCents(subtotal) : 0n),
-    [fulfillment, subtotal],
+    () =>
+      fulfillment === "DELIVERY" && quoteState.kind === "ok"
+        ? BigInt(quoteState.feeCents)
+        : 0n,
+    [fulfillment, quoteState],
   );
   const serviceFeeAmount = useMemo(
-    () => (fulfillment === "DELIVERY" ? serviceFeeCents(subtotal) : 0n),
-    [fulfillment, subtotal],
+    () =>
+      fulfillment === "DELIVERY" && quoteState.kind === "ok"
+        ? BigInt(quoteState.serviceFeeCents)
+        : 0n,
+    [fulfillment, quoteState],
   );
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
