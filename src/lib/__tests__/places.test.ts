@@ -34,4 +34,8 @@ describe("isWithinDeliveryRadius", () => {
   it("true at store location itself", () => {
     expect(isWithinDeliveryRadius(STORE, STORE)).toBe(true);
   });
+
+  it("true at ~9 km (8–10km fallback band still in radius)", () => {
+    expect(isWithinDeliveryRadius(STORE, { lat: STORE.lat + 0.081, lng: STORE.lng })).toBe(true);
+  });
 });
