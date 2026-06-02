@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { distanceKm, isWithinDeliveryRadius } from "../places";
+import { coordsAreValid, distanceKm, isWithinDeliveryRadius } from "../places";
 
 const STORE = { lat: -28.0084, lng: 153.4116 }; // 34 Davenport St
 
@@ -37,5 +37,26 @@ describe("isWithinDeliveryRadius", () => {
 
   it("true at ~9 km (8–10km fallback band still in radius)", () => {
     expect(isWithinDeliveryRadius(STORE, { lat: STORE.lat + 0.081, lng: STORE.lng })).toBe(true);
+  });
+});
+
+describe("coordsAreValid", () => {
+  it("true for a real Mandy's-area coordinate", () => {
+    expect(coordsAreValid(-28.0084, 153.4116)).toBe(true);
+  });
+  it("false for 0,0 (the 'unset' sentinel)", () => {
+    expect(coordsAreValid(0, 0)).toBe(false);
+  });
+  it("false when only latitude is 0", () => {
+    expect(coordsAreValid(0, 153.4116)).toBe(false);
+  });
+  it("false when only longitude is 0", () => {
+    expect(coordsAreValid(-28.0084, 0)).toBe(false);
+  });
+  it("false for NaN", () => {
+    expect(coordsAreValid(NaN, NaN)).toBe(false);
+  });
+  it("false for Infinity", () => {
+    expect(coordsAreValid(Infinity, 153)).toBe(false);
   });
 });

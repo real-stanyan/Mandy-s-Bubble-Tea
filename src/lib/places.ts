@@ -27,3 +27,10 @@ export function distanceKm(a: LatLng, b: LatLng): number {
 export function isWithinDeliveryRadius(store: LatLng, dest: LatLng): boolean {
   return distanceKm(store, dest) <= DELIVERY.maxKm;
 }
+
+// A delivery coordinate is "confirmed" only when it is finite and non-zero.
+// The store sits at lat -28 / lng 153, so 0/0 is never a real Mandy's
+// coordinate — the form uses it as the "no address selected yet" sentinel.
+export function coordsAreValid(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+}
