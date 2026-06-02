@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { WebhooksHelper } from "square";
 import { getUserIdBySquareCustomer, purgeAccount } from "@/lib/supabase";
 import { squareClient } from "@/lib/square";
+import { classifyDeletedCustomerResult } from "@/lib/square-customer-status";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
 import { enqueuePrintJob } from "@/lib/print-jobs";
@@ -449,10 +450,34 @@ export async function POST(request: Request) {
       );
       return NextResponse.json({ ok: true });
     }
-    await purgeAccount({ customerId });
-    console.log(
-      `[square-webhook] purged Supabase account for Square customer ${customerId} event_id=${event.event_id}`,
-    );
+    // customer.deleted ALSO fires for the losing id of a Square *merge*,
+    // where the id still resolves (GET redirects to the surviving customer
+    // under a different id). Purging then wrongly deletes a still-live
+    // member. So confirm with Square that the customer is genuinely gone
+    // (404) before purging; on a merge / still-alive / transient error we
+    // skip — the merged-id re-point is handled out of band.
+    let customer: { id?: string | null } | null = null;
+    let getError: { statusCode?: number; errors?: Array<{ code?: string }> } | null =
+      null;
+    try {
+      const res = await squareClient.customers.get({ customerId });
+      customer = res?.customer ?? null;
+    } catch (err) {
+      getError = err as { statusCode?: number; errors?: Array<{ code?: string }> };
+    }
+    const cls = classifyDeletedCustomerResult(customerId, customer, getError);
+    if (cls.kind === "gone") {
+      await purgeAccount({ customerId });
+      console.log(
+        `[square-webhook] purged Supabase account for Square customer ${customerId} event_id=${event.event_id}`,
+      );
+    } else {
+      console.warn(
+        `[square-webhook] customer.deleted for ${customerId} NOT purged (kind=${cls.kind}${
+          cls.kind === "merged" ? `, survivor=${cls.survivorId}` : ""
+        }) event_id=${event.event_id}`,
+      );
+    }
   }
 
   if (event.type === "order.fulfillment.updated") {
