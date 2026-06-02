@@ -19,6 +19,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -157,6 +158,23 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const applePayRequestRef = useRef<any>(null);
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+
+  // Apply the session order-mode preference (set from the home popup) as the
+  // fulfillment default — once, on entry. DELIVERY is honored only when it's
+  // enabled and the subtotal meets the minimum, otherwise we fall back to
+  // PICKUP. Runs after cart hydration (this component only renders post-hydrate)
+  // so `subtotal` is accurate; the ref guard keeps a later manual toggle intact.
+  const appliedOrderModeRef = useRef(false);
+  useEffect(() => {
+    if (appliedOrderModeRef.current) return;
+    appliedOrderModeRef.current = true;
+    const mode = resolveInitialFulfillment(
+      getPreferredFulfillment(),
+      subtotal,
+      process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true",
+    );
+    if (mode !== "PICKUP") setFulfillment(mode);
+  }, [subtotal]);
 
   // Expand all cup unit prices, sorted ascending — used for multi-reward discount.
   const sortedUnitPrices = useMemo(() => {

@@ -4,6 +4,7 @@ import { getMenu, type MenuItem } from "@/lib/catalog";
 import { BRAND, BUSINESS, FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
+import { OrderModePopup } from "@/components/home/OrderModePopup";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
 import { FragranceBlindBoxPromo } from "@/components/home/FragranceBlindBoxPromo";
 
@@ -160,6 +161,7 @@ export default async function Home() {
       <OurStory />
       <AppPromo />
       <LoyaltyPopup />
+      <OrderModePopup />
     </div>
   );
 }
