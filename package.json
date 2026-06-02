@@ -17,6 +17,7 @@
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@resvg/resvg-js": "^2.6.2",
+    "@sentry/nextjs": "^10.55.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.2",
     "@upstash/qstash": "^2.10.1",
