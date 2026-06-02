@@ -132,6 +132,25 @@ export async function purgeAccount(args: {
   }
 
   if (userId) {
+    // mandy_customer_metrics carries a FK onto user_profiles
+    // (mandy_customer_metrics_user_id_fkey, ON DELETE NO ACTION). It was
+    // added with the broadcasts analytics feature after this purge was
+    // written, so the user_profiles delete below hits
+    // "violates foreign key constraint mandy_customer_metrics_user_id_fkey"
+    // unless we release the child row first. Delete it explicitly — same as
+    // the other children above; we deliberately don't rely on cascade
+    // (see the auth.users cascade note below).
+    const { error: metricsErr } = await admin
+      .from("mandy_customer_metrics")
+      .delete()
+      .eq("user_id", userId);
+    if (metricsErr) {
+      console.error("[purge] mandy_customer_metrics delete failed", metricsErr);
+      throw new Error(
+        `Failed to release mandy_customer_metrics row: ${metricsErr.message}`,
+      );
+    }
+
     // CRITICAL: explicitly delete user_profiles BEFORE touching auth.users.
     // user_profiles owns its own UNIQUE constraint on phone_e164 (separate
     // from auth.users.phone) and we previously relied on ON DELETE CASCADE
