@@ -146,9 +146,11 @@ export const SERVICE_FEE = {
 export const DELIVERY_FEE_NAME = "Delivery Fee";
 
 // Mandy's Bubble Tea — 34 Davenport St, Southport QLD 4215.
-// TODO: confirm exact lat/lng with Google Maps before Phase 4.
-export const STORE_LAT = -28.0084;
-export const STORE_LNG = 153.4116;
+// Geocoded 2026-06-03 (OSM/Nominatim) — the prior placeholder (-28.0084)
+// was ~4.6 km too far south, which skewed both the live-tracking store pin
+// and the free-delivery distance check in places.ts.
+export const STORE_LAT = -27.9660;
+export const STORE_LNG = 153.4115;
 
 // Self-delivery driver shown on the customer's live-tracking card (Uber-Eats
 // style). Single store driver for now — update here if the driver changes.

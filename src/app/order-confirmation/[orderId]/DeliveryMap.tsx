@@ -132,13 +132,16 @@ export function DeliveryMap({ tracking }: Props) {
       map.setView(pts[0], 15);
     } else {
       const bounds: LatLngBoundsExpression = L.latLngBounds(pts).pad(0.3);
-      // maxZoom guards the case where all points are nearly coincident (driver
-      // still at the store) — without it fitBounds zooms in to street level on
-      // a single pixel. Bottom padding leaves room for the overlay sheet.
+      // Reserve room at the bottom for the overlay sheet, but cap it at ~38% of
+      // the map height so fitBounds always has enough viewport left to actually
+      // fit all points (a fixed padding bigger than the viewport breaks the
+      // fit). maxZoom guards the case where points are nearly coincident.
+      const h = map.getSize().y || 600;
+      const bottomPad = Math.min(240, Math.round(h * 0.38));
       map.fitBounds(bounds, {
         maxZoom: 16,
         paddingTopLeft: [30, 40],
-        paddingBottomRight: [30, 260],
+        paddingBottomRight: [30, bottomPad],
       });
     }
   }
