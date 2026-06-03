@@ -1,6 +1,7 @@
 import "server-only"
 import { squareClient } from "@/lib/square"
 import { getActiveProgram } from "@/lib/loyalty"
+import { normalizeAuPhone } from "@/lib/phone"
 
 export interface CustomerPassData {
   customerId: string
@@ -21,7 +22,10 @@ export async function fetchCustomerPassData(
 
   const given = customer.givenName?.trim() ?? ""
   const family = customer.familyName?.trim() ?? ""
-  const phone = customer.phoneNumber ?? ""
+  // Square may store the phone in local AU format (04xx xxx xxx). The pass QR
+  // payload must be E.164 to match the loyalty reference_id the POS looks up,
+  // exactly like the web member QR (which uses the E.164 phone_e164). Normalize.
+  const phone = normalizeAuPhone(customer.phoneNumber ?? "") ?? ""
   const memberName =
     [given, family].filter(Boolean).join(" ") ||
     (phone ? `·${phone.slice(-4)}` : "Member")
