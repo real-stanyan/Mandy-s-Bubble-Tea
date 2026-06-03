@@ -77,3 +77,67 @@ export async function recordDispatch(args: {
     .upsert(row, { onConflict: "order_id" });
   if (error) throw new Error(`recordDispatch: ${error.message}`);
 }
+
+/**
+ * Stash the driver's latest GPS fix on the dispatch row. Called frequently
+ * (every ~10s while a delivery is in progress) from the Bearer-guarded
+ * POST /api/driver/location route. We only keep the latest point — no
+ * breadcrumb history — so this is a plain update keyed on order_id. The row
+ * already exists because tracking only starts after picked_up created it.
+ */
+export async function updateDriverLocation(args: {
+  orderId: string;
+  lat: number;
+  lng: number;
+  heading?: number | null;
+}): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { error } = await admin
+    .from("delivery_dispatch")
+    .update({
+      driver_lat: args.lat,
+      driver_lng: args.lng,
+      driver_heading: args.heading ?? null,
+      location_updated_at: new Date().toISOString(),
+    })
+    .eq("order_id", args.orderId);
+  if (error) throw new Error(`updateDriverLocation: ${error.message}`);
+}
+
+export type DispatchTracking = {
+  status: DispatchStatus;
+  driverLat: number | null;
+  driverLng: number | null;
+  driverHeading: number | null;
+  locationUpdatedAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+};
+
+/**
+ * Read the dispatch row's tracking fields for the customer-facing live map.
+ * Returns null if no dispatch row exists yet (driver hasn't picked up).
+ */
+export async function getDispatchTracking(
+  orderId: string,
+): Promise<DispatchTracking | null> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select(
+      "status, driver_lat, driver_lng, driver_heading, location_updated_at, picked_up_at, delivered_at",
+    )
+    .eq("order_id", orderId)
+    .maybeSingle();
+  if (error) throw new Error(`getDispatchTracking: ${error.message}`);
+  if (!data) return null;
+  return {
+    status: data.status as DispatchStatus,
+    driverLat: data.driver_lat as number | null,
+    driverLng: data.driver_lng as number | null,
+    driverHeading: data.driver_heading as number | null,
+    locationUpdatedAt: data.location_updated_at as string | null,
+    pickedUpAt: data.picked_up_at as string | null,
+    deliveredAt: data.delivered_at as string | null,
+  };
+}
