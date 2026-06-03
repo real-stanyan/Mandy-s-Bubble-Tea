@@ -453,6 +453,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const effectiveDeliveryFee = isFreeRedeem ? 0n : deliveryFeeAmount;
   const effectiveServiceFee = isFreeRedeem ? 0n : serviceFeeAmount;
 
+  // DELIVERY selected but no authoritative quote yet (address incomplete, out
+  // of zone, outside hours, or signed out) → deliveryFee/serviceFee both fall
+  // back to 0n. Render a pending "—" instead of a misleading "FREE" / "$0.00":
+  // delivery is NOT actually free until a quote confirms it. Free-redeem orders
+  // are genuinely $0, so they bypass the pending state.
+  const deliveryFeesPending =
+    fulfillment === "DELIVERY" && !isFreeRedeem && quoteState.kind !== "ok";
+
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
     else if (googlePayAvailable) setPayMethod("google");
@@ -1033,11 +1041,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       <div className="flex justify-between text-sm text-zinc-600">
                         <span>{DELIVERY_FEE_NAME}</span>
                         <span className="font-semibold text-zinc-900">
-                          {effectiveDeliveryFee === 0n ? (
-                            <>
-                              <span className="mr-1 text-zinc-400 line-through">$4.99</span>
-                              <span className="text-emerald-600">FREE</span>
-                            </>
+                          {deliveryFeesPending ? (
+                            <span className="text-zinc-400">—</span>
+                          ) : effectiveDeliveryFee === 0n ? (
+                            <span className="text-emerald-600">FREE</span>
                           ) : (
                             formatPrice(effectiveDeliveryFee)
                           )}
@@ -1051,7 +1058,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           </span>
                         </span>
                         <span className="font-semibold text-zinc-900">
-                          {formatPrice(effectiveServiceFee)}
+                          {deliveryFeesPending ? (
+                            <span className="text-zinc-400">—</span>
+                          ) : (
+                            formatPrice(effectiveServiceFee)
+                          )}
                         </span>
                       </div>
                     </>
@@ -1332,11 +1343,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 <div className="flex justify-between text-sm text-zinc-600">
                   <span>{DELIVERY_FEE_NAME}</span>
                   <span className="font-semibold text-zinc-900">
-                    {effectiveDeliveryFee === 0n ? (
-                      <>
-                        <span className="mr-1 text-zinc-400 line-through">$4.99</span>
-                        <span className="text-emerald-600">FREE</span>
-                      </>
+                    {deliveryFeesPending ? (
+                      <span className="text-zinc-400">—</span>
+                    ) : effectiveDeliveryFee === 0n ? (
+                      <span className="text-emerald-600">FREE</span>
                     ) : (
                       formatPrice(effectiveDeliveryFee)
                     )}
@@ -1350,7 +1360,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </span>
                   </span>
                   <span className="font-semibold text-zinc-900">
-                    {formatPrice(effectiveServiceFee)}
+                    {deliveryFeesPending ? (
+                      <span className="text-zinc-400">—</span>
+                    ) : (
+                      formatPrice(effectiveServiceFee)
+                    )}
                   </span>
                 </div>
               </>
