@@ -165,7 +165,14 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
 
   return (
     <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8 sm:px-6 sm:py-12">
-      <OrderStatusHero orderId={orderId} initialState={initialState} isDelivery={isDelivery} />
+      <OrderStatusHero
+        orderId={orderId}
+        initialState={initialState}
+        isDelivery={isDelivery}
+        orderNumber={pickupNumber}
+        deliveryAddress={deliveryAddress}
+        etaText={waitText}
+      />
 
       {/* Pickup number — big, so staff and customer can match on it */}
       <div

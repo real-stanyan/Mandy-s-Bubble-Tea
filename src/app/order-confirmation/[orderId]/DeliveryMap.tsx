@@ -34,6 +34,7 @@ export function DeliveryMap({ tracking }: Props) {
   const mapRef = useRef<LeafletMap | null>(null);
   const driverMarkerRef = useRef<Marker | null>(null);
   const animRef = useRef<number | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   // Leaflet module, loaded lazily (references window at import time).
   const LRef = useRef<typeof import("leaflet") | null>(null);
   const [ready, setReady] = useState(false);
@@ -86,12 +87,34 @@ export function DeliveryMap({ tracking }: Props) {
 
       mapRef.current = map;
       setReady(true);
-      fitAll(L, map);
+      // The map container often has zero height at init time (dynamically
+      // imported component, fonts/layout still settling). fitBounds against a
+      // zero-size viewport collapses to world zoom — recompute the size and
+      // re-fit on the next frame once the div has real dimensions.
+      requestAnimationFrame(() => {
+        if (mapRef.current !== map) return;
+        map.invalidateSize();
+        fitAll(L, map);
+      });
+
+      // Container can resize after init (header-height offset measured by the
+      // parent, orientation change). Keep Leaflet's canvas in sync + re-fit.
+      if (containerRef.current && "ResizeObserver" in window) {
+        const ro = new ResizeObserver(() => {
+          if (mapRef.current !== map) return;
+          map.invalidateSize();
+          fitAll(L, map);
+        });
+        ro.observe(containerRef.current);
+        roRef.current = ro;
+      }
     })();
 
     return () => {
       cancelled = true;
       if (animRef.current) cancelAnimationFrame(animRef.current);
+      roRef.current?.disconnect();
+      roRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       driverMarkerRef.current = null;
@@ -108,8 +131,15 @@ export function DeliveryMap({ tracking }: Props) {
     if (pts.length === 1) {
       map.setView(pts[0], 15);
     } else {
-      const bounds: LatLngBoundsExpression = L.latLngBounds(pts).pad(0.25);
-      map.fitBounds(bounds);
+      const bounds: LatLngBoundsExpression = L.latLngBounds(pts).pad(0.3);
+      // maxZoom guards the case where all points are nearly coincident (driver
+      // still at the store) — without it fitBounds zooms in to street level on
+      // a single pixel. Bottom padding leaves room for the overlay sheet.
+      map.fitBounds(bounds, {
+        maxZoom: 16,
+        paddingTopLeft: [30, 40],
+        paddingBottomRight: [30, 260],
+      });
     }
   }
 
@@ -154,23 +184,20 @@ export function DeliveryMap({ tracking }: Props) {
     animRef.current = requestAnimationFrame(step);
   }, [ready, tracking.driverLat, tracking.driverLng]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fills its parent — the tracking view positions it full-screen behind the
+  // overlay sheet. `hasDriver` is consumed by the overlay's freshness chip.
+  void hasDriver;
   return (
-    <div className="mb-6 overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
-      <div
-        ref={containerRef}
-        className="h-64 w-full"
-        style={{ background: "#E8E5DE" }}
-        aria-label="Live delivery map"
-      />
-      <FreshnessBar
-        hasDriver={hasDriver}
-        locationUpdatedAt={tracking.locationUpdatedAt}
-      />
-    </div>
+    <div
+      ref={containerRef}
+      className="h-full w-full"
+      style={{ background: "#E8E5DE" }}
+      aria-label="Live delivery map"
+    />
   );
 }
 
-function FreshnessBar({
+export function FreshnessBar({
   hasDriver,
   locationUpdatedAt,
 }: {
@@ -198,13 +225,13 @@ function FreshnessBar({
   }
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2.5">
+    <div className="inline-flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-2 shadow-md backdrop-blur">
       <span
         className="inline-block h-2 w-2 rounded-full"
         style={{ background: hasDriver ? "#5B7A52" : "#C9A227" }}
         aria-hidden="true"
       />
-      <p className="text-xs font-medium text-zinc-600">{label}</p>
+      <p className="text-xs font-semibold text-zinc-700">{label}</p>
     </div>
   );
 }

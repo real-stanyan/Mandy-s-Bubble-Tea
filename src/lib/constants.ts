@@ -137,3 +137,12 @@ export const DELIVERY_FEE_NAME = "Delivery Fee";
 // TODO: confirm exact lat/lng with Google Maps before Phase 4.
 export const STORE_LAT = -28.0084;
 export const STORE_LNG = 153.4116;
+
+// Self-delivery driver shown on the customer's live-tracking card (Uber-Eats
+// style). Single store driver for now — update here if the driver changes.
+// `phone` is digits-only for the tel: link; `phoneDisplay` is what we render.
+export const DELIVERY_DRIVER = {
+  name: "Rick Zhang",
+  phone: "+61404978238",
+  phoneDisplay: "+61 404 978 238",
+};
