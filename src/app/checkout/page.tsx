@@ -974,119 +974,140 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
-                {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
-                  <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: BRAND.primaryColor }}
-                      />
-                      Welcome {welcomeDiscount.percentage}% Off
-                      <span className="text-xs text-zinc-500">
-                        ({promoCoverage.welcomeCount} drink
-                        {promoCoverage.welcomeCount === 1 ? "" : "s"})
+
+                <div className="mt-4 space-y-3 border-t border-black/10 pt-4">
+                  <div className="flex justify-between text-sm text-zinc-600">
+                    <span>Subtotal</span>
+                    <span className="font-semibold text-zinc-900">
+                      {formatPrice(subtotal)}
+                    </span>
+                  </div>
+                  {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        Welcome {welcomeDiscount.percentage}% Off
+                        <span className="text-xs text-zinc-500">
+                          ({promoCoverage.welcomeCount} drink
+                          {promoCoverage.welcomeCount === 1 ? "" : "s"})
+                        </span>
                       </span>
-                    </span>
-                    <span style={{ color: BRAND.primaryColor }}>
-                      −{formatPrice(welcomeDiscountAmount)}
-                    </span>
-                  </div>
-                )}
-                {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
-                  <div className="mt-3 flex items-center justify-between border-t border-black/10 pt-3 text-sm">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: BRAND.primaryColor }}
-                      />
-                      IG Follow {igFollowDiscount.percentage || 10}% Off
-                      <span className="text-xs text-zinc-500">
-                        ({promoCoverage.igFollowCount} drink
-                        {promoCoverage.igFollowCount === 1 ? "" : "s"})
-                      </span>
-                    </span>
-                    <span style={{ color: BRAND.primaryColor }}>
-                      −{formatPrice(igFollowDiscountAmount)}
-                    </span>
-                  </div>
-                )}
-                {rewardCount > 0 && (
-                  <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm">
-                    <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                      Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
-                    </span>
-                    <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                      −{formatPrice(rewardDiscount)}
-                    </span>
-                  </div>
-                )}
-                {fulfillment === "DELIVERY" && (
-                  <>
-                    <div className="flex justify-between text-sm text-zinc-600">
-                      <span>{DELIVERY_FEE_NAME}</span>
-                      <span className="font-semibold text-zinc-900">
-                        {effectiveDeliveryFee === 0n ? (
-                          <>
-                            <span className="mr-1 text-zinc-400 line-through">$4.99</span>
-                            <span className="text-emerald-600">FREE</span>
-                          </>
-                        ) : (
-                          formatPrice(effectiveDeliveryFee)
-                        )}
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(welcomeDiscountAmount)}
                       </span>
                     </div>
+                  )}
+                  {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        IG Follow {igFollowDiscount.percentage || 10}% Off
+                        <span className="text-xs text-zinc-500">
+                          ({promoCoverage.igFollowCount} drink
+                          {promoCoverage.igFollowCount === 1 ? "" : "s"})
+                        </span>
+                      </span>
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(igFollowDiscountAmount)}
+                      </span>
+                    </div>
+                  )}
+                  {rewardCount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                        Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
+                      </span>
+                      <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(rewardDiscount)}
+                      </span>
+                    </div>
+                  )}
+                  {fulfillment === "DELIVERY" && (
+                    <>
+                      <div className="flex justify-between text-sm text-zinc-600">
+                        <span>{DELIVERY_FEE_NAME}</span>
+                        <span className="font-semibold text-zinc-900">
+                          {effectiveDeliveryFee === 0n ? (
+                            <>
+                              <span className="mr-1 text-zinc-400 line-through">$4.99</span>
+                              <span className="text-emerald-600">FREE</span>
+                            </>
+                          ) : (
+                            formatPrice(effectiveDeliveryFee)
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm text-zinc-600">
+                        <span>
+                          {SERVICE_FEE.name}{" "}
+                          <span className="text-xs text-zinc-400">
+                            ({SERVICE_FEE.percentage}%)
+                          </span>
+                        </span>
+                        <span className="font-semibold text-zinc-900">
+                          {formatPrice(effectiveServiceFee)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {effectivePhSurcharge > 0n && (
                     <div className="flex justify-between text-sm text-zinc-600">
                       <span>
-                        {SERVICE_FEE.name}{" "}
+                        {PH_SURCHARGE.name}{" "}
                         <span className="text-xs text-zinc-400">
-                          ({SERVICE_FEE.percentage}%)
+                          ({PH_SURCHARGE.percentage}%)
                         </span>
                       </span>
                       <span className="font-semibold text-zinc-900">
-                        {formatPrice(effectiveServiceFee)}
+                        {formatPrice(effectivePhSurcharge)}
                       </span>
                     </div>
-                  </>
-                )}
-                {effectivePhSurcharge > 0n && (
+                  )}
+                  {effectivePlatformFee > 0n && (
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>
+                        {PLATFORM_FEE.name}{" "}
+                        <span className="text-xs text-zinc-400">
+                          ({PLATFORM_FEE.percentage}%)
+                        </span>
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        {formatPrice(effectivePlatformFee)}
+                      </span>
+                    </div>
+                  )}
+                  {effectiveSurcharge > 0n && (
+                    <div className="flex justify-between text-sm text-zinc-600">
+                      <span>
+                        {CARD_SURCHARGE.name}{" "}
+                        <span className="text-xs text-zinc-400">
+                          ({CARD_SURCHARGE.percentage}%)
+                        </span>
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        {formatPrice(effectiveSurcharge)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm text-zinc-600">
-                    <span>
-                      {PH_SURCHARGE.name}{" "}
-                      <span className="text-xs text-zinc-400">
-                        ({PH_SURCHARGE.percentage}%)
-                      </span>
-                    </span>
+                    <span>Tax</span>
                     <span className="font-semibold text-zinc-900">
-                      {formatPrice(effectivePhSurcharge)}
+                      Calculated at payment
                     </span>
                   </div>
-                )}
-                {effectivePlatformFee > 0n && (
-                  <div className="flex justify-between text-sm text-zinc-600">
-                    <span>
-                      {PLATFORM_FEE.name}{" "}
-                      <span className="text-xs text-zinc-400">
-                        ({PLATFORM_FEE.percentage}%)
-                      </span>
-                    </span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatPrice(effectivePlatformFee)}
+                  <div className="flex justify-between border-t border-black/10 pt-3 text-base">
+                    <span className="font-bold text-zinc-900">Total</span>
+                    <span className="text-lg font-bold text-zinc-900">
+                      {formatPrice(displayTotal)}
                     </span>
                   </div>
-                )}
-                {effectiveSurcharge > 0n && (
-                  <div className="mt-3 flex justify-between border-t border-black/10 pt-3 text-sm text-zinc-600">
-                    <span>
-                      {CARD_SURCHARGE.name}{" "}
-                      <span className="text-xs text-zinc-400">
-                        ({CARD_SURCHARGE.percentage}%)
-                      </span>
-                    </span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatPrice(effectiveSurcharge)}
-                    </span>
-                  </div>
-                )}
+                </div>
               </div>
             </details>
           </section>
