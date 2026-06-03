@@ -105,16 +105,20 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
 // ---- Delivery (self-delivery by store staff) ----
 
 export const DELIVERY = {
-  // Distance bands, ascending. First band whose maxKm >= distance wins.
-  // Transcribed from the Square Online dashboard (2026-06-02). Square's
-  // settings are dashboard-only (no API), so this is the source of truth.
+  // Pricing model (2026-06-03):
+  //  • <= freeRadiusKm (3km straight-line): delivery is always free.
+  //  • beyond 3km: free at/above freeAtSubtotalCents ($50); otherwise the
+  //    distance band fee applies. Bands below are for distance > 3km only.
+  freeRadiusKm: 3,
+  freeAtSubtotalCents: 5000n,     // $50 — free delivery threshold beyond 3km
+  // Distance bands for the paid (>3km, <$50) range. First band whose
+  // maxKm >= distance wins. Fees carried over from the prior structure.
   tiers: [
-    { maxKm: 2, feeCents: 399n, freeAtSubtotalCents: 3500n },
-    { maxKm: 4, feeCents: 499n, freeAtSubtotalCents: 3500n },
-    { maxKm: 6, feeCents: 699n, freeAtSubtotalCents: 5000n },
-    { maxKm: 8, feeCents: 899n, freeAtSubtotalCents: 5000n },
+    { maxKm: 4, feeCents: 499n },
+    { maxKm: 6, feeCents: 699n },
+    { maxKm: 8, feeCents: 899n },
   ],
-  fallbackFeeCents: 1200n,        // 8–10km, beyond last band — always charged
+  fallbackFeeCents: 1200n,        // 8–10km, beyond last band
   maxKm: 10,                      // delivery radius (straight-line km)
   minimumSubtotalCents: 1200n,    // $12 minimum order
   serviceFeeBps: 500n,            // 5% × drinks subtotal

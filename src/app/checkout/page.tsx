@@ -20,6 +20,7 @@ import { formatPrice } from "@/lib/utils";
 import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
+import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -204,9 +205,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         igFollowDiscountCents: 0n,
       };
     }
-    const welcomeK = welcomeDiscount.available
-      ? welcomeDiscount.drinksRemaining
-      : 0;
+    const welcomeK =
+      welcomeDiscount.available && welcomeDiscountEligible(fulfillment)
+        ? welcomeDiscount.drinksRemaining
+        : 0;
     const igK = igFollowDiscount.available
       ? igFollowDiscount.drinksRemaining
       : 0;
@@ -234,7 +236,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       igFollowCount: igFollowCups.length,
       igFollowDiscountCents,
     };
-  }, [sortedUnitPrices, rewardCount, welcomeDiscount, igFollowDiscount]);
+  }, [sortedUnitPrices, rewardCount, welcomeDiscount, igFollowDiscount, fulfillment]);
   const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
   const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
@@ -648,7 +650,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           note: note.trim() || undefined,
-          applyWelcomeDiscount: welcomeDiscount.available,
+          applyWelcomeDiscount:
+            welcomeDiscount.available && welcomeDiscountEligible(fulfillment),
           applyIgFollowDiscount: igFollowDiscount.available,
           applyLoyaltyReward: rewardCount > 0,
           loyaltyRewardCount: rewardCount,

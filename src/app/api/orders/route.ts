@@ -355,8 +355,12 @@ export async function POST(request: Request) {
             }),
       ]);
 
+      // Welcome (new-customer) discount is pickup-only — never applied to, or
+      // consumed by, delivery orders. Server-authoritative gate.
       const welcomeK =
-        welcomeStatus.available && welcomeStatus.drinksRemaining > 0
+        !isDelivery &&
+        welcomeStatus.available &&
+        welcomeStatus.drinksRemaining > 0
           ? welcomeStatus.drinksRemaining
           : 0;
       const igK =

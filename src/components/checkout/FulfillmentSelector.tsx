@@ -51,7 +51,7 @@ export function FulfillmentSelector({ value, onChange, drinksSubtotalCents }: Pr
         <div className="font-semibold text-zinc-900">Delivery</div>
         <div className="mt-0.5 text-xs text-zinc-600">
           {eligible
-            ? `By our team · from $${(Number(DELIVERY.tiers[0].feeCents) / 100).toFixed(2)}`
+            ? `By our team · free within ${DELIVERY.freeRadiusKm}km`
             : `Add ${formatPrice(remainingCents)} to enable`}
         </div>
       </button>
