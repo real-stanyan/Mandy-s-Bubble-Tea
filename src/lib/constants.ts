@@ -105,20 +105,17 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
 // ---- Delivery (self-delivery by store staff) ----
 
 export const DELIVERY = {
-  // Pricing model (2026-06-03):
-  //  • <= freeRadiusKm (3km straight-line): delivery is always free.
-  //  • beyond 3km: free at/above freeAtSubtotalCents ($50); otherwise the
-  //    distance band fee applies. Bands below are for distance > 3km only.
-  freeRadiusKm: 3,
-  freeAtSubtotalCents: 5000n,     // $50 — free delivery threshold beyond 3km
-  // Distance bands for the paid (>3km, <$50) range. First band whose
-  // maxKm >= distance wins. Fees carried over from the prior structure.
+  // Pricing model (2026-06-03, distance-banded free thresholds):
+  //  • 0–4km : free at/above $35, else $4.99. (No more "always free <=3km".)
+  //  • 4–8km : free at/above $50, else $6.99 (4–6km) / $8.99 (6–8km).
+  //  • 8km+  : flat $15, NEVER free regardless of subtotal.
+  // First tier whose maxKm >= distance wins; beyond the last tier → farFeeCents.
   tiers: [
-    { maxKm: 4, feeCents: 499n },
-    { maxKm: 6, feeCents: 699n },
-    { maxKm: 8, feeCents: 899n },
+    { maxKm: 4, feeCents: 499n, freeAtCents: 3500n },
+    { maxKm: 6, feeCents: 699n, freeAtCents: 5000n },
+    { maxKm: 8, feeCents: 899n, freeAtCents: 5000n },
   ],
-  fallbackFeeCents: 1200n,        // 8–10km, beyond last band
+  farFeeCents: 1500n,             // 8km+, flat, never waived
   maxKm: 10,                      // delivery radius (straight-line km)
   minimumSubtotalCents: 1200n,    // $12 minimum order
   serviceFeeBps: 500n,            // 5% × drinks subtotal

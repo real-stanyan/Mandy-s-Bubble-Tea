@@ -51,7 +51,7 @@ export function FulfillmentSelector({ value, onChange, drinksSubtotalCents }: Pr
         <div className="font-semibold text-zinc-900">Delivery</div>
         <div className="mt-0.5 text-xs text-zinc-600">
           {eligible
-            ? `By our team · free within ${DELIVERY.freeRadiusKm}km`
+            ? `By our team · free over ${formatPrice(DELIVERY.tiers[0].freeAtCents)}`
             : `Add ${formatPrice(remainingCents)} to enable`}
         </div>
       </button>
