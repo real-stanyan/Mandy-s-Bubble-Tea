@@ -25,6 +25,7 @@ import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
+import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
@@ -139,6 +140,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     unit: "",
     driverNote: "",
     phone: profile.phone_e164,
+    postcode: "",
   });
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "idle" });
   const [hoursOpen, setHoursOpen] = useState(() => isDeliveryHoursOpen());
@@ -295,6 +297,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       setQuoteState({ kind: "idle" });
       return;
     }
+    if (!deliveryAddress.postcode) {
+      setQuoteState({ kind: "error", message: "Enter your delivery postcode" });
+      return;
+    }
+    if (!isDeliverablePostcode(deliveryAddress.postcode)) {
+      setQuoteState({ kind: "error", message: "Sorry, we don't deliver to that postcode" });
+      return;
+    }
     if (!hoursOpen) {
       setQuoteState({ kind: "error", message: "Delivery hours: 10:30am–10:30pm" });
       return;
@@ -314,6 +324,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         lng: deliveryAddress.lng,
         unit: deliveryAddress.unit,
         driverNote: deliveryAddress.driverNote,
+        postcode: deliveryAddress.postcode,
         drinksSubtotalCents: Number(subtotal),
       }),
     })
@@ -324,7 +335,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           setQuoteState({ kind: "ok", feeCents: data.feeCents, serviceFeeCents: data.serviceFeeCents });
         } else {
           const map: Record<string, string> = {
-            out_of_zone: "Sorry, we don't deliver to that address",
+            out_of_zone: "Sorry, we don't deliver to that postcode",
             closed: "Delivery hours: 10:30am–10:30pm",
             min_order: "Add more to qualify for delivery",
             auth: "Sign in to get a delivery quote",
@@ -664,6 +675,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   lng: deliveryAddress.lng,
                   unit: deliveryAddress.unit || undefined,
                   driverNote: deliveryAddress.driverNote || undefined,
+                  postcode: deliveryAddress.postcode,
                 }
               : undefined,
           lines: lines.map((l) => ({

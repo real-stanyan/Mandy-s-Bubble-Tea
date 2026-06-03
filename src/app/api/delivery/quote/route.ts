@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { distanceKm, isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
+import { distanceKm, STORE_COORDS } from "@/lib/places";
+import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { getAuthedUser } from "@/lib/auth";
@@ -10,6 +11,7 @@ type QuoteBody = {
   lng: number;
   unit?: string;
   driverNote?: string;
+  postcode: string;
   drinksSubtotalCents: number;
 };
 
@@ -21,6 +23,7 @@ function isValidBody(b: unknown): b is QuoteBody {
     x.address.length >= 3 &&
     typeof x.lat === "number" &&
     typeof x.lng === "number" &&
+    typeof x.postcode === "string" &&
     typeof x.drinksSubtotalCents === "number"
   );
 }
@@ -56,11 +59,11 @@ export async function POST(request: Request) {
   if (!isDeliveryHoursOpen()) {
     return NextResponse.json({ ok: false, reason: "closed" });
   }
-  const dest = { lat: body.lat, lng: body.lng };
-  if (!isWithinDeliveryRadius(STORE_COORDS, dest)) {
+  if (!isDeliverablePostcode(body.postcode)) {
     return NextResponse.json({ ok: false, reason: "out_of_zone" });
   }
 
+  const dest = { lat: body.lat, lng: body.lng };
   const distKm = distanceKm(STORE_COORDS, dest);
   return NextResponse.json({
     ok: true,

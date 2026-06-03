@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { coordsAreValid } from "@/lib/places";
+import { extractPostcode, isDeliverablePostcode } from "@/lib/delivery-zone";
+import { DELIVERABLE_POSTCODES } from "@/lib/constants";
 
 export type DeliveryAddress = {
   address: string;
@@ -10,6 +12,7 @@ export type DeliveryAddress = {
   unit: string;
   driverNote: string;
   phone: string;
+  postcode: string;
 };
 
 type Props = {
@@ -33,6 +36,11 @@ declare global {
             getPlace: () => {
               formatted_address?: string;
               geometry?: { location?: { lat: () => number; lng: () => number } };
+              address_components?: {
+                long_name?: string;
+                short_name?: string;
+                types?: string[];
+              }[];
             };
           };
         };
@@ -88,18 +96,21 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
       }
       const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
         componentRestrictions: { country: "au" },
-        fields: ["formatted_address", "geometry"],
+        fields: ["formatted_address", "geometry", "address_components"],
       });
       ac.addListener("place_changed", () => {
         const place = ac.getPlace();
         const loc = place.geometry?.location;
         if (place.formatted_address && loc) {
           confirmedAddressRef.current = place.formatted_address;
+          const pc = extractPostcode(place.address_components);
           onChangeRef.current({
             ...valueRef.current,
             address: place.formatted_address,
             lat: loc.lat(),
             lng: loc.lng(),
+            // Prefill from the selected address; the user can still edit it.
+            ...(pc ? { postcode: pc } : {}),
           });
         }
       });
@@ -150,6 +161,34 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
           <p className="mt-1 text-xs text-amber-700">
             Pick your address from the suggestions to continue.
           </p>
+        ) : null}
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-zinc-700">
+          Postcode (required for delivery)
+        </label>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={4}
+          value={value.postcode}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              postcode: e.target.value.replace(/\D/g, "").slice(0, 4),
+            })
+          }
+          placeholder="4215"
+          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+        />
+        {value.postcode.length > 0 &&
+        !isDeliverablePostcode(value.postcode) ? (
+          <p className="mt-1 text-xs text-amber-700">
+            Sorry, we only deliver to {DELIVERABLE_POSTCODES.join(", ")}.
+          </p>
+        ) : isDeliverablePostcode(value.postcode) ? (
+          <p className="mt-1 text-xs text-emerald-700">✓ In our delivery zone</p>
         ) : null}
       </div>
 

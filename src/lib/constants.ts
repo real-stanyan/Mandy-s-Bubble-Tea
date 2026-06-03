@@ -126,6 +126,18 @@ export const DELIVERY = {
   hoursClose: 22.5,               // 22:30 Brisbane (decimal hour)
 } as const;
 
+// Delivery zone — only these postcodes can be delivered to. Replaces the
+// straight-line radius gate (some of these sit beyond 10km). Source of truth
+// for both client-side form validation and server-authoritative checks.
+export const DELIVERABLE_POSTCODES = [
+  "4211",
+  "4214",
+  "4215",
+  "4216",
+  "4217",
+  "4218",
+] as const;
+
 export const SERVICE_FEE = {
   name: "Service Fee",
   percentage: "5",

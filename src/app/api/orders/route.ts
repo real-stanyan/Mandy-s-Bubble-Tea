@@ -14,7 +14,8 @@ import { getMenu } from "@/lib/catalog";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { distanceKm, isWithinDeliveryRadius, STORE_COORDS } from "@/lib/places";
+import { distanceKm, STORE_COORDS } from "@/lib/places";
+import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 
 // Creates a Square order from the client cart. Identity is derived
@@ -59,6 +60,7 @@ type CreateOrderBody = {
     lng: number;
     unit?: string;
     driverNote?: string;
+    postcode?: string;
   };
   /** Number of loyalty rewards the client wants applied to this order.
    *  Must be a non-negative integer (fractional values are floored by
@@ -266,14 +268,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (
-      !isWithinDeliveryRadius(STORE_COORDS, {
-        lat: body.delivery.lat,
-        lng: body.delivery.lng,
-      })
-    ) {
+    if (!isDeliverablePostcode(body.delivery.postcode)) {
       return NextResponse.json(
-        { ok: false, error: "Address out of delivery range" },
+        { ok: false, error: "Postcode not in delivery zone" },
         { status: 400 },
       );
     }
