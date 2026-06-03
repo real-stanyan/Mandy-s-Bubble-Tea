@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const url =
       `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(body.placeId)}` +
       `&fields=formatted_address,geometry/location,address_components&key=${KEY}`;
-    let data: { status?: string; result?: { formatted_address?: string; geometry?: { location?: { lat: number; lng: number } }; address_components?: unknown[] } };
+    let data: { status?: string; result?: { formatted_address?: string; geometry?: { location?: { lat: number; lng: number } }; address_components?: { long_name?: string; short_name?: string; types?: string[] }[] } };
     try {
       const r = await fetch(url);
       data = await r.json();
