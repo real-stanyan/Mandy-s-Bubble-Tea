@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { BRAND } from "@/lib/constants";
+import type { Tracking } from "./DeliveryMap";
+
+// Leaflet touches `window` at import time — load the map client-side only.
+const DeliveryMap = dynamic(
+  () => import("./DeliveryMap").then((m) => m.DeliveryMap),
+  { ssr: false },
+);
 
 export type FulfillmentState =
   | "PROPOSED"
@@ -27,6 +35,7 @@ const TERMINAL: ReadonlySet<FulfillmentState> = new Set([
 
 export function OrderStatusHero({ orderId, initialState, isDelivery = false }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
+  const [tracking, setTracking] = useState<Tracking | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -44,11 +53,14 @@ export function OrderStatusHero({ orderId, initialState, isDelivery = false }: P
         const data = (await res.json()) as {
           ok: boolean;
           state: FulfillmentState | null;
+          tracking: Tracking | null;
         };
         if (cancelled) return;
         if (data.ok && data.state && data.state !== stateRef.current) {
           setState(data.state);
         }
+        // tracking is only populated for delivery orders that are PREPARED.
+        if (data.ok) setTracking(data.tracking ?? null);
       } catch {
         // Ignore transient network errors — next tick will retry.
       }
@@ -90,6 +102,10 @@ export function OrderStatusHero({ orderId, initialState, isDelivery = false }: P
           {ui.body}
         </p>
       </div>
+
+      {isDelivery && state === "PREPARED" && tracking ? (
+        <DeliveryMap tracking={tracking} />
+      ) : null}
     </>
   );
 }
