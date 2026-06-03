@@ -51,3 +51,9 @@ it("rejects empty body", async () => {
   const res = await POST(req({}));
   expect(res.status).toBe(400);
 });
+
+it("returns 502 when google fetch throws", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network"); }));
+  const res = await POST(req({ input: "1 Test", sessionToken: "s1" }));
+  expect(res.status).toBe(502);
+});

@@ -21,8 +21,16 @@ export async function POST(request: Request) {
     const url =
       `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(body.placeId)}` +
       `&fields=formatted_address,geometry/location,address_components&key=${KEY}`;
-    const r = await fetch(url);
-    const data = await r.json();
+    let data: { status?: string; result?: { formatted_address?: string; geometry?: { location?: { lat: number; lng: number } }; address_components?: unknown[] } };
+    try {
+      const r = await fetch(url);
+      data = await r.json();
+    } catch {
+      return NextResponse.json({ error: "upstream" }, { status: 502 });
+    }
+    if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      console.error("[places] google status", data.status);
+    }
     const result = data.result;
     const loc = result?.geometry?.location;
     if (!result?.formatted_address || !loc) {
@@ -41,8 +49,16 @@ export async function POST(request: Request) {
       `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(body.input)}` +
       `&components=country:au&key=${KEY}` +
       (body.sessionToken ? `&sessiontoken=${encodeURIComponent(body.sessionToken)}` : "");
-    const r = await fetch(url);
-    const data = await r.json();
+    let data: { status?: string; predictions?: { description: string; place_id: string }[] };
+    try {
+      const r = await fetch(url);
+      data = await r.json();
+    } catch {
+      return NextResponse.json({ error: "upstream" }, { status: 502 });
+    }
+    if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      console.error("[places] google status", data.status);
+    }
     const predictions = Array.isArray(data.predictions)
       ? data.predictions.map((p: { description: string; place_id: string }) => ({
           description: p.description,
