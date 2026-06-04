@@ -114,6 +114,41 @@ export type DispatchTracking = {
   deliveredAt: string | null;
 };
 
+export type DriverFix = {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  updatedAt: string | null;
+};
+
+/**
+ * Batch-read the latest driver GPS fix for a set of orders — feeds the
+ * admin (read-only manager) view of the driver app. Orders with no dispatch
+ * row or no fix yet are simply absent from the result.
+ */
+export async function getDriverFixesForOrders(
+  orderIds: string[],
+): Promise<Record<string, DriverFix>> {
+  if (orderIds.length === 0) return {};
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select("order_id, driver_lat, driver_lng, driver_heading, location_updated_at")
+    .in("order_id", orderIds);
+  if (error) throw new Error(`getDriverFixesForOrders: ${error.message}`);
+  const fixes: Record<string, DriverFix> = {};
+  for (const row of data ?? []) {
+    if (row.driver_lat == null || row.driver_lng == null) continue;
+    fixes[row.order_id as string] = {
+      lat: row.driver_lat as number,
+      lng: row.driver_lng as number,
+      heading: row.driver_heading as number | null,
+      updatedAt: row.location_updated_at as string | null,
+    };
+  }
+  return fixes;
+}
+
 /**
  * Read the dispatch row's tracking fields for the customer-facing live map.
  * Returns null if no dispatch row exists yet (driver hasn't picked up).
