@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { serializeSquareResponse } from "@/lib/utils";
 import { isAuthedDriver } from "@/lib/driver-auth";
+import { getDriverFixesForOrders } from "@/lib/driver-tokens";
 
 // Driver app — the active delivery queue.
 //
@@ -98,8 +99,20 @@ export async function GET(request: Request) {
       // Oldest first — the driver works the queue front-to-back.
       .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
 
+    // Admin (read-only manager) also sees the driver's live GPS per order.
+    // Driver responses keep the original shape — installed builds unaffected.
+    let payload: object[] = deliveries;
+    if (auth.role === "admin") {
+      const ids = deliveries.map((o) => o.id).filter((id): id is string => !!id);
+      const fixes = await getDriverFixesForOrders(ids);
+      payload = deliveries.map((o) => ({
+        ...o,
+        driver: (o.id && fixes[o.id]) || null,
+      }));
+    }
+
     return NextResponse.json(
-      { ok: true, orders: serializeSquareResponse(deliveries) },
+      { ok: true, role: auth.role, orders: serializeSquareResponse(payload) },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
