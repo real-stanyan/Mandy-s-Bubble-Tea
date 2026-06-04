@@ -36,6 +36,14 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  // Admin is a read-only monitor — never mutates order state or GPS.
+  if (auth.role === "admin") {
+    return NextResponse.json(
+      { ok: false, error: "Admin is read-only" },
+      { status: 403 },
+    );
+  }
+
   const { orderId } = await params;
 
   let body: { action?: string; driverLabel?: string };

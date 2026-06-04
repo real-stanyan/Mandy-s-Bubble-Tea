@@ -22,6 +22,14 @@ export async function POST(request: Request) {
     );
   }
 
+  // Admin is a read-only monitor — never mutates order state or GPS.
+  if (auth.role === "admin") {
+    return NextResponse.json(
+      { ok: false, error: "Admin is read-only" },
+      { status: 403 },
+    );
+  }
+
   let body: { orderId?: string; lat?: number; lng?: number; heading?: number };
   try {
     body = (await request.json()) as typeof body;
