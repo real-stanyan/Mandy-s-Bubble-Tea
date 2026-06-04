@@ -220,7 +220,7 @@ function DeliveryTrackingView({
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <InfoTile label="Order Number" value={orderNumber || "—"} accent />
-            <InfoTile label="ETA" value={etaText || "Soon"} />
+            <InfoTile label="ETA" value={liveEta(tracking.etaSeconds) ?? (etaText || "Soon")} />
           </div>
 
           <p className="mt-3 text-center text-xs text-zinc-500">
@@ -238,6 +238,13 @@ function DeliveryTrackingView({
       </div>
     </div>
   );
+}
+
+// Live ETA from the server's Google Directions duration (re-routed as the
+// driver moves). Falls back to the static config copy when unavailable.
+function liveEta(etaSeconds: number | null | undefined): string | null {
+  if (etaSeconds == null || !Number.isFinite(etaSeconds) || etaSeconds <= 0) return null;
+  return `~${Math.max(1, Math.ceil(etaSeconds / 60))} min`;
 }
 
 function InfoTile({

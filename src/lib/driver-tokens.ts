@@ -150,6 +150,53 @@ export async function getDriverFixesForOrders(
 }
 
 /**
+ * Read the cached driver→destination route for an order (see delivery-route.ts
+ * for the refetch policy). Returns null when no dispatch row exists.
+ */
+export async function getRouteCache(
+  orderId: string,
+): Promise<import("./delivery-route").RouteCache | null> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select(
+      "route_polyline, route_origin_lat, route_origin_lng, route_duration_secs, route_fetched_at",
+    )
+    .eq("order_id", orderId)
+    .maybeSingle();
+  if (error) throw new Error(`getRouteCache: ${error.message}`);
+  if (!data) return null;
+  return {
+    polyline: data.route_polyline as string | null,
+    originLat: data.route_origin_lat as number | null,
+    originLng: data.route_origin_lng as number | null,
+    durationSecs: data.route_duration_secs as number | null,
+    fetchedAt: data.route_fetched_at as string | null,
+  };
+}
+
+export async function saveRouteCache(args: {
+  orderId: string;
+  polyline: string;
+  originLat: number;
+  originLng: number;
+  durationSecs: number | null;
+}): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { error } = await admin
+    .from("delivery_dispatch")
+    .update({
+      route_polyline: args.polyline,
+      route_origin_lat: args.originLat,
+      route_origin_lng: args.originLng,
+      route_duration_secs: args.durationSecs,
+      route_fetched_at: new Date().toISOString(),
+    })
+    .eq("order_id", args.orderId);
+  if (error) throw new Error(`saveRouteCache: ${error.message}`);
+}
+
+/**
  * Read the dispatch row's tracking fields for the customer-facing live map.
  * Returns null if no dispatch row exists yet (driver hasn't picked up).
  */

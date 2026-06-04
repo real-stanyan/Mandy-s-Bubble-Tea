@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Map as LeafletMap, Marker, LatLngBoundsExpression } from "leaflet";
+import type { Map as LeafletMap, Marker, Polyline, LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { BRAND } from "@/lib/constants";
 
@@ -14,6 +14,11 @@ export type Tracking = {
   driverLng: number | null;
   driverHeading: number | null;
   locationUpdatedAt: string | null;
+  // Driving route driver→destination ([lat, lng] points) + ETA seconds,
+  // resolved server-side via Google Directions with a dispatch-row cache.
+  // Null until the driver has a GPS fix (or when Directions is unavailable).
+  route?: [number, number][] | null;
+  etaSeconds?: number | null;
 };
 
 type Props = { tracking: Tracking };
@@ -33,6 +38,7 @@ export function DeliveryMap({ tracking }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const driverMarkerRef = useRef<Marker | null>(null);
+  const routeLineRef = useRef<Polyline | null>(null);
   const animRef = useRef<number | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
   // Leaflet module, loaded lazily (references window at import time).
@@ -186,6 +192,31 @@ export function DeliveryMap({ tracking }: Props) {
     };
     animRef.current = requestAnimationFrame(step);
   }, [ready, tracking.driverLat, tracking.driverLng]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Draw / refresh the driving route whenever the server hands us a new one
+  // (it re-routes as the driver moves — see delivery-route.ts cache policy).
+  useEffect(() => {
+    const L = LRef.current;
+    const map = mapRef.current;
+    if (!ready || !L || !map) return;
+    const route = tracking.route;
+    if (!route || route.length < 2) {
+      routeLineRef.current?.remove();
+      routeLineRef.current = null;
+      return;
+    }
+    if (!routeLineRef.current) {
+      routeLineRef.current = L.polyline(route, {
+        color: BRAND.primaryColor,
+        weight: 4,
+        opacity: 0.8,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(map);
+    } else {
+      routeLineRef.current.setLatLngs(route);
+    }
+  }, [ready, tracking.route]);
 
   // Fills its parent — the tracking view positions it full-screen behind the
   // overlay sheet. `hasDriver` is consumed by the overlay's freshness chip.
