@@ -44,6 +44,22 @@ vi.mock("@/lib/printer-alert", () => ({
   notifyOwnersPrinterAlert: (...args: unknown[]) =>
     mockNotifyOwnersPrinterAlert(...args),
 }));
+// after() must be the registration point for the cup-label enqueue — a bare
+// fire-and-forget promise dies when Vercel freezes the lambda post-response
+// (OL826 2026-06-06). The mock runs the callback inline so the test can
+// assert the enqueue actually went through it.
+const mockAfter = vi.fn((cb: () => unknown) => {
+  void cb();
+});
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (cb: () => unknown) => mockAfter(cb),
+}));
+const mockEnqueueCupLabelJobs = vi.fn();
+vi.mock("@/lib/cup-label/enqueue", () => ({
+  enqueueCupLabelJobs: (...args: unknown[]) =>
+    mockEnqueueCupLabelJobs(...args),
+}));
 
 import { POST } from "./route";
 
@@ -143,5 +159,76 @@ describe("POST /api/payment — loyalty accrual gating (bug `loyalty-payment-not
 
     expect(json.loyaltyAccrued).toBe(true);
     expect(mockAccrueForOrder).toHaveBeenCalledWith("acc1", "ord1");
+  });
+});
+
+describe("POST /api/payment — cup-label enqueue survives the response (bug OL826 2026-06-06)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthedUser.mockResolvedValue({
+      userId: "u1",
+      profile: {
+        square_customer_id: "cust1",
+        phone_e164: "+61400000001",
+        first_name: "Stan",
+      },
+    });
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ord1",
+        totalMoney: { amount: 600n },
+        rewards: [],
+        discounts: [],
+        metadata: {},
+      },
+    });
+    mockFindOrCreateLoyaltyAccount.mockResolvedValue({ accountId: "acc1" });
+    mockAccrueForOrder.mockResolvedValue(undefined);
+  });
+
+  it("registers the user-choice enqueue via after(), not a bare promise", async () => {
+    mockPaymentsCreate.mockResolvedValue({
+      payment: { id: "pay1", status: "COMPLETED" },
+    });
+    mockEnqueuePrintJob.mockResolvedValue({
+      queued: true,
+      stickerNumber: "OL826",
+    });
+
+    const res = await POST(
+      makeRequest({
+        orderId: "ord1",
+        sourceId: "cnon:x",
+        presetStickerHashes: { "line1:0": "abc123" },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+    // The after() callback (run inline by the mock) must invoke the enqueue
+    // with the user's selections intact.
+    await vi.waitFor(() => {
+      expect(mockEnqueueCupLabelJobs).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stickerNumber: "OL826",
+          presetStickerHashes: { "line1:0": "abc123" },
+        }),
+      );
+    });
+  });
+
+  it("skips the cup-label branch entirely when the user made no label choice", async () => {
+    mockPaymentsCreate.mockResolvedValue({
+      payment: { id: "pay1", status: "COMPLETED" },
+    });
+    mockEnqueuePrintJob.mockResolvedValue({
+      queued: true,
+      stickerNumber: "OL827",
+    });
+
+    await POST(makeRequest({ orderId: "ord1", sourceId: "cnon:x" }));
+
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockEnqueueCupLabelJobs).not.toHaveBeenCalled();
   });
 });

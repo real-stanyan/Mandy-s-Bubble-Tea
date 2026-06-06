@@ -349,7 +349,30 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
       console.error("[cup-label] enqueue failed (non-fatal)", e);
     }
   } else if (result.reason === "conflict") {
-    // Expected on the 2nd+ order.updated event for the same order.
+    // Expected on the 2nd+ order.updated event for the same order — but a
+    // conflict is also the only signal we get when the payment route claimed
+    // print_jobs and its post-response cup-label enqueue died before writing
+    // any rows (OL826 2026-06-06: lambda frozen mid-flight → zero labels,
+    // zero errors). Backfill with default mode if the order has no
+    // cup_label_jobs; a merely-slow payment-route enqueue still wins via
+    // the authoritative-upsert semantics.
+    try {
+      const { backfillCupLabelJobsIfMissing } = await import(
+        "@/lib/cup-label/backfill"
+      );
+      const sourceName = order.source?.name ?? "";
+      const backfilled = await backfillCupLabelJobsIfMissing({
+        order,
+        mode: /point of sale/i.test(sourceName) ? "pos" : "web",
+      });
+      if (backfilled) {
+        console.log(
+          `[cup-label] webhook backfill enqueued order=${orderId} event_id=${eventId}`,
+        );
+      }
+    } catch (e) {
+      console.error("[cup-label] webhook backfill failed (non-fatal)", e);
+    }
   } else if (result.reason === "not_paid") {
     // Expected for order.updated events before payment posts.
   } else {

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { randomUUID } from "crypto";
 import { SquareError } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
@@ -231,13 +231,16 @@ export async function POST(request: Request) {
             }
           }
           if (stickerNumber) {
-            // Fire-and-forget. enqueueCupLabelJobs loads N doodles +
-            // renders N ZPL labels + upserts the rows; under load that
-            // can add hundreds of ms to the payment response. Print
-            // failures here are non-fatal — the user already paid, and
-            // the cup-label job table's own alert pipeline will page
-            // staff if the printer never picks them up.
-            void enqueueCupLabelJobs({
+            // Deferred via after() — enqueueCupLabelJobs loads N doodles +
+            // renders N ZPL labels + upserts the rows; under load that can
+            // add hundreds of ms to the payment response. A bare
+            // fire-and-forget promise here gets KILLED when Vercel freezes
+            // the lambda right after the response goes out (OL826
+            // 2026-06-06: zero rows, zero logs) — after() registers with
+            // the runtime's waitUntil so the work is guaranteed to finish
+            // post-response. Failures stay non-fatal: the user already
+            // paid, and the webhook conflict-branch backfill is the net.
+            const enqueueArgs = {
               order,
               stickerNumber,
               doodleIds: body.doodleIds,
@@ -246,8 +249,13 @@ export async function POST(request: Request) {
               presetStickerHashes: body.presetStickerHashes,
               userId: user.userId,
               customerFirstName: user.profile.first_name,
-            }).catch((e) => {
-              console.error("[cup-label] paid-branch enqueue threw (background)", e);
+            };
+            after(async () => {
+              try {
+                await enqueueCupLabelJobs(enqueueArgs);
+              } catch (e) {
+                console.error("[cup-label] paid-branch enqueue threw (after)", e);
+              }
             });
           }
         } catch (e) {
@@ -298,8 +306,9 @@ export async function POST(request: Request) {
             // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
             try {
               const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
-              // Fire-and-forget — see the paid-branch comment above.
-              void enqueueCupLabelJobs({
+              // Deferred via after() — see the paid-branch comment above
+              // (a bare fire-and-forget dies when the lambda freezes).
+              const enqueueArgs = {
                 order: paidOrder,
                 stickerNumber: result.stickerNumber,
                 doodleIds: body.doodleIds,
@@ -308,8 +317,13 @@ export async function POST(request: Request) {
                 presetStickerHashes: body.presetStickerHashes,
                 userId: user.userId,
                 customerFirstName: user.profile.first_name,
-              }).catch((e) => {
-                console.error("[cup-label] $0-branch enqueue threw (background)", e);
+              };
+              after(async () => {
+                try {
+                  await enqueueCupLabelJobs(enqueueArgs);
+                } catch (e) {
+                  console.error("[cup-label] $0-branch enqueue threw (after)", e);
+                }
               });
             } catch (e) {
               console.error("[cup-label] $0-branch enqueue setup failed (non-fatal)", e);
