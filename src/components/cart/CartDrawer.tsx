@@ -794,6 +794,17 @@ function CartFooter({
           </p>
         </>
       )}
+
+      {/* Secondary action in every footer state (open / closed / guest) —
+          closes the drawer and heads back to the menu to add more drinks. */}
+      <Link
+        href="/menu"
+        onClick={closeDrawer}
+        className="mt-3 block w-full rounded-xl border-2 py-3 text-center text-sm font-semibold transition hover:opacity-80"
+        style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+      >
+        Continue shopping
+      </Link>
     </footer>
   );
 }
