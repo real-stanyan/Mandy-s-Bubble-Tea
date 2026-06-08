@@ -92,4 +92,84 @@ describe("backfillCupLabelJobsIfMissing", () => {
     expect(ran).toBe(false);
     expect(enqueueCupLabelJobs).not.toHaveBeenCalled();
   });
+
+  // Regression: OL "photo → tarot" (2026-06-08). The printer fires on
+  // cup_label_jobs INSERT only; the payment route's authoritative enqueue
+  // is deferred via after() and lands as an UPDATE-on-conflict. When the
+  // webhook backfilled web-mode DEFAULTS (tarot) immediately, that default
+  // INSERT printed before the customer's photo UPDATE could land — and the
+  // UPDATE never reprints. The grace delay makes the count check wait until
+  // the deferred payment enqueue has had time to win the INSERT.
+  describe("graceMs (delayed re-check)", () => {
+    it("waits graceMs before checking, so rows that land during the grace window suppress the backfill", async () => {
+      vi.useFakeTimers();
+      try {
+        let count = 0;
+        (getSupabaseAdmin as ReturnType<typeof vi.fn>).mockReturnValue({
+          from: (table: string) => {
+            if (table === "cup_label_jobs") {
+              return {
+                select: () => ({
+                  // read `count` at call time (post-grace)
+                  eq: () => Promise.resolve({ count, error: null }),
+                }),
+              };
+            }
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve({
+                      data: { sticker_number: "OL900" },
+                      error: null,
+                    }),
+                }),
+              }),
+            };
+          },
+        });
+
+        const p = backfillCupLabelJobsIfMissing({
+          order: ORDER,
+          mode: "web",
+          graceMs: 8000,
+        });
+        // Still inside the grace window — nothing checked or enqueued yet.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(enqueueCupLabelJobs).not.toHaveBeenCalled();
+
+        // Payment route's after() enqueue lands the real rows mid-grace.
+        count = 3;
+        await vi.advanceTimersByTimeAsync(8000);
+
+        const ran = await p;
+        expect(ran).toBe(false);
+        expect(enqueueCupLabelJobs).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still backfills after graceMs when the order is genuinely label-less", async () => {
+      vi.useFakeTimers();
+      try {
+        mockSb({ cupJobCount: 0, stickerNumber: "OL901" });
+        const p = backfillCupLabelJobsIfMissing({
+          order: ORDER,
+          mode: "web",
+          graceMs: 8000,
+        });
+        await vi.advanceTimersByTimeAsync(8000);
+        const ran = await p;
+        expect(ran).toBe(true);
+        expect(enqueueCupLabelJobs).toHaveBeenCalledWith({
+          order: ORDER,
+          stickerNumber: "OL901",
+          mode: "web",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

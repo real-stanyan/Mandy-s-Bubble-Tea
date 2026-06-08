@@ -20,9 +20,29 @@ import { getSupabaseAdmin } from "../supabase-server";
 export async function backfillCupLabelJobsIfMissing(args: {
   order: Order;
   mode: "pos" | "web";
+  /**
+   * When > 0, wait this long BEFORE the cup_label_jobs count check.
+   *
+   * The printer-client fires on cup_label_jobs INSERT only, and the payment
+   * route's authoritative enqueue is deferred via `after()` and lands as an
+   * UPDATE-on-conflict (no second INSERT, status stays put, so it never
+   * reprints). If the webhook inserts web-mode DEFAULTS (a random tarot card)
+   * the instant it sees an empty table, that default INSERT prints and the
+   * customer's real choice (photo / sticker / drawing) is lost — the "photo
+   * prints a tarot card" report, 2026-06-08.
+   *
+   * Delaying the check lets the just-deferred payment enqueue win the INSERT.
+   * We only fall back to defaults if the order is genuinely still label-less
+   * after the grace window (the true OL826 dead-lambda case). POS orders have
+   * no racing payment route, so they pass graceMs=0 and stay immediate.
+   */
+  graceMs?: number;
 }): Promise<boolean> {
   const orderId = args.order.id;
   if (!orderId) return false;
+  if (args.graceMs && args.graceMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, args.graceMs));
+  }
   const sb = getSupabaseAdmin();
 
   const { count, error: countErr } = await sb

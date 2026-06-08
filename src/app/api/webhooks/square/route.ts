@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { WebhooksHelper, type Square } from "square";
 import { getUserIdBySquareCustomer, purgeAccount } from "@/lib/supabase";
 import { squareClient } from "@/lib/square";
@@ -24,6 +24,51 @@ import { reverseAccrualForOrder } from "@/lib/loyalty";
 // request.text() and parse AFTER verification.
 
 export const dynamic = "force-dynamic";
+// The online-order cup-label safety net runs in after() with a grace
+// sleep (see scheduleOnlineSafetyNetBackfill). after() work counts toward
+// the function budget, so allow headroom past the default 10s.
+export const maxDuration = 30;
+
+// Grace window before the webhook's online-order default backfill checks
+// for cup_label_jobs. Lets the payment route's deferred (after()) enqueue
+// win the INSERT so the customer's real choice prints instead of a default
+// tarot card. Env-overridable; 8s comfortably covers the ~1-2s photo path.
+const ONLINE_CUP_LABEL_BACKFILL_GRACE_MS = Number(
+  process.env.CUP_LABEL_BACKFILL_GRACE_MS ?? "8000",
+);
+
+// Online (web/app) orders: the payment route owns the customer's cup-label
+// choices and enqueues them via after(). The webhook must NOT insert
+// web-mode defaults eagerly — the printer fires on cup_label_jobs INSERT
+// only, so a default (tarot) inserted ahead of the deferred payment enqueue
+// prints, and the real choice lands as an UPDATE that never reprints
+// (photo → tarot, 2026-06-08). Instead, schedule a delayed safety-net
+// backfill that only fills defaults if the order is genuinely still
+// label-less after the grace window (the true OL826 dead-lambda case).
+function scheduleOnlineSafetyNetBackfill(
+  order: Square.Order,
+  eventId: string | undefined,
+) {
+  after(async () => {
+    try {
+      const { backfillCupLabelJobsIfMissing } = await import(
+        "@/lib/cup-label/backfill"
+      );
+      const ran = await backfillCupLabelJobsIfMissing({
+        order,
+        mode: "web",
+        graceMs: ONLINE_CUP_LABEL_BACKFILL_GRACE_MS,
+      });
+      if (ran) {
+        console.log(
+          `[cup-label] online safety-net backfill enqueued order=${order.id} event_id=${eventId}`,
+        );
+      }
+    } catch (e) {
+      console.error("[cup-label] online safety-net backfill failed (non-fatal)", e);
+    }
+  });
+}
 
 // Square's webhook payload shape varies per event family. `customer.deleted`
 // is documented as `{ data: { type: "customer", id: "<id>", deleted: true } }`
@@ -324,29 +369,39 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
 
     // Cup-label (Zebra) parallel path — non-blocking, must never break the legacy print_jobs flow.
     //
-    // Webhook fires for both POS *and* API-created orders. We only want
-    // fortune-mode for true in-store POS orders so we don't race the
-    // app's payment route and overwrite a logged-in user's doodle
-    // choice with a fortune. Square sets `order.source.name` to
+    // Webhook fires for both POS *and* API-created orders, and the two are
+    // owned by different enqueuers: in-store POS has no payment route, so the
+    // webhook prints immediately; online (web/app) orders are owned by the
+    // payment route (which enqueues the customer's real choice via after()),
+    // so the webhook must only act as a DELAYED safety net to avoid racing
+    // it (photo → tarot, 2026-06-08). Square sets `order.source.name` to
     // "Point of Sale" for in-store register orders, "Mandy's Bubble Tea
     // Online Shop" for app-driven web orders, and null for some
-    // server-API-created orders. Verified by aggregating 944 / 365 / 6
-    // rows across 7d of Mise's prod orders mirror (2026-05-21). When
-    // unsure, default to "web" mode (hash POOL preset / web doodleIds)
-    // — that matches the pre-fortune behavior, so the worst case for a
-    // misclassified order is the old behavior.
+    // server-API-created orders (verified 944 / 365 / 6 rows over 7d, Mise
+    // prod mirror 2026-05-21). When unsure, treat as online — the delayed
+    // safety net still backfills if no payment enqueue ever lands.
     const sourceName = order.source?.name ?? "";
     const isPosOrder = /point of sale/i.test(sourceName);
-    const cupLabelMode = isPosOrder ? "pos" : "web";
-    try {
-      const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
-      await enqueueCupLabelJobs({
-        order,
-        stickerNumber: result.stickerNumber,
-        mode: cupLabelMode,
-      });
-    } catch (e) {
-      console.error("[cup-label] enqueue failed (non-fatal)", e);
+    if (isPosOrder) {
+      // In-store POS: the webhook is the SOLE enqueuer (no payment route),
+      // so print immediately. Each cup gets a random tarot card by design.
+      try {
+        const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+        await enqueueCupLabelJobs({
+          order,
+          stickerNumber: result.stickerNumber,
+          mode: "pos",
+        });
+      } catch (e) {
+        console.error("[cup-label] POS enqueue failed (non-fatal)", e);
+      }
+    } else {
+      // Online order, webhook won the print_jobs claim before the payment
+      // route. Don't enqueue web-mode defaults now — defer to the payment
+      // route via the delayed safety net (see helper). The payment route,
+      // on its own print_jobs conflict, fetches this sticker and enqueues
+      // the customer's real choice.
+      scheduleOnlineSafetyNetBackfill(order, eventId);
     }
   } else if (result.reason === "conflict") {
     // Expected on the 2nd+ order.updated event for the same order — but a
@@ -356,22 +411,33 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     // zero errors). Backfill with default mode if the order has no
     // cup_label_jobs; a merely-slow payment-route enqueue still wins via
     // the authoritative-upsert semantics.
-    try {
-      const { backfillCupLabelJobsIfMissing } = await import(
-        "@/lib/cup-label/backfill"
-      );
-      const sourceName = order.source?.name ?? "";
-      const backfilled = await backfillCupLabelJobsIfMissing({
-        order,
-        mode: /point of sale/i.test(sourceName) ? "pos" : "web",
-      });
-      if (backfilled) {
-        console.log(
-          `[cup-label] webhook backfill enqueued order=${orderId} event_id=${eventId}`,
+    const sourceName = order.source?.name ?? "";
+    if (/point of sale/i.test(sourceName)) {
+      // POS conflict = a duplicate webhook for an already-enqueued POS
+      // order. No payment route races here, so an immediate count-checked
+      // backfill is safe (and a no-op when rows already exist).
+      try {
+        const { backfillCupLabelJobsIfMissing } = await import(
+          "@/lib/cup-label/backfill"
         );
+        const backfilled = await backfillCupLabelJobsIfMissing({
+          order,
+          mode: "pos",
+        });
+        if (backfilled) {
+          console.log(
+            `[cup-label] POS backfill enqueued order=${orderId} event_id=${eventId}`,
+          );
+        }
+      } catch (e) {
+        console.error("[cup-label] POS backfill failed (non-fatal)", e);
       }
-    } catch (e) {
-      console.error("[cup-label] webhook backfill failed (non-fatal)", e);
+    } else {
+      // Online order: the payment route's deferred enqueue is the
+      // authoritative source. Run the DELAYED safety net so we only fall
+      // back to defaults if that enqueue genuinely never landed — never
+      // racing ahead of it (photo → tarot fix, 2026-06-08).
+      scheduleOnlineSafetyNetBackfill(order, eventId);
     }
   } else if (result.reason === "not_paid") {
     // Expected for order.updated events before payment posts.
