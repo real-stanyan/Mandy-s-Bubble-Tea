@@ -91,6 +91,12 @@ export async function GET(request: Request) {
           // the 🚚 marker. Useful for "leave at door" type instructions.
           note: f?.pickupDetails?.note ?? null,
           totalCents: order.totalMoney?.amount?.toString() ?? "0",
+          // Per-order delivery fee (Square service charge uid "delivery-fee").
+          // Absent on free-delivery orders → "0". Shown on the app detail screen.
+          deliveryFeeCents:
+            order.serviceCharges
+              ?.find((sc) => sc.uid === "delivery-fee")
+              ?.amountMoney?.amount?.toString() ?? "0",
           itemSummary: (order.lineItems ?? [])
             .map((li) => `${li.quantity}× ${li.name ?? "Item"}`)
             .join(", "),
