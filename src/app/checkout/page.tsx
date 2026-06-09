@@ -30,6 +30,7 @@ import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
+import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
@@ -115,6 +116,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
   const labelSelections = useCart((s) => s.labelSelections);
+  const keepLabelCopy = useCart((s) => s.keepLabelCopy);
+  const setKeepLabelCopy = useCart((s) => s.setKeepLabelCopy);
   const {
     profile,
     loyalty,
@@ -270,6 +273,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return computeCupLabelGate(sels);
   }, [lines, labelSelections]);
   const allCupsLabeled = cupLabelGate === "ready";
+
+  // True iff at least one cup carries a committed customer choice — exactly
+  // the union buildPaymentSelections forwards to the server (so the keepsake
+  // toggle appears precisely when ≥1 cup will print a keepsake). In-flight
+  // null-id selections are excluded, same as the server's fall-back path.
+  const hasAnyCustomizedCup = useMemo(() => {
+    const { presetStickerHashes, aiDoodleIds, doodleIds } =
+      buildPaymentSelections(labelSelections);
+    return Boolean(presetStickerHashes || aiDoodleIds || doodleIds);
+  }, [labelSelections]);
 
   // PH surcharge — checked client-side only for display; server is authoritative.
   // Re-check every 60s so a user sitting on the checkout page across the Christmas
@@ -787,6 +800,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             orderId: orderJson.orderId,
             verificationToken,
             labelSelections,
+            keepLabelCopy,
           }),
         ),
       });
@@ -1143,6 +1157,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
           {/* ── Cup Labels — per-cup gallery picker (web-only, gallery ship) ── */}
           <CupLabelSection />
+
+          {/* ── Keepsake copy — free extra print of each customized cup ── */}
+          {hasAnyCustomizedCup && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+              <input
+                type="checkbox"
+                checked={keepLabelCopy}
+                onChange={(e) => setKeepLabelCopy(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[#C43A10]"
+              />
+              <span className="text-sm text-zinc-700">
+                🎁 Print an extra copy of my custom cup design to keep
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  We&apos;ll print a spare label of each cup you customized — yours to keep.
+                </span>
+              </span>
+            </label>
+          )}
 
           {/* ── Your Details — signed-in summary + optional note ── */}
           <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
