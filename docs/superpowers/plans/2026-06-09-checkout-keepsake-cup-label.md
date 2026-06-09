@@ -830,9 +830,17 @@ cd ~/Github/mandys_bubble_tea_admin && npx vitest run src/lib/cup-doodles.test.t
 ```
 Expected: pass.
 
+- [ ] **⚠️ INCIDENT FOLLOW-UP — drop the 3-col hotfix constraint at deploy time**
+
+  Task 1's migration was applied to prod on 2026-06-09 08:05 UTC **ahead of any code deploy**, which dropped the 3-col unique `cup_label_jobs_square_order_id_line_id_cup_idx_key` that the THEN-DEPLOYED `main` enqueue still upserted against (onConflict 3-col) → every prod cup-label upsert threw 42P10 → zero rows created → the store's cup-label printer went silent for ~31 min. Hotfix migration `2026_06_09_hotfix_restore_3col_cup_label_unique` **re-added the 3-col constraint** so deployed code works; both the 3-col and 4-col uniques now coexist in prod (safe only while every row is `copy_idx = 0`).
+
+  **Therefore, as part of merging THIS branch (code switches to 4-col onConflict AND starts inserting `copy_idx = 1` rows that share the 3-col key):**
+  - Add a migration that **drops `cup_label_jobs_square_order_id_line_id_cup_idx_key`** (the hotfix 3-col constraint). Keepsake rows violate it otherwise.
+  - **Ship that migration + the code in the SAME deploy** (do NOT apply ahead of the deploy — that is exactly what caused the incident).
+
 - [ ] **Merge + push (per repo, after review)**
 
-Web: ff-merge `feat/checkout-keepsake-cup-label` → `main`, push. Admin: ff-merge `feat/cup-doodles-exclude-keepsake` → `main`, push. (Migration was already applied to prod in Task 1.)
+Web: ff-merge `feat/checkout-keepsake-cup-label` → `main`, push. Admin: ff-merge `feat/cup-doodles-exclude-keepsake` → `main`, push. (Task 1 migration already applied to prod; see incident follow-up above before deploying.)
 
 - [ ] **Known gaps for /tester**
   - Real-line: place an order with a customized cup + toggle on → confirm an extra drink-less label prints for that cup only; tarot-only cups print no extra.
