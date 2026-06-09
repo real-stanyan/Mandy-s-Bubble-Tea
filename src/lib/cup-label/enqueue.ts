@@ -97,6 +97,15 @@ export type EnqueueCupLabelArgs = {
    * back-to-back unless cup count > gallery size.
    */
   mode?: "web" | "pos";
+  /**
+   * When true, every cup the customer *actually customized* (drawn / AI /
+   * photo / gallery sticker) also gets a second "keepsake" row
+   * (`copy_idx = 1`) rendered with the drink name + modifiers omitted, for
+   * staff to hand to the customer. Tarot/POOL fallback cups never get one.
+   * Defaults to false. Only the authoritative payment-route enqueue passes
+   * this — the webhook default path and the backfill never do.
+   */
+  includeKeepsakeCopies?: boolean;
 };
 
 const USER_SVG_CANVAS = 400;
@@ -136,6 +145,10 @@ type Row = {
   // FK to cup_label_ai_jobs when the source is AI. Lets the admin
   // gallery join the customer's prompt without a path-LIKE hack.
   ai_job_id: string | null;
+  // 0 = the cup's own printed label; 1 = the keepsake copy the customer
+  // keeps (same artwork, drink name + modifiers omitted). Discriminator
+  // for the (square_order_id, line_id, cup_idx, copy_idx) unique key.
+  copy_idx: number;
 };
 
 export async function enqueueCupLabelJobs({
@@ -148,6 +161,7 @@ export async function enqueueCupLabelJobs({
   userId,
   customerFirstName,
   mode = "web",
+  includeKeepsakeCopies,
 }: EnqueueCupLabelArgs): Promise<void> {
   const orderId = order.id!;
   const sb = getSupabaseAdmin();
@@ -256,6 +270,12 @@ export async function enqueueCupLabelJobs({
       // default / drawn / fortune cups.
       let originalImagePath: string | null = null;
       let aiJobId: string | null = null;
+      // True only when this cup resolved to a *customer-chosen* source
+      // (drawn / AI / photo / gallery sticker). Stays false for tarot/POOL
+      // fallback, POS, and any branch that caught an error and fell back —
+      // so a cup whose custom art failed to load never prints a keepsake of
+      // the wrong (fallback) image.
+      let keepsakeEligible = false;
 
       const pickPool = (): { key: string; svg: string } => {
         if (presetKey) {
@@ -327,6 +347,7 @@ export async function enqueueCupLabelJobs({
           poolKey = presetStickerHash;
           originalImagePath = `cup-label/gallery/${presetStickerHash}/binarized.png`;
           doodleSvg = "";
+          keepsakeEligible = true;
         } catch (e) {
           console.error(
             "[cup-label] preset sticker load failed, falling back",
@@ -341,6 +362,7 @@ export async function enqueueCupLabelJobs({
           // doodleSvg is still required by the type signature but unused
           // when doodlePngBuffer is present; pass an empty SVG.
           doodleSvg = "";
+          keepsakeEligible = true;
 
           // Admin gallery wiring — the aiDoodleId from the cart is
           // either a cup_label_ai_jobs row id (Doubao AI path) or a
@@ -383,6 +405,7 @@ export async function enqueueCupLabelJobs({
           doodleSvg = pathsJsonToSvg(paths, USER_SVG_CANVAS);
           source = "user";
           userPaths = paths;
+          keepsakeEligible = true;
         } catch (e) {
           console.error("[cup-label] user doodle load failed, falling back", e);
           await useDefaultFallback();
@@ -419,7 +442,41 @@ export async function enqueueCupLabelJobs({
         target_printer_kind: "zd410",
         original_image_path: originalImagePath,
         ai_job_id: aiJobId,
+        copy_idx: 0,
       });
+
+      // Keepsake copy — a second label of this same cup (drink name +
+      // modifiers omitted) for the customer to keep. Only for cups the
+      // customer actually customized, and only when the order opted in.
+      if (includeKeepsakeCopies && keepsakeEligible) {
+        const { zpl: keepsakeZpl } = await renderCupLabel({
+          stickerNumber,
+          cupIdxOf: { idx: orderCupSeq, total: orderTotalCups },
+          drinkName,
+          modifiersText,
+          doodleSvg,
+          doodlePngBuffer,
+          customerFirstName: customerFirstName ?? null,
+          keepsake: true,
+        });
+        rows.push({
+          square_order_id: orderId,
+          line_id: lineId,
+          cup_idx: cupIdx,
+          sticker_number: stickerNumber,
+          drink_name: drinkName,
+          modifiers_text: modifiersText,
+          doodle_source: source,
+          doodle_pool_key: poolKey,
+          doodle_paths: userPaths,
+          raster_path: null,
+          zpl_body: keepsakeZpl,
+          target_printer_kind: "zd410",
+          original_image_path: null,
+          ai_job_id: null,
+          copy_idx: 1,
+        });
+      }
     }
   }
 
@@ -441,7 +498,7 @@ export async function enqueueCupLabelJobs({
   const { error: insErr } = await sb
     .from("cup_label_jobs")
     .upsert(rows, {
-      onConflict: "square_order_id,line_id,cup_idx",
+      onConflict: "square_order_id,line_id,cup_idx,copy_idx",
       ignoreDuplicates: !hasAuthoritativeChoice,
     });
   if (insErr) throw insErr;

@@ -335,3 +335,92 @@ describe("enqueueCupLabelJobs (Fix #2b: upsert ignoreDuplicates flips on user ro
     expect(opts.ignoreDuplicates).toBe(false);
   });
 });
+
+describe("enqueueCupLabelJobs (keepsake copies)", () => {
+  const clientLineId = `VAR1::MOD_50S,MOD_PEARL`;
+  const okDraw = () =>
+    downloadMock.mockResolvedValue({
+      data: {
+        text: async () =>
+          JSON.stringify({ paths: [{ d: "M0,0 L1,1", stroke: "#000", width: 3 }] }),
+      },
+      error: null,
+    });
+
+  it("emits one keepsake row (copy_idx 1) per customized cup, none for fallback cups", async () => {
+    okDraw();
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never, // qty 2: cup0 customized (drawn), cup1 fallback
+      stickerNumber: "OL910",
+      doodleIds: { [`${clientLineId}:0`]: "doodle-uuid-1" },
+      userId: "user-1",
+      includeKeepsakeCopies: true,
+    });
+    const [rows] = upsertMock.mock.calls[0];
+    expect(rows).toHaveLength(3); // cup0 primary + cup0 keepsake + cup1 primary
+
+    const keepsakes = rows.filter((r: { copy_idx: number }) => r.copy_idx === 1);
+    expect(keepsakes).toHaveLength(1);
+    expect(keepsakes[0].cup_idx).toBe(0);
+    expect(keepsakes[0].doodle_source).toBe("user");
+    expect(keepsakes[0].original_image_path).toBeNull();
+    expect(keepsakes[0].ai_job_id).toBeNull();
+
+    const keepsakeCalls = (
+      renderCupLabel as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter((c) => c[0]?.keepsake === true);
+    expect(keepsakeCalls).toHaveLength(1);
+  });
+
+  it("primary rows carry copy_idx 0", async () => {
+    okDraw();
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never,
+      stickerNumber: "OL911",
+      doodleIds: { [`${clientLineId}:0`]: "doodle-uuid-1" },
+      userId: "user-1",
+      includeKeepsakeCopies: true,
+    });
+    const [rows] = upsertMock.mock.calls[0];
+    const primaries = rows.filter((r: { copy_idx: number }) => r.copy_idx === 0);
+    expect(primaries).toHaveLength(2);
+  });
+
+  it("no keepsakes when flag is off (regression)", async () => {
+    okDraw();
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never,
+      stickerNumber: "OL912",
+      doodleIds: { [`${clientLineId}:0`]: "doodle-uuid-1" },
+      userId: "user-1",
+    });
+    const [rows] = upsertMock.mock.calls[0];
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r: { copy_idx: number }) => r.copy_idx === 0)).toBe(true);
+  });
+
+  it("no keepsakes for an all-fallback order even with flag on", async () => {
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never,
+      stickerNumber: "OL913",
+      includeKeepsakeCopies: true,
+    });
+    const [rows] = upsertMock.mock.calls[0];
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r: { copy_idx: number }) => r.copy_idx === 1)).toBe(false);
+  });
+
+  it("upsert onConflict includes copy_idx", async () => {
+    okDraw();
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never,
+      stickerNumber: "OL914",
+      doodleIds: { [`${clientLineId}:0`]: "doodle-uuid-1" },
+      userId: "user-1",
+      includeKeepsakeCopies: true,
+    });
+    expect(upsertMock.mock.calls[0][1].onConflict).toBe(
+      "square_order_id,line_id,cup_idx,copy_idx",
+    );
+  });
+});
