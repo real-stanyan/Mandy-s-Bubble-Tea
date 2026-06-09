@@ -80,3 +80,35 @@ describe("GET /api/driver/orders — roles", () => {
     expect(json.orders[0].driver).toBeNull()
   })
 })
+
+describe("GET /api/driver/orders — deliveryFeeCents", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.STAFF_DELIVERY_TOKEN = "driver-secret"
+    process.env.ADMIN_DELIVERY_TOKEN = "admin-secret"
+  })
+
+  it("extracts the delivery-fee service charge as cents", async () => {
+    mockSearch.mockResolvedValue({
+      orders: [
+        {
+          ...sqOrder,
+          serviceCharges: [
+            { uid: "service-fee", amountMoney: { amount: 250n } },
+            { uid: "delivery-fee", amountMoney: { amount: 499n } },
+          ],
+        },
+      ],
+    })
+    const res = await GET(req("driver-secret"))
+    const json = await res.json()
+    expect(json.orders[0].deliveryFeeCents).toBe("499")
+  })
+
+  it('returns "0" when the order has no delivery-fee charge (free delivery)', async () => {
+    mockSearch.mockResolvedValue({ orders: [sqOrder] })
+    const res = await GET(req("driver-secret"))
+    const json = await res.json()
+    expect(json.orders[0].deliveryFeeCents).toBe("0")
+  })
+})
