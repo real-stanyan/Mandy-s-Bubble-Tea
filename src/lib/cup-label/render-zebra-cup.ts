@@ -114,6 +114,14 @@ export type CupLabelInput = {
   /** Logged-in customer's first name. Falls back to "Soul" when null/empty/undefined. */
   customerFirstName?: string | null;
   /**
+   * Keepsake copy: the extra label the customer keeps. Renders the same
+   * greeting / order-number / cup-fraction / doodle / logo but OMITS the
+   * drink name and modifier list (the "keep everything except drink +
+   * mods" requirement). Defaults to false — every existing caller renders
+   * the full label unchanged.
+   */
+  keepsake?: boolean;
+  /**
    * Fortune-cookie-style sentence rendered in place of the middle
    * doodle band. Used by in-store (Square POS) orders where the
    * customer never touches the web/app and there is no drawn / preset
@@ -152,6 +160,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
       greeting: formatGreeting(input.customerFirstName ?? null),
       modifiers: input.modifiersText,
       fortuneText: input.fortuneText,
+      keepsake: input.keepsake,
       logoHex: logo.hex,
       logoTotalBytes: logo.totalBytes,
       logoWidthBytes: logo.widthBytes,
@@ -191,6 +200,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     drinkName: input.drinkName,
     greeting: formatGreeting(input.customerFirstName ?? null),
     modifiers: input.modifiersText,
+    keepsake: input.keepsake,
     doodleHex,
     doodleTotalBytes,
     doodleWidthBytes,
@@ -210,6 +220,7 @@ function buildZpl(args: {
   drinkName: string;
   greeting: string;
   modifiers: string;
+  keepsake?: boolean;
   doodleHex?: string;
   doodleTotalBytes?: number;
   doodleWidthBytes?: number;
@@ -285,18 +296,22 @@ function buildZpl(args: {
   // when ≤ height → solid bar).
   parts.push(`^FO0,${BOTTOM_BAND_Y}^GB${LABEL_WIDTH_DOTS},2,2^FS`);
 
-  const drinkFont = drinkFontSizeFor(args.drinkName);
-  const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN;
-  const drinkWidth = innerWidth - reserveRight;
-  const modWidth = innerWidth - reserveRight;
-  parts.push(
-    `^FO20,${BOTTOM_BAND_Y + 15}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
-  );
-  if (modLines.length > 0) {
-    const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+  // Keepsake copies print everything except the drink name + modifier
+  // list — the divider and logo below stay so the band still frames.
+  if (!args.keepsake) {
+    const drinkFont = drinkFontSizeFor(args.drinkName);
+    const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN;
+    const drinkWidth = innerWidth - reserveRight;
+    const modWidth = innerWidth - reserveRight;
     parts.push(
-      `^FO20,${BOTTOM_BAND_Y + 70}^A0N,32,32^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
+      `^FO20,${BOTTOM_BAND_Y + 15}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
     );
+    if (modLines.length > 0) {
+      const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+      parts.push(
+        `^FO20,${BOTTOM_BAND_Y + 70}^A0N,32,32^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
+      );
+    }
   }
 
   // Mandy logo at the bottom-right of the white bottom band. No ^FR
@@ -431,30 +446,36 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
   const { drinkName, modifiersText } = input;
   const fs = drinkFontSizeFor(drinkName);
 
-  // Width budget — always reserve right side for the logo.
-  const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
-  const innerW = LABEL_WIDTH_DOTS - 20 - reserveRight;
-  // Char-width heuristic 0.55 calibrated from real ZD410 prints.
-  const drinkMaxChars = Math.max(1, Math.floor(innerW / (fs * 0.55)));
-  const drinkLines = wrapWords(drinkName, drinkMaxChars, 2);
-  const drinkLineHeight = Math.round(fs * 1.05);
-  const drinkText = drinkLines
-    .map(
-      (line, i) =>
-        `<text x="20" y="${15 + fs + i * drinkLineHeight}" font-family="sans-serif" font-size="${fs}" font-weight="700" fill="black">${escapeXml(line)}</text>`,
-    )
-    .join("");
+  // Keepsake copies omit the drink name + modifier list (mirrors the ZPL
+  // path); the divider + logo below stay so the preview matches the print.
+  let drinkText = "";
+  let modText = "";
+  if (!input.keepsake) {
+    // Width budget — always reserve right side for the logo.
+    const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
+    const innerW = LABEL_WIDTH_DOTS - 20 - reserveRight;
+    // Char-width heuristic 0.55 calibrated from real ZD410 prints.
+    const drinkMaxChars = Math.max(1, Math.floor(innerW / (fs * 0.55)));
+    const drinkLines = wrapWords(drinkName, drinkMaxChars, 2);
+    const drinkLineHeight = Math.round(fs * 1.05);
+    drinkText = drinkLines
+      .map(
+        (line, i) =>
+          `<text x="20" y="${15 + fs + i * drinkLineHeight}" font-family="sans-serif" font-size="${fs}" font-weight="700" fill="black">${escapeXml(line)}</text>`,
+      )
+      .join("");
 
-  // Modifier list (left-aligned, narrow width to clear the logo).
-  const modLines = modifiersText.length > 0
-    ? wrapModifierLine(modifiersText, MOD_MAX_CHARS_PER_LINE).slice(0, MOD_MAX_LINES)
-    : [];
-  const modText = modLines
-    .map(
-      (line, i) =>
-        `<text x="20" y="${70 + 32 + i * 36}" font-family="sans-serif" font-size="32" fill="black">${escapeXml(line)}</text>`,
-    )
-    .join("");
+    // Modifier list (left-aligned, narrow width to clear the logo).
+    const modLines = modifiersText.length > 0
+      ? wrapModifierLine(modifiersText, MOD_MAX_CHARS_PER_LINE).slice(0, MOD_MAX_LINES)
+      : [];
+    modText = modLines
+      .map(
+        (line, i) =>
+          `<text x="20" y="${70 + 32 + i * 36}" font-family="sans-serif" font-size="32" fill="black">${escapeXml(line)}</text>`,
+      )
+      .join("");
+  }
 
   const lx = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
   const ly = BOTTOM_BAND_HEIGHT - MANDY_LOGO_HEIGHT - LOGO_MARGIN;

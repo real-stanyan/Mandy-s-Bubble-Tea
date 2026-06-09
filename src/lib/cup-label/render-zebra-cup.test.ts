@@ -160,3 +160,30 @@ describe("wrapModifierLine", () => {
     expect(r).toEqual(["Oat Milk", "Pearls + Jelly Ball", "L.Ice", "50%S"]);
   });
 });
+
+describe("renderCupLabel (keepsake variant)", () => {
+  const base = {
+    stickerNumber: "OL900",
+    cupIdxOf: { idx: 1, total: 1 },
+    drinkName: "Pearl Milk Tea",
+    modifiersText: "Pearls -> 50%S",
+    doodleSvg:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#000"/></svg>',
+    customerFirstName: "Stan",
+  };
+
+  it("omits drink name + modifiers when keepsake is true", async () => {
+    const { zpl } = await renderCupLabel({ ...base, keepsake: true });
+    expect(zpl).not.toContain("Pearl Milk Tea");
+    expect(zpl).not.toContain("50%S");
+    // Greeting + order/cup line are retained.
+    expect(zpl).toContain("Hi, Stan");
+    expect(zpl).toContain("OL900");
+  });
+
+  it("keeps drink name + modifiers when keepsake is absent (regression)", async () => {
+    const { zpl } = await renderCupLabel(base);
+    expect(zpl).toContain("Pearl Milk Tea");
+    expect(zpl).toContain("50%S");
+  });
+});
