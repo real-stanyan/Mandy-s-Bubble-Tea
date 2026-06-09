@@ -73,6 +73,8 @@ type PaymentBody = {
   /** Gallery sticker picks, keyed `${clientLineId}:${cupIdx}`, value is the
    *  md5 hash of the chosen sticker in `public/cup-label/gallery/`. */
   presetStickerHashes?: Record<string, string>;
+  /** Order-level opt-in: print a free keepsake copy of each customized cup. */
+  keepLabelCopy?: boolean;
 };
 
 function isValidBody(body: unknown): body is PaymentBody {
@@ -104,6 +106,7 @@ function isValidBody(body: unknown): body is PaymentBody {
       if (typeof v !== "string") return false;
     }
   }
+  if (b.keepLabelCopy !== undefined && typeof b.keepLabelCopy !== "boolean") return false;
   return true;
 }
 
@@ -249,6 +252,7 @@ export async function POST(request: Request) {
               presetStickerHashes: body.presetStickerHashes,
               userId: user.userId,
               customerFirstName: user.profile.first_name,
+              includeKeepsakeCopies: body.keepLabelCopy === true,
             };
             after(async () => {
               try {
@@ -317,6 +321,7 @@ export async function POST(request: Request) {
                 presetStickerHashes: body.presetStickerHashes,
                 userId: user.userId,
                 customerFirstName: user.profile.first_name,
+                includeKeepsakeCopies: body.keepLabelCopy === true,
               };
               after(async () => {
                 try {

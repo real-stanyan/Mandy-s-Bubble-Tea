@@ -232,3 +232,72 @@ describe("POST /api/payment — cup-label enqueue survives the response (bug OL8
     expect(mockEnqueueCupLabelJobs).not.toHaveBeenCalled();
   });
 });
+
+
+describe("POST /api/payment — keepsake copies (keepLabelCopy)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthedUser.mockResolvedValue({
+      userId: "u1",
+      profile: {
+        square_customer_id: "cust1",
+        phone_e164: "+61400000001",
+        first_name: "Stan",
+      },
+    });
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ord1",
+        totalMoney: { amount: 600n },
+        rewards: [],
+        discounts: [],
+        metadata: {},
+      },
+    });
+    mockFindOrCreateLoyaltyAccount.mockResolvedValue({ accountId: "acc1" });
+    mockAccrueForOrder.mockResolvedValue(undefined);
+  });
+
+  it("passes includeKeepsakeCopies:true to enqueue when keepLabelCopy is set", async () => {
+    mockPaymentsCreate.mockResolvedValue({
+      payment: { id: "pay1", status: "COMPLETED" },
+    });
+    mockEnqueuePrintJob.mockResolvedValue({ queued: true, stickerNumber: "OL930" });
+
+    await POST(
+      makeRequest({
+        orderId: "ord1",
+        sourceId: "cnon:x",
+        presetStickerHashes: { "line1:0": "abc123" },
+        keepLabelCopy: true,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(mockEnqueueCupLabelJobs).toHaveBeenCalledWith(
+        expect.objectContaining({ includeKeepsakeCopies: true }),
+      );
+    });
+  });
+
+  it("passes includeKeepsakeCopies:false when keepLabelCopy is absent", async () => {
+    mockPaymentsCreate.mockResolvedValue({
+      payment: { id: "pay1", status: "COMPLETED" },
+    });
+    mockEnqueuePrintJob.mockResolvedValue({ queued: true, stickerNumber: "OL931" });
+
+    await POST(
+      makeRequest({
+        orderId: "ord1",
+        sourceId: "cnon:x",
+        presetStickerHashes: { "line1:0": "abc123" },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(mockEnqueueCupLabelJobs).toHaveBeenCalledWith(
+        expect.objectContaining({ includeKeepsakeCopies: false }),
+      );
+    });
+  });
+});

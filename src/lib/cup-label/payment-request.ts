@@ -9,6 +9,8 @@ export interface PaymentRequestArgs {
   verificationToken?: string;
   /** The cart's per-cup label selections (cupKey → selection). */
   labelSelections: Record<string, CupLabelSelection>;
+  /** Order-level opt-in: print a free keepsake copy of each customized cup. */
+  keepLabelCopy?: boolean;
 }
 
 export interface PaymentRequestBody {
@@ -18,6 +20,7 @@ export interface PaymentRequestBody {
   presetStickerHashes: Record<string, string> | undefined;
   aiDoodleIds: Record<string, string> | undefined;
   doodleIds: Record<string, string> | undefined;
+  keepLabelCopy: boolean;
 }
 
 /**
@@ -48,5 +51,6 @@ export function buildPaymentRequestBody(
     presetStickerHashes,
     aiDoodleIds,
     doodleIds,
+    keepLabelCopy: args.keepLabelCopy === true,
   };
 }

@@ -72,3 +72,19 @@ describe("buildPaymentRequestBody", () => {
     expect(body.doodleIds).toBeUndefined();
   });
 });
+
+describe("buildPaymentRequestBody — keepLabelCopy", () => {
+  it("forwards keepLabelCopy into the body", () => {
+    const body = buildPaymentRequestBody({
+      orderId: "ORD1",
+      labelSelections: {},
+      keepLabelCopy: true,
+    });
+    expect(body.keepLabelCopy).toBe(true);
+  });
+
+  it("defaults keepLabelCopy to false when omitted", () => {
+    const body = buildPaymentRequestBody({ orderId: "ORD1", labelSelections: {} });
+    expect(body.keepLabelCopy).toBe(false);
+  });
+});
