@@ -28,6 +28,7 @@ export function CategorySidebar({
           <a
             key={it.slug}
             href={`#cat-${it.slug}`}
+            aria-current={isActive ? "page" : undefined}
             onClick={(e) => {
               e.preventDefault();
               onSelect(it.slug);
