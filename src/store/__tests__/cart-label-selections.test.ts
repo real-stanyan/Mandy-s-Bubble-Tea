@@ -124,3 +124,19 @@ describe("cart labelSelections union", () => {
     });
   });
 });
+
+describe("cart keepLabelCopy", () => {
+  it("defaults to false and toggles via setKeepLabelCopy", async () => {
+    const { useCart } = await import("@/store/cart");
+    expect(useCart.getState().keepLabelCopy).toBe(false);
+    useCart.getState().setKeepLabelCopy(true);
+    expect(useCart.getState().keepLabelCopy).toBe(true);
+  });
+
+  it("clear() resets keepLabelCopy to false", async () => {
+    const { useCart } = await import("@/store/cart");
+    useCart.getState().setKeepLabelCopy(true);
+    useCart.getState().clear();
+    expect(useCart.getState().keepLabelCopy).toBe(false);
+  });
+});

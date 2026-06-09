@@ -56,6 +56,9 @@ type CartState = {
   // labelSelections forwards verbatim into payment payload maps.
   labelSelections: Record<string, CupLabelSelection>;
 
+  /** Order-level opt-in: print a free keepsake copy of each customized cup. */
+  keepLabelCopy: boolean;
+
   /** Scopes the per-slot AI submission quota on the server (see
    *  `/api/cup-label/ai-submit`). Regenerated on `clear()` so a new
    *  shopping session never inherits the previous cart's AI image. */
@@ -70,6 +73,7 @@ type CartState = {
   closeDrawer: () => void;
   setLabel: (cupKey: string, selection: CupLabelSelection) => void;
   clearLabel: (cupKey: string) => void;
+  setKeepLabelCopy: (value: boolean) => void;
 };
 
 /** Build the deterministic key for a single cup within a cart line.
@@ -154,6 +158,7 @@ export const useCart = create<CartState>()(
       isOpen: false,
       hydrated: false,
       labelSelections: {},
+      keepLabelCopy: false,
       cartSessionId: newCartSessionId(),
 
       addLine: (partial, quantity = 1) => {
@@ -207,6 +212,7 @@ export const useCart = create<CartState>()(
         set({
           lines: [],
           labelSelections: {},
+          keepLabelCopy: false,
           cartSessionId: newCartSessionId(),
         }),
       openDrawer: () => set({ isOpen: true }),
@@ -221,6 +227,7 @@ export const useCart = create<CartState>()(
           delete next[key];
           return { labelSelections: next };
         }),
+      setKeepLabelCopy: (value) => set({ keepLabelCopy: value }),
     }),
     {
       name: "mandy-cart",
@@ -257,6 +264,7 @@ export const useCart = create<CartState>()(
       partialize: (state) => ({
         lines: state.lines,
         labelSelections: state.labelSelections,
+        keepLabelCopy: state.keepLabelCopy,
         cartSessionId: state.cartSessionId,
       }),
       onRehydrateStorage: () => (state) => {
