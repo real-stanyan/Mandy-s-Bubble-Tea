@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 export type CategorySidebarItem = {
   slug: string;
   label: string;
@@ -9,42 +7,13 @@ export type CategorySidebarItem = {
 
 export function CategorySidebar({
   items,
+  active,
+  onSelect,
 }: {
   items: CategorySidebarItem[];
+  active: string;
+  onSelect: (slug: string) => void;
 }) {
-  const [active, setActive] = useState(items[0]?.slug ?? "");
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        if (visible[0]) {
-          const id = visible[0].target.id;
-          const slug = id.replace(/^cat-/, "");
-          setActive(slug);
-        }
-      },
-      { rootMargin: "-96px 0px -60% 0px", threshold: [0, 0.2, 0.5] },
-    );
-    for (const it of items) {
-      const el = document.getElementById(`cat-${it.slug}`);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [items]);
-
-  function handleClick(e: React.MouseEvent<HTMLAnchorElement>, slug: string) {
-    e.preventDefault();
-    const el = document.getElementById(`cat-${slug}`);
-    if (!el) return;
-    setActive(slug);
-    const top = el.getBoundingClientRect().top + window.scrollY - 88;
-    window.scrollTo({ top, behavior: "smooth" });
-  }
-
   return (
     <nav aria-label="Menu categories" className="flex flex-col gap-1">
       <p
@@ -59,7 +28,10 @@ export function CategorySidebar({
           <a
             key={it.slug}
             href={`#cat-${it.slug}`}
-            onClick={(e) => handleClick(e, it.slug)}
+            onClick={(e) => {
+              e.preventDefault();
+              onSelect(it.slug);
+            }}
             className={
               "group flex items-center gap-2 rounded-full px-3 py-2 font-serif transition " +
               (isActive
