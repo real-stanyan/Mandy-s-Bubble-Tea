@@ -6,6 +6,8 @@ import { MenuHeader } from "@/components/menu/MenuHeader";
 import { SectionHeader } from "@/components/menu/SectionHeader";
 import { ProductCard } from "@/components/menu/ProductCard";
 import { CategorySidebar } from "@/components/menu/CategorySidebar";
+import { CategoryRail } from "@/components/menu/CategoryRail";
+import { useCategoryScrollSpy } from "@/components/menu/useCategoryScrollSpy";
 import type { ProductRowData } from "@/components/menu/ProductRow";
 
 export type MenuBrowserSection = {
@@ -39,6 +41,8 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
     () => sections.map((s) => ({ slug: s.slug, label: s.squareName })),
     [sections],
   );
+
+  const { active, scrollToCategory } = useCategoryScrollSpy(sidebarItems);
 
   return (
     <>
@@ -86,10 +90,23 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
           )}
         </div>
       ) : (
-        <div className="lg:grid lg:grid-cols-[220px_1fr] lg:gap-6 lg:px-4">
-          <aside className="hidden lg:block">
-            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pb-6">
-              <CategorySidebar items={sidebarItems} />
+        <div className="grid grid-cols-[84px_1fr] lg:grid-cols-[220px_1fr] lg:gap-6 lg:px-4">
+          <aside>
+            {/* Mobile / tablet rail */}
+            <div className="sticky top-2 max-h-[calc(100vh-1rem)] overflow-y-auto pb-6 lg:hidden">
+              <CategoryRail
+                items={sidebarItems}
+                active={active}
+                onSelect={scrollToCategory}
+              />
+            </div>
+            {/* Desktop sidebar */}
+            <div className="sticky top-6 hidden max-h-[calc(100vh-3rem)] overflow-y-auto pb-6 lg:block">
+              <CategorySidebar
+                items={sidebarItems}
+                active={active}
+                onSelect={scrollToCategory}
+              />
             </div>
           </aside>
           <div className="pb-16">
