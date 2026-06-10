@@ -5,7 +5,9 @@ import * as Sentry from "@sentry/nextjs";
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
-  sendDefaultPii: true,
+  // SECURITY: false so the browser SDK doesn't attach the user's IP / request
+  // headers. Session Replay already masks all text + blocks media below.
+  sendDefaultPii: false,
 
   // Performance tracing — sample 10% in prod to stay within quota
   // (~5k orders/mo), full sampling locally for debugging.
