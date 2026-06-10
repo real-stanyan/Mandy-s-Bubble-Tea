@@ -1,10 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@/lib/auth", () => ({
+  getAuthedUser: vi.fn(),
+}));
+
 import { POST } from "./route";
+import { getAuthedUser } from "@/lib/auth";
 
 const KEY = "test-key";
+const authed = { profile: { square_customer_id: "c1" } };
 beforeEach(() => {
   process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY = KEY;
   vi.restoreAllMocks();
+  // Default: requests are authenticated. The 401 test overrides this.
+  vi.mocked(getAuthedUser).mockResolvedValue(authed as never);
 });
 
 function req(body: unknown) {
@@ -13,6 +22,12 @@ function req(body: unknown) {
     body: JSON.stringify(body),
   });
 }
+
+it("returns 401 when not authenticated", async () => {
+  vi.mocked(getAuthedUser).mockResolvedValue(null);
+  const res = await POST(req({ input: "1 Test", sessionToken: "s1" }));
+  expect(res.status).toBe(401);
+});
 
 it("autocomplete returns predictions", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>

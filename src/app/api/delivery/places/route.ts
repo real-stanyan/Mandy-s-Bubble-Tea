@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { extractPostcode } from "@/lib/delivery-zone";
+import { getAuthedUser } from "@/lib/auth";
 
 // Server-side proxy for Google Places so the native app never embeds a key.
 // Two shapes on one POST: { input, sessionToken } -> autocomplete predictions;
 // { placeId } -> place details (address + lat/lng + postcode). AU-restricted.
 export async function POST(request: Request) {
+  // Require a signed-in customer (cookie session or app Bearer JWT). Without
+  // this the proxy is an open relay against the merchant's paid Google key —
+  // anyone could drain billing/quota or enumerate addresses for free.
+  const user = await getAuthedUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   // Read at request time so tests can inject the env var after module load.
   const KEY = process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY;
   if (!KEY) {

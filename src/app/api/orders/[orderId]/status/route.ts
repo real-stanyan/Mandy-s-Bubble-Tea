@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient } from "@/lib/square";
+import { getAuthedUser } from "@/lib/auth";
+import { ownsOrder } from "@/lib/order-complaint";
 import { STORE_LAT, STORE_LNG } from "@/lib/constants";
 import {
   getDispatchTracking,
@@ -76,7 +78,7 @@ async function resolveRoute(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ orderId: string }> },
 ) {
   const { orderId } = await params;
@@ -91,41 +93,50 @@ export async function GET(
       order?.metadata?.fulfillment_type === "DELIVERY" ||
       fulfillment?.type === "DELIVERY";
 
-    // Only assemble tracking once the order is out for delivery (PREPARED) —
-    // before that there's no driver en route, and after COMPLETED the map is
-    // moot. Reading the dispatch row is cheap (single-row Supabase lookup).
+    // Tracking carries PII — the customer's home coordinates + the driver's
+    // live GPS fix — so it is ONLY returned to the authenticated order owner.
+    // The basic fulfillment `state` stays public so the confirmation page poll
+    // keeps working; the live map is gated. (Order ids are opaque, but there
+    // was previously zero ownership check on this PII.)
     let tracking = null;
     if (isDelivery && state === "PREPARED") {
-      const dispatch = await getDispatchTracking(orderId).catch(() => null);
-      const destLat = num(order?.metadata?.delivery_lat);
-      const destLng = num(order?.metadata?.delivery_lng);
-      const driverLat = dispatch?.driverLat ?? null;
-      const driverLng = dispatch?.driverLng ?? null;
+      const user = await getAuthedUser(request);
+      const isOwner = ownsOrder(
+        user?.profile?.square_customer_id ?? null,
+        order?.customerId ?? null,
+      );
+      if (isOwner) {
+        const dispatch = await getDispatchTracking(orderId).catch(() => null);
+        const destLat = num(order?.metadata?.delivery_lat);
+        const destLng = num(order?.metadata?.delivery_lng);
+        const driverLat = dispatch?.driverLat ?? null;
+        const driverLng = dispatch?.driverLng ?? null;
 
-      // Route only once the driver is actually moving (has a GPS fix) — before
-      // that a store→dest route would just restyle the map with no signal.
-      let routeInfo: { route: [number, number][]; etaSeconds: number | null } | null =
-        null;
-      if (driverLat != null && driverLng != null && destLat != null && destLng != null) {
-        routeInfo = await resolveRoute(
-          orderId,
-          { lat: driverLat, lng: driverLng },
-          { lat: destLat, lng: destLng },
-        );
+        // Route only once the driver is actually moving (has a GPS fix) —
+        // before that a store→dest route would just restyle the map.
+        let routeInfo: { route: [number, number][]; etaSeconds: number | null } | null =
+          null;
+        if (driverLat != null && driverLng != null && destLat != null && destLng != null) {
+          routeInfo = await resolveRoute(
+            orderId,
+            { lat: driverLat, lng: driverLng },
+            { lat: destLat, lng: destLng },
+          );
+        }
+
+        tracking = {
+          destLat,
+          destLng,
+          storeLat: STORE_LAT,
+          storeLng: STORE_LNG,
+          driverLat,
+          driverLng,
+          driverHeading: dispatch?.driverHeading ?? null,
+          locationUpdatedAt: dispatch?.locationUpdatedAt ?? null,
+          route: routeInfo?.route ?? null,
+          etaSeconds: routeInfo?.etaSeconds ?? null,
+        };
       }
-
-      tracking = {
-        destLat,
-        destLng,
-        storeLat: STORE_LAT,
-        storeLng: STORE_LNG,
-        driverLat,
-        driverLng,
-        driverHeading: dispatch?.driverHeading ?? null,
-        locationUpdatedAt: dispatch?.locationUpdatedAt ?? null,
-        route: routeInfo?.route ?? null,
-        etaSeconds: routeInfo?.etaSeconds ?? null,
-      };
     }
 
     return NextResponse.json(
