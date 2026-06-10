@@ -11,6 +11,12 @@ import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
+import {
+  authoritativeSubtotalCents,
+  authoritativeUnitPrices,
+  buildAuthoritativePriceMaps,
+  type AuthoritativePriceMaps,
+} from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -169,8 +175,15 @@ export async function POST(request: Request) {
   // but an order can land here from a stale tab or parallel Square POS
   // edit. Reject before handing the order to Square so the customer sees
   // a clear error instead of paying for something the shop can't make.
+  // Server-authoritative per-cup prices, built from the Square catalog menu —
+  // NEVER from the client body. Drives the welcome/IG discount amount and the
+  // delivery/service fees below (see order-pricing.ts). Stays null only if the
+  // menu fetch fails (rare cache outage), in which case discounts are skipped
+  // entirely and fees fall back to the legacy client-price path.
+  let priceMaps: AuthoritativePriceMaps | null = null;
   try {
     const menu = await getMenu();
+    priceMaps = buildAuthoritativePriceMaps(menu);
     const variationSoldOut = new Map<string, { name: string; soldOut: boolean }>();
     const modifierSoldOut = new Map<string, { name: string; soldOut: boolean }>();
     for (const items of menu.itemsBySlug.values()) {
@@ -231,18 +244,22 @@ export async function POST(request: Request) {
     modifiers: dedupeLineModifiers(line.modifiers),
   }));
 
-  // Server-authoritative drinks subtotal (cents). Computed from client-sent
-  // unit prices the same way welcome-discount math does — the prices came from
-  // our catalog API at add-to-cart time, so trust-but-bound is acceptable.
-  const drinksSubtotalCents: bigint = body.lines.reduce((sum, line) => {
-    const modSum = line.modifiers.reduce(
-      (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
-      0n,
-    );
-    const unit =
-      BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
-    return sum + unit * BigInt(Math.max(1, line.quantity));
-  }, 0n);
+  // Server-authoritative drinks subtotal (cents) from the Square catalog menu.
+  // This gates delivery eligibility + free-delivery thresholds, so it must NOT
+  // trust client prices (a forged price could fake the free-delivery subtotal).
+  // Fallback to the legacy client-price computation ONLY if the menu fetch
+  // failed above (priceMaps null) so a cache outage doesn't block all delivery.
+  const drinksSubtotalCents: bigint = priceMaps
+    ? authoritativeSubtotalCents(body.lines, priceMaps)
+    : body.lines.reduce((sum, line) => {
+        const modSum = line.modifiers.reduce(
+          (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
+          0n,
+        );
+        const unit =
+          BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
+        return sum + unit * BigInt(Math.max(1, line.quantity));
+      }, 0n);
 
   const isDelivery = body.fulfillmentType === "DELIVERY";
   const deliveryFullAddress =
@@ -308,13 +325,12 @@ export async function POST(request: Request) {
     // Client is NOT trusted — a request with applyWelcomeDiscount or
     // applyIgFollowDiscount: true but no unused row in Supabase is silently
     // treated as "no discount".
-    // Compute the discount amounts server-side from client-sent unit prices.
-    // The client has authoritative prices (they came from our catalog API
-    // at add-to-cart time); a malicious client can only shift *which*
-    // drinks are chosen as cheapest, and since the rates are bounded
-    // percentages, the merchant's downside is bounded. If we later harden
-    // this we'll call `squareClient.orders.calculate()` first to get
-    // Square's authoritative line totals, but for now trust-client is fine.
+    // Compute the discount amounts server-side from AUTHORITATIVE catalog
+    // prices (priceMaps, built from getMenu above) — never from the client
+    // body. A forged variationPriceCents/priceCents cannot inflate the
+    // FIXED_AMOUNT discount (which would zero out the whole cart). See
+    // order-pricing.ts. If the menu fetch failed, priceMaps is null and the
+    // discount is skipped entirely rather than trusting client prices.
     let welcomeDiscounts:
       | Array<{
           uid: string;
@@ -365,17 +381,12 @@ export async function POST(request: Request) {
           ? igStatus.drinksRemaining
           : 0;
 
-      if (welcomeK > 0 || igK > 0) {
-        const unitPrices: bigint[] = [];
-        for (const line of body.lines) {
-          const modSum = line.modifiers.reduce(
-            (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
-            0n,
-          );
-          const unit =
-            BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
-          for (let i = 0; i < line.quantity; i++) unitPrices.push(unit);
-        }
+      // priceMaps is required to size the discount: the FIXED_AMOUNT is real
+      // money, so a forged client price must never reach the discount math.
+      // If the menu fetch failed (priceMaps null) we skip the discount this
+      // order rather than fall back to client prices (fail safe for merchant).
+      if ((welcomeK > 0 || igK > 0) && priceMaps) {
+        const unitPrices = authoritativeUnitPrices(body.lines, priceMaps);
 
         const { welcomeCups, igFollowCups } = pickPromoCups({
           unitPrices,
