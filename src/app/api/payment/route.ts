@@ -160,6 +160,30 @@ export async function POST(request: Request) {
       );
     }
 
+    // Idempotency guard against a replayed / double-submitted payment.
+    // Square's totalMoney still shows the gross amount after an order is
+    // paid, so without this a second POST would re-enter payments.create
+    // with a fresh idempotency key (risking a SECOND card charge) and
+    // re-consume the welcome/IG discount. A COMPLETED order is already
+    // settled — a freshly-created order (paid OR $0-redeem) is still OPEN,
+    // so this never short-circuits a legitimate first call. Return success
+    // idempotently without charging or re-running side effects.
+    if (order.state === "COMPLETED") {
+      return NextResponse.json({
+        ok: true,
+        paymentId: null,
+        status: "COMPLETED",
+        alreadyPaid: true,
+        loyaltyAccrued: false,
+        welcomeDiscountConsumedCount: 0,
+        welcomeDrinksRemaining: null,
+        welcomeDiscountConsumed: false,
+        igFollowDiscountConsumed: false,
+        igFollowDrinksRemaining: null,
+        payment: null,
+      });
+    }
+
     const amount = order.totalMoney?.amount ?? 0n;
     let paymentId: string | null = null;
     let paymentStatus: string | null = null;

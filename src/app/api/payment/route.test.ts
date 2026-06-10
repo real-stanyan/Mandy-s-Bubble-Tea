@@ -162,6 +162,71 @@ describe("POST /api/payment — loyalty accrual gating (bug `loyalty-payment-not
   });
 });
 
+describe("POST /api/payment — already-paid idempotency guard (replay → no double charge)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthedUser.mockResolvedValue({
+      userId: "u1",
+      profile: {
+        square_customer_id: "cust1",
+        phone_e164: "+61400000001",
+        first_name: "Stan",
+      },
+    });
+  });
+
+  it("does NOT re-charge or re-consume a discount when the order is already COMPLETED", async () => {
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ord1",
+        state: "COMPLETED",
+        totalMoney: { amount: 600n },
+        // Gross total still shows; a replayed POST must not act on it.
+        discounts: [{ uid: "welcome-discount" }],
+        metadata: { welcomeDiscountDrinksCovered: "1" },
+        rewards: [],
+      },
+    });
+
+    const res = await POST(makeRequest({ orderId: "ord1", sourceId: "cnon:x" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.alreadyPaid).toBe(true);
+    // The whole point: no second charge, no discount re-consume, no accrual.
+    expect(mockPaymentsCreate).not.toHaveBeenCalled();
+    expect(mockOrdersPay).not.toHaveBeenCalled();
+    expect(mockConsumeWelcomeDiscount).not.toHaveBeenCalled();
+    expect(mockAccrueForOrder).not.toHaveBeenCalled();
+  });
+
+  it("still charges a fresh (OPEN) order normally", async () => {
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ord1",
+        state: "OPEN",
+        totalMoney: { amount: 600n },
+        discounts: [],
+        metadata: {},
+        rewards: [],
+      },
+    });
+    mockPaymentsCreate.mockResolvedValue({
+      payment: { id: "pay1", status: "COMPLETED" },
+    });
+    mockEnqueuePrintJob.mockResolvedValue({ queued: false, reason: "noop" });
+    mockFindOrCreateLoyaltyAccount.mockResolvedValue({ accountId: "acc1" });
+    mockAccrueForOrder.mockResolvedValue(undefined);
+
+    const res = await POST(makeRequest({ orderId: "ord1", sourceId: "cnon:x" }));
+    const json = await res.json();
+
+    expect(json.ok).toBe(true);
+    expect(mockPaymentsCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("POST /api/payment — cup-label enqueue survives the response (bug OL826 2026-06-06)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
