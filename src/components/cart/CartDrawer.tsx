@@ -155,7 +155,6 @@ function CartBody({
     igFollowDiscount,
     starsPerReward: authStarsPerReward,
   } = useAuth();
-  const [useReward, setUseReward] = useState(false);
 
   // Per-cup label picker — single modal instance covers all lines, the
   // pickerCupKey state tracks which cup is currently being edited. Cup
@@ -235,22 +234,6 @@ function CartBody({
   const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
   const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
-  // Cheapest drink unit price = reward discount amount.
-  const rewardDiscount = useMemo(() => {
-    if (lines.length === 0) return 0n;
-    let cheapest = lineUnitPrice(lines[0]);
-    for (const l of lines) {
-      const up = lineUnitPrice(l);
-      if (up < cheapest) cheapest = up;
-    }
-    return cheapest;
-  }, [lines]);
-
-  // Reset redeem when user no longer qualifies.
-  useEffect(() => {
-    if (!canRedeem) setUseReward(false);
-  }, [canRedeem]);
-
   return (
     <>
       <div className="flex-1 overflow-y-auto px-5">
@@ -262,8 +245,6 @@ function CartBody({
               stars={stars}
               starsPerReward={starsPerReward}
               canRedeem={canRedeem}
-              useReward={useReward}
-              onToggleReward={() => setUseReward((v) => !v)}
             />
 
             <div className="mt-5 space-y-5">
@@ -284,8 +265,6 @@ function CartBody({
       {lines.length > 0 && (
         <CartFooter
           lines={lines}
-          useReward={useReward}
-          rewardDiscount={rewardDiscount}
           welcomeDiscount={welcomeDiscount}
           welcomeDiscountAmount={welcomeDiscountAmount}
           welcomeCoveredCount={promoCoverage.welcomeCount}
@@ -330,14 +309,10 @@ const TeaJourneyCard = memo(function TeaJourneyCard({
   stars,
   starsPerReward,
   canRedeem,
-  useReward,
-  onToggleReward,
 }: {
   stars: number;
   starsPerReward: number;
   canRedeem: boolean;
-  useReward: boolean;
-  onToggleReward: () => void;
 }) {
   const remaining = Math.max(starsPerReward - stars, 0);
   const progressPct = Math.min((stars / starsPerReward) * 100, 100);
@@ -380,32 +355,6 @@ const TeaJourneyCard = memo(function TeaJourneyCard({
           {stars} / {starsPerReward} Stars
         </span>
       </div>
-
-      {/* Redeem toggle */}
-      {canRedeem && (
-        <button
-          type="button"
-          onClick={onToggleReward}
-          className={`mt-3 flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-            useReward
-              ? "bg-white text-zinc-900"
-              : "bg-white/60 text-zinc-700 hover:bg-white/80"
-          }`}
-          style={useReward ? { boxShadow: `0 0 0 2px ${BRAND.primaryColor}` } : undefined}
-        >
-          <span className="flex items-center gap-1.5">
-            🎉 Redeem free drink
-          </span>
-          <span
-            className={`flex h-5 w-9 items-center rounded-full transition-colors ${
-              useReward ? "justify-end" : "justify-start bg-zinc-300"
-            }`}
-            style={useReward ? { backgroundColor: BRAND.primaryColor } : undefined}
-          >
-            <span className="mx-0.5 h-4 w-4 rounded-full bg-white shadow" />
-          </span>
-        </button>
-      )}
     </div>
   );
 });
@@ -550,8 +499,6 @@ function QuantityStepper({
 
 function CartFooter({
   lines,
-  useReward,
-  rewardDiscount,
   welcomeDiscount,
   welcomeDiscountAmount,
   welcomeCoveredCount,
@@ -565,8 +512,6 @@ function CartFooter({
   authLoading,
 }: {
   lines: CartLine[];
-  useReward: boolean;
-  rewardDiscount: bigint;
   welcomeDiscount: {
     available: boolean;
     percentage: number;
@@ -619,27 +564,18 @@ function CartFooter({
   // paint. The server gate is still authoritative.
   const storeClosed = orderingKnown && !orderingOpen;
 
-  // Reward and welcome/IG display are mutually exclusive in the total math
-  // (matches /checkout). Square still applies both at charge time — the
-  // server-trusted totalMoney is authoritative.
+  // Display-only promo math — matches /checkout. Square still applies the
+  // discounts at charge time; the server-trusted totalMoney is authoritative.
+  // (Loyalty reward redemption lives on /checkout, not in the drawer.)
   const promoDiscountTotal = welcomeDiscountAmount + igFollowDiscountAmount;
-  const discountedTotal = useReward
-    ? subtotal - rewardDiscount > 0n
-      ? subtotal - rewardDiscount
-      : 0n
-    : promoDiscountTotal > 0n
+  const discountedTotal =
+    promoDiscountTotal > 0n
       ? subtotal - promoDiscountTotal > 0n
         ? subtotal - promoDiscountTotal
         : 0n
       : subtotal;
-  // Loyalty reward that fully covers the drinks → no card is charged,
-  // so the server skips the surcharge and the footer hides it.
-  const isFreeRedeem = useReward && subtotal - rewardDiscount <= 0n;
-  const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
-  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
-  const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
   const displayTotal =
-    discountedTotal + effectiveSurcharge + effectivePlatformFee + effectivePhSurcharge;
+    discountedTotal + surchargeAmount + platformFeeAmount + phSurchargeAmount;
 
   return (
     <footer className="border-t border-black/10 px-5 pb-6 pt-5">
@@ -650,16 +586,7 @@ function CartFooter({
             {formatPrice(subtotal)}
           </span>
         </div>
-        {useReward && (
-          <div className="flex justify-between text-sm">
-            <span className="text-green-600">Free drink reward</span>
-            <span className="font-semibold text-green-600">
-              −{formatPrice(rewardDiscount)}
-            </span>
-          </div>
-        )}
-        {!useReward &&
-          welcomeDiscount.available &&
+        {welcomeDiscount.available &&
           welcomeCoveredCount > 0 && (
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-1.5">
@@ -678,8 +605,7 @@ function CartFooter({
               </span>
             </div>
           )}
-        {!useReward &&
-          igFollowDiscount.available &&
+        {igFollowDiscount.available &&
           igFollowCoveredCount > 0 && (
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-1.5">
@@ -698,29 +624,29 @@ function CartFooter({
               </span>
             </div>
           )}
-        {effectivePhSurcharge > 0n && (
+        {phSurchargeAmount > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
               {PH_SURCHARGE.name}{" "}
               <span className="text-xs text-zinc-400">({PH_SURCHARGE.percentage}%)</span>
             </span>
             <span className="font-semibold text-zinc-900">
-              {formatPrice(effectivePhSurcharge)}
+              {formatPrice(phSurchargeAmount)}
             </span>
           </div>
         )}
-        {effectivePlatformFee > 0n && (
+        {platformFeeAmount > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
               {PLATFORM_FEE.name}{" "}
               <span className="text-xs text-zinc-400">({PLATFORM_FEE.percentage}%)</span>
             </span>
             <span className="font-semibold text-zinc-900">
-              {formatPrice(effectivePlatformFee)}
+              {formatPrice(platformFeeAmount)}
             </span>
           </div>
         )}
-        {effectiveSurcharge > 0n && (
+        {surchargeAmount > 0n && (
           <div className="flex justify-between text-sm text-zinc-600">
             <span>
               {CARD_SURCHARGE.name}{" "}
@@ -729,7 +655,7 @@ function CartFooter({
               </span>
             </span>
             <span className="font-semibold text-zinc-900">
-              {formatPrice(effectiveSurcharge)}
+              {formatPrice(surchargeAmount)}
             </span>
           </div>
         )}
