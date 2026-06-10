@@ -1,6 +1,7 @@
 // src/app/api/admin/print-alert/route.ts
 import { NextResponse } from "next/server";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { bearerTokenMatches } from "@/lib/bearer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,7 @@ export async function POST(request: Request) {
     console.error("[print-alert] PRINTER_ALERT_TOKEN not configured on server");
     return NextResponse.json({ ok: false }, { status: 500 });
   }
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth !== `Bearer ${expected}`) {
+  if (!bearerTokenMatches(request, expected)) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
   let body: AlertBody;

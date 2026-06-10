@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { bearerTokenMatches } from "@/lib/bearer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,15 +16,17 @@ const STALE_AFTER_MS = 3 * 60 * 1000;
 const RE_ALERT_AFTER_MS = 10 * 60 * 1000;
 
 export async function GET(request: Request) {
-  // Vercel attaches Authorization: Bearer <CRON_SECRET> when CRON_SECRET
-  // is set as an env var. We require it so this endpoint can't be
-  // triggered by the public internet to spam push notifications.
+  // Vercel attaches Authorization: Bearer <CRON_SECRET>. We FAIL CLOSED if
+  // CRON_SECRET is unset (e.g. a preview deploy missing the prod secret) so
+  // this endpoint can never be triggered by the public internet to spam push
+  // notifications. Constant-time compare via bearerTokenMatches.
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = request.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
+  if (!expected) {
+    console.error("[cron/heartbeat-check] CRON_SECRET not configured");
+    return NextResponse.json({ ok: false }, { status: 500 });
+  }
+  if (!bearerTokenMatches(request, expected)) {
+    return NextResponse.json({ ok: false }, { status: 401 });
   }
 
   const admin = getSupabaseAdmin();

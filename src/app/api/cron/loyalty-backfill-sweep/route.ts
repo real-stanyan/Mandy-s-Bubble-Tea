@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { backfillAccrualForOrder } from "@/lib/loyalty-backfill";
+import { bearerTokenMatches } from "@/lib/bearer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +12,15 @@ const MIN_AGE_MS = 10 * 60 * 1000;
 const MAX_AGE_MS = 60 * 60 * 1000;
 
 export async function GET(request: Request) {
+  // Fail closed when CRON_SECRET is unset (e.g. preview deploy) so the public
+  // internet can't trigger Square order scans. Constant-time compare.
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = request.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
+  if (!expected) {
+    console.error("[cron/loyalty-backfill-sweep] CRON_SECRET not configured");
+    return NextResponse.json({ ok: false }, { status: 500 });
+  }
+  if (!bearerTokenMatches(request, expected)) {
+    return NextResponse.json({ ok: false }, { status: 401 });
   }
 
   const now = Date.now();
