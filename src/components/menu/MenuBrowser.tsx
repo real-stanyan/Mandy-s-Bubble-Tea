@@ -27,9 +27,10 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
     const seen = new Set<string>();
     for (const section of sections) {
       for (const item of section.items) {
-        if (seen.has(item.id)) continue;
+        const dedupKey = `${item.id}:${item.categorySlug}`;
+        if (seen.has(dedupKey)) continue;
         if (item.name.toLowerCase().includes(trimmed)) {
-          seen.add(item.id);
+          seen.add(dedupKey);
           hits.push(item);
         }
       }
@@ -84,7 +85,7 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {searchResults.map((item) => (
-                <ProductCard key={item.id} item={item} />
+                <ProductCard key={`${item.id}:${item.categorySlug}`} item={item} />
               ))}
             </div>
           )}
