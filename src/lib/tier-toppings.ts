@@ -26,6 +26,8 @@ export function collectPaidToppingUnits(
   excludeRewardCount: number,
 ): bigint[] {
   const exclude = Math.max(0, Math.floor(excludeRewardCount));
+  // Sort ascending then drop the first `exclude` entries: the CHEAPEST cups
+  // are the reward cups (pickPromoCups allocation), so `kept` = pricier rest.
   const kept = [...cups]
     .sort((a, b) => (a.unitPrice < b.unitPrice ? -1 : a.unitPrice > b.unitPrice ? 1 : 0))
     .slice(Math.min(exclude, cups.length));
