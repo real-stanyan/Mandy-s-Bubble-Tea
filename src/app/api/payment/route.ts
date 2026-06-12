@@ -10,6 +10,8 @@ import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { brisbaneMonthKey } from "@/lib/membership-tier";
+import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -467,6 +469,26 @@ export async function POST(request: Request) {
       console.warn(
         `[payment] payment ${paymentId} did not settle (status=${paymentStatus}); ig-follow discount preserved`,
       );
+    }
+
+    // Consume diamond free-topping quota only when payment settled — same
+    // policy as welcome/IG: a failed charge must not burn the allowance.
+    const hadTierToppingAllowance = (order.discounts ?? []).some(
+      (d) => d.uid === "tier-topping-allowance",
+    );
+    if (paymentSettled && hadTierToppingAllowance) {
+      const rawCovered = order.metadata?.tierToppingsCovered;
+      const parsedCovered = rawCovered ? parseInt(rawCovered, 10) : 0;
+      const coveredCount =
+        Number.isFinite(parsedCovered) && parsedCovered > 0 ? parsedCovered : 0;
+      if (coveredCount > 0) {
+        await consumeToppingAllowance(
+          customerId,
+          brisbaneMonthKey(),
+          coveredCount,
+          body.orderId,
+        );
+      }
     }
 
     return NextResponse.json({
