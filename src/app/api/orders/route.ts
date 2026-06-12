@@ -13,10 +13,23 @@ import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import {
   authoritativeSubtotalCents,
+  authoritativeUnitPrice,
   authoritativeUnitPrices,
   buildAuthoritativePriceMaps,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
+import { findLoyaltyAccountByPhone } from "@/lib/loyalty";
+import {
+  brisbaneMonthKey,
+  tierFor,
+  TIER_DISCOUNT_PERCENT,
+} from "@/lib/membership-tier";
+import {
+  collectPaidToppingUnits,
+  coverFreeToppings,
+  type CupRecord,
+} from "@/lib/tier-toppings";
+import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -439,9 +452,113 @@ export async function POST(request: Request) {
       }
     }
 
+    // ---- Membership tier perks (server-authoritative; client never sends tier).
+    // Derived live from Square loyalty lifetimePoints. Any failure here must
+    // never block the order — fail-safe to "no tier perks".
+    let tierDiscounts:
+      | Array<{
+          uid: string;
+          name: string;
+          type: "FIXED_AMOUNT";
+          amountMoney: { amount: bigint; currency: Currency };
+          scope: "ORDER";
+        }>
+      | undefined;
+    let tierToppingsCovered = 0;
+
+    if (priceMaps) {
+      try {
+        const loyaltyAccount = await findLoyaltyAccountByPhone(recipientPhone);
+        const tier = tierFor(loyaltyAccount?.lifetimePoints ?? 0);
+
+        if (tier === "gold" || tier === "diamond") {
+          const welcomeAmount = welcomeDiscounts?.[0]?.amountMoney.amount ?? 0n;
+          const igAmount = igFollowDiscounts?.[0]?.amountMoney.amount ?? 0n;
+
+          // Reward cups = cheapest N unit prices — must mirror pickPromoCups.
+          const rewardCount = Math.max(0, Math.floor(body.loyaltyRewardCount ?? 0));
+          const unitPricesAsc = authoritativeUnitPrices(body.lines, priceMaps).sort(
+            (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+          );
+          const rewardCupsSum = unitPricesAsc
+            .slice(0, Math.min(rewardCount, unitPricesAsc.length))
+            .reduce((s, p) => s + p, 0n);
+
+          // Diamond: monthly free toppings (paid toppings only, most expensive
+          // first, reward cups excluded — their toppings are already free).
+          let toppingAmount = 0n;
+          if (tier === "diamond") {
+            const cups: CupRecord[] = [];
+            for (const line of body.lines) {
+              const unitPrice = authoritativeUnitPrice(line, priceMaps);
+              const toppingPrices = line.modifiers.map(
+                (m) => priceMaps.modifierPriceById.get(m.id) ?? 0n,
+              );
+              const qty = Math.max(1, Math.floor(line.quantity));
+              for (let i = 0; i < qty; i++) cups.push({ unitPrice, toppingPrices });
+            }
+            const pool = collectPaidToppingUnits(cups, rewardCount);
+            if (pool.length > 0) {
+              const status = await getToppingAllowanceStatus(
+                customerId,
+                brisbaneMonthKey(),
+              );
+              const cover = coverFreeToppings(pool, status.remaining);
+              if (cover.amount > 0n) {
+                toppingAmount = cover.amount;
+                tierToppingsCovered = cover.coveredCount;
+              }
+            }
+          }
+
+          // 5% on what the customer actually pays for drinks — never the same
+          // dollar twice (welcome/IG/reward/free-topping money excluded).
+          let base =
+            drinksSubtotalCents -
+            welcomeAmount -
+            igAmount -
+            rewardCupsSum -
+            toppingAmount;
+          if (base < 0n) base = 0n;
+          const tierAmount = (base * BigInt(TIER_DISCOUNT_PERCENT)) / 100n;
+
+          const built: NonNullable<typeof tierDiscounts> = [];
+          if (toppingAmount > 0n) {
+            built.push({
+              uid: "tier-topping-allowance",
+              name: `Diamond Free Toppings (${tierToppingsCovered})`,
+              type: "FIXED_AMOUNT",
+              amountMoney: { amount: toppingAmount, currency: BUSINESS.currency as Currency },
+              scope: "ORDER",
+            });
+          }
+          if (tierAmount > 0n) {
+            built.push({
+              uid: "tier-discount",
+              name: tier === "diamond" ? "Diamond Member 5% Off" : "Gold Member 5% Off",
+              type: "FIXED_AMOUNT",
+              amountMoney: { amount: tierAmount, currency: BUSINESS.currency as Currency },
+              scope: "ORDER",
+            });
+          }
+          if (built.length > 0) tierDiscounts = built;
+        }
+      } catch (tierError) {
+        console.error(
+          "[orders] tier perks skipped:",
+          tierError instanceof Error ? tierError.message : tierError,
+        );
+        // Keep metadata consistent with the (now dropped) discounts: if the
+        // topping count was already set before the failure, reset it.
+        tierDiscounts = undefined;
+        tierToppingsCovered = 0;
+      }
+    }
+
     const allDiscounts = [
       ...(welcomeDiscounts ?? []),
       ...(igFollowDiscounts ?? []),
+      ...(tierDiscounts ?? []),
     ];
 
     // Note: loyalty rewards are NOT attached here. Square's order
@@ -581,6 +698,9 @@ export async function POST(request: Request) {
             : {}),
           ...(igFollowDrinksCovered > 0
             ? { igFollowDiscountDrinksCovered: String(igFollowDrinksCovered) }
+            : {}),
+          ...(tierToppingsCovered > 0
+            ? { tierToppingsCovered: String(tierToppingsCovered) }
             : {}),
         },
       },
