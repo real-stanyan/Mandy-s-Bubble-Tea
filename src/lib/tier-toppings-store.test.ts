@@ -24,7 +24,7 @@ function buildAdmin(handlers: {
   const select = vi.fn().mockReturnValue({ eq: eq1 });
   const from = vi.fn().mockReturnValue({ select });
   const rpc = handlers.rpc ?? vi.fn().mockResolvedValue({ data: [], error: null });
-  return { from, rpc } as never;
+  return { admin: { from, rpc } as never, from, eq1, eq2 };
 }
 
 beforeEach(() => {
@@ -34,7 +34,7 @@ beforeEach(() => {
 describe("getToppingAllowanceStatus", () => {
   it("no row (maybeSingle → data null) → usedCount 0, remaining 10", async () => {
     const selectMaybe = vi.fn().mockResolvedValue({ data: null, error: null });
-    mockedAdmin.mockReturnValue(buildAdmin({ selectMaybe }));
+    mockedAdmin.mockReturnValue(buildAdmin({ selectMaybe }).admin);
     const result = await getToppingAllowanceStatus("CUST1", "2026-06");
     expect(result).toEqual({ usedCount: 0, remaining: 10, monthKey: "2026-06" });
   });
@@ -44,9 +44,13 @@ describe("getToppingAllowanceStatus", () => {
       data: { used_count: 7 },
       error: null,
     });
-    mockedAdmin.mockReturnValue(buildAdmin({ selectMaybe }));
+    const built = buildAdmin({ selectMaybe });
+    mockedAdmin.mockReturnValue(built.admin);
     const result = await getToppingAllowanceStatus("CUST1", "2026-06");
     expect(result).toEqual({ usedCount: 7, remaining: 3, monthKey: "2026-06" });
+    expect(built.from).toHaveBeenCalledWith("tier_topping_usage");
+    expect(built.eq1).toHaveBeenCalledWith("customer_id", "CUST1");
+    expect(built.eq2).toHaveBeenCalledWith("month_key", "2026-06");
   });
 
   it("query error → remaining 0, never throws", async () => {
@@ -54,7 +58,7 @@ describe("getToppingAllowanceStatus", () => {
       data: null,
       error: new Error("db down"),
     });
-    mockedAdmin.mockReturnValue(buildAdmin({ selectMaybe }));
+    mockedAdmin.mockReturnValue(buildAdmin({ selectMaybe }).admin);
     const result = await getToppingAllowanceStatus("CUST1", "2026-06");
     expect(result).toEqual({ usedCount: 0, remaining: 0, monthKey: "2026-06" });
   });
@@ -65,7 +69,7 @@ describe("consumeToppingAllowance", () => {
     const rpc = vi
       .fn()
       .mockResolvedValue({ data: [{ consumed_count: 3, used_count: 5 }], error: null });
-    mockedAdmin.mockReturnValue(buildAdmin({ rpc }));
+    mockedAdmin.mockReturnValue(buildAdmin({ rpc }).admin);
     const result = await consumeToppingAllowance("CUST1", "2026-06", 3, "ORDER1");
     expect(result).toEqual({ consumedCount: 3, usedCount: 5 });
     expect(rpc).toHaveBeenCalledWith("consume_topping_allowance", {
@@ -78,7 +82,7 @@ describe("consumeToppingAllowance", () => {
 
   it("RPC error → {consumedCount: 0, usedCount: 0}, never throws", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: new Error("rpc fail") });
-    mockedAdmin.mockReturnValue(buildAdmin({ rpc }));
+    mockedAdmin.mockReturnValue(buildAdmin({ rpc }).admin);
     const result = await consumeToppingAllowance("CUST1", "2026-06", 3, "ORDER1");
     expect(result).toEqual({ consumedCount: 0, usedCount: 0 });
   });

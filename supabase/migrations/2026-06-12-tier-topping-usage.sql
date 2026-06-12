@@ -3,6 +3,7 @@
 CREATE TABLE IF NOT EXISTS tier_topping_usage (
   customer_id   TEXT NOT NULL,
   month_key     TEXT NOT NULL CHECK (month_key ~ '^\d{4}-\d{2}$'),
+  -- 10 = keep in sync with DIAMOND_MONTHLY_FREE_TOPPINGS in src/lib/membership-tier.ts
   used_count    INT  NOT NULL DEFAULT 0 CHECK (used_count >= 0 AND used_count <= 10),
   last_order_id TEXT,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -38,6 +39,7 @@ BEGIN
   WHERE t.customer_id = p_customer_id AND t.month_key = p_month_key
   FOR UPDATE;
 
+  -- 10 = keep in sync with DIAMOND_MONTHLY_FREE_TOPPINGS in src/lib/membership-tier.ts
   v_take := LEAST(GREATEST(COALESCE(p_count, 0), 0), 10 - v_used);
 
   IF v_take > 0 THEN
