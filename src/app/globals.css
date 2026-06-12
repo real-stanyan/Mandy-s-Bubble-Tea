@@ -87,3 +87,16 @@ body {
 .mbt-dialog-overlay[data-state="closed"]{ animation: mbt-fade-out 100ms ease-in }
 .mbt-dialog-content[data-state="open"]  { animation: mbt-scale-in 180ms ease-out }
 .mbt-dialog-content[data-state="closed"]{ animation: mbt-scale-out 120ms ease-in }
+
+/* Membership tier card effects (LoyaltyCard / TierUpCelebration) */
+@keyframes tier-shimmer { 0% { transform: translateX(-120%); } 55%, 100% { transform: translateX(160%); } }
+@keyframes tier-holo-pan { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+@keyframes tier-sparkle { 0%, 100% { opacity: 0; transform: scale(0.4); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes tier-confetti-fall { 0% { transform: translateY(-12vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(110vh) rotate(720deg); opacity: 0; } }
+.tier-shimmer { animation: tier-shimmer 3.2s ease-in-out infinite; }
+.tier-holo { animation: tier-holo-pan 7s ease-in-out infinite alternate; }
+.tier-sparkle { animation: tier-sparkle 2.8s ease-in-out infinite; }
+.tier-confetti { animation: tier-confetti-fall 2.4s ease-in forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .tier-shimmer, .tier-holo, .tier-sparkle, .tier-confetti { animation: none !important; }
+}

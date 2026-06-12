@@ -8,6 +8,8 @@ import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AccountHeader } from "@/components/account/AccountHeader";
 import { LoyaltyCard } from "@/components/account/LoyaltyCard";
+import { TierUpCelebration } from "@/components/account/TierUpCelebration";
+import { tierFor } from "@/lib/membership-tier";
 import { MiniStats } from "@/components/account/MiniStats";
 import { AddToWalletButton } from "@/components/account/AddToWalletButton";
 import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
@@ -81,6 +83,32 @@ export default function AccountPage() {
   const goal = starsPerReward > 0 ? starsPerReward : 9;
   const rewardsAvailable = Math.floor(balance / goal);
   const currentStars = balance % goal;
+  const tier = tierFor(lifetime);
+
+  const [freeToppingsRemaining, setFreeToppingsRemaining] = useState<
+    number | null
+  >(null);
+  useEffect(() => {
+    if (!userId || tier !== "diamond") {
+      setFreeToppingsRemaining(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetch("/api/tier/toppings", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const json = await res.json();
+        if (res.ok && json.ok && typeof json.remaining === "number") {
+          setFreeToppingsRemaining(json.remaining);
+        }
+      })
+      .catch(() => {
+        // best-effort decoration — card simply omits the toppings line
+      });
+    return () => controller.abort();
+  }, [userId, tier]);
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 pt-10 pb-24">
@@ -92,6 +120,7 @@ export default function AccountPage() {
         </div>
       ) : (
         <>
+          <TierUpCelebration tier={tier} />
           {ordersError && (
             <p
               className="mx-4 mt-3 rounded-tile border border-red-200 bg-red-50 p-3 text-red-700"
@@ -104,7 +133,14 @@ export default function AccountPage() {
           <div className="sm:grid sm:grid-cols-2 sm:gap-x-6 sm:items-start">
             <div className="flex flex-col">
               <WelcomeDiscountCard />
-              <LoyaltyCard balance={balance} starsPerReward={goal} />
+              <LoyaltyCard
+                balance={balance}
+                starsPerReward={goal}
+                lifetimePoints={lifetime}
+                freeToppingsRemaining={
+                  tier === "diamond" ? freeToppingsRemaining : null
+                }
+              />
               <MiniStats
                 drinks={lifetime}
                 rewards={rewardsAvailable}
