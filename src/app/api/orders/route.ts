@@ -37,6 +37,9 @@ import { distanceKm, STORE_COORDS } from "@/lib/places";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 
+// Tier perks are optional — never let a slow loyalty API stall order creation.
+const TIER_LOOKUP_TIMEOUT_MS = 3000;
+
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
 // customerId or phone. Prices are trusted to Square via
@@ -468,7 +471,15 @@ export async function POST(request: Request) {
 
     if (priceMaps) {
       try {
-        const loyaltyAccount = await findLoyaltyAccountByPhone(recipientPhone);
+        const loyaltyAccount = await Promise.race([
+          findLoyaltyAccountByPhone(recipientPhone),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("tier loyalty lookup timed out")),
+              TIER_LOOKUP_TIMEOUT_MS,
+            ),
+          ),
+        ]);
         const tier = tierFor(loyaltyAccount?.lifetimePoints ?? 0);
 
         if (tier === "gold" || tier === "diamond") {
