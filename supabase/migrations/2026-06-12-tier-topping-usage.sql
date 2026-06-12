@@ -54,7 +54,8 @@ BEGIN
 END;
 $$;
 
--- REVOKE FROM PUBLIC, not just anon/authenticated — default PUBLIC grant
--- otherwise leaks execute.
-REVOKE ALL ON FUNCTION consume_topping_allowance(TEXT, TEXT, INT, TEXT) FROM PUBLIC;
+-- REVOKE from PUBLIC *and* anon/authenticated: Supabase's ALTER DEFAULT
+-- PRIVILEGES grants functions in public schema DIRECTLY to anon/authenticated,
+-- so revoking PUBLIC alone still leaks execute (verified live 2026-06-12).
+REVOKE ALL ON FUNCTION consume_topping_allowance(TEXT, TEXT, INT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION consume_topping_allowance(TEXT, TEXT, INT, TEXT) TO service_role;
