@@ -13,6 +13,7 @@
     "wallet:assets": "tsx scripts/render-wallet-assets.ts"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@napi-rs/canvas": "^0.1.99",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -23,6 +24,7 @@
     "@types/leaflet": "^1.9.21",
     "@upstash/qstash": "^2.10.1",
     "expo-server-sdk": "^6.1.0",
+    "gsap": "^3.15.0",
     "jose": "^6.2.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.8.0",
