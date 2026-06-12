@@ -39,6 +39,9 @@ import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 import { reportClientError, describeError } from "@/lib/client-error-report";
+import { tierFor } from "@/lib/membership-tier";
+import { tierCheckoutPreview } from "@/lib/tier-checkout-preview";
+import type { CupRecord } from "@/lib/tier-toppings";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { order, payment } through our API
@@ -245,6 +248,58 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
   const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
 
+  // Membership tier — derived from lifetime points, never stored.
+  const tier = tierFor(loyalty?.lifetimePoints ?? 0);
+
+  // Diamond only: how many free paid-topping units remain this month.
+  const [toppingsRemaining, setToppingsRemaining] = useState(0);
+  useEffect(() => {
+    if (tier !== "diamond") return;
+    const controller = new AbortController();
+    fetch("/api/tier/toppings", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok && typeof j.remaining === "number") {
+          setToppingsRemaining(j.remaining);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [tier]);
+
+  // Build CupRecord[] from cart lines — mirrors server's per-cup expansion.
+  // unitPrice = variation + all modifiers (same as lineUnitPrice).
+  // toppingPrices = each modifier's priceCents (0n = included, filtered by
+  // collectPaidToppingUnits). Repeated once per quantity unit.
+  const cups = useMemo<CupRecord[]>(() => {
+    const result: CupRecord[] = [];
+    for (const line of lines) {
+      const unitPrice = lineUnitPrice(line);
+      const toppingPrices = line.modifiers.map((m) => m.priceCents);
+      for (let i = 0; i < line.quantity; i++) {
+        result.push({ unitPrice, toppingPrices });
+      }
+    }
+    return result;
+  }, [lines]);
+
+  // Preview the tier discount + diamond free-topping coverage, mirroring
+  // the server's math in /api/orders so the displayed total equals the charge.
+  const tierPreview = useMemo(
+    () =>
+      tierCheckoutPreview({
+        tier,
+        cups,
+        rewardCount,
+        toppingsRemaining,
+        subtotal,
+        rewardDiscount,
+        welcomeDiscount: welcomeDiscountAmount,
+        igFollowDiscount: igFollowDiscountAmount,
+      }),
+    [tier, cups, rewardCount, toppingsRemaining, subtotal, rewardDiscount, welcomeDiscountAmount, igFollowDiscountAmount],
+  );
+
   // Card surcharge mirrors the Square service charge attached in
   // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
   const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
@@ -441,7 +496,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // client skips tokenization entirely because Square's total comes out
   // to $0 after the reward discount.
   const totalDiscount =
-    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount;
+    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount +
+    tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
   const afterDiscount =
     subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
   const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
@@ -1050,6 +1106,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
+                  {tierPreview.toppingCoveredCents > 0n && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        Free toppings ×{tierPreview.toppingCoveredCount} ({toppingsRemaining} left this month)
+                      </span>
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(tierPreview.toppingCoveredCents)}
+                      </span>
+                    </div>
+                  )}
+                  {tierPreview.tierDiscountCents > 0n && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        {tier === "diamond" ? "Diamond" : "Gold"} Member −5%
+                      </span>
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(tierPreview.tierDiscountCents)}
+                      </span>
+                    </div>
+                  )}
                   {fulfillment === "DELIVERY" && (
                     <>
                       <div className="flex justify-between text-sm text-zinc-600">
@@ -1367,6 +1451,34 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
                 <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
                   −{formatPrice(rewardDiscount)}
+                </span>
+              </div>
+            )}
+            {tierPreview.toppingCoveredCents > 0n && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: BRAND.primaryColor }}
+                  />
+                  Free toppings ×{tierPreview.toppingCoveredCount} ({toppingsRemaining} left this month)
+                </span>
+                <span style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(tierPreview.toppingCoveredCents)}
+                </span>
+              </div>
+            )}
+            {tierPreview.tierDiscountCents > 0n && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: BRAND.primaryColor }}
+                  />
+                  {tier === "diamond" ? "Diamond" : "Gold"} Member −5%
+                </span>
+                <span style={{ color: BRAND.primaryColor }}>
+                  −{formatPrice(tierPreview.tierDiscountCents)}
                 </span>
               </div>
             )}
