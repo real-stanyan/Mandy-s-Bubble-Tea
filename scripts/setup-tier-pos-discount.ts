@@ -4,6 +4,9 @@
 //   - catalog triple: Member 5% discount + all-products set + pricing rule
 //     with customerGroupIdsAny = [gold, diamond]
 // Find-or-create on names — safe to rerun; never duplicates.
+// CAVEAT: matching is by display name — do NOT rename "Tier: Gold" /
+// "Tier: Diamond" / "Tier member 5% off" in the Square Dashboard, or a
+// rerun will fail to find them and create duplicates.
 // Run: set -a; source .env.production; set +a; npx tsx scripts/setup-tier-pos-discount.ts
 import { randomUUID } from "node:crypto";
 import { SquareClient, SquareEnvironment } from "square";
@@ -50,12 +53,19 @@ async function ensureGroup(name: string): Promise<string> {
 }
 
 async function findPricingRuleByName(name: string) {
-  const res = await client.catalog.search({
-    objectTypes: ["PRICING_RULE"],
-  });
-  return (res.objects ?? []).find(
-    (o) => o.type === "PRICING_RULE" && o.pricingRuleData?.name === name,
-  );
+  let cursor: string | undefined;
+  do {
+    const res = await client.catalog.search({
+      objectTypes: ["PRICING_RULE"],
+      cursor,
+    });
+    const hit = (res.objects ?? []).find(
+      (o) => o.type === "PRICING_RULE" && o.pricingRuleData?.name === name,
+    );
+    if (hit) return hit;
+    cursor = res.cursor ?? undefined;
+  } while (cursor);
+  return undefined;
 }
 
 async function main() {
