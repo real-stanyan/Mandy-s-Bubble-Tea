@@ -24,7 +24,6 @@ export async function GET(request: Request) {
     memberSince: data.memberSince,
     phoneE164: data.phoneE164,
     stars: data.stars,
-    totalStars: data.totalStars,
     lifetimePoints: data.lifetimePoints,
     availableRewards: data.availableRewards,
   })

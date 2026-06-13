@@ -11,7 +11,6 @@ describe('buildPass', () => {
     memberSince: 'May 2024',
     phoneE164: '+61404978238',
     stars: 7,
-    totalStars: 71,
     lifetimePoints: 71, // before any redemption, lifetime == balance
     availableRewards: 0,
   }

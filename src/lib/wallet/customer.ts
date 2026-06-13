@@ -8,8 +8,7 @@ export interface CustomerPassData {
   memberName: string
   memberSince: string       // "MMM YYYY"
   phoneE164: string         // drives QR — POS looks up Square customer by phone
-  stars: number             // balance % starsPerReward, progress toward next reward (drives strip)
-  totalStars: number        // lifetime balance, drives header "N/9"
+  stars: number             // balance % starsPerReward, progress toward next reward (drives strip + "N/9")
   lifetimePoints: number    // cumulative earned stars — drives membership tier
   availableRewards: number  // floor(balance / starsPerReward)
 }
@@ -56,7 +55,6 @@ export async function fetchCustomerPassData(
     memberSince,
     phoneE164: phone,
     stars,
-    totalStars: balance,
     lifetimePoints,
     availableRewards,
   }

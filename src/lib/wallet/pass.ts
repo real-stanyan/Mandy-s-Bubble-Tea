@@ -15,7 +15,6 @@ export interface BuildPassInput {
   memberSince: string
   phoneE164: string      // QR payload — matches app/web so POS reads any card
   stars: number          // current cycle progress (drives strip), = balance % goal
-  totalStars: number     // current loyalty balance
   lifetimePoints: number // cumulative earned — drives membership tier
   availableRewards: number
 }
@@ -38,6 +37,10 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
   const env = walletEnv()
   const { tier, nextTier, starsToNext } = tierProgress(input.lifetimePoints)
   const visual = TIER_PASS[tier]
+  // Cycle progress in [0, GOAL): the single value driving both the strip cups
+  // and the "N/9" field. Clamping here keeps renderStrip in-bounds even if a
+  // future reward tier makes balance % starsPerReward exceed the 9-cup layout.
+  const cycleStars = ((input.stars % GOAL) + GOAL) % GOAL
 
   // Fetch all buffers concurrently
   const [icon, icon2x, icon3x, logo, logo2x, logo3x, strip, strip2x, strip3x] =
@@ -48,9 +51,9 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
       readAsset('logo.png'),
       readAsset('logo@2x.png'),
       readAsset('logo@3x.png'),
-      renderStrip({ tier, stars: input.stars, scale: 1 }),
-      renderStrip({ tier, stars: input.stars, scale: 2 }),
-      renderStrip({ tier, stars: input.stars, scale: 3 }),
+      renderStrip({ tier, stars: cycleStars, scale: 1 }),
+      renderStrip({ tier, stars: cycleStars, scale: 2 }),
+      renderStrip({ tier, stars: cycleStars, scale: 3 }),
     ])
 
   const certs = {
@@ -64,7 +67,7 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
   const pass = new PKPass({}, certs)
   pass.type = 'storeCard'
 
-  pass.addBuffer('pass.json', Buffer.from(JSON.stringify(buildPassJson(input, env, { tier, nextTier, starsToNext, visual }))))
+  pass.addBuffer('pass.json', Buffer.from(JSON.stringify(buildPassJson(input, env, { tier, nextTier, starsToNext, visual }, cycleStars))))
   pass.addBuffer('icon.png', icon)
   pass.addBuffer('icon@2x.png', icon2x)
   pass.addBuffer('icon@3x.png', icon3x)
@@ -95,8 +98,8 @@ function buildPassJson(
   i: BuildPassInput,
   env: ReturnType<typeof walletEnv>,
   ctx: TierCtx,
+  currentStars: number,
 ) {
-  const currentStars = ((i.stars % GOAL) + GOAL) % GOAL
   const toGo = Math.max(0, GOAL - currentStars)
   const rewardText = i.availableRewards > 0 ? 'Ready to redeem!' : `${toGo} stars to go`
 
