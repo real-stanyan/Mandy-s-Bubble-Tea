@@ -12,7 +12,7 @@ describe('buildPass', () => {
     phoneE164: '+61404978238',
     stars: 7,
     totalStars: 71,
-    lifetimePoints: 71,
+    lifetimePoints: 71, // before any redemption, lifetime == balance
     availableRewards: 0,
   }
 
@@ -66,7 +66,7 @@ describe('buildPass', () => {
   })
 
   it('auxiliary reward counts remaining stars when none ready', async () => {
-    const buf = await buildPass({ ...baseInput, stars: 7, availableRewards: 0 })
+    const buf = await buildPass({ ...baseInput })
     const zip = new AdmZip(buf)
     const passJson = JSON.parse(zip.readAsText('pass.json'))
     const reward = passJson.storeCard.auxiliaryFields.find((f: any) => f.key === 'reward')

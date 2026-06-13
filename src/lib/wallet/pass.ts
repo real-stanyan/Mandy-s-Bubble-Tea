@@ -2,10 +2,10 @@ import "server-only"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { PKPass } from "passkit-generator"
-import { tierProgress } from "@/lib/membership-tier"
+import { tierProgress, TIER_DISCOUNT_PERCENT, type MembershipTier } from "@/lib/membership-tier"
 import { walletEnv } from "./env"
 import { renderStrip } from "./strip"
-import { TIER_PASS, PASS_TERMS, STORE_INFO } from "./constants"
+import { TIER_PASS, PASS_TERMS, STORE_INFO, type TierPassVisual } from "./constants"
 
 export interface BuildPassInput {
   serialNumber: string
@@ -22,6 +22,8 @@ export interface BuildPassInput {
 
 const ASSETS_DIR = path.join(process.cwd(), 'assets', 'wallet')
 const GOAL = 9
+const PK_RIGHT = 'PKTextAlignmentRight'
+type PassField = { key: string; label: string; value: string; textAlignment?: string }
 
 async function readAsset(name: string): Promise<Buffer> {
   return fs.readFile(path.join(ASSETS_DIR, name))
@@ -83,14 +85,9 @@ export async function buildPass(input: BuildPassInput): Promise<Buffer> {
   return pass.getAsBuffer()
 }
 
-type TierCtx = {
-  tier: ReturnType<typeof tierProgress>["tier"]
-  nextTier: ReturnType<typeof tierProgress>["nextTier"]
-  starsToNext: ReturnType<typeof tierProgress>["starsToNext"]
-  visual: (typeof TIER_PASS)[keyof typeof TIER_PASS]
-}
+type TierCtx = ReturnType<typeof tierProgress> & { visual: TierPassVisual }
 
-function titleCase(t: "gold" | "diamond"): string {
+function tierDisplayName(t: Exclude<MembershipTier, "silver">): string {
   return t === "gold" ? "Gold" : "Diamond"
 }
 
@@ -104,12 +101,14 @@ function buildPassJson(
   const rewardText = i.availableRewards > 0 ? 'Ready to redeem!' : `${toGo} stars to go`
 
   // Status line: silver/gold count toward the next tier; diamond is static.
-  const statusField =
+  // diamond has no next tier; the null guards also narrow nextTier/starsToNext
+  // to non-null for the else branch (template + tierDisplayName).
+  const statusField: PassField =
     ctx.tier === 'diamond' || ctx.nextTier == null || ctx.starsToNext == null
-      ? { key: 'status', label: 'STATUS', value: 'Top tier member', textAlignment: 'PKTextAlignmentRight' }
-      : { key: 'status', label: 'NEXT TIER', value: `${ctx.starsToNext} to ${titleCase(ctx.nextTier)}`, textAlignment: 'PKTextAlignmentRight' }
+      ? { key: 'status', label: 'STATUS', value: 'Top tier member', textAlignment: PK_RIGHT }
+      : { key: 'status', label: 'NEXT TIER', value: `${ctx.starsToNext} to ${tierDisplayName(ctx.nextTier)}`, textAlignment: PK_RIGHT }
 
-  const backFields: Record<string, unknown>[] = [
+  const backFields: PassField[] = [
     { key: 'terms', label: 'Terms', value: PASS_TERMS },
     { key: 'store', label: 'Store', value: STORE_INFO.address },
     { key: 'phone', label: 'Phone', value: STORE_INFO.phone },
@@ -119,7 +118,7 @@ function buildPassJson(
     { key: 'since', label: 'Member since', value: i.memberSince },
   ]
   if (ctx.tier === 'diamond') {
-    backFields.push({ key: 'perks', label: 'Diamond perks', value: '5% off all orders + free toppings each month' })
+    backFields.push({ key: 'perks', label: 'Diamond perks', value: `${TIER_DISCOUNT_PERCENT}% off all orders + free toppings each month` })
   }
 
   return {
@@ -136,12 +135,12 @@ function buildPassJson(
     labelColor: ctx.visual.labelColor,
     storeCard: {
       headerFields: [
-        { key: 'tier', label: 'TIER', value: ctx.visual.label, textAlignment: 'PKTextAlignmentRight' },
+        { key: 'tier', label: 'TIER', value: ctx.visual.label, textAlignment: PK_RIGHT },
       ],
       primaryFields: [],
       secondaryFields: [
         { key: 'member', label: 'MEMBER', value: i.memberName },
-        { key: 'progress', label: 'STARS', value: `${currentStars}/${GOAL}`, textAlignment: 'PKTextAlignmentRight' },
+        { key: 'progress', label: 'STARS', value: `${currentStars}/${GOAL}`, textAlignment: PK_RIGHT },
       ],
       auxiliaryFields: [
         { key: 'reward', label: 'NEXT REWARD', value: rewardText },
