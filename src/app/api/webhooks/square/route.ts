@@ -98,6 +98,7 @@ type SquareEvent = {
         id?: string;
         customer_id?: string;
         balance?: number;
+        lifetime_points?: number;
       };
       order_updated?: {
         order_id?: string;
@@ -271,6 +272,45 @@ async function handleLoyaltyBalanceUpdate(event: SquareEvent): Promise<void> {
   console.log(
     `[square-webhook] enqueued wallet push for customer ${customerId} serial=${pass.serial_number} event_id=${event.event_id}`,
   );
+}
+
+/**
+ * Loyalty balance changed — also re-project the derived tier into Square
+ * customer groups so the POS "Tier member 5% off" pricing rule stays correct.
+ * No-ops (with a warn) until SQUARE_TIER_GROUP_*_ID env vars are configured.
+ */
+async function handleTierGroupSync(event: SquareEvent): Promise<void> {
+  const account = event.data?.object?.loyalty_account;
+  const customerId = account?.customer_id;
+  if (!customerId) return;
+
+  const { syncTierGroups, tierGroupIdsFromEnv } = await import(
+    "@/lib/tier-group-sync"
+  );
+  const ids = tierGroupIdsFromEnv();
+  if (!ids) {
+    console.warn(
+      "[tier-group-sync] SQUARE_TIER_GROUP_GOLD_ID/DIAMOND_ID not set — skipping",
+    );
+    return;
+  }
+
+  const { squareClient } = await import("@/lib/square");
+  let lifetimePoints = account?.lifetime_points;
+  if (typeof lifetimePoints !== "number" && account?.id) {
+    const res = await squareClient.loyalty.accounts.get({
+      accountId: account.id,
+    });
+    lifetimePoints = res.loyaltyAccount?.lifetimePoints ?? undefined;
+  }
+  if (typeof lifetimePoints !== "number") return;
+
+  const plan = await syncTierGroups(squareClient, customerId, lifetimePoints, ids);
+  if (plan.add.length > 0 || plan.remove.length > 0) {
+    console.log(
+      `[tier-group-sync] customer ${customerId} lifetime=${lifetimePoints} add=[${plan.add}] remove=[${plan.remove}] event_id=${event.event_id}`,
+    );
+  }
 }
 
 /**
@@ -638,6 +678,14 @@ export async function POST(request: Request) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
         `[square-webhook] handleLoyaltyBalanceUpdate failed event_id=${event.event_id}: ${message}`,
+      );
+    }
+    try {
+      await handleTierGroupSync(event);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[tier-group-sync] failed event_id=${event.event_id}: ${message}`,
       );
     }
   }
