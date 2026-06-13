@@ -64,6 +64,28 @@ export async function getPassBySerial(
 }
 
 /**
+ * Every issued pass serial, oldest first. Paginated so it stays correct past
+ * Supabase's 1000-row default cap. Used by the bulk re-push admin route to
+ * fan out a refresh across all existing member cards.
+ */
+export async function listAllPassSerials(): Promise<string[]> {
+  const PAGE = 1000;
+  const serials: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db()
+      .from("wallet_passes")
+      .select("serial_number")
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`listAllPassSerials: ${error.message}`);
+    const rows = (data ?? []) as { serial_number: string }[];
+    serials.push(...rows.map((r) => r.serial_number));
+    if (rows.length < PAGE) break;
+  }
+  return serials;
+}
+
+/**
  * Idempotent: if a pass already exists for this customer, return it.
  * Otherwise allocate a new serial + member number and insert a fresh row.
  */
