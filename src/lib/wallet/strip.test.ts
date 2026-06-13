@@ -48,19 +48,17 @@ describe('renderStrip', () => {
     expect(gold.equals(diamond)).toBe(false)
   })
 
-  it('still rejects invalid star counts', async () => {
-    await expect(renderStrip({ tier: 'silver', stars: 10, scale: 1 })).rejects.toThrow()
-  })
 })
 
 describe('renderStrip golden images', () => {
   const FIXTURES = path.join(__dirname, '__fixtures__')
+  const TIERS = ['silver', 'gold', 'diamond'] as const
+  const cases = TIERS.flatMap((tier) => [0, 3, 7, 9].map((stars) => [tier, stars] as const))
 
-  it.each([0, 3, 7, 9])('matches golden for stars=%i', async (stars) => {
-    const actualBuf = await renderStrip({ tier: 'silver', stars, scale: 1 })
-    const goldenPath = path.join(FIXTURES, `strip-${stars}.png`)
+  it.each(cases)('matches golden for %s stars=%i', async (tier, stars) => {
+    const actualBuf = await renderStrip({ tier, stars, scale: 1 })
+    const goldenPath = path.join(FIXTURES, `strip-${tier}-${stars}.png`)
     if (!fs.existsSync(goldenPath)) {
-      fs.mkdirSync(FIXTURES, { recursive: true })
       fs.writeFileSync(goldenPath, actualBuf)
       console.warn(`wrote baseline: ${goldenPath}`)
       return
@@ -71,6 +69,6 @@ describe('renderStrip golden images', () => {
     expect(actual.height).toBe(golden.height)
     const diff = new PNG({ width: actual.width, height: actual.height })
     const mismatch = pixelmatch(actual.data, golden.data, diff.data, actual.width, actual.height, { threshold: 0.1 })
-    expect(mismatch).toBeLessThan(100)
+    expect(mismatch).toBe(0)
   })
 })

@@ -10,6 +10,8 @@ export interface StripOptions {
 
 const BASE_W = 340  // pt
 const BASE_H = 123  // pt
+const VIGNETTE_START = 0.5  // begins at vertical midpoint so cups stay clear
+const VIGNETTE_ALPHA = 0.28 // max darkness at the bottom edge
 
 // Cup design mirrors components/brand/StarCupsRow.tsx (viewBox 22x28).
 const CUP_VB_W = 22
@@ -89,9 +91,9 @@ export async function renderStrip(opts: StripOptions): Promise<Buffer> {
   ctx.fillRect(0, 0, w, h)
 
   // Bottom vignette for depth (and so the solid card bg sits flush below)
-  const vig = ctx.createLinearGradient(0, h * 0.5, 0, h)
+  const vig = ctx.createLinearGradient(0, h * VIGNETTE_START, 0, h)
   vig.addColorStop(0, 'rgba(0,0,0,0)')
-  vig.addColorStop(1, 'rgba(0,0,0,0.28)')
+  vig.addColorStop(1, `rgba(0,0,0,${VIGNETTE_ALPHA})`)
   ctx.fillStyle = vig
   ctx.fillRect(0, 0, w, h)
 
