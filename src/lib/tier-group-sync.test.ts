@@ -1,8 +1,10 @@
 // src/lib/tier-group-sync.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  syncTierGroups,
   tierGroupIdsFromEnv,
   tierGroupPlan,
+  type TierGroupClient,
   type TierGroupIds,
 } from "./tier-group-sync";
 
@@ -82,5 +84,58 @@ describe("tierGroupIdsFromEnv", () => {
     vi.stubEnv("SQUARE_TIER_GROUP_GOLD_ID", "GRP_GOLD");
     vi.stubEnv("SQUARE_TIER_GROUP_DIAMOND_ID", "GRP_DIA");
     expect(tierGroupIdsFromEnv()).toEqual(IDS);
+  });
+});
+
+function fakeClient(groupIds: string[]) {
+  const calls: { op: "add" | "remove"; groupId: string }[] = [];
+  const client: TierGroupClient = {
+    customers: {
+      get: async () => ({ customer: { groupIds } }),
+      groups: {
+        add: async ({ groupId }) => {
+          calls.push({ op: "add", groupId });
+        },
+        remove: async ({ groupId }) => {
+          calls.push({ op: "remove", groupId });
+        },
+      },
+    },
+  };
+  return { client, calls };
+}
+
+describe("syncTierGroups", () => {
+  it("executes the plan: promotion adds diamond and removes gold", async () => {
+    const { client, calls } = fakeClient(["GRP_GOLD"]);
+    const plan = await syncTierGroups(client, "CUST_1", 80, IDS);
+    expect(plan).toEqual({ add: ["GRP_DIA"], remove: ["GRP_GOLD"] });
+    expect(calls).toEqual([
+      { op: "add", groupId: "GRP_DIA" },
+      { op: "remove", groupId: "GRP_GOLD" },
+    ]);
+  });
+
+  it("makes no group calls when membership already correct", async () => {
+    const { client, calls } = fakeClient(["GRP_DIA"]);
+    await syncTierGroups(client, "CUST_1", 95, IDS);
+    expect(calls).toEqual([]);
+  });
+
+  it("propagates Square errors to the caller (webhook logs them)", async () => {
+    const client: TierGroupClient = {
+      customers: {
+        get: async () => {
+          throw new Error("square down");
+        },
+        groups: {
+          add: async () => {},
+          remove: async () => {},
+        },
+      },
+    };
+    await expect(syncTierGroups(client, "CUST_1", 80, IDS)).rejects.toThrow(
+      "square down",
+    );
   });
 });
