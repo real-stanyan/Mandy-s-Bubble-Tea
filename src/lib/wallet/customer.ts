@@ -10,6 +10,7 @@ export interface CustomerPassData {
   phoneE164: string         // drives QR — POS looks up Square customer by phone
   stars: number             // balance % starsPerReward, progress toward next reward (drives strip)
   totalStars: number        // lifetime balance, drives header "N/9"
+  lifetimePoints: number    // cumulative earned stars — drives membership tier
   availableRewards: number  // floor(balance / starsPerReward)
 }
 
@@ -43,6 +44,7 @@ export async function fetchCustomerPassData(
   })
   const account = accountSearch.loyaltyAccounts?.[0]
   const balance = Number(account?.balance ?? 0)
+  const lifetimePoints = Number(account?.lifetimePoints ?? balance)
 
   const { starsPerReward } = await getActiveProgram()
   const stars = balance % starsPerReward
@@ -55,6 +57,7 @@ export async function fetchCustomerPassData(
     phoneE164: phone,
     stars,
     totalStars: balance,
+    lifetimePoints,
     availableRewards,
   }
 }

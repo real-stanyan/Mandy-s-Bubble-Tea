@@ -55,3 +55,24 @@ describe("fetchCustomerPassData phoneE164 normalization", () => {
     expect(data.phoneE164).toBe("");
   });
 });
+
+describe("fetchCustomerPassData lifetimePoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCustomerGet.mockResolvedValue({
+      customer: { givenName: "Stan", phoneNumber: "+61404978238", createdAt: "2026-01-01T00:00:00Z" },
+    });
+  });
+
+  it("maps lifetimePoints from the loyalty account", async () => {
+    mockAccountsSearch.mockResolvedValue({ loyaltyAccounts: [{ balance: 3, lifetimePoints: 71 }] });
+    const data = await fetchCustomerPassData("CUST1");
+    expect(data.lifetimePoints).toBe(71);
+  });
+
+  it("falls back to balance when lifetimePoints is missing", async () => {
+    mockAccountsSearch.mockResolvedValue({ loyaltyAccounts: [{ balance: 5 }] });
+    const data = await fetchCustomerPassData("CUST2");
+    expect(data.lifetimePoints).toBe(5);
+  });
+});
