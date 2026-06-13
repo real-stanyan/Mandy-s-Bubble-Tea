@@ -1,7 +1,9 @@
 import { createCanvas, type SKRSContext2D } from '@napi-rs/canvas'
-import { PASS_BRAND } from './constants'
+import type { MembershipTier } from '@/lib/membership-tier'
+import { TIER_PASS, type TierStripArt } from './constants'
 
 export interface StripOptions {
+  tier: MembershipTier
   stars: number        // 0..9 inclusive
   scale?: 1 | 2 | 3    // 1x, 2x, 3x
 }
@@ -9,8 +11,7 @@ export interface StripOptions {
 const BASE_W = 340  // pt
 const BASE_H = 123  // pt
 
-// Cup design mirrors components/brand/StarCupsRow.tsx in the RN app
-// (viewBox 22x28: straw rect at y=5 + tapered cup body).
+// Cup design mirrors components/brand/StarCupsRow.tsx (viewBox 22x28).
 const CUP_VB_W = 22
 const CUP_VB_H = 28
 
@@ -21,31 +22,25 @@ function drawCup(
   w: number,
   h: number,
   filled: boolean,
+  art: TierStripArt,
 ) {
   const sx = w / CUP_VB_W
   const sy = h / CUP_VB_H
-  const fillColor = PASS_BRAND.peach
-  const strokeColor = filled
-    ? 'rgba(255,255,255,0.9)'
-    : 'rgba(255,255,255,0.55)'
-  // Stroke width in viewBox units; counter-scale so it stays ~1.2pt on screen.
+  const strokeColor = filled ? art.cupStrokeFilled : art.cupStrokeEmpty
   const strokeVb = 1.2 / Math.min(sx, sy)
 
   ctx.save()
   ctx.translate(x, y)
   ctx.scale(sx, sy)
 
-  // Straw — small rounded rect across the top of the cup
+  // Straw
   ctx.beginPath()
   if (typeof ctx.roundRect === 'function') {
     ctx.roundRect(2, 5, 18, 2.6, 1)
   } else {
     ctx.rect(2, 5, 18, 2.6)
   }
-  if (filled) {
-    ctx.fillStyle = fillColor
-    ctx.fill()
-  }
+  if (filled) { ctx.fillStyle = art.cupFill; ctx.fill() }
   ctx.lineWidth = strokeVb
   ctx.strokeStyle = strokeColor
   ctx.stroke()
@@ -59,10 +54,7 @@ function drawCup(
   ctx.lineTo(7, 26)
   ctx.quadraticCurveTo(5, 26, 5, 24)
   ctx.closePath()
-  if (filled) {
-    ctx.fillStyle = fillColor
-    ctx.fill()
-  }
+  if (filled) { ctx.fillStyle = art.cupFill; ctx.fill() }
   ctx.lineJoin = 'round'
   ctx.lineWidth = strokeVb
   ctx.strokeStyle = strokeColor
@@ -75,6 +67,7 @@ export async function renderStrip(opts: StripOptions): Promise<Buffer> {
   if (!Number.isInteger(opts.stars) || opts.stars < 0 || opts.stars > 9) {
     throw new Error(`renderStrip: stars must be integer in [0,9], got ${opts.stars}`)
   }
+  const art = TIER_PASS[opts.tier].strip
   const scale = opts.scale ?? 3
   const w = BASE_W * scale
   const h = BASE_H * scale
@@ -82,7 +75,24 @@ export async function renderStrip(opts: StripOptions): Promise<Buffer> {
   const c = createCanvas(w, h)
   const ctx = c.getContext('2d')
 
-  ctx.fillStyle = PASS_BRAND.brown
+  // Base metal — diagonal gradient
+  const metal = ctx.createLinearGradient(0, 0, w, h)
+  for (const [off, col] of art.metal) metal.addColorStop(off, col)
+  ctx.fillStyle = metal
+  ctx.fillRect(0, 0, w, h)
+
+  // Soft top sheen (key light from the top)
+  const sheen = ctx.createLinearGradient(0, 0, 0, h)
+  sheen.addColorStop(0, art.topHighlight)
+  sheen.addColorStop(0.4, 'rgba(255,255,255,0)')
+  ctx.fillStyle = sheen
+  ctx.fillRect(0, 0, w, h)
+
+  // Bottom vignette for depth (and so the solid card bg sits flush below)
+  const vig = ctx.createLinearGradient(0, h * 0.5, 0, h)
+  vig.addColorStop(0, 'rgba(0,0,0,0)')
+  vig.addColorStop(1, 'rgba(0,0,0,0.28)')
+  ctx.fillStyle = vig
   ctx.fillRect(0, 0, w, h)
 
   // Layout: 9 cups across, evenly distributed.
@@ -90,15 +100,13 @@ export async function renderStrip(opts: StripOptions): Promise<Buffer> {
   const edgePad = 14 * scale
   const totalGap = w - edgePad * 2
   const slot = totalGap / count
-  // Cup size — keep the 22:28 aspect ratio, leave breathing room in the slot.
   const cupW = Math.min(slot - 6 * scale, (h - 24 * scale) * (CUP_VB_W / CUP_VB_H))
   const cupH = cupW * (CUP_VB_H / CUP_VB_W)
   const cyTop = (h - cupH) / 2
 
   for (let i = 0; i < count; i++) {
     const cxLeft = edgePad + i * slot + (slot - cupW) / 2
-    const filled = i < opts.stars
-    drawCup(ctx, cxLeft, cyTop, cupW, cupH, filled)
+    drawCup(ctx, cxLeft, cyTop, cupW, cupH, i < opts.stars, art)
   }
 
   return Buffer.from(c.toBuffer('image/png'))

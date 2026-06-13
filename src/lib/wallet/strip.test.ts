@@ -7,20 +7,20 @@ import { renderStrip } from './strip'
 
 describe('renderStrip', () => {
   it('produces PNG buffer for 0 filled stars', async () => {
-    const buf = await renderStrip({ stars: 0, scale: 1 })
+    const buf = await renderStrip({ tier: 'silver', stars: 0, scale: 1 })
     expect(buf).toBeInstanceOf(Buffer)
     expect(buf.length).toBeGreaterThan(1000)
     expect(buf.slice(0, 8).toString('hex')).toBe('89504e470d0a1a0a') // PNG magic
   })
 
   it('produces different PNGs for different star counts', async () => {
-    const a = await renderStrip({ stars: 3, scale: 1 })
-    const b = await renderStrip({ stars: 7, scale: 1 })
+    const a = await renderStrip({ tier: 'silver', stars: 3, scale: 1 })
+    const b = await renderStrip({ tier: 'silver', stars: 7, scale: 1 })
     expect(a.equals(b)).toBe(false)
   })
 
   it('at @3x returns 1020x369 canvas', async () => {
-    const buf = await renderStrip({ stars: 5, scale: 3 })
+    const buf = await renderStrip({ tier: 'silver', stars: 5, scale: 3 })
     const width = buf.readUInt32BE(16)
     const height = buf.readUInt32BE(20)
     expect(width).toBe(1020)
@@ -28,8 +28,28 @@ describe('renderStrip', () => {
   })
 
   it('rejects invalid star count', async () => {
-    await expect(renderStrip({ stars: 10, scale: 1 })).rejects.toThrow()
-    await expect(renderStrip({ stars: -1, scale: 1 })).rejects.toThrow()
+    await expect(renderStrip({ tier: 'silver', stars: 10, scale: 1 })).rejects.toThrow()
+    await expect(renderStrip({ tier: 'silver', stars: -1, scale: 1 })).rejects.toThrow()
+  })
+
+  it('renders a valid PNG for every tier', async () => {
+    for (const tier of ['silver', 'gold', 'diamond'] as const) {
+      const buf = await renderStrip({ tier, stars: 5, scale: 1 })
+      expect(buf.slice(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+      expect(buf.length).toBeGreaterThan(1000)
+    }
+  })
+
+  it('produces different PNGs per tier (metal differs)', async () => {
+    const silver = await renderStrip({ tier: 'silver', stars: 5, scale: 1 })
+    const gold = await renderStrip({ tier: 'gold', stars: 5, scale: 1 })
+    const diamond = await renderStrip({ tier: 'diamond', stars: 5, scale: 1 })
+    expect(silver.equals(gold)).toBe(false)
+    expect(gold.equals(diamond)).toBe(false)
+  })
+
+  it('still rejects invalid star counts', async () => {
+    await expect(renderStrip({ tier: 'silver', stars: 10, scale: 1 })).rejects.toThrow()
   })
 })
 
@@ -37,7 +57,7 @@ describe('renderStrip golden images', () => {
   const FIXTURES = path.join(__dirname, '__fixtures__')
 
   it.each([0, 3, 7, 9])('matches golden for stars=%i', async (stars) => {
-    const actualBuf = await renderStrip({ stars, scale: 1 })
+    const actualBuf = await renderStrip({ tier: 'silver', stars, scale: 1 })
     const goldenPath = path.join(FIXTURES, `strip-${stars}.png`)
     if (!fs.existsSync(goldenPath)) {
       fs.mkdirSync(FIXTURES, { recursive: true })
