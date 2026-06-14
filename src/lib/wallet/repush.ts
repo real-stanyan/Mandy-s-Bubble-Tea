@@ -10,6 +10,8 @@ export interface RepushResult {
   serial: string
   pushed: number
   failures: { token: string; status: number; reason?: string }[]
+  // TEMP diagnostic: raw APNs status per token (remove after debugging delivery)
+  statuses?: { status: number; reason?: string }[]
 }
 
 /**
@@ -18,10 +20,10 @@ export interface RepushResult {
  * the staff re-push admin route (manual one-off fixes). Devices that report
  * 410 (unregistered) are pruned.
  */
-export async function repushPass(serial: string): Promise<RepushResult> {
+export async function repushPass(serial: string, pushType?: string): Promise<RepushResult> {
   await bumpPassUpdatedAt(serial)
   const tokens = await getDevicePushTokens(serial)
-  const results = await pushToAppleWallet(tokens)
+  const results = await pushToAppleWallet(tokens, pushType)
 
   for (const r of results) {
     if (r.status === 410) await deleteDeviceByPushToken(r.token)
@@ -31,5 +33,10 @@ export async function repushPass(serial: string): Promise<RepushResult> {
     .filter((r) => r.status >= 500 || r.status === 429)
     .map((r) => ({ token: r.token, status: r.status, reason: r.reason }))
 
-  return { serial, pushed: results.length, failures }
+  return {
+    serial,
+    pushed: results.length,
+    failures,
+    statuses: results.map((r) => ({ status: r.status, reason: r.reason })),
+  }
 }
