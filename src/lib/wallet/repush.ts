@@ -20,10 +20,10 @@ export interface RepushResult {
  * the staff re-push admin route (manual one-off fixes). Devices that report
  * 410 (unregistered) are pruned.
  */
-export async function repushPass(serial: string): Promise<RepushResult> {
+export async function repushPass(serial: string, pushType?: string): Promise<RepushResult> {
   await bumpPassUpdatedAt(serial)
   const tokens = await getDevicePushTokens(serial)
-  const results = await pushToAppleWallet(tokens)
+  const results = await pushToAppleWallet(tokens, pushType)
 
   for (const r of results) {
     if (r.status === 410) await deleteDeviceByPushToken(r.token)
