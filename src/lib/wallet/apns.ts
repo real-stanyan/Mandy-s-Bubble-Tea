@@ -33,14 +33,10 @@ export interface PushResult {
   reason?: string
 }
 
-export async function pushToAppleWallet(
-  pushTokens: string[],
-  pushType?: string, // TEMP diagnostic override; 'omit' drops the header entirely
-): Promise<PushResult[]> {
+export async function pushToAppleWallet(pushTokens: string[]): Promise<PushResult[]> {
   if (pushTokens.length === 0) return []
   const env = walletEnv()
   const jwt = await buildApnsJwt()
-  const effectivePushType = pushType ?? 'alert'
 
   const client = http2.connect(`https://${env.apnsHost}`)
   try {
@@ -48,17 +44,14 @@ export async function pushToAppleWallet(
       pushTokens.map(
         (token) =>
           new Promise<PushResult>((resolve) => {
-            const headers: Record<string, string> = {
+            const req = client.request({
               ':method': 'POST',
               ':path': `/3/device/${token}`,
               'apns-topic': env.passTypeId,
+              'apns-push-type': 'alert',
               authorization: `bearer ${jwt}`,
               'content-type': 'application/json',
-            }
-            if (effectivePushType !== 'omit') {
-              headers['apns-push-type'] = effectivePushType
-            }
-            const req = client.request(headers)
+            })
             let status = 0
             let apnsId: string | undefined
             let chunks = ''

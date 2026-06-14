@@ -21,14 +21,10 @@ export async function POST(request: Request) {
     )
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | { serials?: unknown; pushType?: unknown }
-    | null
+  const body = (await request.json().catch(() => null)) as { serials?: unknown } | null
   const serials = Array.isArray(body?.serials)
     ? body.serials.filter((s): s is string => typeof s === "string" && s.length > 0)
     : []
-  // TEMP diagnostic: override apns-push-type ('alert'|'background'|'omit'|...)
-  const pushType = typeof body?.pushType === "string" ? body.pushType : undefined
 
   if (serials.length === 0) {
     return NextResponse.json({ ok: false, reason: "no serials" }, { status: 400 })
@@ -43,7 +39,7 @@ export async function POST(request: Request) {
   const results = await Promise.all(
     serials.map(async (serial) => {
       try {
-        return await repushPass(serial, pushType)
+        return await repushPass(serial)
       } catch (e) {
         return { serial, pushed: 0, failures: [], error: (e as Error).message }
       }
