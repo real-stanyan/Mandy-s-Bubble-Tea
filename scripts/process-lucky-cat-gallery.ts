@@ -41,6 +41,15 @@ const SRC_DIR = join(homedir(), "Desktop", "招财猫");
 const OUT_DIR = join(process.cwd(), "public", "cup-label", "lucky-cat");
 const THRESHOLD = 200; // value-channel: anything not near-white → black ink
 
+// Some sources are full-COLOR cartoon cats (colored bodies + bold black
+// outlines) rather than white line-art on a saturated bg. The value-channel
+// knockout floods their colored fills to black. For those, route through
+// ink-line extraction instead: keep only near-black ink (the outlines),
+// drop everything mid-tone → a clean coloring-book line drawing. Opt in by
+// naming the source file with the `inkline-` prefix.
+const INK_LINE_PREFIX = "inkline-";
+const INK_LINE_THRESHOLD = 70; // luminance < 70 → black ink; tuned across the set
+
 // Rebuild as a grayscale-RGB buffer where each pixel = max(R,G,B). This
 // drops saturated background color to white while keeping dark outlines.
 async function valueChannelPng(src: Buffer): Promise<Buffer> {
@@ -70,6 +79,31 @@ async function valueChannelPng(src: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+// Ink-line extraction for full-color cartoon cats: grayscale → mild blur to
+// tame jpeg noise → hard threshold keeping only near-black ink → median
+// despeckle. Produces a clean 1-bit line drawing; colored fills drop to white.
+async function inkLineBinarized(src: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(src)
+    .resize({
+      width: DOODLE_SIZE,
+      height: DOODLE_SIZE,
+      fit: "contain",
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    })
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .removeAlpha()
+    .grayscale()
+    .blur(0.6)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const out = Buffer.alloc(info.width * info.height);
+  for (let i = 0; i < out.length; i++) out[i] = data[i] < INK_LINE_THRESHOLD ? 0 : 255;
+  return sharp(out, { raw: { width: info.width, height: info.height, channels: 1 } })
+    .median(3)
+    .png()
+    .toBuffer();
+}
+
 async function main() {
   const entries = await readdir(SRC_DIR);
   const sources = entries.filter((f) => /\.(jpe?g|png|webp)$/i.test(f));
@@ -79,18 +113,20 @@ async function main() {
   for (const name of sources) {
     const raw = await readFile(join(SRC_DIR, name));
     const hash = createHash("md5").update(raw).digest("hex");
-    const value = await valueChannelPng(raw);
-    const binarized = await binarizeForThermal(value, {
-      mode: "threshold",
-      threshold: THRESHOLD,
-    });
+    const useInkLine = name.startsWith(INK_LINE_PREFIX);
+    const binarized = useInkLine
+      ? await inkLineBinarized(raw)
+      : await binarizeForThermal(await valueChannelPng(raw), {
+          mode: "threshold",
+          threshold: THRESHOLD,
+        });
     const outDir = join(OUT_DIR, hash);
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "binarized.png"), binarized);
     ok++;
     const isRare = hash === RARE_LUCKY_CAT_HASH;
     if (isRare) rareSeen = true;
-    console.log(`  ${isRare ? "★RARE" : "     "} ${name} → ${hash} (${binarized.length}b)`);
+    console.log(`  ${isRare ? "★RARE" : useInkLine ? "ink  " : "     "} ${name} → ${hash} (${binarized.length}b)`);
   }
 
   console.log(
