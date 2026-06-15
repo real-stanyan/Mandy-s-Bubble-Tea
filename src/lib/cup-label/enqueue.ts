@@ -9,6 +9,8 @@ import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store
 import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
+import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
+import { getFreeDrinkOdds } from "./lucky-cat-server";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -16,12 +18,15 @@ import { formatModifiersForLabel } from "./format-modifiers";
 // labelSelections; we read the binarized PNG from disk and route it through
 // the same `doodlePngBuffer` path as AI-generated and user-photo doodles.
 const GALLERY_DIR = path.join(process.cwd(), "public", "cup-label", "gallery");
-// Mandy brand logo, pre-binarized for thermal — the deterministic
-// auto-fill for POS orders + web orders where the customer didn't pick a
-// label. Baked from public/logo.webp via `scripts/process-logo-doodle.ts`
-// and committed under public/. Replaced the former random-tarot draw on
-// 2026-06-15 after customer religious-objection feedback; the tarot deck
-// + catalog stay in the tree so the random draw can be re-enabled later.
+// Random 招财猫 (lucky cat) deck — the auto-fill for POS orders + web
+// orders where the customer didn't pick a label. Baked from ~/Desktop/招财猫
+// via `scripts/process-lucky-cat-gallery.ts` and committed under public/.
+// One jackpot cat (RARE_LUCKY_CAT_HASH) draws at ~1/100 and triggers a
+// "ONE FREE DRINK" ticket. Replaced the random-tarot draw (disabled for
+// religious reasons) and the fixed Mandy-logo fallback, both 2026-06-15.
+const LUCKY_CAT_DIR = path.join(process.cwd(), "public", "cup-label", "lucky-cat");
+// Mandy brand logo, pre-binarized — kept only as a safety net for when the
+// lucky-cat deck can't be read off disk (then logo → POOL.svg).
 const LOGO_DOODLE_PATH = path.join(
   process.cwd(),
   "public",
@@ -29,6 +34,24 @@ const LOGO_DOODLE_PATH = path.join(
   "logo-doodle",
   "binarized.png",
 );
+
+// Scan the lucky-cat deck once per order: every cat hash on disk, split
+// into the jackpot cat (if present) and the common pool.
+async function listLuckyCatHashes(): Promise<{ commons: string[]; hasRare: boolean }> {
+  try {
+    const entries = await fs.readdir(LUCKY_CAT_DIR, { withFileTypes: true });
+    const all = entries
+      .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
+      .map((e) => e.name);
+    return {
+      commons: all.filter((h) => h !== RARE_LUCKY_CAT_HASH),
+      hasRare: all.includes(RARE_LUCKY_CAT_HASH),
+    };
+  } catch (e) {
+    console.error("[cup-label] lucky-cat dir scan failed", e);
+    return { commons: [], hasRare: false };
+  }
+}
 // Hard cap on the hash string we accept from the client — md5 hex is 32
 // chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
 const GALLERY_HASH_MAX_LEN = 64;
@@ -78,15 +101,15 @@ export type EnqueueCupLabelArgs = {
    * "web" (default): web/app checkout — honor doodleIds / aiDoodleIds /
    * doodleDefaults, fall back to hash-based POOL preset.
    * "pos": in-store Square POS order coming in via the webhook — there's
-   * no app-side doodle choice. Every cup auto-fills with the Mandy brand
-   * logo (`public/cup-label/logo-doodle/binarized.png`).
+   * no app-side doodle choice. Every cup auto-fills with a random 招财猫
+   * (`public/cup-label/lucky-cat/<hash>/binarized.png`).
    */
   mode?: "web" | "pos";
   /**
    * When true, every cup the customer *actually customized* (drawn / AI /
    * photo / gallery sticker) also gets a second "keepsake" row
    * (`copy_idx = 1`) rendered with the drink name + modifiers omitted, for
-   * staff to hand to the customer. Logo/POOL fallback cups never get one.
+   * staff to hand to the customer. Lucky-cat/logo/POOL fallback cups never get one.
    * Defaults to false. Only the authoritative payment-route enqueue passes
    * this — the webhook default path and the backfill never do.
    */
@@ -153,13 +176,20 @@ export async function enqueueCupLabelJobs({
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
 
-  // Pre-load the Mandy brand logo once per order — the deterministic
-  // fallback for every cup that needs one. Two cases use it:
+  // Scan the lucky-cat deck once per order — the random fallback for every
+  // cup that needs one. Two cases use it:
   //   1. POS (in-store): no app-side label choice → every cup auto-fills
   //   2. Web/app: customer didn't pick anything (no preset / draw / AI
-  //      / photo) → fall back to the logo instead of the POOL.svg default.
-  // Read-once amortizes the disk read across the whole order. If the read
-  // fails the per-cup fallback drops to the hash-seeded POOL preset.
+  //      / photo) → fall back to a random cat instead of the POOL.svg.
+  // The per-cup draw is deterministic (seeded by order+line+cup) so a
+  // re-enqueue reproduces identical rows. One jackpot cat at ~1/100 prints
+  // a "ONE FREE DRINK" ticket (see below).
+  const { commons: luckyCatCommons, hasRare: luckyCatHasRare } =
+    await listLuckyCatHashes();
+  // Live boss-editable jackpot odds (1 in N), read once per order.
+  const freeDrinkOdds = await getFreeDrinkOdds();
+  // Mandy logo, loaded once — only a safety net if the cat deck is empty
+  // (then logo → POOL). Read-once amortizes the disk read across the order.
   let logoDoodleBuffer: Buffer | null = null;
   try {
     logoDoodleBuffer = await fs.readFile(LOGO_DOODLE_PATH);
@@ -262,11 +292,14 @@ export async function enqueueCupLabelJobs({
       let originalImagePath: string | null = null;
       let aiJobId: string | null = null;
       // True only when this cup resolved to a *customer-chosen* source
-      // (drawn / AI / photo / gallery sticker). Stays false for logo/POOL
+      // (drawn / AI / photo / gallery sticker). Stays false for lucky-cat/POOL
       // fallback, POS, and any branch that caught an error and fell back —
       // so a cup whose custom art failed to load never prints a keepsake of
       // the wrong (fallback) image.
       let keepsakeEligible = false;
+      // Set true only when this cup's fallback draw landed on the jackpot
+      // lucky cat → the order prints an extra "ONE FREE DRINK" ticket.
+      let wonFreeDrink = false;
 
       const pickPool = (): { key: string; svg: string } => {
         if (presetKey) {
@@ -280,9 +313,41 @@ export async function enqueueCupLabelJobs({
       };
 
       // Auto-fill helper for "no user choice" branches (POS + web
-      // default). Uses the pre-loaded Mandy brand logo. Returns false if
-      // the logo failed to preload — caller falls back to pickPool() so we
-      // always print *something*.
+      // default). Deterministically draws a random 招财猫 (seeded by
+      // order+line+cup so re-enqueues reproduce the same cat) and loads its
+      // binarized PNG. Sets wonFreeDrink when the jackpot cat is drawn.
+      // Returns false if the deck is empty or the file load fails — caller
+      // falls back to the logo / POOL so we always print *something*.
+      const drawLuckyCat = async (): Promise<boolean> => {
+        const seed = `${orderId}:${clientLineId}:${cupIdx}`;
+        const { hash, isRare } = drawLuckyCatHash(
+          seed,
+          luckyCatCommons,
+          luckyCatHasRare,
+          freeDrinkOdds,
+        );
+        if (!hash) return false;
+        try {
+          doodlePngBuffer = await fs.readFile(
+            path.join(LUCKY_CAT_DIR, hash, "binarized.png"),
+          );
+          source = "preset_sticker";
+          poolKey = hash;
+          originalImagePath = `cup-label/lucky-cat/${hash}/binarized.png`;
+          doodleSvg = "";
+          wonFreeDrink = isRare;
+          return true;
+        } catch (e) {
+          console.error("[cup-label] lucky cat load failed, falling back", {
+            hash,
+            error: e instanceof Error ? e.message : e,
+          });
+          return false;
+        }
+      };
+
+      // Safety net only: the fixed Mandy logo, used if the lucky-cat deck
+      // couldn't be read off disk. Never wins a free drink.
       const drawLogo = (): boolean => {
         if (!logoDoodleBuffer) return false;
         doodlePngBuffer = logoDoodleBuffer;
@@ -294,11 +359,12 @@ export async function enqueueCupLabelJobs({
       };
 
       // Unified "give up — use whatever default works" fallback.
-      // Prints the Mandy brand logo; if that's unavailable, falls back to
-      // the hash-seeded POOL.svg preset that pre-dates the logo/tarot
-      // pipeline. Used everywhere a primary source fails (user-doodle
-      // download error, gallery sticker missing, AI image lost, …).
+      // Draws a random lucky cat; if the deck is unavailable, falls back to
+      // the Mandy logo, then to the hash-seeded POOL.svg preset. Used
+      // everywhere a primary source fails (user-doodle download error,
+      // gallery sticker missing, AI image lost, …).
       const useDefaultFallback = async (): Promise<void> => {
+        if (await drawLuckyCat()) return;
         if (drawLogo()) return;
         const pool = pickPool();
         doodleSvg = pool.svg;
@@ -309,7 +375,7 @@ export async function enqueueCupLabelJobs({
       };
 
       // POS mode short-circuits the whole doodle resolution chain —
-      // there's no app, no user choice. Each cup gets the Mandy logo.
+      // there's no app, no user choice. Each cup gets a random lucky cat.
       if (mode === "pos") {
         await useDefaultFallback();
       } else if (presetStickerHash) {
@@ -387,8 +453,8 @@ export async function enqueueCupLabelJobs({
           await useDefaultFallback();
         }
       } else {
-        // No customer choice on this slot — auto-fill via the Mandy logo
-        // (or POOL.svg if the logo is unavailable). Mirrors POS path.
+        // No customer choice on this slot — auto-fill via a random lucky
+        // cat (or logo / POOL.svg if the deck is unavailable). Mirrors POS.
         await useDefaultFallback();
       }
 
@@ -451,6 +517,41 @@ export async function enqueueCupLabelJobs({
           original_image_path: null,
           ai_job_id: null,
           copy_idx: 1,
+        });
+      }
+
+      // Free-drink ticket — when this cup drew the jackpot lucky cat, print
+      // one EXTRA label: same lucky-cat art + drink name + cup count, but
+      // the modifier (topping) line swapped to "ONE FREE DRINK". The
+      // customer keeps it as a physical voucher (no DB redemption tracking
+      // by design). Deterministic draw → re-enqueues reproduce this exact
+      // row, so the ticket can never orphan from its winning cup.
+      if (wonFreeDrink) {
+        const { zpl: ticketZpl } = await renderCupLabel({
+          stickerNumber,
+          cupIdxOf: { idx: orderCupSeq, total: orderTotalCups },
+          drinkName,
+          modifiersText: FREE_DRINK_TICKET_TEXT,
+          doodleSvg,
+          doodlePngBuffer,
+          customerFirstName: customerFirstName ?? null,
+        });
+        rows.push({
+          square_order_id: orderId,
+          line_id: lineId,
+          cup_idx: cupIdx,
+          sticker_number: stickerNumber,
+          drink_name: drinkName,
+          modifiers_text: FREE_DRINK_TICKET_TEXT,
+          doodle_source: source,
+          doodle_pool_key: poolKey,
+          doodle_paths: userPaths,
+          raster_path: null,
+          zpl_body: ticketZpl,
+          target_printer_kind: "zd410",
+          original_image_path: originalImagePath,
+          ai_job_id: null,
+          copy_idx: 2,
         });
       }
     }

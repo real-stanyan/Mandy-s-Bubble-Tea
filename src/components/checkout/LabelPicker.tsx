@@ -35,7 +35,7 @@ type LabelPickerProps = {
   isSignedIn: boolean;
   current: CupLabelSelection | undefined;
   onSelect: (selection: CupLabelSelection) => void;
-  /** Clear this cup's pick so it falls back to the default Mandy logo. */
+  /** Clear this cup's pick so it falls back to a random surprise lucky cat. */
   onClear: () => void;
 };
 
@@ -102,7 +102,7 @@ export function LabelPicker({
         <DialogHeader>
           <DialogTitle>Choose a label (optional)</DialogTitle>
           <DialogDescription>
-            Totally optional — leave it and your cup gets the Mandy logo 🧋.
+            Totally optional — leave it and your cup gets a surprise lucky cat 🐱.
             Or pick your own design below.
           </DialogDescription>
         </DialogHeader>
@@ -117,7 +117,7 @@ export function LabelPicker({
           style={{ borderColor: BRAND.primaryColor }}
         >
           <span className="font-medium" style={{ color: BRAND.primaryColor }}>
-            🧋 Use the Mandy logo (default)
+            🐱 Surprise me — random lucky cat
           </span>
           {current === undefined ? (
             <span className="text-xs font-semibold text-zinc-500">✓ Current</span>

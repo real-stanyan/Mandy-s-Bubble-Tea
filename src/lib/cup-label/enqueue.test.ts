@@ -27,6 +27,9 @@ vi.mock("./render-zebra-cup", () => ({
 import { enqueueCupLabelJobs } from "./enqueue";
 import { renderCupLabel } from "./render-zebra-cup";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { clientLineIdFromSquareLine } from "./client-line-id";
+import { hashSeed } from "../doodle/pool";
+import { RARE_LUCKY_CAT_HASH, RARE_LUCKY_CAT_ODDS } from "./lucky-cat";
 
 const buildOrder = () => ({
   id: "ORD1",
@@ -52,19 +55,24 @@ beforeEach(() => {
 });
 
 describe("enqueueCupLabelJobs (default path, regression)", () => {
-  it("inserts logo-fallback rows when no doodleIds passed", async () => {
+  it("inserts lucky-cat fallback rows when no doodleIds passed", async () => {
     await enqueueCupLabelJobs({
       order: buildOrder() as never,
       stickerNumber: "OL001",
     });
     expect(upsertMock).toHaveBeenCalledTimes(1);
     const [rows] = upsertMock.mock.calls[0];
-    expect(rows).toHaveLength(2);
-    // No user choice → Mandy logo auto-fill. doodle_source = "preset_sticker",
-    // doodle_pool_key = "mandy-logo".
-    expect(rows[0].doodle_source).toBe("preset_sticker");
-    expect(rows[0].doodle_paths).toBeNull();
-    expect(rows[0].doodle_pool_key).toBe("mandy-logo");
+    // No user choice → random 招财猫 auto-fill. doodle_source =
+    // "preset_sticker", doodle_pool_key = the cat's 32-char md5 hash.
+    // (Filter to primary cup rows so a 1/100 jackpot ticket can't flake.)
+    const primaries = rows.filter((r: { copy_idx: number }) => r.copy_idx === 0);
+    expect(primaries).toHaveLength(2);
+    expect(primaries[0].doodle_source).toBe("preset_sticker");
+    expect(primaries[0].doodle_paths).toBeNull();
+    expect(primaries[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
+    expect(primaries[0].original_image_path).toMatch(
+      /^cup-label\/lucky-cat\/[a-f0-9]{32}\/binarized\.png$/,
+    );
   });
 });
 
@@ -232,13 +240,13 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
   });
 });
 
-// Logo fallback contract: an order with no user choice produces rows
-// with doodle_source="preset_sticker", doodle_pool_key="mandy-logo", and
-// original_image_path pointing at public/cup-label/logo-doodle/. This
-// replaced the random-tarot draw on 2026-06-15 (customer religious
-// objection); in-store POS + web-default both auto-fill the Mandy logo.
-describe("enqueueCupLabelJobs (logo fallback for unchosen cups)", () => {
-  it("emits doodle_source='preset_sticker' with the mandy-logo key for cups without a choice", async () => {
+// Lucky-cat fallback contract: an order with no user choice produces rows
+// with doodle_source="preset_sticker", doodle_pool_key = the cat's md5,
+// and original_image_path pointing at public/cup-label/lucky-cat/. This
+// replaced the fixed Mandy-logo fallback on 2026-06-15; in-store POS +
+// web-default both auto-fill a random 招财猫.
+describe("enqueueCupLabelJobs (lucky-cat fallback for unchosen cups)", () => {
+  it("emits doodle_source='preset_sticker' with a lucky-cat md5 for cups without a choice", async () => {
     const inserted: any[] = [];
     const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
     (getSupabaseAdmin as any).mockReturnValue({
@@ -250,7 +258,7 @@ describe("enqueueCupLabelJobs (logo fallback for unchosen cups)", () => {
 
     await enqueueCupLabelJobs({
       order: {
-        id: "ord-logo",
+        id: "ord-cat",
         lineItems: [
           {
             uid: "uid-A",
@@ -261,14 +269,67 @@ describe("enqueueCupLabelJobs (logo fallback for unchosen cups)", () => {
           },
         ],
       } as unknown as Order,
-      stickerNumber: "OL-LOGO",
+      stickerNumber: "OL-CAT",
     });
 
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0].doodle_source).toBe("preset_sticker");
-    expect(inserted[0].doodle_pool_key).toBe("mandy-logo");
-    expect(inserted[0].original_image_path).toBe(
-      "cup-label/logo-doodle/binarized.png",
+    const primaries = inserted.filter((r) => r.copy_idx === 0);
+    expect(primaries).toHaveLength(1);
+    expect(primaries[0].doodle_source).toBe("preset_sticker");
+    expect(primaries[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
+    expect(primaries[0].original_image_path).toMatch(
+      /^cup-label\/lucky-cat\/[a-f0-9]{32}\/binarized\.png$/,
+    );
+  });
+
+  it("prints a 'ONE FREE DRINK' ticket (copy_idx=2) when a cup draws the jackpot cat", async () => {
+    const inserted: any[] = [];
+    const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
+    (getSupabaseAdmin as any).mockReturnValue({
+      from: () => ({
+        upsert: (rows: any[]) => { inserted.push(...rows); return { error: null }; },
+      }),
+      storage: { from: () => ({ upload }) },
+    });
+
+    // The draw is seeded by `${orderId}:${clientLineId}:${cupIdx}`. Search
+    // order ids for one whose single cup lands on the jackpot cat, so this
+    // test deterministically exercises the free-drink ticket branch.
+    const line = {
+      uid: "uid-A",
+      catalogObjectId: "VAR1",
+      name: "Pearl Milk Tea",
+      quantity: "1",
+      modifiers: [{ catalogObjectId: "MOD_PEARL", name: "Pearl" }],
+    };
+    const clientLineId = clientLineIdFromSquareLine(line as never);
+    let winningOrderId: string | null = null;
+    for (let i = 0; i < 100000; i++) {
+      const id = `jackpot-${i}`;
+      if (hashSeed(`${id}:${clientLineId}:0:rare`) % RARE_LUCKY_CAT_ODDS === 0) {
+        winningOrderId = id;
+        break;
+      }
+    }
+    expect(winningOrderId).not.toBeNull();
+
+    await enqueueCupLabelJobs({
+      order: {
+        id: winningOrderId,
+        lineItems: [line],
+      } as unknown as Order,
+      stickerNumber: "OL-WIN",
+    });
+
+    const primary = inserted.find((r) => r.copy_idx === 0);
+    const ticket = inserted.find((r) => r.copy_idx === 2);
+    expect(primary).toBeDefined();
+    expect(primary.doodle_pool_key).toBe(RARE_LUCKY_CAT_HASH);
+    // Ticket: same winning-cat art, modifier line swapped to ONE FREE DRINK.
+    expect(ticket).toBeDefined();
+    expect(ticket.modifiers_text).toBe("ONE FREE DRINK");
+    expect(ticket.doodle_pool_key).toBe(RARE_LUCKY_CAT_HASH);
+    expect(ticket.original_image_path).toBe(
+      `cup-label/lucky-cat/${RARE_LUCKY_CAT_HASH}/binarized.png`,
     );
   });
 });

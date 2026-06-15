@@ -39,8 +39,8 @@ export function CupLabelSection() {
               </span>
             </div>
             <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-              Leave any cup as is and we&apos;ll print the Mandy logo 🧋. Want to
-              choose your own? Tap a cup below.
+              Leave any cup as is and we&apos;ll print a surprise lucky cat 🐱.
+              Want to choose your own? Tap a cup below.
             </p>
           </div>
         </div>
@@ -105,12 +105,12 @@ export function CupLabelSection() {
 
 function renderThumb(sel: CupLabelSelection | undefined) {
   if (!sel) {
-    // Default (no pick) prints the Mandy logo — show it so the thumb
-    // matches what actually prints.
+    // Default (no pick) prints a random lucky cat — show a representative
+    // cat so the thumb hints at what prints.
     return (
       <Image
-        src="/cup-label/logo-doodle/binarized.png"
-        alt="Mandy logo"
+        src="/cup-label/lucky-cat/a59c1cc2694cc43822317a53cce9463b/binarized.png"
+        alt="Surprise lucky cat"
         fill
         sizes="64px"
         unoptimized

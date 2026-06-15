@@ -159,7 +159,7 @@ function CartBody({
   // Per-cup label picker — single modal instance covers all lines, the
   // pickerCupKey state tracks which cup is currently being edited. Cup
   // labels are optional: a cup left untouched carries no selection and the
-  // server prints the Mandy logo for it (no pre-fill here).
+  // server prints a random lucky cat for it (no pre-fill here).
   const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
   const pickerCurrent: CupLabelSelection | undefined = pickerCupKey
     ? labelSelections[pickerCupKey]

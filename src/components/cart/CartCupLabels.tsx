@@ -32,7 +32,7 @@ export const CartCupLabels = memo(function CartCupLabels({
         <span className="text-zinc-400">· Optional</span>
       </div>
       <p className="mb-1.5 px-1 text-[10px] leading-snug text-zinc-400">
-        Leave it for the Mandy logo 🧋, or tap to choose your own.
+        Leave it for a surprise lucky cat 🐱, or tap to choose your own.
       </p>
       <ul className="space-y-1">
         {cups.map((cupIdx) => {
@@ -119,11 +119,12 @@ function CupRow({
 
 function Thumb({ selection }: { selection: CupLabelSelection | undefined }) {
   if (!selection) {
-    // Default (no pick) prints the Mandy logo — mirror it in the thumb.
+    // Default (no pick) prints a random lucky cat — mirror a representative
+    // cat in the thumb.
     return (
       <Image
-        src="/cup-label/logo-doodle/binarized.png"
-        alt="Mandy logo"
+        src="/cup-label/lucky-cat/a59c1cc2694cc43822317a53cce9463b/binarized.png"
+        alt="Surprise lucky cat"
         fill
         sizes="44px"
         unoptimized

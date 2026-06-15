@@ -2,10 +2,10 @@ import type { CartLine } from "@/store/cart";
 
 // NOTE: cup labels are OPTIONAL. We deliberately do NOT pre-fill cups with a
 // random gallery sticker any more. A cup left untouched carries no selection,
-// and the server (enqueue.ts → drawLogo) prints the Mandy logo at print time —
-// which is exactly what we now tell the customer ("skip it for the Mandy logo
-// 🧋"). Pre-filling a concrete sticker made the picker look mandatory and
-// silently overrode that logo fallback, so it was removed.
+// and the server (enqueue.ts → drawLuckyCat) prints a random 招财猫 at print
+// time — which is exactly what we now tell the customer ("skip it for a
+// surprise lucky cat 🐱"). Pre-filling a concrete sticker made the picker look
+// mandatory and silently overrode that lucky-cat fallback, so it was removed.
 
 export function flattenCups(
   lines: CartLine[],

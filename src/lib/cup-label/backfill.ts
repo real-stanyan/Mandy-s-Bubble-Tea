@@ -26,7 +26,7 @@ export async function backfillCupLabelJobsIfMissing(args: {
    * The printer-client fires on cup_label_jobs INSERT only, and the payment
    * route's authoritative enqueue is deferred via `after()` and lands as an
    * UPDATE-on-conflict (no second INSERT, status stays put, so it never
-   * reprints). If the webhook inserts web-mode DEFAULTS (the Mandy logo)
+   * reprints). If the webhook inserts web-mode DEFAULTS (a random lucky cat)
    * the instant it sees an empty table, that default INSERT prints and the
    * customer's real choice (photo / sticker / drawing) is lost — the "photo
    * prints a tarot card" report, 2026-06-08.
