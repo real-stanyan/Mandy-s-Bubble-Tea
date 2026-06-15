@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { summaryFor } from "../cup-label-summary";
 
 describe("summaryFor", () => {
-  it("renders the surprise-tarot default when undefined (no explicit pick)", () => {
-    expect(summaryFor(undefined)).toBe("🔮 Surprise tarot card");
+  it("renders the Mandy-logo default when undefined (no explicit pick)", () => {
+    expect(summaryFor(undefined)).toBe("🧋 Mandy logo");
   });
   it("renders friendly preset label (hashes are not user-facing)", () => {
     expect(summaryFor({ kind: "preset", hash: "abcdef0123" })).toBe(

@@ -52,7 +52,7 @@ beforeEach(() => {
 });
 
 describe("enqueueCupLabelJobs (default path, regression)", () => {
-  it("inserts tarot-fallback rows when no doodleIds passed", async () => {
+  it("inserts logo-fallback rows when no doodleIds passed", async () => {
     await enqueueCupLabelJobs({
       order: buildOrder() as never,
       stickerNumber: "OL001",
@@ -60,11 +60,11 @@ describe("enqueueCupLabelJobs (default path, regression)", () => {
     expect(upsertMock).toHaveBeenCalledTimes(1);
     const [rows] = upsertMock.mock.calls[0];
     expect(rows).toHaveLength(2);
-    // No user choice → tarot card auto-fill. doodle_source = "preset_sticker",
-    // doodle_pool_key = md5 hash of the chosen card.
+    // No user choice → Mandy logo auto-fill. doodle_source = "preset_sticker",
+    // doodle_pool_key = "mandy-logo".
     expect(rows[0].doodle_source).toBe("preset_sticker");
     expect(rows[0].doodle_paths).toBeNull();
-    expect(rows[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
+    expect(rows[0].doodle_pool_key).toBe("mandy-logo");
   });
 });
 
@@ -97,7 +97,7 @@ describe("enqueueCupLabelJobs (user-doodle path)", () => {
     expect(cup1.doodle_source).toBe("preset_sticker");
   });
 
-  it("falls back to tarot if download fails (does not break the order)", async () => {
+  it("falls back to the logo if download fails (does not break the order)", async () => {
     downloadMock.mockResolvedValue({ data: null, error: { message: "not found" } });
     const clientLineId = `VAR1::MOD_50S,MOD_PEARL`;
     await enqueueCupLabelJobs({
@@ -232,13 +232,13 @@ describe("enqueueCupLabelJobs (Phase 1 regression)", () => {
   });
 });
 
-// Tarot fallback contract: an order with no user choice produces rows
-// with doodle_source="preset_sticker" and doodle_pool_key set to a
-// 32-char md5 hash pointing at public/cup-label/tarot/<hash>/. The
-// previous hash-based POOL.svg seeding (clientLineId-driven) was
-// replaced when in-store + web-default both moved to the tarot deck.
-describe("enqueueCupLabelJobs (tarot fallback for unchosen cups)", () => {
-  it("emits doodle_source='preset_sticker' with an md5 hash for cups without a choice", async () => {
+// Logo fallback contract: an order with no user choice produces rows
+// with doodle_source="preset_sticker", doodle_pool_key="mandy-logo", and
+// original_image_path pointing at public/cup-label/logo-doodle/. This
+// replaced the random-tarot draw on 2026-06-15 (customer religious
+// objection); in-store POS + web-default both auto-fill the Mandy logo.
+describe("enqueueCupLabelJobs (logo fallback for unchosen cups)", () => {
+  it("emits doodle_source='preset_sticker' with the mandy-logo key for cups without a choice", async () => {
     const inserted: any[] = [];
     const upload = vi.fn(async () => ({ data: { path: "x" }, error: null }));
     (getSupabaseAdmin as any).mockReturnValue({
@@ -250,7 +250,7 @@ describe("enqueueCupLabelJobs (tarot fallback for unchosen cups)", () => {
 
     await enqueueCupLabelJobs({
       order: {
-        id: "ord-tarot",
+        id: "ord-logo",
         lineItems: [
           {
             uid: "uid-A",
@@ -261,14 +261,14 @@ describe("enqueueCupLabelJobs (tarot fallback for unchosen cups)", () => {
           },
         ],
       } as unknown as Order,
-      stickerNumber: "OL-TAROT",
+      stickerNumber: "OL-LOGO",
     });
 
     expect(inserted).toHaveLength(1);
     expect(inserted[0].doodle_source).toBe("preset_sticker");
-    expect(inserted[0].doodle_pool_key).toMatch(/^[a-f0-9]{32}$/);
-    expect(inserted[0].original_image_path).toMatch(
-      /^cup-label\/tarot\/[a-f0-9]{32}\/binarized\.png$/,
+    expect(inserted[0].doodle_pool_key).toBe("mandy-logo");
+    expect(inserted[0].original_image_path).toBe(
+      "cup-label/logo-doodle/binarized.png",
     );
   });
 });

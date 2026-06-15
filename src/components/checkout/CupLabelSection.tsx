@@ -39,8 +39,8 @@ export function CupLabelSection() {
               </span>
             </div>
             <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-              Leave any cup as is and we&apos;ll surprise it with a random tarot
-              card 🔮. Want to choose your own? Tap a cup below.
+              Leave any cup as is and we&apos;ll print the Mandy logo 🧋. Want to
+              choose your own? Tap a cup below.
             </p>
           </div>
         </div>
@@ -105,10 +105,17 @@ export function CupLabelSection() {
 
 function renderThumb(sel: CupLabelSelection | undefined) {
   if (!sel) {
+    // Default (no pick) prints the Mandy logo — show it so the thumb
+    // matches what actually prints.
     return (
-      <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
-        🔮
-      </div>
+      <Image
+        src="/cup-label/logo-doodle/binarized.png"
+        alt="Mandy logo"
+        fill
+        sizes="64px"
+        unoptimized
+        className="object-contain"
+      />
     );
   }
   if (sel.kind === "preset") {

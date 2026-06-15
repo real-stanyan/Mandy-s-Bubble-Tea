@@ -7,8 +7,8 @@ describe("computeCupLabelGate", () => {
     expect(computeCupLabelGate([])).toBe("ready");
   });
 
-  it("is ready when a cup has no selection (optional → server draws a tarot card)", () => {
-    // The regression: leaving the cup as the default 'surprise tarot card'
+  it("is ready when a cup has no selection (optional → server prints the Mandy logo)", () => {
+    // The regression: leaving the cup as the default 'Mandy logo'
     // must NOT keep the Pay button stuck on 'Preparing labels…'.
     expect(computeCupLabelGate([undefined])).toBe("ready");
     expect(computeCupLabelGate([undefined, undefined])).toBe("ready");

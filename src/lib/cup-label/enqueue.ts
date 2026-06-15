@@ -7,7 +7,6 @@ import { POOL, pickDefaultForCup } from "../doodle/pool";
 import { pathsJsonToSvg, type SvgPath } from "../doodle/render-svg";
 import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store";
 import { renderCupLabel } from "./render-zebra-cup";
-import { TAROT_DENYLIST } from "./tarot-denylist";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 
@@ -17,35 +16,23 @@ import { formatModifiersForLabel } from "./format-modifiers";
 // labelSelections; we read the binarized PNG from disk and route it through
 // the same `doodlePngBuffer` path as AI-generated and user-photo doodles.
 const GALLERY_DIR = path.join(process.cwd(), "public", "cup-label", "gallery");
-// Random tarot card deck — used as the auto-fill for POS orders + web
-// orders where the user didn't pick a label. Built from ~/Desktop/塔罗牌
-// via `scripts/process-tarot-gallery.ts` and committed under public/.
-const TAROT_DIR = path.join(process.cwd(), "public", "cup-label", "tarot");
+// Mandy brand logo, pre-binarized for thermal — the deterministic
+// auto-fill for POS orders + web orders where the customer didn't pick a
+// label. Baked from public/logo.webp via `scripts/process-logo-doodle.ts`
+// and committed under public/. Replaced the former random-tarot draw on
+// 2026-06-15 after customer religious-objection feedback; the tarot deck
+// + catalog stay in the tree so the random draw can be re-enabled later.
+const LOGO_DOODLE_PATH = path.join(
+  process.cwd(),
+  "public",
+  "cup-label",
+  "logo-doodle",
+  "binarized.png",
+);
 // Hard cap on the hash string we accept from the client — md5 hex is 32
 // chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
 const GALLERY_HASH_MAX_LEN = 64;
 const GALLERY_HASH_RE = /^[A-Za-z0-9_-]{1,64}$/;
-
-async function listTarotHashes(): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(TAROT_DIR, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isDirectory() && GALLERY_HASH_RE.test(e.name))
-      .map((e) => e.name)
-      .filter((h) => !TAROT_DENYLIST.has(h));
-  } catch (e) {
-    console.error("[cup-label] tarot dir scan failed", e);
-    return [];
-  }
-}
-
-function shuffleInPlace<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
-  }
-  return arr;
-}
 
 export type EnqueueCupLabelArgs = {
   order: Order;
@@ -91,17 +78,15 @@ export type EnqueueCupLabelArgs = {
    * "web" (default): web/app checkout — honor doodleIds / aiDoodleIds /
    * doodleDefaults, fall back to hash-based POOL preset.
    * "pos": in-store Square POS order coming in via the webhook — there's
-   * no app-side doodle choice. Each cup gets a random sticker pulled
-   * from `public/cup-label/gallery/`. The pool is read once per order
-   * and shuffled (Fisher-Yates) so a single POS ticket won't repeat
-   * back-to-back unless cup count > gallery size.
+   * no app-side doodle choice. Every cup auto-fills with the Mandy brand
+   * logo (`public/cup-label/logo-doodle/binarized.png`).
    */
   mode?: "web" | "pos";
   /**
    * When true, every cup the customer *actually customized* (drawn / AI /
    * photo / gallery sticker) also gets a second "keepsake" row
    * (`copy_idx = 1`) rendered with the drink name + modifiers omitted, for
-   * staff to hand to the customer. Tarot/POOL fallback cups never get one.
+   * staff to hand to the customer. Logo/POOL fallback cups never get one.
    * Defaults to false. Only the authoritative payment-route enqueue passes
    * this — the webhook default path and the backfill never do.
    */
@@ -168,16 +153,22 @@ export async function enqueueCupLabelJobs({
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
 
-  // Pre-scan the tarot deck once, shuffle, then consume one hash per
-  // cup that needs a fallback. Two cases use this:
+  // Pre-load the Mandy brand logo once per order — the deterministic
+  // fallback for every cup that needs one. Two cases use it:
   //   1. POS (in-store): no app-side label choice → every cup auto-fills
   //   2. Web/app: customer didn't pick anything (no preset / draw / AI
-  //      / photo) → fall back to a tarot card instead of the POOL.svg
-  //      default. The deck has 80 unique cards so a single 1-5 cup
-  //      ticket won't repeat back-to-back.
-  // Read-once amortizes the directory listing across the whole order.
-  const tarotHashes = shuffleInPlace(await listTarotHashes());
-  let tarotCursor = 0;
+  //      / photo) → fall back to the logo instead of the POOL.svg default.
+  // Read-once amortizes the disk read across the whole order. If the read
+  // fails the per-cup fallback drops to the hash-seeded POOL preset.
+  let logoDoodleBuffer: Buffer | null = null;
+  try {
+    logoDoodleBuffer = await fs.readFile(LOGO_DOODLE_PATH);
+  } catch (e) {
+    console.error(
+      "[cup-label] logo doodle preload failed, will use POOL fallback",
+      e,
+    );
+  }
 
   // Square may split a single cart line (quantity=N) into N separate
   // lineItems when applying per-cup loyalty rewards or other unit-level
@@ -271,7 +262,7 @@ export async function enqueueCupLabelJobs({
       let originalImagePath: string | null = null;
       let aiJobId: string | null = null;
       // True only when this cup resolved to a *customer-chosen* source
-      // (drawn / AI / photo / gallery sticker). Stays false for tarot/POOL
+      // (drawn / AI / photo / gallery sticker). Stays false for logo/POOL
       // fallback, POS, and any branch that caught an error and fell back —
       // so a cup whose custom art failed to load never prints a keepsake of
       // the wrong (fallback) image.
@@ -289,40 +280,26 @@ export async function enqueueCupLabelJobs({
       };
 
       // Auto-fill helper for "no user choice" branches (POS + web
-      // default). Pulls one card off the pre-shuffled tarot deck and
-      // loads its binarized PNG. Returns false if the deck is exhausted
-      // or the file load fails — caller should fall back to pickPool()
-      // so we always print *something*.
-      const drawTarot = async (): Promise<boolean> => {
-        const hash =
-          tarotHashes.length > 0
-            ? tarotHashes[tarotCursor++ % tarotHashes.length]
-            : null;
-        if (!hash) return false;
-        try {
-          const filePath = path.join(TAROT_DIR, hash, "binarized.png");
-          doodlePngBuffer = await fs.readFile(filePath);
-          source = "preset_sticker";
-          poolKey = hash;
-          originalImagePath = `cup-label/tarot/${hash}/binarized.png`;
-          doodleSvg = "";
-          return true;
-        } catch (e) {
-          console.error("[cup-label] tarot card load failed, falling back", {
-            hash,
-            error: e instanceof Error ? e.message : e,
-          });
-          return false;
-        }
+      // default). Uses the pre-loaded Mandy brand logo. Returns false if
+      // the logo failed to preload — caller falls back to pickPool() so we
+      // always print *something*.
+      const drawLogo = (): boolean => {
+        if (!logoDoodleBuffer) return false;
+        doodlePngBuffer = logoDoodleBuffer;
+        source = "preset_sticker";
+        poolKey = "mandy-logo";
+        originalImagePath = "cup-label/logo-doodle/binarized.png";
+        doodleSvg = "";
+        return true;
       };
 
       // Unified "give up — use whatever default works" fallback.
-      // Tries the tarot deck first; if that's unavailable, falls back
-      // to the hash-seeded POOL.svg preset that pre-dates the tarot
+      // Prints the Mandy brand logo; if that's unavailable, falls back to
+      // the hash-seeded POOL.svg preset that pre-dates the logo/tarot
       // pipeline. Used everywhere a primary source fails (user-doodle
       // download error, gallery sticker missing, AI image lost, …).
       const useDefaultFallback = async (): Promise<void> => {
-        if (await drawTarot()) return;
+        if (drawLogo()) return;
         const pool = pickPool();
         doodleSvg = pool.svg;
         poolKey = pool.key;
@@ -332,8 +309,7 @@ export async function enqueueCupLabelJobs({
       };
 
       // POS mode short-circuits the whole doodle resolution chain —
-      // there's no app, no user choice. Each cup gets the next tarot
-      // card off the pre-shuffled deck.
+      // there's no app, no user choice. Each cup gets the Mandy logo.
       if (mode === "pos") {
         await useDefaultFallback();
       } else if (presetStickerHash) {
@@ -411,8 +387,8 @@ export async function enqueueCupLabelJobs({
           await useDefaultFallback();
         }
       } else {
-        // No customer choice on this slot — auto-fill via tarot deck
-        // (or POOL.svg if the deck is unavailable). Mirrors POS path.
+        // No customer choice on this slot — auto-fill via the Mandy logo
+        // (or POOL.svg if the logo is unavailable). Mirrors POS path.
         await useDefaultFallback();
       }
 

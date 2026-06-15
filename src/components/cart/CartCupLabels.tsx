@@ -32,7 +32,7 @@ export const CartCupLabels = memo(function CartCupLabels({
         <span className="text-zinc-400">· Optional</span>
       </div>
       <p className="mb-1.5 px-1 text-[10px] leading-snug text-zinc-400">
-        Leave it for a surprise tarot card 🔮, or tap to choose your own.
+        Leave it for the Mandy logo 🧋, or tap to choose your own.
       </p>
       <ul className="space-y-1">
         {cups.map((cupIdx) => {
@@ -119,10 +119,16 @@ function CupRow({
 
 function Thumb({ selection }: { selection: CupLabelSelection | undefined }) {
   if (!selection) {
+    // Default (no pick) prints the Mandy logo — mirror it in the thumb.
     return (
-      <span className="flex h-full w-full items-center justify-center bg-zinc-50 text-base">
-        🔮
-      </span>
+      <Image
+        src="/cup-label/logo-doodle/binarized.png"
+        alt="Mandy logo"
+        fill
+        sizes="44px"
+        unoptimized
+        className="object-contain p-0.5"
+      />
     );
   }
   if (selection.kind === "preset") {

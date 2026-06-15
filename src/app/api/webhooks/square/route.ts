@@ -32,7 +32,7 @@ export const maxDuration = 30;
 // Grace window before the webhook's online-order default backfill checks
 // for cup_label_jobs. Lets the payment route's deferred (after()) enqueue
 // win the INSERT so the customer's real choice prints instead of a default
-// tarot card. Env-overridable; 8s comfortably covers the ~1-2s photo path.
+// Mandy logo. Env-overridable; 8s comfortably covers the ~1-2s photo path.
 const ONLINE_CUP_LABEL_BACKFILL_GRACE_MS = Number(
   process.env.CUP_LABEL_BACKFILL_GRACE_MS ?? "8000",
 );
@@ -40,7 +40,7 @@ const ONLINE_CUP_LABEL_BACKFILL_GRACE_MS = Number(
 // Online (web/app) orders: the payment route owns the customer's cup-label
 // choices and enqueues them via after(). The webhook must NOT insert
 // web-mode defaults eagerly — the printer fires on cup_label_jobs INSERT
-// only, so a default (tarot) inserted ahead of the deferred payment enqueue
+// only, so a default (the logo) inserted ahead of the deferred payment enqueue
 // prints, and the real choice lands as an UPDATE that never reprints
 // (photo → tarot, 2026-06-08). Instead, schedule a delayed safety-net
 // backfill that only fills defaults if the order is genuinely still
@@ -424,7 +424,7 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     const isPosOrder = /point of sale/i.test(sourceName);
     if (isPosOrder) {
       // In-store POS: the webhook is the SOLE enqueuer (no payment route),
-      // so print immediately. Each cup gets a random tarot card by design.
+      // so print immediately. Each cup gets the Mandy logo by design.
       try {
         const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
         await enqueueCupLabelJobs({
