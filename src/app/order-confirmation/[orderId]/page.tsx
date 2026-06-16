@@ -2,16 +2,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Square } from "square";
+import { ArrowRight, MapPin, Star } from "lucide-react";
 import { squareClient } from "@/lib/square";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, BUSINESS, LOYALTY } from "@/lib/constants";
+import { BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
 import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
-import {
-  OrderStatusHero,
-  type FulfillmentState,
-} from "./OrderStatusHero";
+import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 
 export const dynamic = "force-dynamic";
 
@@ -61,8 +59,7 @@ async function buildImageMap(
           const parentItem = (res.relatedObjects ?? []).find(
             (r) => r.id === parentItemId && r.type === "ITEM",
           ) as Square.CatalogObject.Item | undefined;
-          const firstImageId =
-            parentItem?.itemData?.imageIds?.[0];
+          const firstImageId = parentItem?.itemData?.imageIds?.[0];
           if (firstImageId) {
             const url = imageUrlById.get(firstImageId);
             if (url) imageMap.set(obj.id, url);
@@ -125,16 +122,26 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     (order.id ? `#${order.id.slice(-4).toUpperCase()}` : "");
 
   // Collect catalog object IDs from line items to fetch product images
-  const catalogIds = (order.lineItems ?? [])
+  const lineItems = order.lineItems ?? [];
+  const catalogIds = lineItems
     .map((li) => li.catalogObjectId)
     .filter((id): id is string => !!id);
   const imageMap = await buildImageMap([...new Set(catalogIds)]);
 
   // Count total drink items for loyalty stars earned
-  const totalDrinkItems = order.lineItems?.reduce(
-    (sum, li) => sum + (parseInt(li.quantity ?? "1", 10)),
-    0
-  ) ?? 0;
+  const totalDrinkItems = lineItems.reduce(
+    (sum, li) => sum + parseInt(li.quantity ?? "1", 10),
+    0,
+  );
+
+  // Money summary — subtotal from line totals, total from the order; the delta
+  // captures order-level taxes / fees / discounts (rendered as one row).
+  const subtotalCents = lineItems.reduce(
+    (sum, li) => sum + (li.totalMoney?.amount ?? 0n),
+    0n,
+  );
+  const totalCents = order.totalMoney?.amount ?? subtotalCents;
+  const diffCents = totalCents - subtotalCents;
 
   const waitText = formatWaitRange(await estimateOrderWaitMinutes(order));
 
@@ -163,198 +170,252 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     }
   }
 
+  const progressBalance = loyaltyBalance ?? totalDrinkItems;
+  const progressMod = progressBalance % starsPerReward;
+  const rewardReady = progressBalance >= starsPerReward && progressMod === 0;
+  const remaining = starsPerReward - progressMod;
+  const progressPct = Math.min((progressMod / starsPerReward) * 100, 100);
+
   return (
-    <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8 sm:px-6 sm:py-12">
-      <OrderStatusHero
-        orderId={orderId}
-        initialState={initialState}
-        isDelivery={isDelivery}
-        orderNumber={pickupNumber}
-        deliveryAddress={deliveryAddress}
-        etaText={waitText}
-      />
-
-      {/* Pickup number — big, so staff and customer can match on it */}
-      <div
-        className="mb-6 rounded-2xl border border-black/5 bg-white p-5 text-center shadow-sm"
-      >
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-          {isDelivery ? "Your Order Number" : "Your Pickup Number"}
-        </p>
-        <p
-          className="mt-1 text-5xl font-extrabold tracking-tight sm:text-6xl"
-          style={{ color: BRAND.primaryColor }}
-        >
-          {pickupNumber}
-        </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          {isDelivery
-            ? "Our team will reference this number when they deliver."
-            : "Show this number at the counter to collect your order."}
-        </p>
-      </div>
-
-      {/* Location/Address + Estimated Time cards */}
-      <div className="mb-6 grid grid-cols-2 gap-3">
-        {isDelivery ? (
-          <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-              Delivering To
-            </p>
-            <p className="mt-1.5 text-sm font-bold text-zinc-900">
-              {deliveryAddress ?? "Address on file"}
-            </p>
-            <p className="mt-2 text-xs text-zinc-500">
-              Delivered by our team
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-              Pickup Location
-            </p>
-            <p className="mt-1.5 text-base font-bold text-zinc-900">
-              {BUSINESS.name.replace("Mandy's Bubble Tea", "Southport")}
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              {BUSINESS.address}
-            </p>
-          </div>
-        )}
-        <div className="rounded-xl border border-black/5 bg-white p-4 text-center shadow-sm">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-            {isDelivery ? "Estimated Delivery Time" : "Estimated Pickup Time"}
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+      {/* Header */}
+      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
+            Order {pickupNumber}
           </p>
-          <p className="mt-1.5 text-2xl font-bold text-zinc-900">
-            {waitText}
-          </p>
+          <h1 className="mt-2 font-serif text-[clamp(30px,4vw,40px)] font-semibold leading-[1.0] tracking-[-0.03em] text-ink">
+            Order details
+          </h1>
         </div>
+        <Link
+          href="/menu"
+          className="inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.97]"
+        >
+          Reorder <ArrowRight size={15} />
+        </Link>
       </div>
 
-      {/* Loyalty stars banner */}
-      {(() => {
-        const progressBalance = loyaltyBalance ?? totalDrinkItems;
-        const progressMod = progressBalance % starsPerReward;
-        const remaining = starsPerReward - progressMod;
-        const rewardReady = progressBalance >= starsPerReward && progressMod === 0;
-        return (
-          <div className="mb-6 rounded-2xl bg-gradient-to-r from-[#7B5B3A] to-[#A0784C] p-5 text-white shadow-md">
-            <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-white/50 text-[10px]">
-                ⭐
-              </span>
-              <span className="text-sm font-semibold">
-                Stars Earned: +{totalDrinkItems}
-              </span>
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-xs text-white/80">
-                Current Progress: {progressMod}/{starsPerReward} Stars
+      <div className="grid items-start gap-7 lg:grid-cols-[1fr_360px]">
+        {/* ===== Left: order number + status + items ===== */}
+        <div className="flex flex-col gap-[18px]">
+          {/* Prominent order number — staff + customer match on it */}
+          <div
+            className="flex items-center justify-between gap-4 rounded-card border-[1.5px] border-dashed p-5 sm:p-6"
+            style={{
+              backgroundColor: "var(--color-cream)",
+              borderColor: "rgba(141,85,36,.4)",
+            }}
+          >
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
+                {isDelivery ? "Order number" : "Pickup number"}
               </p>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                {rewardReady
-                  ? "Reward Ready!"
-                  : `${remaining} more to go`}
+              <p className="mt-2 whitespace-nowrap font-mono text-[clamp(40px,7vw,56px)] font-bold leading-none tracking-[2px] text-ink">
+                {pickupNumber}
               </p>
             </div>
-            {/* Progress bar */}
-            <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
+            <span className="max-w-[130px] text-right text-[12.5px] font-semibold leading-snug text-ink3">
+              {isDelivery
+                ? "Quote this on delivery"
+                : "Show this at the counter to collect"}
+            </span>
+          </div>
+
+          {/* Live status (polls; takes over the screen for out-for-delivery) */}
+          <OrderStatusHero
+            orderId={orderId}
+            initialState={initialState}
+            isDelivery={isDelivery}
+            orderNumber={pickupNumber}
+            deliveryAddress={deliveryAddress}
+            etaText={waitText}
+          />
+
+          {/* Items */}
+          <div className="rounded-card border border-line bg-card p-2 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+            <h2 className="px-3.5 pb-2 pt-3 font-serif text-[18px] font-semibold text-ink">
+              Items
+            </h2>
+            {lineItems.map((li, idx) => {
+              const details: string[] = [];
+              if (li.variationName) details.push(li.variationName);
+              li.modifiers?.forEach((m) => {
+                if (m.name) details.push(m.name);
+              });
+              const imgUrl = li.catalogObjectId
+                ? imageMap.get(li.catalogObjectId)
+                : undefined;
+              const qty = parseInt(li.quantity ?? "1", 10);
+
+              return (
+                <div
+                  key={li.uid ?? idx}
+                  className="flex items-center gap-3.5 border-t border-line px-3.5 py-3"
+                >
+                  <div className="relative h-[54px] w-[54px] shrink-0 overflow-hidden rounded-tile bg-bg2">
+                    {imgUrl ? (
+                      <Image
+                        src={imgUrl}
+                        alt={li.name ?? "Item"}
+                        width={54}
+                        height={54}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-2xl">
+                        🧋
+                      </div>
+                    )}
+                    <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-card bg-ink px-1 text-[11px] font-bold text-white">
+                      {qty}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-semibold text-ink">
+                      {li.name ?? "Item"}
+                    </p>
+                    {details.length > 0 && (
+                      <p className="mt-0.5 truncate text-[12.5px] text-ink3">
+                        {details.join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  {li.totalMoney?.amount != null && (
+                    <span className="text-[15px] font-bold text-brand">
+                      {formatPrice(li.totalMoney.amount)}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ===== Right: sticky summary + loyalty ===== */}
+        <div className="flex flex-col gap-[18px] lg:sticky lg:top-24">
+          <div className="rounded-card border border-line bg-card p-6 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+            <h2 className="font-serif text-[20px] font-semibold tracking-[-0.4px] text-ink">
+              Summary
+            </h2>
+            <div className="mt-4 flex flex-col gap-2.5">
+              <Row label="Subtotal" value={formatPrice(subtotalCents)} />
+              {diffCents !== 0n &&
+                (diffCents < 0n ? (
+                  <Row
+                    label="Member savings & offers"
+                    value={`−${formatPrice(-diffCents)}`}
+                  />
+                ) : (
+                  <Row
+                    muted
+                    label={isDelivery ? "Delivery & fees" : "Taxes & fees"}
+                    value={formatPrice(diffCents)}
+                  />
+                ))}
+            </div>
+            <div className="mt-3.5 flex items-baseline justify-between border-t border-line pt-3.5">
+              <span className="text-[16px] font-bold text-ink">Total</span>
+              <span className="text-[24px] font-bold text-brand">
+                {formatPrice(totalCents)}
+              </span>
+            </div>
+
+            <div className="mt-4 flex items-center gap-2.5 rounded-tile bg-cream px-3.5 py-3">
+              <Star size={16} className="text-star" />
+              <span className="text-[13.5px] font-semibold text-ink">
+                +{totalDrinkItems} star{totalDrinkItems !== 1 ? "s" : ""} earned
+              </span>
+            </div>
+
+            <div className="mt-4 flex items-start gap-2.5 border-t border-line pt-4">
+              <MapPin size={16} className="mt-0.5 shrink-0 text-brand" />
+              <div>
+                <p className="text-[12px] font-semibold text-ink3">
+                  {isDelivery ? "Delivery to" : "Pickup at"}
+                </p>
+                <p className="mt-0.5 text-[13.5px] font-semibold text-ink">
+                  {isDelivery
+                    ? (deliveryAddress ?? "Address on file")
+                    : "Mandy's · Southport"}
+                </p>
+                {!isDelivery && (
+                  <p className="mt-0.5 text-[12.5px] text-ink3">
+                    {BUSINESS.address}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <Link
+              href="/menu"
+              className="mt-5 flex items-center justify-center gap-1.5 rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.97]"
+            >
+              Reorder these drinks
+            </Link>
+          </div>
+
+          {/* Loyalty progress */}
+          <div className="rounded-card border border-line bg-card p-5 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-ink">
+                {progressMod}/{starsPerReward} stars
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-ink3">
+                {rewardReady ? "Reward ready!" : `${remaining} more to go`}
+              </span>
+            </div>
+            <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-bg2">
               <div
-                className="h-full rounded-full bg-[#D4934C] transition-all"
-                style={{
-                  width: `${Math.min(
-                    (progressMod / starsPerReward) * 100,
-                    100
-                  )}%`,
-                }}
+                className="h-full rounded-full bg-brand transition-all"
+                style={{ width: `${progressPct}%` }}
               />
             </div>
             {rewardReady && (
-              <p className="mt-2 text-sm font-bold text-[#FFD700]">
-                You&apos;ve earned a free drink!
+              <p className="mt-2.5 text-[13px] font-bold text-green-dark">
+                You&apos;ve earned a free drink! 🎉
               </p>
             )}
           </div>
-        );
-      })()}
-
-      {/* Order Summary */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-base font-semibold text-zinc-900">
-          Order Summary
-        </h2>
-        <div className="space-y-3">
-          {order.lineItems?.map((li, idx) => {
-            // Build modifier/variation summary
-            const details: string[] = [];
-            if (li.variationName) details.push(li.variationName);
-            if (li.modifiers) {
-              li.modifiers.forEach((m) => {
-                if (m.name) details.push(m.name);
-              });
-            }
-
-            const imgUrl = li.catalogObjectId
-              ? imageMap.get(li.catalogObjectId)
-              : undefined;
-
-            return (
-              <div
-                key={li.uid ?? idx}
-                className="flex items-center gap-4 rounded-xl border border-black/5 bg-white p-3 shadow-sm"
-              >
-                <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-full bg-[#F5E6C8]">
-                  {imgUrl ? (
-                    <Image
-                      src={imgUrl}
-                      alt={li.name ?? "Item"}
-                      width={56}
-                      height={56}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-2xl">
-                      🧋
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-zinc-900">
-                    {li.name ?? "Item"}
-                  </p>
-                  {details.length > 0 && (
-                    <p className="mt-0.5 truncate text-xs text-zinc-500">
-                      {details.join(" • ")}
-                    </p>
-                  )}
-                </div>
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: BRAND.primaryColor }}
-                >
-                  {li.quantity}x
-                </span>
-              </div>
-            );
-          })}
         </div>
-      </section>
+      </div>
 
-      <OrderComplaintSection
-        orderId={orderId}
-        pickupNumber={pickupNumber}
-        orderState={order.state ?? null}
-        orderCustomerId={order.customerId ?? null}
-      />
-
-      <div className="flex">
-        <Link
-          href="/"
-          className="flex flex-1 items-center justify-center rounded-full border border-black/10 bg-white py-3 text-sm font-semibold text-zinc-600 shadow-sm"
-        >
-          Back to Home
-        </Link>
+      {/* Full width: complaint + back home */}
+      <div className="mt-8">
+        <OrderComplaintSection
+          orderId={orderId}
+          pickupNumber={pickupNumber}
+          orderState={order.state ?? null}
+          orderCustomerId={order.customerId ?? null}
+        />
+        <div className="mt-2 flex">
+          <Link
+            href="/"
+            className="flex flex-1 items-center justify-center rounded-full border border-line bg-card py-3 text-sm font-semibold text-ink2 shadow-sm transition hover:bg-paper"
+          >
+            Back to Home
+          </Link>
+        </div>
       </div>
     </main>
+  );
+}
+
+function Row({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between text-[14px]">
+      <span className="text-ink2">{label}</span>
+      <span className={muted ? "font-semibold text-ink3" : "font-semibold text-ink"}>
+        {value}
+      </span>
+    </div>
   );
 }

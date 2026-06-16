@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { BRAND, DELIVERY_DRIVER } from "@/lib/constants";
+import { Check, Clock, Phone } from "lucide-react";
+import { DELIVERY_DRIVER } from "@/lib/constants";
 import { FreshnessBar, type Tracking } from "./DeliveryMap";
 
 // Leaflet touches `window` at import time — load the map client-side only.
@@ -37,6 +38,8 @@ const TERMINAL: ReadonlySet<FulfillmentState> = new Set([
   "FAILED",
 ]);
 
+const ORDER_STEPS = ["Received", "Preparing", "Ready"] as const;
+
 export function OrderStatusHero({
   orderId,
   initialState,
@@ -47,8 +50,6 @@ export function OrderStatusHero({
 }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
   const [tracking, setTracking] = useState<Tracking | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   useEffect(() => {
     if (state && TERMINAL.has(state)) return;
@@ -67,7 +68,7 @@ export function OrderStatusHero({
           tracking: Tracking | null;
         };
         if (cancelled) return;
-        if (data.ok && data.state && data.state !== stateRef.current) {
+        if (data.ok && data.state && data.state !== state) {
           setState(data.state);
         }
         // tracking is only populated for delivery orders that are PREPARED.
@@ -99,36 +100,123 @@ export function OrderStatusHero({
     );
   }
 
+  return <StatusCard state={state} isDelivery={isDelivery} etaText={etaText} />;
+}
+
+// In-flow status card: a tone pill + a Received → Preparing → Ready stepper,
+// matching the redesign (web-account.jsx). Completed/canceled get a compact
+// single-line card instead of the stepper.
+function StatusCard({
+  state,
+  isDelivery,
+  etaText,
+}: {
+  state: FulfillmentState | null;
+  isDelivery: boolean;
+  etaText?: string | null;
+}) {
   const ui = stateToUi(state, isDelivery);
 
-  return (
-    <>
-      <div className="mb-5 flex justify-center">
-        <div
-          className="flex h-16 w-16 items-center justify-center rounded-full"
-          style={{ backgroundColor: ui.iconBg }}
-          aria-hidden="true"
-        >
-          {ui.icon}
+  if (ui.kind === "completed") {
+    return (
+      <div className="flex items-center gap-3.5 rounded-card border border-line bg-card p-5 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-green/15 text-green-dark">
+          <Check size={22} />
+        </span>
+        <div>
+          <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
+          <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
         </div>
       </div>
+    );
+  }
 
-      <div
-        className="mb-6 text-center"
-        role="status"
-        aria-live="polite"
-      >
-        <h1
-          className="text-2xl font-bold tracking-tight sm:text-3xl"
-          style={{ color: ui.headingColor }}
-        >
-          {ui.heading}
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
-          {ui.body}
-        </p>
+  if (ui.kind === "canceled") {
+    return (
+      <div className="flex items-center gap-3.5 rounded-card border border-line bg-card p-5 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink4/10 text-ink3">
+          <Check size={22} className="rotate-45" />
+        </span>
+        <div>
+          <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
+          <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
+        </div>
       </div>
-    </>
+    );
+  }
+
+  // active — gradient card with the stepper
+  return (
+    <div
+      className="rounded-card border-[1.5px] border-brand p-6 shadow-[0_14px_32px_rgba(141,85,36,0.14)]"
+      style={{ background: "linear-gradient(180deg,#FFF7EC,#FFF1DE)" }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="inline-flex items-center gap-2 rounded-full border border-line bg-white py-1.5 pl-3 pr-3.5">
+          <span
+            className="h-2.5 w-2.5 rounded-full"
+            style={{
+              backgroundColor: ui.tone === "green" ? "#3CA96E" : "#E0A22E",
+              boxShadow:
+                ui.tone === "green"
+                  ? "0 0 0 4px rgba(60,169,110,.18)"
+                  : "0 0 0 4px rgba(224,162,46,.2)",
+            }}
+          />
+          <span
+            className="text-[13px] font-bold"
+            style={{ color: ui.tone === "green" ? "#2E7D52" : "#9A6B16" }}
+          >
+            {ui.heading}
+          </span>
+        </span>
+        {etaText && (
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand">
+            <Clock size={14} /> {etaText}
+          </span>
+        )}
+      </div>
+
+      <p className="mt-3 text-[13.5px] leading-relaxed text-ink2">{ui.body}</p>
+
+      <div className="mt-5 flex items-center gap-2">
+        {ORDER_STEPS.map((label, i) => {
+          const done = i <= ui.step;
+          return (
+            <div key={label} className="flex flex-1 items-center gap-2 last:flex-none">
+              <div className="flex shrink-0 flex-col items-center gap-1.5">
+                <span
+                  className={
+                    "grid h-6 w-6 place-items-center rounded-full text-white " +
+                    (done ? "bg-brand" : "border-[1.5px] border-line bg-white")
+                  }
+                >
+                  {done && <Check size={14} />}
+                </span>
+                <span
+                  className={
+                    "text-[11.5px] font-semibold " +
+                    (done ? "text-ink" : "text-ink4")
+                  }
+                >
+                  {label}
+                </span>
+              </div>
+              {i < ORDER_STEPS.length - 1 && (
+                <span
+                  className={
+                    "mb-[18px] h-[2.5px] flex-1 rounded " +
+                    (i < ui.step ? "bg-brand" : "bg-line")
+                  }
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -197,40 +285,40 @@ function DeliveryTrackingView({
       {/* Bottom sheet */}
       <div className="absolute inset-x-0 bottom-0 z-10">
         <div
-          className="mx-auto max-w-lg rounded-t-3xl bg-white px-5 pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.14)]"
+          className="mx-auto max-w-lg rounded-t-3xl bg-card px-5 pt-3 shadow-[0_-8px_30px_rgba(42,30,20,0.18)]"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 18px)" }}
         >
           <div
-            className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-zinc-200"
+            className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-bg2"
             aria-hidden="true"
           />
-          <h1
-            className="text-xl font-bold tracking-tight"
-            style={{ color: BRAND.primaryColor }}
-          >
+          <h1 className="font-serif text-[22px] font-semibold tracking-[-0.3px] text-brand">
             Out for Delivery!
           </h1>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          <p className="mt-0.5 text-sm text-ink3">
             Your driver is on the way to your address.
           </p>
 
-          <div className="mt-4 border-t border-black/5 pt-4">
+          <div className="mt-4 border-t border-line pt-4">
             <DriverCard bare />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <InfoTile label="Order Number" value={orderNumber || "—"} accent />
-            <InfoTile label="ETA" value={liveEta(tracking.etaSeconds) ?? (etaText || "Soon")} />
+            <InfoTile
+              label="ETA"
+              value={liveEta(tracking.etaSeconds) ?? (etaText || "Soon")}
+            />
           </div>
 
-          <p className="mt-3 text-center text-xs text-zinc-500">
-            <span className="font-semibold text-zinc-600">Delivering to</span>{" "}
+          <p className="mt-3 text-center text-xs text-ink3">
+            <span className="font-semibold text-ink2">Delivering to</span>{" "}
             {deliveryAddress || "Address on file"}
           </p>
 
           <Link
             href="/"
-            className="mt-3 block text-center text-xs font-medium text-zinc-400"
+            className="mt-3 block text-center text-xs font-medium text-ink4"
           >
             Back to Home
           </Link>
@@ -243,7 +331,8 @@ function DeliveryTrackingView({
 // Live ETA from the server's Google Directions duration (re-routed as the
 // driver moves). Falls back to the static config copy when unavailable.
 function liveEta(etaSeconds: number | null | undefined): string | null {
-  if (etaSeconds == null || !Number.isFinite(etaSeconds) || etaSeconds <= 0) return null;
+  if (etaSeconds == null || !Number.isFinite(etaSeconds) || etaSeconds <= 0)
+    return null;
   return `~${Math.max(1, Math.ceil(etaSeconds / 60))} min`;
 }
 
@@ -257,13 +346,15 @@ function InfoTile({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-[#FAF6EF] px-3 py-2.5 text-center">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+    <div className="rounded-tile bg-paper px-3 py-2.5 text-center">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-ink4">
         {label}
       </p>
       <p
-        className={`mt-0.5 truncate font-bold ${accent ? "text-xl" : "text-base"} text-zinc-900`}
-        style={accent ? { color: BRAND.primaryColor } : undefined}
+        className={
+          "mt-0.5 truncate font-bold " +
+          (accent ? "text-xl text-brand" : "text-base text-ink")
+        }
       >
         {value}
       </p>
@@ -279,7 +370,7 @@ function DriverCard({ bare = false }: { bare?: boolean }) {
       className={
         bare
           ? "flex items-center gap-3"
-          : "mb-6 flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-sm"
+          : "mb-6 flex items-center gap-3 rounded-card border border-line bg-card p-4 shadow-[0_2px_8px_rgba(42,30,20,0.05)]"
       }
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -287,156 +378,77 @@ function DriverCard({ bare = false }: { bare?: boolean }) {
         src="/driver-avatar.png"
         alt=""
         aria-hidden="true"
-        className="h-12 w-12 shrink-0 rounded-full bg-white object-cover"
-        style={{ border: `2px solid ${BRAND.primaryColor}` }}
+        className="h-12 w-12 shrink-0 rounded-full border-2 border-brand bg-white object-cover"
       />
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-ink4">
           Your Driver
         </p>
-        <p className="truncate text-base font-bold text-zinc-900">
+        <p className="truncate text-base font-bold text-ink">
           {DELIVERY_DRIVER.name}
         </p>
-        <p className="truncate text-xs text-zinc-500">
-          On the way with your order
-        </p>
+        <p className="truncate text-xs text-ink3">On the way with your order</p>
       </div>
       <a
         href={`tel:${DELIVERY_DRIVER.phone}`}
         aria-label={`Call ${DELIVERY_DRIVER.name}`}
         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition active:scale-95"
-        style={{ backgroundColor: "#3FA55C" }}
+        style={{ backgroundColor: "#3CA96E" }}
       >
-        <PhoneIcon />
+        <Phone size={20} />
       </a>
     </div>
   );
 }
 
-function PhoneIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden="true"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"
-      />
-    </svg>
-  );
-}
-
 type Ui = {
+  kind: "active" | "completed" | "canceled";
   heading: string;
   body: string;
-  headingColor: string;
-  iconBg: string;
-  icon: React.ReactNode;
+  tone: "green" | "amber";
+  step: number; // index into ORDER_STEPS
 };
 
 function stateToUi(state: FulfillmentState | null, isDelivery: boolean): Ui {
   switch (state) {
     case "PREPARED":
       return {
+        kind: "active",
         heading: isDelivery ? "Out for Delivery!" : "Ready for Pickup!",
         body: isDelivery
           ? "Your order is made and our team is on the way to your address."
           : "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
-        headingColor: BRAND.primaryColor,
-        iconBg: "#FDE5DD",
-        icon: <BagIcon color={BRAND.primaryColor} />,
+        tone: "green",
+        step: 2,
       };
     case "COMPLETED":
       return {
+        kind: "completed",
         heading: isDelivery ? "Delivered" : "Picked Up",
         body: "Enjoy your drink! Thanks for visiting Mandy's Bubble Tea.",
-        headingColor: "#5B7A52",
-        iconBg: "#D5E3D0",
-        icon: <CheckIcon color="#5B7A52" />,
+        tone: "green",
+        step: 3,
       };
     case "CANCELED":
     case "FAILED":
       return {
+        kind: "canceled",
         heading: "Order Canceled",
         body: "This order was canceled. If you were charged, please speak to a team member at the counter.",
-        headingColor: "#6B7280",
-        iconBg: "#E5E7EB",
-        icon: <XIcon color="#6B7280" />,
+        tone: "amber",
+        step: 0,
       };
     case "PROPOSED":
     case "RESERVED":
     default:
       return {
-        heading: isDelivery ? "Order Confirmed!" : "Ready for Pickup Soon!",
+        kind: "active",
+        heading: isDelivery ? "Order Confirmed!" : "Preparing your order",
         body: isDelivery
           ? "Our tea masters are crafting your order — our team will deliver it to your door shortly."
           : "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
-        headingColor: "#5B7A52",
-        iconBg: "#D5E3D0",
-        icon: <CheckIcon color="#5B7A52" />,
+        tone: "amber",
+        step: 1,
       };
   }
-}
-
-function CheckIcon({ color }: { color: string }) {
-  return (
-    <svg
-      className="h-8 w-8"
-      style={{ color }}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={3}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M5 13l4 4L19 7"
-      />
-    </svg>
-  );
-}
-
-function BagIcon({ color }: { color: string }) {
-  return (
-    <svg
-      className="h-8 w-8"
-      style={{ color }}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2.2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M16 11V7a4 4 0 10-8 0v4M5 9h14l-1 12H6L5 9z"
-      />
-    </svg>
-  );
-}
-
-function XIcon({ color }: { color: string }) {
-  return (
-    <svg
-      className="h-8 w-8"
-      style={{ color }}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={3}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M6 18L18 6M6 6l12 12"
-      />
-    </svg>
-  );
 }
