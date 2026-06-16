@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { OrderHistory } from "@/components/account/OrderHistory";
+import { OrdersView } from "@/components/account/OrdersView";
 import type { OrderHistoryItem } from "@/components/account/OrderRow";
 
 export default function AccountOrdersPage() {
@@ -40,10 +40,8 @@ export default function AccountOrdersPage() {
     };
   }, [userId]);
 
-  const pastOrders = orders.filter((o) => o.state !== "OPEN");
-
   return (
-    <main className="mx-auto w-full max-w-md flex-1 pt-10 pb-24">
+    <main className="mx-auto w-full max-w-4xl flex-1 pt-10 pb-24">
       {loading ? (
         <LoadingSpinner />
       ) : !profile ? (
@@ -70,7 +68,7 @@ export default function AccountOrdersPage() {
               {error}
             </p>
           )}
-          <OrderHistory orders={pastOrders} title="Past Orders" />
+          <OrdersView orders={orders} />
         </>
       )}
     </main>

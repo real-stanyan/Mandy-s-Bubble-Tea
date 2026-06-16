@@ -11,6 +11,10 @@ export type OrderHistoryItem = {
   totalCents: string;
   itemSummary: string;
   lineCount: number;
+  // Also returned by /api/orders/history (used by the redesigned OrdersView):
+  referenceId?: string | null; // pickup / ticket number
+  firstItemName?: string | null;
+  firstItemImageUrl?: string | null;
 };
 
 export function OrderRow({ order }: { order: OrderHistoryItem }) {
