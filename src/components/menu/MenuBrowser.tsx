@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, X, Gift } from "lucide-react";
 import { MenuHeader } from "@/components/menu/MenuHeader";
+import { getStoreStatus, type StoreStatus } from "@/lib/store-status";
 import { ProductCard } from "@/components/menu/ProductCard";
 import { CategorySidebar } from "@/components/menu/CategorySidebar";
 import { useCategoryScrollSpy } from "@/components/menu/useCategoryScrollSpy";
@@ -45,6 +46,39 @@ function SearchField({
           <X size={15} />
         </button>
       )}
+    </div>
+  );
+}
+
+// Compact open/closed line for the mobile menu (the desktop MenuHeader band
+// is hidden on mobile, so the status would otherwise be lost).
+function MobileStoreStatus() {
+  const [status, setStatus] = useState<StoreStatus>(() =>
+    getStoreStatus(new Date()),
+  );
+  useEffect(() => {
+    const id = setInterval(() => setStatus(getStoreStatus(new Date())), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const label = status.open
+    ? `Open · closes ${status.nextLabel.replace(/^until\s+/, "")}`
+    : `Closed · opens ${status.nextLabel}`;
+  return (
+    <div className="mt-2.5 flex items-center gap-2">
+      <span
+        className="inline-block h-[7px] w-[7px] rounded-full"
+        style={{
+          backgroundColor: status.open ? "#3CA96E" : "rgba(42,30,20,0.28)",
+        }}
+      />
+      <span
+        className={
+          "text-[12.5px] font-semibold " +
+          (status.open ? "text-green-dark" : "text-ink2")
+        }
+      >
+        {label}
+      </span>
     </div>
   );
 }
@@ -200,6 +234,7 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
       <div className="lg:hidden">
         <div className="mx-4 mb-2 mt-2">
           <SearchField query={query} setQuery={setQuery} />
+          <MobileStoreStatus />
         </div>
         {searching ? (
           <div className="pb-4">

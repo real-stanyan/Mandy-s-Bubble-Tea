@@ -18,7 +18,7 @@ export function MenuHeader() {
     : `Closed · opens ${status.nextLabel}`;
 
   return (
-    <div className="px-4 pt-2.5 pb-1">
+    <div className="hidden px-4 pt-2.5 pb-1 lg:block">
       <p
         className="font-mono uppercase text-brand"
         style={{ fontSize: 10.5, letterSpacing: 1.3, fontWeight: 700 }}
