@@ -77,7 +77,7 @@ export function CartDrawer() {
     >
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-black/40 transition-opacity ${
+        className={`absolute inset-0 bg-ink/45 transition-opacity ${
           isOpen ? "opacity-100" : "opacity-0"
         }`}
         onClick={closeDrawer}
@@ -87,15 +87,17 @@ export function CartDrawer() {
       <aside
         role="dialog"
         aria-label="Shopping cart"
-        className={`absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-xl transition-transform ${
+        className={`absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-card shadow-[-8px_0_40px_rgba(42,30,20,0.18)] transition-transform ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {/* Header */}
         <header className="flex items-start justify-between px-5 pt-6 pb-4">
           <div>
-            <h2 className="text-xl font-bold text-zinc-900">Your Cart</h2>
-            <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            <h2 className="font-serif text-[22px] font-semibold tracking-[-0.3px] text-ink">
+              Your cart
+            </h2>
+            <p className="mt-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-ink4">
               {itemCount} item{itemCount !== 1 ? "s" : ""} selected
             </p>
           </div>
@@ -103,7 +105,7 @@ export function CartDrawer() {
             type="button"
             onClick={closeDrawer}
             aria-label="Close cart"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 text-sm text-zinc-500 transition hover:bg-zinc-50"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-paper text-sm text-ink2 transition hover:bg-bg2"
           >
             ✕
           </button>
@@ -318,14 +320,13 @@ const TeaJourneyCard = memo(function TeaJourneyCard({
   const progressPct = Math.min((stars / starsPerReward) * 100, 100);
 
   return (
-    <div
-      className="rounded-2xl p-4"
-      style={{ backgroundColor: BRAND.accentColor }}
-    >
+    <div className="rounded-card bg-cream p-4">
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="text-sm font-bold text-zinc-900">Your Tea Journey</h3>
-          <p className="mt-0.5 text-xs text-zinc-600">
+          <h3 className="font-serif text-[15px] font-semibold text-ink">
+            Your Tea Journey
+          </h3>
+          <p className="mt-0.5 text-xs text-ink2">
             {canRedeem
               ? "You've earned a free drink!"
               : stars > 0
@@ -341,16 +342,13 @@ const TeaJourneyCard = memo(function TeaJourneyCard({
         </span>
       </div>
       {/* Progress bar */}
-      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60">
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white">
         <div
-          className="h-full rounded-full transition-all"
-          style={{
-            width: `${progressPct}%`,
-            backgroundColor: BRAND.primaryColor,
-          }}
+          className="h-full rounded-full bg-brand transition-all"
+          style={{ width: `${progressPct}%` }}
         />
       </div>
-      <div className="mt-1.5 text-[10px] font-semibold text-zinc-500">
+      <div className="mt-1.5 text-[10px] font-semibold text-ink3">
         <span>
           {stars} / {starsPerReward} Stars
         </span>
@@ -366,7 +364,7 @@ const TeaJourneyCard = memo(function TeaJourneyCard({
 function EmptyState({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-      <p className="text-base text-zinc-600">Your cart is empty.</p>
+      <p className="text-base text-ink2">Your cart is empty.</p>
       <Link
         href="/menu"
         onClick={onClose}
@@ -411,13 +409,10 @@ const CartLineRow = memo(function CartLineRow({
           alt=""
           width={64}
           height={64}
-          className="h-16 w-16 shrink-0 rounded-xl object-cover"
+          className="h-16 w-16 shrink-0 rounded-tile object-cover"
         />
       ) : (
-        <div
-          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl text-lg"
-          style={{ backgroundColor: BRAND.accentColor }}
-        >
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-tile bg-cream text-lg">
           🧋
         </div>
       )}
@@ -425,7 +420,7 @@ const CartLineRow = memo(function CartLineRow({
       {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-bold text-zinc-900">{line.itemName}</p>
+          <p className="text-sm font-bold text-ink">{line.itemName}</p>
           <p
             className="shrink-0 text-sm font-bold"
             style={{ color: BRAND.primaryColor }}
@@ -434,7 +429,7 @@ const CartLineRow = memo(function CartLineRow({
           </p>
         </div>
         {details && (
-          <p className="mt-0.5 text-xs text-zinc-500">{details}</p>
+          <p className="mt-0.5 text-xs text-ink3">{details}</p>
         )}
 
         {/* Quantity + Remove */}
@@ -471,12 +466,12 @@ function QuantityStepper({
   onChange: (q: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-full border border-black/10">
+    <div className="flex items-center gap-0.5 rounded-full border border-line">
       <button
         type="button"
         onClick={() => onChange(value - 1)}
         aria-label="Decrease quantity"
-        className="flex h-7 w-7 items-center justify-center rounded-l-full text-sm text-zinc-600 hover:bg-black/5"
+        className="flex h-7 w-7 items-center justify-center rounded-l-full text-sm text-ink2 hover:bg-bg2"
       >
         −
       </button>
@@ -485,7 +480,7 @@ function QuantityStepper({
         type="button"
         onClick={() => onChange(value + 1)}
         aria-label="Increase quantity"
-        className="flex h-7 w-7 items-center justify-center rounded-r-full text-sm text-zinc-600 hover:bg-black/5"
+        className="flex h-7 w-7 items-center justify-center rounded-r-full text-sm text-ink2 hover:bg-bg2"
       >
         +
       </button>
@@ -578,11 +573,11 @@ function CartFooter({
     discountedTotal + surchargeAmount + platformFeeAmount + phSurchargeAmount;
 
   return (
-    <footer className="border-t border-black/10 px-5 pb-6 pt-5">
+    <footer className="border-t border-line px-5 pb-6 pt-5">
       <div className="space-y-2">
-        <div className="flex justify-between text-sm text-zinc-600">
+        <div className="flex justify-between text-sm text-ink2">
           <span>Subtotal</span>
-          <span className="font-semibold text-zinc-900">
+          <span className="font-semibold text-ink">
             {formatPrice(subtotal)}
           </span>
         </div>
@@ -595,7 +590,7 @@ function CartFooter({
                   style={{ backgroundColor: BRAND.primaryColor }}
                 />
                 Welcome {welcomeDiscount.percentage}% Off
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-ink3">
                   ({welcomeCoveredCount} drink
                   {welcomeCoveredCount === 1 ? "" : "s"})
                 </span>
@@ -614,7 +609,7 @@ function CartFooter({
                   style={{ backgroundColor: BRAND.primaryColor }}
                 />
                 IG Follow {igFollowDiscount.percentage || 10}% Off
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-ink3">
                   ({igFollowCoveredCount} drink
                   {igFollowCoveredCount === 1 ? "" : "s"})
                 </span>
@@ -625,49 +620,49 @@ function CartFooter({
             </div>
           )}
         {phSurchargeAmount > 0n && (
-          <div className="flex justify-between text-sm text-zinc-600">
+          <div className="flex justify-between text-sm text-ink2">
             <span>
               {PH_SURCHARGE.name}{" "}
-              <span className="text-xs text-zinc-400">({PH_SURCHARGE.percentage}%)</span>
+              <span className="text-xs text-ink4">({PH_SURCHARGE.percentage}%)</span>
             </span>
-            <span className="font-semibold text-zinc-900">
+            <span className="font-semibold text-ink">
               {formatPrice(phSurchargeAmount)}
             </span>
           </div>
         )}
         {platformFeeAmount > 0n && (
-          <div className="flex justify-between text-sm text-zinc-600">
+          <div className="flex justify-between text-sm text-ink2">
             <span>
               {PLATFORM_FEE.name}{" "}
-              <span className="text-xs text-zinc-400">({PLATFORM_FEE.percentage}%)</span>
+              <span className="text-xs text-ink4">({PLATFORM_FEE.percentage}%)</span>
             </span>
-            <span className="font-semibold text-zinc-900">
+            <span className="font-semibold text-ink">
               {formatPrice(platformFeeAmount)}
             </span>
           </div>
         )}
         {surchargeAmount > 0n && (
-          <div className="flex justify-between text-sm text-zinc-600">
+          <div className="flex justify-between text-sm text-ink2">
             <span>
               {CARD_SURCHARGE.name}{" "}
-              <span className="text-xs text-zinc-400">
+              <span className="text-xs text-ink4">
                 ({CARD_SURCHARGE.percentage}%)
               </span>
             </span>
-            <span className="font-semibold text-zinc-900">
+            <span className="font-semibold text-ink">
               {formatPrice(surchargeAmount)}
             </span>
           </div>
         )}
-        <div className="flex justify-between text-sm text-zinc-600">
+        <div className="flex justify-between text-sm text-ink2">
           <span>Tax</span>
-          <span className="font-semibold text-zinc-900">
+          <span className="font-semibold text-ink">
             At checkout
           </span>
         </div>
       </div>
-      <div className="mt-3 flex items-baseline justify-between border-t border-black/10 pt-3">
-        <span className="text-base font-bold text-zinc-900">Total Price</span>
+      <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">
+        <span className="text-base font-bold text-ink">Total Price</span>
         <span
           className="text-xl font-bold"
           style={{ color: BRAND.primaryColor }}
@@ -680,7 +675,7 @@ function CartFooter({
         <button
           type="button"
           disabled
-          className="mt-5 w-full cursor-not-allowed rounded-xl bg-zinc-200 py-3.5 text-base font-semibold text-zinc-500"
+          className="mt-5 w-full cursor-not-allowed rounded-full bg-bg2 py-3.5 text-base font-semibold text-ink4"
         >
           Orders closed · {orderingStatus?.nextLabel ?? ""}
         </button>
@@ -688,7 +683,7 @@ function CartFooter({
         // Skeleton so the unauth CTA doesn't flash in front of an
         // already-signed-in user before /api/me resolves.
         <div
-          className="mt-5 h-[52px] w-full animate-pulse rounded-xl bg-zinc-100"
+          className="mt-5 h-[52px] w-full animate-pulse rounded-full bg-paper"
           aria-hidden="true"
         />
       ) : !hasProfile ? (
@@ -697,8 +692,7 @@ function CartFooter({
         <Link
           href="/checkout"
           onClick={closeDrawer}
-          className="mt-5 block w-full rounded-xl py-3.5 text-center text-base font-semibold text-white transition hover:opacity-90"
-          style={{ backgroundColor: BRAND.primaryColor }}
+          className="mt-5 block w-full rounded-full bg-brand py-3.5 text-center text-base font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
         >
           Sign in to checkout
         </Link>
@@ -710,12 +704,11 @@ function CartFooter({
           <Link
             href="/checkout"
             onClick={closeDrawer}
-            className="mt-5 block w-full rounded-xl py-3.5 text-center text-base font-semibold text-white transition hover:opacity-90"
-            style={{ backgroundColor: BRAND.primaryColor }}
+            className="mt-5 block w-full rounded-full bg-brand py-3.5 text-center text-base font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
           >
             Checkout
           </Link>
-          <p className="mt-2 text-center text-xs text-zinc-500">
+          <p className="mt-2 text-center text-xs text-ink3">
             Pickup or delivery? Choose at checkout →
           </p>
         </>
@@ -726,8 +719,7 @@ function CartFooter({
       <Link
         href="/menu"
         onClick={closeDrawer}
-        className="mt-3 block w-full rounded-xl border-2 py-3 text-center text-sm font-semibold transition hover:opacity-80"
-        style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+        className="mt-3 block w-full rounded-full border border-line bg-card py-3 text-center text-sm font-semibold text-ink2 transition hover:bg-paper"
       >
         Continue shopping
       </Link>
