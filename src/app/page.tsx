@@ -37,37 +37,11 @@ const CUSTOMER_REVIEWS = [
   { text: "Always consistent — exactly what I expect every visit.", author: "Customer Favorite" },
 ];
 
-// Short brand blurbs per drink family (MenuCategory has no description).
-const CATEGORY_BLURBS: Record<string, string> = {
-  MILKY: "Silky milk teas with chewy pearls — the classics.",
-  FRUITY: "Bright, juicy fruit teas — refreshing every sip.",
-  "SPECIAL MIX": "House blends you won't find anywhere else.",
-  "FRESH BREW": "Pure brewed teas, clean and aromatic.",
-  "FRUITY BLACK TEA": "Black tea meets fresh fruit — bold and zesty.",
-  FROZEN: "Spoonable frozen slushies for hot days.",
-  "CHEESE CREAM": "Crowned with velvety salted cheese foam.",
-};
-
-function categoryBlurb(squareName: string, itemCount: number): string {
-  return (
-    CATEGORY_BLURBS[squareName.toUpperCase()] ??
-    `${itemCount} drink${itemCount !== 1 ? "s" : ""} to explore.`
-  );
-}
-
 type FeaturedItem = MenuItem & { categorySlug: string };
-
-type CategoryCard = {
-  slug: string;
-  name: string;
-  imageUrl: string | null;
-  itemCount: number;
-};
 
 type HomeData = {
   heroItem: FeaturedItem | null;
   featured: FeaturedItem[];
-  categories: CategoryCard[];
   review: (typeof CUSTOMER_REVIEWS)[number];
 };
 
@@ -92,27 +66,18 @@ async function loadHomeData(): Promise<HomeData> {
       }
     }
     const shuffled = shuffle(withImage);
-    const categories: CategoryCard[] = menu.categories
-      .filter((c) => c.itemCount > 0)
-      .map((c) => ({
-        slug: c.slug,
-        name: c.squareName,
-        imageUrl: c.imageUrl,
-        itemCount: c.itemCount,
-      }));
     return {
       heroItem: shuffled[0] ?? null,
       featured: shuffled.slice(0, 4),
-      categories,
       review,
     };
   } catch {
-    return { heroItem: null, featured: [], categories: [], review };
+    return { heroItem: null, featured: [], review };
   }
 }
 
 export default async function Home() {
-  const { heroItem, featured, categories, review } = await loadHomeData();
+  const { heroItem, featured, review } = await loadHomeData();
 
   return (
     <div className="flex flex-1 flex-col">
@@ -121,7 +86,6 @@ export default async function Home() {
       <Hero heroItem={heroItem} review={review} />
       <Marquee />
       <Featured items={featured} />
-      <Categories categories={categories} />
       <StoryTeaser />
       <AppPromo />
       <LoyaltyPopup />
@@ -333,62 +297,6 @@ function Featured({ items }: { items: FeaturedItem[] }) {
             </div>
           </Link>
         ))}
-      </div>
-    </section>
-  );
-}
-
-function Categories({ categories }: { categories: CategoryCard[] }) {
-  if (categories.length === 0) return null;
-  return (
-    <section className="mx-auto w-full max-w-6xl px-5 pt-16 sm:px-8">
-      <SectionHead
-        center
-        kicker="The full range"
-        title="Seven ways to sip"
-        sub="From silky milk teas to spoonable frozen slushies — explore every family on the menu."
-      />
-      <div className="mt-9 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {categories.map((cat) => (
-          <Link
-            key={cat.slug}
-            href={`/menu/${cat.slug}`}
-            className="group flex flex-col overflow-hidden rounded-card border border-line bg-card text-left shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)]"
-          >
-            <div className="relative aspect-[16/10] overflow-hidden bg-bg2">
-              {cat.imageUrl && (
-                <Image
-                  src={cat.imageUrl}
-                  alt={cat.name}
-                  fill
-                  sizes="(max-width:1024px) 50vw, 25vw"
-                  className="object-cover transition group-hover:scale-105"
-                />
-              )}
-            </div>
-            <div className="p-4">
-              <h3 className="font-serif text-[18px] font-semibold tracking-[-0.3px] text-ink">
-                {cat.name}
-              </h3>
-              <p className="mt-1 line-clamp-2 text-[12.5px] leading-snug text-ink3">
-                {categoryBlurb(cat.name, cat.itemCount)}
-              </p>
-            </div>
-          </Link>
-        ))}
-        <Link
-          href="/menu"
-          className="flex min-h-[140px] flex-col items-start justify-center gap-2.5 rounded-card bg-brand p-6 text-white transition hover:-translate-y-1"
-        >
-          <span className="grid h-[42px] w-[42px] place-items-center rounded-full bg-white/20">
-            <ArrowRight size={20} />
-          </span>
-          <span className="font-serif text-[20px] font-semibold leading-tight">
-            Browse the
-            <br />
-            whole menu
-          </span>
-        </Link>
       </div>
     </section>
   );
