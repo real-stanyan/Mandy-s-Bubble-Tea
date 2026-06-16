@@ -1,24 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
-import { SignInCard } from "@/components/auth/SignInCard";
+import { AuthSplitCard } from "@/components/auth/AuthSplitCard";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { AccountHeader } from "@/components/account/AccountHeader";
 import { LoyaltyCard } from "@/components/account/LoyaltyCard";
 import { TierUpCelebration } from "@/components/account/TierUpCelebration";
 import { tierFor } from "@/lib/membership-tier";
-import { MiniStats } from "@/components/account/MiniStats";
+import { prettyPhone } from "@/lib/auth-format";
+import {
+  ProfileSummaryCard,
+  TierPerksChips,
+  RewardStatsRow,
+  HowItWorks,
+  AccountSettings,
+  StoreCard,
+} from "@/components/account/ProfileBits";
 import { AddToWalletButton } from "@/components/account/AddToWalletButton";
 import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
 import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
 import { PromotionsCard } from "@/components/account/PromotionsCard";
 import { OrderHistory } from "@/components/account/OrderHistory";
 import { ActivityHistory } from "@/components/account/ActivityHistory";
-import { StoreInfo } from "@/components/account/StoreInfo";
-import { LegalFooter } from "@/components/account/LegalFooter";
 import { SignOutBtn } from "@/components/account/SignOutBtn";
 import { DeleteAccountBtn } from "@/components/account/DeleteAccountBtn";
 import type { OrderHistoryItem } from "@/components/account/OrderRow";
@@ -30,6 +35,18 @@ const MemberQrCard = dynamic(
     import("@/components/account/MemberQrCard").then((m) => m.MemberQrCard),
   { ssr: false },
 );
+
+// Neutralizes the legacy single-column self-margins (px-4 / mx-4 / mt-* /
+// mb-*) that the reused account cards carry, so the new grid layout owns
+// all spacing. Targets the card's own root (the direct child), leaving the
+// shared components untouched → orders/promotions pages stay as-is.
+function Flush({ children }: { children: ReactNode }) {
+  return (
+    <div className="[&>*]:!mx-0 [&>*]:!mt-0 [&>*]:!mb-0 [&>*]:!px-0">
+      {children}
+    </div>
+  );
+}
 
 export default function AccountPage() {
   const { profile, loyalty, starsPerReward, signOut, refresh, loading } =
@@ -84,6 +101,9 @@ export default function AccountPage() {
   const rewardsAvailable = Math.floor(balance / goal);
   const currentStars = balance % goal;
   const tier = tierFor(lifetime);
+  const displayName =
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") ||
+    "Member";
 
   const [freeToppingsRemaining, setFreeToppingsRemaining] = useState<
     number | null
@@ -115,9 +135,7 @@ export default function AccountPage() {
       {loading ? (
         <LoadingSpinner />
       ) : !profile ? (
-        <div className="mx-auto max-w-md px-4 pt-10">
-          <SignInCard onComplete={refresh} />
-        </div>
+        <AuthSplitCard onComplete={refresh} />
       ) : (
         <>
           <TierUpCelebration tier={tier} />
@@ -129,62 +147,140 @@ export default function AccountPage() {
               {ordersError}
             </p>
           )}
-          <AccountHeader profile={profile} />
-          <div className="sm:grid sm:grid-cols-2 sm:gap-x-6 sm:items-start">
-            <div className="flex flex-col">
-              <WelcomeDiscountCard />
-              <LoyaltyCard
-                balance={balance}
-                starsPerReward={goal}
-                lifetimePoints={lifetime}
-                freeToppingsRemaining={
-                  tier === "diamond" ? freeToppingsRemaining : null
-                }
-              />
-              <MiniStats
-                drinks={lifetime}
-                rewards={rewardsAvailable}
-                stars={currentStars}
-                onPressRewards={() => router.push("/account/promotions")}
-              />
-              <MemberQrCard
-                customerId={profile.square_customer_id}
-                phoneE164={profile.phone_e164}
-              />
-              <AddToWalletButton />
-              <IgFollowPromoCard />
-              <PromotionsCard rewardsCount={rewardsAvailable} />
-            </div>
-            <div className="flex flex-col">
-              {orders.length === 0 ? (
-                <OrderHistory orders={[]} title="Orders" />
-              ) : (
-                <>
-                  <OrderHistory
-                    orders={activeOrders}
-                    title="In Progress"
-                    hideIfEmpty
-                  />
-                  <OrderHistory
-                    orders={pastOrders.slice(0, 3)}
-                    title="Past Orders"
-                    hideIfEmpty
-                    onSeeAll={
-                      pastOrders.length > 3
-                        ? () => router.push("/account/orders")
-                        : undefined
-                    }
-                  />
-                </>
-              )}
-              <ActivityHistory />
-              <StoreInfo />
-            </div>
+          <div className="px-4">
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
+              Mandy&apos;s Rewards
+            </p>
+            <h1 className="mt-2 font-serif text-[40px] font-semibold leading-none tracking-[-0.03em] text-ink">
+              Account
+            </h1>
           </div>
-          <div className="sm:mx-auto sm:w-full sm:max-w-md">
-            <LegalFooter />
-            <SignOutBtn onSignOut={signOut} />
-            <DeleteAccountBtn />
+
+          <div className="mt-7 grid gap-7 px-4 lg:grid-cols-[340px_1fr] lg:items-start">
+            {/* Left: sticky profile summary + member cards */}
+            <div className="flex flex-col gap-4 lg:sticky lg:top-24">
+              <ProfileSummaryCard
+                name={displayName}
+                phone={prettyPhone(profile.phone_e164 ?? "")}
+                tier={tier}
+                balance={currentStars}
+                goal={goal}
+                lifetime={lifetime}
+                activeCount={activeOrders.length}
+                onViewOrders={() => router.push("/account/orders")}
+              />
+              <Flush>
+                <AddToWalletButton />
+              </Flush>
+              <Flush>
+                <WelcomeDiscountCard />
+              </Flush>
+              <Flush>
+                <IgFollowPromoCard />
+              </Flush>
+              <Flush>
+                <PromotionsCard rewardsCount={rewardsAvailable} />
+              </Flush>
+            </div>
+
+            {/* Right: rewards + settings */}
+            <div className="flex flex-col gap-7">
+              <section>
+                <h2 className="mb-4 font-serif text-[22px] font-semibold tracking-[-0.4px] text-ink">
+                  Rewards
+                </h2>
+                <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr] lg:items-start">
+                  <div>
+                    <Flush>
+                      <LoyaltyCard
+                        balance={balance}
+                        starsPerReward={goal}
+                        lifetimePoints={lifetime}
+                        freeToppingsRemaining={
+                          tier === "diamond" ? freeToppingsRemaining : null
+                        }
+                      />
+                    </Flush>
+                    <TierPerksChips tier={tier} />
+                  </div>
+                  <div className="flex flex-col gap-3.5">
+                    <Flush>
+                      <MemberQrCard
+                        customerId={profile.square_customer_id}
+                        phoneE164={profile.phone_e164}
+                      />
+                    </Flush>
+                    <RewardStatsRow
+                      drinks={lifetime}
+                      rewards={rewardsAvailable}
+                      stars={currentStars}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <HowItWorks />
+
+              <section>
+                <h2 className="mb-4 font-serif text-[22px] font-semibold tracking-[-0.4px] text-ink">
+                  Settings
+                </h2>
+                <AccountSettings
+                  activeCount={activeOrders.length}
+                  rewardsCount={rewardsAvailable}
+                  onViewOrders={() => router.push("/account/orders")}
+                  onViewPromotions={() => router.push("/account/promotions")}
+                />
+              </section>
+
+              {/* Functional order history + activity (kept from prior page) */}
+              <div className="flex flex-col gap-4">
+                {orders.length === 0 ? (
+                  <Flush>
+                    <OrderHistory orders={[]} title="Orders" />
+                  </Flush>
+                ) : (
+                  <>
+                    <Flush>
+                      <OrderHistory
+                        orders={activeOrders}
+                        title="In Progress"
+                        hideIfEmpty
+                      />
+                    </Flush>
+                    <Flush>
+                      <OrderHistory
+                        orders={pastOrders.slice(0, 3)}
+                        title="Past Orders"
+                        hideIfEmpty
+                        onSeeAll={
+                          pastOrders.length > 3
+                            ? () => router.push("/account/orders")
+                            : undefined
+                        }
+                      />
+                    </Flush>
+                  </>
+                )}
+                <Flush>
+                  <ActivityHistory />
+                </Flush>
+              </div>
+
+              <StoreCard />
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Flush>
+                  <SignOutBtn onSignOut={signOut} />
+                </Flush>
+                <Flush>
+                  <DeleteAccountBtn />
+                </Flush>
+              </div>
+              <p className="text-center text-[11.5px] text-ink4">
+                Mandy&apos;s Bubble Tea · Web v2.0 · Southport QLD
+              </p>
+            </div>
           </div>
         </>
       )}
