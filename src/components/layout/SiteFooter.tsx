@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { BRAND } from "@/lib/constants";
+import Image from "next/image";
+import { MapPin, Phone } from "lucide-react";
+import { BRAND, BUSINESS } from "@/lib/constants";
+
+// Dark footer, recreated from the design (web-components.jsx Footer):
+// brand column (inverted logo, tagline, address/phone) + Menu / Company /
+// Support link columns + bottom bar. Server component.
 
 function FacebookIcon({ className }: { className?: string }) {
   return (
@@ -17,34 +23,66 @@ function InstagramIcon({ className }: { className?: string }) {
   );
 }
 
+const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
+  [
+    {
+      heading: "Menu",
+      links: [
+        { label: "Milky teas", href: "/menu" },
+        { label: "Fruity teas", href: "/menu" },
+        { label: "Fresh brews", href: "/menu" },
+        { label: "Frozen", href: "/menu" },
+        { label: "Cheese cream", href: "/menu" },
+      ],
+    },
+    {
+      heading: "Company",
+      links: [
+        { label: "Our story", href: "/our-story" },
+        { label: "Rewards", href: "/account" },
+        { label: "Privacy", href: "/privacy" },
+        { label: "Terms", href: "/privacy#terms" },
+      ],
+    },
+  ];
+
 export function SiteFooter() {
   return (
     <footer
-      className="border-t border-black/10 px-4 py-8 text-sm sm:px-6 sm:py-12"
-      style={{ backgroundColor: BRAND.bgColor }}
+      className="relative mt-2 overflow-hidden text-white"
+      style={{ background: "#241710" }}
     >
-      <div className="mx-auto max-w-5xl">
-        {/* Top grid */}
-        <div className="grid grid-cols-2 gap-6 sm:gap-8 lg:grid-cols-4">
-          {/* Brand column */}
-          <div className="col-span-2 flex flex-col gap-3 lg:col-span-1">
-            <p
-              className="text-base font-bold italic"
-              style={{ color: "#5D4037" }}
-            >
-              Mandy&apos;s Bubble Tea
+      <div className="mx-auto max-w-6xl px-5 pb-8 pt-14 sm:px-8 sm:pt-16">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
+          {/* Brand */}
+          <div>
+            <Image
+              src="/logo.webp"
+              width={160}
+              height={64}
+              alt="Mandy's"
+              className="h-[50px] w-auto opacity-95 brightness-0 invert"
+            />
+            <p className="mt-4 max-w-[300px] text-[14px] leading-relaxed text-white/60">
+              Silky milk teas and chewy pearls, shaken to order — a
+              neighbourhood bubble tea spot on the Gold Coast.
             </p>
-            <p className="text-xs leading-relaxed text-zinc-500">
-              Your local tea house sanctuary. Finding joy in the little pearls
-              of life.
-            </p>
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-4 flex items-center gap-2 text-[13.5px] text-white/70">
+              <MapPin size={15} className="text-peach" /> {BUSINESS.address}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-[13.5px] text-white/70">
+              <Phone size={15} className="text-peach" />
+              <a href={`tel:${BUSINESS.phone}`} className="hover:text-white">
+                {BUSINESS.phone}
+              </a>
+            </div>
+            <div className="mt-4 flex items-center gap-3">
               <a
                 href="https://www.facebook.com/mandysbubbletea"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-zinc-500 transition hover:text-zinc-800"
                 aria-label="Facebook"
+                className="text-white/60 transition hover:text-white"
               >
                 <FacebookIcon className="h-5 w-5" />
               </a>
@@ -52,75 +90,70 @@ export function SiteFooter() {
                 href="https://www.instagram.com/mandysbubbletea/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-zinc-500 transition hover:text-zinc-800"
                 aria-label="Instagram"
+                className="text-white/60 transition hover:text-white"
               >
                 <InstagramIcon className="h-5 w-5" />
               </a>
             </div>
           </div>
 
-          {/* Hours */}
-          <div className="flex flex-col gap-2">
-            <h4 className="font-semibold" style={{ color: "#5D4037" }}>
-              Hours
-            </h4>
-            <p className="text-xs text-zinc-500">
-              Mon – Sun: 10:30 AM – 10:30 PM
-            </p>
-          </div>
-
-          {/* Contact */}
-          <div className="flex flex-col gap-2">
-            <h4 className="font-semibold" style={{ color: "#5D4037" }}>
-              Contact
-            </h4>
-            <div className="space-y-1 text-xs text-zinc-500">
-              <p>34 Davenport St, Southport QLD 4215</p>
-              <p>
-                <a
-                  href="tel:0404978238"
-                  className="hover:text-zinc-800 hover:underline"
-                >
-                  0404 978 238
-                </a>
-              </p>
-              <p>
-                <a
-                  href="mailto:hello@mandybubbletea.com"
-                  className="hover:text-zinc-800 hover:underline"
-                >
-                  hello@mandybubbletea.com
-                </a>
-              </p>
+          {COLUMNS.map((col) => (
+            <div key={col.heading}>
+              <div className="mb-4 font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-peach">
+                {col.heading}
+              </div>
+              <nav className="flex flex-col gap-3">
+                {col.links.map((l, i) => (
+                  <Link
+                    key={`${l.label}-${i}`}
+                    href={l.href}
+                    className="w-fit text-[14px] text-white/70 transition hover:text-white"
+                  >
+                    {l.label}
+                  </Link>
+                ))}
+              </nav>
             </div>
-          </div>
+          ))}
 
-          {/* Quick Links */}
-          <div className="flex flex-col gap-2">
-            <h4 className="font-semibold" style={{ color: "#5D4037" }}>
-              Quick Links
-            </h4>
-            <nav className="flex flex-col gap-1 text-xs text-zinc-500">
-              <Link href="/menu" className="hover:text-zinc-800 hover:underline">
-                Menu
-              </Link>
-              <Link href="/our-story" className="hover:text-zinc-800 hover:underline">
-                Our Story
-              </Link>
-              <Link href="/privacy" className="hover:text-zinc-800 hover:underline">
-                Privacy Policy
-              </Link>
-              <Link href="/privacy#terms" className="hover:text-zinc-800 hover:underline">
-                Terms of Service
-              </Link>
+          {/* Support */}
+          <div>
+            <div className="mb-4 font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-peach">
+              Support
+            </div>
+            <nav className="flex flex-col gap-3 text-[14px] text-white/70">
+              <a
+                href="mailto:hello@mandybubbletea.com"
+                className="w-fit transition hover:text-white"
+              >
+                Contact us
+              </a>
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent(BUSINESS.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-fit transition hover:text-white"
+              >
+                Store location
+              </a>
+              <span className="text-white/45">Open daily · 10:30am–10:30pm</span>
             </nav>
           </div>
         </div>
 
-        {/* Bottom bar */}
-        <div className="mt-6 border-t border-black/10 pt-4 text-center text-xs text-zinc-400 sm:mt-10 sm:pt-6">
-          © 2026 {BRAND.name}. Steeped in tradition, crafted for comfort.
+        <div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-white/12 pt-6">
+          <span className="text-[12.5px] text-white/50">
+            © 2026 {BRAND.name}. All rights reserved.
+          </span>
+          <div className="flex gap-6 text-[12.5px] text-white/50">
+            <Link href="/privacy" className="hover:text-white/80">
+              Privacy
+            </Link>
+            <Link href="/privacy#terms" className="hover:text-white/80">
+              Terms
+            </Link>
+          </div>
         </div>
       </div>
     </footer>
