@@ -3,8 +3,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ShoppingCart } from "lucide-react";
+import { ChevronLeft, ReceiptText, ShoppingCart } from "lucide-react";
 import { useCart, cartItemCount } from "@/store/cart";
+import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
 
 // Mobile top app bar, recreated from the phone prototype (components.jsx
 // AppBar). Per-route: the home screen shows the logo; list screens show a
@@ -31,6 +32,23 @@ function resolveBar(pathname: string): Bar {
   if (pathname.startsWith("/order-confirmation"))
     return { kind: "back", title: "Order", backHref: "/" };
   return { kind: "logo" };
+}
+
+function OrdersButton() {
+  const count = useActiveOrderCount();
+  if (count <= 0) return null;
+  return (
+    <Link
+      href="/account/orders"
+      aria-label={`${count} order${count !== 1 ? "s" : ""} in progress`}
+      className="relative grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full border border-line bg-card text-ink2"
+    >
+      <ReceiptText size={19} />
+      <span className="absolute -right-1 -top-1 grid h-[19px] min-w-[19px] place-items-center rounded-full border-2 border-bg bg-green px-1 text-[10.5px] font-bold text-white">
+        {count}
+      </span>
+    </Link>
+  );
 }
 
 function CartButton() {
@@ -102,7 +120,10 @@ export function MobileAppBar() {
         )}
       </div>
 
-      <CartButton />
+      <div className="flex shrink-0 items-center gap-2">
+        <OrdersButton />
+        <CartButton />
+      </div>
     </header>
   );
 }

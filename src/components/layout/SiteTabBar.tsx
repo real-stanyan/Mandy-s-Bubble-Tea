@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, LayoutGrid, ReceiptText, User } from "lucide-react";
+import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
 
 // Mobile bottom tab bar, recreated from the phone prototype
 // (components.jsx TabBar): Home / Menu / Orders / Account. Mobile only
@@ -36,6 +37,7 @@ const TABS = [
 
 export function SiteTabBar() {
   const pathname = usePathname() ?? "";
+  const orderCount = useActiveOrderCount();
 
   return (
     <nav
@@ -44,6 +46,7 @@ export function SiteTabBar() {
     >
       {TABS.map(({ href, label, icon: Icon, match }) => {
         const active = match(pathname);
+        const badge = href === "/account/orders" ? orderCount : 0;
         return (
           <Link
             key={href}
@@ -54,7 +57,14 @@ export function SiteTabBar() {
               (active ? "text-brand" : "text-ink3")
             }
           >
-            <Icon size={22} />
+            <span className="relative grid place-items-center">
+              <Icon size={22} />
+              {badge > 0 && (
+                <span className="absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full border-2 border-paper bg-green px-1 text-[9.5px] font-bold text-white">
+                  {badge}
+                </span>
+              )}
+            </span>
             <span className="text-[10px] font-semibold tracking-[0.2px]">
               {label}
             </span>
