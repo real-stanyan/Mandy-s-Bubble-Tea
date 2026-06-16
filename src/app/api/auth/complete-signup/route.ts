@@ -9,6 +9,7 @@ import {
 } from "@/lib/square";
 import { grantWelcomeDiscount, purgeAccount } from "@/lib/supabase";
 import { findOrCreateLoyaltyAccount } from "@/lib/loyalty";
+import { normalizeEmail } from "@/lib/auth-format";
 
 // Final step of OAuth / phone sign-in. By the time this is called, the
 // caller has a valid Supabase session AND has attached a phone to that
@@ -28,6 +29,7 @@ import { findOrCreateLoyaltyAccount } from "@/lib/loyalty";
 type Body = {
   firstName?: unknown;
   lastName?: unknown;
+  email?: unknown;
   channel?: unknown;
 };
 
@@ -66,6 +68,14 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // Email the customer typed in the "Create account" form (for receipts).
+  // Optional + lightly validated; falls back to the OAuth session email
+  // (phone-OTP sessions have none). Stored on the Square customer, which
+  // is what Square uses to send digital receipts.
+  const typedEmail =
+    typeof body.email === "string" ? normalizeEmail(body.email) : null;
+  const email = typedEmail ?? user.email ?? null;
 
   const channelRaw = typeof body.channel === "string" ? body.channel : "";
   const channel: "web" | "app" | null =
@@ -131,12 +141,28 @@ export async function POST(request: Request) {
     if (existing?.id) {
       customerId = existing.id;
       await ensureReferenceId(existing.id, existing.referenceId, e164);
+      // Backfill the email onto a linked customer that doesn't have one
+      // yet (e.g. a legacy in-store record). Don't clobber an existing
+      // address. Best-effort — never block signup on it.
+      if (email && !existing.emailAddress) {
+        try {
+          await squareClient.customers.update({
+            customerId: existing.id,
+            emailAddress: email,
+          });
+        } catch (emailErr) {
+          console.error(
+            "[complete-signup] email backfill failed:",
+            emailErr instanceof Error ? emailErr.message : emailErr,
+          );
+        }
+      }
     } else {
       const created = await squareClient.customers.create({
         givenName: firstName,
         familyName: lastName || undefined,
         phoneNumber: e164,
-        emailAddress: user.email ?? undefined,
+        emailAddress: email ?? undefined,
         referenceId: e164,
       });
       customerId = created.customer?.id ?? null;

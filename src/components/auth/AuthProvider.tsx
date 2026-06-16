@@ -82,6 +82,7 @@ type AuthContextValue = {
   completeSignup: (args: {
     firstName: string;
     lastName?: string;
+    email?: string;
   }) => Promise<AuthProfile>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -299,14 +300,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async ({
       firstName,
       lastName,
+      email,
     }: {
       firstName: string;
       lastName?: string;
+      email?: string;
     }) => {
       const res = await fetch("/api/auth/complete-signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName, lastName, channel: "web" }),
+        body: JSON.stringify({ firstName, lastName, email, channel: "web" }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
