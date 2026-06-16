@@ -110,6 +110,45 @@ export function ProfileSummaryCard({
   );
 }
 
+/**
+ * Compact profile header for the mobile layout (matches design account.jsx):
+ * horizontal avatar + name/phone + tier badge. The richer centered
+ * `ProfileSummaryCard` stays on the desktop sidebar.
+ */
+export function ProfileSummaryCardCompact({
+  name,
+  phone,
+  tier,
+}: {
+  name: string;
+  phone: string;
+  tier: MembershipTier;
+}) {
+  const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+  return (
+    <div className="flex items-center gap-3.5 rounded-card border border-line bg-card p-[18px] shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+      <div
+        className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-gradient-to-br from-peach to-brand"
+        style={{ boxShadow: "0 6px 14px rgba(141,85,36,0.4)" }}
+      >
+        <span className="font-serif text-[22px] tracking-[-0.5px] text-white">
+          {initialsFor(name)}
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <h2 className="truncate font-serif text-[19px] font-medium tracking-[-0.4px] text-ink">
+          {name}
+        </h2>
+        <p className="mt-0.5 font-mono text-[11.5px] text-ink3">{phone}</p>
+      </div>
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-cream px-3 py-1.5">
+        <Star size={12} className="fill-brand text-brand" />
+        <span className="text-[11.5px] font-semibold text-brand">{tierLabel}</span>
+      </span>
+    </div>
+  );
+}
+
 export function TierPerksChips({ tier }: { tier: MembershipTier }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">

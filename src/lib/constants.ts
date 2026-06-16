@@ -13,7 +13,7 @@ export const BRAND = {
 // Homepage "Buy 2 drinks, get a fragrance-tag blind box" promo. Flip to
 // false to retire the campaign — the homepage section disappears with no
 // other cleanup needed.
-export const FRAGRANCE_BLIND_BOX_PROMO = true;
+export const FRAGRANCE_BLIND_BOX_PROMO = false;
 
 export const BUSINESS = {
   name: "Mandy's Bubble Tea",

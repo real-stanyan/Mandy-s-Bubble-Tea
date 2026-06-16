@@ -18,6 +18,19 @@ import { FragranceBlindBoxPromo } from "@/components/home/FragranceBlindBoxPromo
 
 export const revalidate = 10;
 
+// Hero cup visuals — background-removed transparent cup photos so the
+// floating cup sits cleanly on the radial gradient (no white photo box).
+// One is picked at random per render; Featured cards still use Square photos.
+const HERO_CUPS = [
+  "/home/hero-cups/1.webp",
+  "/home/hero-cups/2.webp",
+  "/home/hero-cups/3.webp",
+  "/home/hero-cups/4.webp",
+  "/home/hero-cups/5.webp",
+  "/home/hero-cups/6.webp",
+  "/home/hero-cups/7.webp",
+];
+
 const CUSTOMER_REVIEWS = [
   { text: "The softest boba in town!", author: "Customer Favorite" },
   { text: "Fresh, creamy, and perfectly sweet.", author: "Customer Favorite" },
@@ -40,7 +53,6 @@ const CUSTOMER_REVIEWS = [
 type FeaturedItem = MenuItem & { categorySlug: string };
 
 type HomeData = {
-  heroItem: FeaturedItem | null;
   featured: FeaturedItem[];
   review: (typeof CUSTOMER_REVIEWS)[number];
 };
@@ -67,23 +79,23 @@ async function loadHomeData(): Promise<HomeData> {
     }
     const shuffled = shuffle(withImage);
     return {
-      heroItem: shuffled[0] ?? null,
       featured: shuffled.slice(0, 4),
       review,
     };
   } catch {
-    return { heroItem: null, featured: [], review };
+    return { featured: [], review };
   }
 }
 
 export default async function Home() {
-  const { heroItem, featured, review } = await loadHomeData();
+  const { featured, review } = await loadHomeData();
+  const heroCup = HERO_CUPS[Math.floor(Math.random() * HERO_CUPS.length)];
 
   return (
     <div className="flex flex-1 flex-col">
       <WelcomeDiscountBanner />
       {FRAGRANCE_BLIND_BOX_PROMO && <FragranceBlindBoxPromo />}
-      <Hero heroItem={heroItem} review={review} />
+      <Hero heroCup={heroCup} review={review} />
       <Marquee />
       <Featured items={featured} />
       <StoryTeaser />
@@ -95,31 +107,31 @@ export default async function Home() {
 }
 
 function Hero({
-  heroItem,
+  heroCup,
   review,
 }: {
-  heroItem: FeaturedItem | null;
+  heroCup: string;
   review: (typeof CUSTOMER_REVIEWS)[number];
 }) {
   return (
-    <section className="px-5 pt-10 sm:px-8 sm:pt-16">
-      <div className="mx-auto grid max-w-6xl items-center gap-10 md:grid-cols-[1.05fr_0.95fr]">
+    <section className="px-5 pt-6 sm:px-8 sm:pt-14">
+      <div className="mx-auto grid max-w-6xl items-center gap-5 sm:gap-10 md:grid-cols-[1.05fr_0.95fr]">
         {/* left copy */}
         <div>
           <span className="inline-flex items-center gap-2 rounded-full bg-green/15 px-3.5 py-2 text-[13px] font-semibold text-green-dark">
             <span className="h-[7px] w-[7px] rounded-full bg-current" />
             Freshly brewed daily in Southport
           </span>
-          <h1 className="mt-5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink">
+          <h1 className="mt-3.5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink sm:mt-5">
             Your daily dose
             <br />
             of <span className="italic text-brand">happiness</span>.
           </h1>
-          <p className="mt-5 max-w-[480px] text-[17px] leading-relaxed text-ink2">
+          <p className="mt-3 max-w-[480px] text-[17px] leading-relaxed text-ink2 sm:mt-5">
             Silky milk teas and chewy pearls, made to order — order ahead, skip
             the line, and earn a free drink along the way.
           </p>
-          <div className="mt-7 flex flex-wrap gap-3">
+          <div className="mt-5 flex flex-wrap gap-3 sm:mt-7">
             <Link
               href="/menu"
               className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
@@ -133,7 +145,7 @@ function Hero({
               Join rewards
             </Link>
           </div>
-          <div className="mt-9 flex items-center gap-7">
+          <div className="mt-5 flex items-center gap-7 sm:mt-9">
             {[
               ["7", "Drink families"],
               ["30+", "Signature drinks"],
@@ -154,30 +166,24 @@ function Hero({
         {/* right visual */}
         <div className="relative grid place-items-center">
           <div
-            className="absolute aspect-square w-[84%] rounded-full opacity-90"
+            className="absolute aspect-square w-[78%] rounded-full opacity-90 sm:w-[84%]"
             style={{
               background:
                 "radial-gradient(circle at 38% 32%, var(--color-peach), var(--color-brand) 78%)",
             }}
           />
-          <div className="absolute aspect-square w-[68%] rounded-full border border-dashed border-white/40" />
-          {heroItem?.imageUrl ? (
-            <div className="home-float relative z-[2] w-[78%]">
-              <Image
-                src={heroItem.imageUrl}
-                alt={heroItem.name}
-                width={520}
-                height={520}
-                priority
-                className="h-auto w-full object-contain"
-                style={{ filter: "drop-shadow(0 30px 44px rgba(42,30,20,0.34))" }}
-              />
-            </div>
-          ) : (
-            <div className="home-float relative z-[2] grid aspect-square w-[60%] place-items-center text-[120px]">
-              🧋
-            </div>
-          )}
+          <div className="absolute aspect-square w-[62%] rounded-full border border-dashed border-white/40 sm:w-[68%]" />
+          <div className="home-float relative z-[2] w-[72%] sm:w-[78%]">
+            <Image
+              src={heroCup}
+              alt="Mandy's Bubble Tea"
+              width={520}
+              height={520}
+              priority
+              className="h-auto w-full object-contain"
+              style={{ filter: "drop-shadow(0 30px 44px rgba(42,30,20,0.34))" }}
+            />
+          </div>
           {/* floating review card */}
           <div className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[252px] items-center gap-3 rounded-[18px] bg-card p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-star">
@@ -208,7 +214,7 @@ function Hero({
 function Marquee() {
   const items = [...CUSTOMER_REVIEWS, ...CUSTOMER_REVIEWS];
   return (
-    <div className="mt-14 overflow-hidden border-y border-line bg-paper py-4">
+    <div className="mt-10 overflow-hidden border-y border-line bg-paper py-4">
       <div className="home-marquee-track">
         {items.map((r, i) => (
           <span
