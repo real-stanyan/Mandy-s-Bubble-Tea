@@ -83,16 +83,23 @@ export function CartDrawer() {
         onClick={closeDrawer}
       />
 
-      {/* Panel */}
+      {/* Panel — bottom sheet on mobile, right-side drawer on desktop */}
       <aside
         role="dialog"
         aria-label="Shopping cart"
-        className={`absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-card shadow-[-8px_0_40px_rgba(42,30,20,0.18)] transition-transform ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        className={`absolute inset-x-0 bottom-0 flex max-h-[90%] flex-col rounded-t-[26px] bg-card shadow-[0_-16px_40px_rgba(42,30,20,0.25)] transition-transform sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:shadow-[-8px_0_40px_rgba(42,30,20,0.18)] ${
+          isOpen
+            ? "translate-y-0 sm:translate-x-0"
+            : "translate-y-full sm:translate-y-0 sm:translate-x-full"
         }`}
       >
+        {/* Drag handle (mobile sheet only) */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden" aria-hidden="true">
+          <span className="h-[5px] w-10 rounded-full bg-ink4" />
+        </div>
+
         {/* Header */}
-        <header className="flex items-start justify-between px-5 pt-6 pb-4">
+        <header className="flex items-start justify-between px-5 pb-4 pt-3 sm:pt-6">
           <div>
             <h2 className="font-serif text-[22px] font-semibold tracking-[-0.3px] text-ink">
               Your cart

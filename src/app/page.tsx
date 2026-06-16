@@ -303,12 +303,12 @@ function Featured({ items }: { items: FeaturedItem[] }) {
           View full menu <ArrowRight size={15} />
         </Link>
       </div>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-5">
+      <div className="scrollbar-hide -mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:px-0 lg:grid lg:grid-cols-4 lg:gap-5 lg:overflow-visible">
         {items.map((it) => (
           <Link
             key={it.id}
             href={`/menu/${it.categorySlug}/${it.id}`}
-            className="group flex flex-col overflow-hidden rounded-card border border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)]"
+            className="group flex w-[158px] shrink-0 snap-start flex-col overflow-hidden rounded-card border border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)] sm:w-[200px] lg:w-auto lg:shrink"
           >
             <div className="relative aspect-square overflow-hidden bg-bg2">
               {it.imageUrl && (
