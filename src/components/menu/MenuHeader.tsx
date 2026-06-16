@@ -28,9 +28,9 @@ export function MenuHeader() {
       <div className="mt-1 flex items-center justify-between gap-3">
         <h1
           className="font-serif text-ink shrink-0"
-          style={{ fontSize: 34, lineHeight: "38px", letterSpacing: -0.5, fontWeight: 500 }}
+          style={{ fontSize: 44, lineHeight: "46px", letterSpacing: -1.2, fontWeight: 600 }}
         >
-          Menu
+          The Menu
         </h1>
         <span
           className={

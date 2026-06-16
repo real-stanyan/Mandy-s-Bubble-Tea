@@ -3,6 +3,7 @@
 export type CategorySidebarItem = {
   slug: string;
   label: string;
+  count?: number;
 };
 
 export function CategorySidebar({
@@ -15,13 +16,7 @@ export function CategorySidebar({
   onSelect: (slug: string) => void;
 }) {
   return (
-    <nav aria-label="Menu categories" className="flex flex-col gap-1">
-      <p
-        className="font-mono uppercase text-ink3 mb-1 px-3"
-        style={{ fontSize: 10.5, letterSpacing: 1.3, fontWeight: 700 }}
-      >
-        Categories
-      </p>
+    <nav aria-label="Menu categories" className="flex flex-col gap-1.5">
       {items.map((it) => {
         const isActive = it.slug === active;
         return (
@@ -34,20 +29,22 @@ export function CategorySidebar({
               onSelect(it.slug);
             }}
             className={
-              "group flex items-center gap-2 rounded-full px-3 py-2 font-serif transition " +
+              "flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-left transition " +
               (isActive
-                ? "bg-brand text-white"
-                : "text-ink2 hover:bg-cream")
+                ? "bg-cream text-brand"
+                : "text-ink2 hover:bg-[rgba(42,30,20,0.04)]")
             }
-            style={{ fontSize: 15, letterSpacing: -0.2, fontWeight: 500 }}
+            style={{ fontSize: 14.5, letterSpacing: -0.2, fontWeight: 600 }}
           >
-            <span
-              className={
-                "inline-block h-1.5 w-1.5 rounded-full transition " +
-                (isActive ? "bg-white" : "bg-ink4 group-hover:bg-brand")
-              }
-            />
             {it.label}
+            {it.count != null && (
+              <span
+                className="text-ink4"
+                style={{ fontSize: 11.5, fontWeight: 700 }}
+              >
+                {it.count}
+              </span>
+            )}
           </a>
         );
       })}
