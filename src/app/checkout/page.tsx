@@ -86,7 +86,7 @@ export default function CheckoutPage() {
     return (
       <CheckoutFrame>
         <div className="rounded-lg border border-dashed border-black/20 p-12 text-center">
-          <p className="mb-4 text-zinc-600">Your cart is empty.</p>
+          <p className="mb-4 text-ink2">Your cart is empty.</p>
           <Link
             href="/menu"
             className="inline-block rounded-full px-5 py-2 text-sm font-medium text-white"
@@ -951,10 +951,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-zinc-900 sm:text-base">
+                <h3 className="text-sm font-bold text-ink sm:text-base">
                   Rewards Progress
                 </h3>
-                <p className="mt-0.5 text-xs text-zinc-600 sm:mt-1 sm:text-sm">
+                <p className="mt-0.5 text-xs text-ink2 sm:mt-1 sm:text-sm">
                   {loyaltyBalance > 0
                     ? `${loyaltyBalance} stars · +${starsThisOrder} this order`
                     : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} this order`}
@@ -976,7 +976,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 }}
               />
             </div>
-            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:mt-2 sm:text-[11px]">
+            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-ink3 sm:mt-2 sm:text-[11px]">
               <span>{loyaltyBalance} Stars</span>
               <span>{starsPerReward} for Free Drink</span>
             </div>
@@ -1039,24 +1039,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
           {/* ── Mobile: Order Summary (collapsible) ── */}
           <section className="lg:hidden">
-            <details className="rounded-2xl border border-black/10 bg-white" open>
-              <summary className="flex cursor-pointer items-center justify-between p-4 text-sm font-bold text-zinc-900">
+            <details className="rounded-2xl border border-line bg-white" open>
+              <summary className="flex cursor-pointer items-center justify-between p-4 text-sm font-bold text-ink">
                 <span>Order Summary ({lines.length} item{lines.length !== 1 ? "s" : ""})</span>
                 <span className="font-bold" style={{ color: BRAND.primaryColor }}>
                   {formatPrice(displayTotal)}
                 </span>
               </summary>
-              <div className="border-t border-black/10 p-4">
+              <div className="border-t border-line p-4">
                 <ul className="space-y-4">
                   {lines.map((line) => (
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
 
-                <div className="mt-4 space-y-3 border-t border-black/10 pt-4">
-                  <div className="flex justify-between text-sm text-zinc-600">
+                <div className="mt-4 space-y-3 border-t border-line pt-4">
+                  <div className="flex justify-between text-sm text-ink2">
                     <span>Subtotal</span>
-                    <span className="font-semibold text-zinc-900">
+                    <span className="font-semibold text-ink">
                       {formatPrice(subtotal)}
                     </span>
                   </div>
@@ -1068,7 +1068,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           style={{ backgroundColor: BRAND.primaryColor }}
                         />
                         Welcome {welcomeDiscount.percentage}% Off
-                        <span className="text-xs text-zinc-500">
+                        <span className="text-xs text-ink3">
                           ({promoCoverage.welcomeCount} drink
                           {promoCoverage.welcomeCount === 1 ? "" : "s"})
                         </span>
@@ -1086,7 +1086,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           style={{ backgroundColor: BRAND.primaryColor }}
                         />
                         IG Follow {igFollowDiscount.percentage || 10}% Off
-                        <span className="text-xs text-zinc-500">
+                        <span className="text-xs text-ink3">
                           ({promoCoverage.igFollowCount} drink
                           {promoCoverage.igFollowCount === 1 ? "" : "s"})
                         </span>
@@ -1136,11 +1136,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   )}
                   {fulfillment === "DELIVERY" && (
                     <>
-                      <div className="flex justify-between text-sm text-zinc-600">
+                      <div className="flex justify-between text-sm text-ink2">
                         <span>{DELIVERY_FEE_NAME}</span>
-                        <span className="font-semibold text-zinc-900">
+                        <span className="font-semibold text-ink">
                           {deliveryFeesPending ? (
-                            <span className="text-zinc-400">—</span>
+                            <span className="text-ink4">—</span>
                           ) : effectiveDeliveryFee === 0n ? (
                             <span className="text-emerald-600">FREE</span>
                           ) : (
@@ -1148,16 +1148,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           )}
                         </span>
                       </div>
-                      <div className="flex justify-between text-sm text-zinc-600">
+                      <div className="flex justify-between text-sm text-ink2">
                         <span>
                           {SERVICE_FEE.name}{" "}
-                          <span className="text-xs text-zinc-400">
+                          <span className="text-xs text-ink4">
                             ({SERVICE_FEE.percentage}%)
                           </span>
                         </span>
-                        <span className="font-semibold text-zinc-900">
+                        <span className="font-semibold text-ink">
                           {deliveryFeesPending ? (
-                            <span className="text-zinc-400">—</span>
+                            <span className="text-ink4">—</span>
                           ) : (
                             formatPrice(effectiveServiceFee)
                           )}
@@ -1166,53 +1166,53 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     </>
                   )}
                   {effectivePhSurcharge > 0n && (
-                    <div className="flex justify-between text-sm text-zinc-600">
+                    <div className="flex justify-between text-sm text-ink2">
                       <span>
                         {PH_SURCHARGE.name}{" "}
-                        <span className="text-xs text-zinc-400">
+                        <span className="text-xs text-ink4">
                           ({PH_SURCHARGE.percentage}%)
                         </span>
                       </span>
-                      <span className="font-semibold text-zinc-900">
+                      <span className="font-semibold text-ink">
                         {formatPrice(effectivePhSurcharge)}
                       </span>
                     </div>
                   )}
                   {effectivePlatformFee > 0n && (
-                    <div className="flex justify-between text-sm text-zinc-600">
+                    <div className="flex justify-between text-sm text-ink2">
                       <span>
                         {PLATFORM_FEE.name}{" "}
-                        <span className="text-xs text-zinc-400">
+                        <span className="text-xs text-ink4">
                           ({PLATFORM_FEE.percentage}%)
                         </span>
                       </span>
-                      <span className="font-semibold text-zinc-900">
+                      <span className="font-semibold text-ink">
                         {formatPrice(effectivePlatformFee)}
                       </span>
                     </div>
                   )}
                   {effectiveSurcharge > 0n && (
-                    <div className="flex justify-between text-sm text-zinc-600">
+                    <div className="flex justify-between text-sm text-ink2">
                       <span>
                         {CARD_SURCHARGE.name}{" "}
-                        <span className="text-xs text-zinc-400">
+                        <span className="text-xs text-ink4">
                           ({CARD_SURCHARGE.percentage}%)
                         </span>
                       </span>
-                      <span className="font-semibold text-zinc-900">
+                      <span className="font-semibold text-ink">
                         {formatPrice(effectiveSurcharge)}
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm text-zinc-600">
+                  <div className="flex justify-between text-sm text-ink2">
                     <span>Tax</span>
-                    <span className="font-semibold text-zinc-900">
+                    <span className="font-semibold text-ink">
                       Calculated at payment
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-black/10 pt-3 text-base">
-                    <span className="font-bold text-zinc-900">Total</span>
-                    <span className="text-lg font-bold text-zinc-900">
+                  <div className="flex justify-between border-t border-line pt-3 text-base">
+                    <span className="font-bold text-ink">Total</span>
+                    <span className="text-lg font-bold text-ink">
                       {formatPrice(displayTotal)}
                     </span>
                   </div>
@@ -1233,7 +1233,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               >
                 This drink is on us! 🎉
               </p>
-              <p className="mt-1 text-center text-xs text-zinc-600 sm:text-sm">
+              <p className="mt-1 text-center text-xs text-ink2 sm:text-sm">
                 Your {starsPerReward} stars will be redeemed — no payment needed.
               </p>
             </section>
@@ -1244,16 +1244,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
           {/* ── Keepsake copy — free extra print of each customized cup ── */}
           {hasAnyCustomizedCup && (
-            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4 sm:p-5">
               <input
                 type="checkbox"
                 checked={keepLabelCopy}
                 onChange={(e) => setKeepLabelCopy(e.target.checked)}
                 className="mt-0.5 h-4 w-4 accent-[#C43A10]"
               />
-              <span className="text-sm text-zinc-700">
+              <span className="text-sm text-ink2">
                 🎁 Print an extra copy of my custom cup design to keep
-                <span className="mt-0.5 block text-xs text-zinc-500">
+                <span className="mt-0.5 block text-xs text-ink3">
                   We&apos;ll print a spare label of each cup you customized — yours to keep.
                 </span>
               </span>
@@ -1261,16 +1261,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           )}
 
           {/* ── Your Details — signed-in summary + optional note ── */}
-          <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+          <section className="rounded-2xl border border-line bg-white p-4 sm:p-5">
             <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-zinc-900 sm:text-base">
+                <h3 className="text-sm font-bold text-ink sm:text-base">
                   Your Details
                 </h3>
-                <p className="mt-0.5 truncate text-sm text-zinc-700">
+                <p className="mt-0.5 truncate text-sm text-ink2">
                   {displayName}
                 </p>
-                <p className="text-xs text-zinc-500">{profile.phone_e164}</p>
+                <p className="text-xs text-ink3">{profile.phone_e164}</p>
               </div>
               <span
                 className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
@@ -1280,7 +1280,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </span>
             </div>
             <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-ink3">
                 Order note (optional)
               </span>
               <textarea
@@ -1297,7 +1297,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           {!isFreeRedeem && (
             <>
               <section>
-                <h3 className="mb-3 text-sm font-bold text-zinc-900 sm:mb-4 sm:text-base">
+                <h3 className="mb-3 text-sm font-bold text-ink sm:mb-4 sm:text-base">
                   Payment Method
                 </h3>
 
@@ -1348,7 +1348,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </section>
 
               {(payMethod === "apple" || payMethod === "google") && walletAvailable && (
-                <p className="text-xs text-zinc-400">
+                <p className="text-xs text-ink4">
                   Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
                 </p>
               )}
@@ -1356,15 +1356,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
 
               <section
-                className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5"
+                className="rounded-2xl border border-line bg-white p-4 sm:p-5"
                 style={{ display: payMethod === "card" ? undefined : "none" }}
               >
                 <div>
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-ink3">
                     Card Details
                   </span>
                   {SQUARE_ENV !== "production" && (
-                    <p className="mb-2 text-[10px] text-zinc-400">
+                    <p className="mb-2 text-[10px] text-ink4">
                       Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
                     </p>
                   )}
@@ -1373,7 +1373,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
                   />
                   {!cardReady && (
-                    <p className="mt-2 text-xs text-zinc-400">
+                    <p className="mt-2 text-xs text-ink4">
                       Loading card form…
                     </p>
                   )}
@@ -1390,8 +1390,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         </div>
 
         {/* ── Right column: Order Summary (desktop) ── */}
-        <section className="hidden rounded-2xl border border-black/10 bg-white p-4 sm:p-6 lg:block lg:self-start">
-          <h3 className="mb-4 text-lg font-bold text-zinc-900 sm:mb-5 sm:text-xl">
+        <section className="hidden rounded-2xl border border-line bg-white p-4 sm:p-6 lg:block lg:self-start">
+          <h3 className="mb-4 text-lg font-bold text-ink sm:mb-5 sm:text-xl">
             Order Summary
           </h3>
 
@@ -1401,10 +1401,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             ))}
           </ul>
 
-          <div className="mt-6 space-y-3 border-t border-black/10 pt-5">
-            <div className="flex justify-between text-sm text-zinc-600">
+          <div className="mt-6 space-y-3 border-t border-line pt-5">
+            <div className="flex justify-between text-sm text-ink2">
               <span>Subtotal</span>
-              <span className="font-semibold text-zinc-900">
+              <span className="font-semibold text-ink">
                 {formatPrice(subtotal)}
               </span>
             </div>
@@ -1416,7 +1416,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
                   Welcome {welcomeDiscount.percentage}% Off
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-ink3">
                     ({promoCoverage.welcomeCount} drink
                     {promoCoverage.welcomeCount === 1 ? "" : "s"})
                   </span>
@@ -1434,7 +1434,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     style={{ backgroundColor: BRAND.primaryColor }}
                   />
                   IG Follow {igFollowDiscount.percentage || 10}% Off
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-ink3">
                     ({promoCoverage.igFollowCount} drink
                     {promoCoverage.igFollowCount === 1 ? "" : "s"})
                   </span>
@@ -1484,11 +1484,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             )}
             {fulfillment === "DELIVERY" && (
               <>
-                <div className="flex justify-between text-sm text-zinc-600">
+                <div className="flex justify-between text-sm text-ink2">
                   <span>{DELIVERY_FEE_NAME}</span>
-                  <span className="font-semibold text-zinc-900">
+                  <span className="font-semibold text-ink">
                     {deliveryFeesPending ? (
-                      <span className="text-zinc-400">—</span>
+                      <span className="text-ink4">—</span>
                     ) : effectiveDeliveryFee === 0n ? (
                       <span className="text-emerald-600">FREE</span>
                     ) : (
@@ -1496,16 +1496,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     )}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm text-zinc-600">
+                <div className="flex justify-between text-sm text-ink2">
                   <span>
                     {SERVICE_FEE.name}{" "}
-                    <span className="text-xs text-zinc-400">
+                    <span className="text-xs text-ink4">
                       ({SERVICE_FEE.percentage}%)
                     </span>
                   </span>
-                  <span className="font-semibold text-zinc-900">
+                  <span className="font-semibold text-ink">
                     {deliveryFeesPending ? (
-                      <span className="text-zinc-400">—</span>
+                      <span className="text-ink4">—</span>
                     ) : (
                       formatPrice(effectiveServiceFee)
                     )}
@@ -1514,53 +1514,53 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </>
             )}
             {effectivePhSurcharge > 0n && (
-              <div className="flex justify-between text-sm text-zinc-600">
+              <div className="flex justify-between text-sm text-ink2">
                 <span>
                   {PH_SURCHARGE.name}{" "}
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-ink4">
                     ({PH_SURCHARGE.percentage}%)
                   </span>
                 </span>
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-ink">
                   {formatPrice(effectivePhSurcharge)}
                 </span>
               </div>
             )}
             {effectivePlatformFee > 0n && (
-              <div className="flex justify-between text-sm text-zinc-600">
+              <div className="flex justify-between text-sm text-ink2">
                 <span>
                   {PLATFORM_FEE.name}{" "}
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-ink4">
                     ({PLATFORM_FEE.percentage}%)
                   </span>
                 </span>
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-ink">
                   {formatPrice(effectivePlatformFee)}
                 </span>
               </div>
             )}
             {effectiveSurcharge > 0n && (
-              <div className="flex justify-between text-sm text-zinc-600">
+              <div className="flex justify-between text-sm text-ink2">
                 <span>
                   {CARD_SURCHARGE.name}{" "}
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-ink4">
                     ({CARD_SURCHARGE.percentage}%)
                   </span>
                 </span>
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-ink">
                   {formatPrice(effectiveSurcharge)}
                 </span>
               </div>
             )}
-            <div className="flex justify-between text-sm text-zinc-600">
+            <div className="flex justify-between text-sm text-ink2">
               <span>Tax</span>
-              <span className="font-semibold text-zinc-900">
+              <span className="font-semibold text-ink">
                 Calculated at payment
               </span>
             </div>
-            <div className="flex justify-between border-t border-black/10 pt-3 text-base">
-              <span className="font-bold text-zinc-900">Total</span>
-              <span className="text-lg font-bold text-zinc-900">
+            <div className="flex justify-between border-t border-line pt-3 text-base">
+              <span className="font-bold text-ink">Total</span>
+              <span className="text-lg font-bold text-ink">
                 {formatPrice(displayTotal)}
               </span>
             </div>
@@ -1606,7 +1606,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           : "Loading payment…"}
           </button>
 
-          <p className="mt-3 text-center text-[11px] text-zinc-400">
+          <p className="mt-3 text-center text-[11px] text-ink4">
             By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
             <a href="#" className="underline">Terms of Service</a>{" "}
             and <a href="#" className="underline">Privacy Policy</a>.
@@ -1615,11 +1615,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       </form>
 
       {/* ── Mobile sticky bottom bar ── */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-black/10 bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <div className="min-w-0">
-            <p className="text-xs text-zinc-500">Total</p>
-            <p className="text-lg font-bold text-zinc-900">
+            <p className="text-xs text-ink3">Total</p>
+            <p className="text-lg font-bold text-ink">
               {formatPrice(displayTotal)}
             </p>
             {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
@@ -1639,7 +1639,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             )}
             {effectiveSurcharge > 0n && (
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[11px] text-ink3">
                 {effectivePhSurcharge > 0n && (
                   <>Incl. {PH_SURCHARGE.name} {formatPrice(effectivePhSurcharge)} · </>
                 )}
@@ -1717,18 +1717,15 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={() => window.history.back()}
-            className="mb-2 flex items-center gap-1 text-sm text-zinc-600 transition hover:text-zinc-900"
+            className="mb-2 flex items-center gap-1 text-sm text-ink2 transition hover:text-ink"
           >
             <span aria-hidden="true">←</span> Back
           </button>
-          <h1
-            className="text-2xl font-bold italic tracking-tight sm:text-3xl"
-            style={{ color: BRAND.primaryColor }}
-          >
+          <h1 className="font-serif text-[clamp(28px,4vw,40px)] font-semibold leading-[1.0] tracking-[-0.03em] text-ink">
             Checkout
           </h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Finalize your artisanal boba experience.
+          <p className="mt-1.5 text-sm text-ink2">
+            Pickup or delivery — finalize your order below.
           </p>
         </div>
       </header>
@@ -1768,7 +1765,7 @@ function SummaryRow({ line }: { line: CartLine }) {
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-bold text-zinc-900">
+          <p className="text-sm font-bold text-ink">
             {line.quantity > 1 && `${line.quantity}× `}
             {line.itemName}
           </p>
@@ -1780,7 +1777,7 @@ function SummaryRow({ line }: { line: CartLine }) {
           </p>
         </div>
         {details && (
-          <p className="mt-0.5 text-xs text-zinc-500">{details}</p>
+          <p className="mt-0.5 text-xs text-ink3">{details}</p>
         )}
       </div>
     </li>
