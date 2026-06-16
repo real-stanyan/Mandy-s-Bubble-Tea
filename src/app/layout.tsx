@@ -5,6 +5,7 @@ import "./globals.css";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
+import { SiteTabBarGate } from "@/components/layout/SiteTabBarGate";
 import { PublicHolidayBanner } from "@/components/layout/PublicHolidayBanner";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 
@@ -98,6 +99,7 @@ export default function RootLayout({
           {children}
           {modal}
           <SiteFooterGate />
+          <SiteTabBarGate />
           <CartDrawer />
         </AuthProvider>
         <Script
