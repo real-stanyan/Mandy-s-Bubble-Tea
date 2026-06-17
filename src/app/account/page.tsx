@@ -123,7 +123,7 @@ export default function AccountPage() {
       activeOrders={activeOrders}
       pastOrders={pastOrders}
       ordersError={ordersError}
-      onViewOrders={() => router.push("/account/orders")}
+      onViewOrders={() => router.push("/account/orders?from=account")}
       onViewPromotions={() => router.push("/account/promotions")}
       onSignOut={signOut}
     />
