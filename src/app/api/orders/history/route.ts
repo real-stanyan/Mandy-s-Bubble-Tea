@@ -3,6 +3,8 @@ import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { getMenu } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
 import { getAuthedUser } from "@/lib/auth";
+import { getDeliveredOrderIds } from "@/lib/driver-tokens";
+import { isBrisbaneToday } from "@/lib/brisbane-date";
 
 // Order history for the account page. Customer is derived from the
 // Supabase session — no body required. Searches Square orders by
@@ -113,6 +115,22 @@ export async function GET(request: Request) {
       return due === 0n;
     });
 
+    // Which delivery orders have actually been delivered (driver app marked
+    // them so). Self-delivery orders keep Square state=OPEN forever, so this is
+    // the real "done" signal for them. Failure degrades to "none delivered" —
+    // the same-day cutoff below still clears stale orders.
+    const deliveryOrderIds = paidOrders
+      .filter(
+        (o) =>
+          o.metadata?.fulfillment_type === "DELIVERY" ||
+          o.fulfillments?.[0]?.type === "DELIVERY",
+      )
+      .map((o) => o.id)
+      .filter((id): id is string => Boolean(id));
+    const deliveredIds = await getDeliveredOrderIds(deliveryOrderIds).catch(
+      () => new Set<string>(),
+    );
+
     const orders = paidOrders.map((order) => {
       const rawLines = order.lineItems ?? [];
       const lineItems = rawLines.map((li) => {
@@ -145,6 +163,22 @@ export async function GET(request: Request) {
       // type — both follow the same state lifecycle.
       const fulfillment = order.fulfillments?.[0];
 
+      const isDelivery =
+        order.metadata?.fulfillment_type === "DELIVERY" ||
+        fulfillment?.type === "DELIVERY";
+      // "In progress" = Square order still OPEN, placed today (Brisbane), and
+      // not yet fulfilled. Square state stays OPEN indefinitely for
+      // self-delivery + uncompleted pickups, so we layer two signals on top:
+      //   • same-day cutoff — a previous-day OPEN order is treated as done
+      //   • fulfilled — delivery: driver marked delivered; pickup: COMPLETED
+      const fulfilled = isDelivery
+        ? deliveredIds.has(order.id ?? "")
+        : fulfillment?.state === "COMPLETED";
+      const active =
+        order.state === "OPEN" &&
+        isBrisbaneToday(order.createdAt ?? null) &&
+        !fulfilled;
+
       return {
         id: order.id,
         referenceId: order.referenceId ?? order.ticketName ?? null,
@@ -152,6 +186,7 @@ export async function GET(request: Request) {
         updatedAt: order.updatedAt ?? null,
         state: order.state ?? null,
         fulfillmentState: fulfillment?.state ?? null,
+        active,
         // Self-delivery orders carry a PICKUP fulfillment but record the truth
         // in metadata.fulfillment_type — prefer that so the UI shows "Delivery".
         fulfillmentType:

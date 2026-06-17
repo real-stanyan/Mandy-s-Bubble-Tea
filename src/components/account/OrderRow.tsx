@@ -15,6 +15,11 @@ export type OrderHistoryItem = {
   referenceId?: string | null; // pickup / ticket number
   firstItemName?: string | null;
   firstItemImageUrl?: string | null;
+  // Server-computed "in progress" flag: OPEN + placed today (Brisbane) + not
+  // yet fulfilled (delivery delivered / pickup COMPLETED). The Square order
+  // state stays OPEN indefinitely for self-delivery + uncompleted pickups, so
+  // the list/badges can't key off state alone. Optional for older callers.
+  active?: boolean;
 };
 
 export function OrderRow({ order }: { order: OrderHistoryItem }) {

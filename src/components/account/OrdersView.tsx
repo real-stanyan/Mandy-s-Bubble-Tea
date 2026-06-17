@@ -6,15 +6,17 @@ import { useRouter } from "next/navigation";
 import { Check, Clock, ChevronDown, ArrowRight } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import type { OrderHistoryItem } from "@/components/account/OrderRow";
+import { DeliveryTrackingCard } from "@/components/account/DeliveryTrackingCard";
 
 // Redesigned Your Orders surface, recreated from
 // design_handoff_account_auth's web-account.jsx OrdersPage. Pure props so
 // it renders in the dev preview with mock orders (no session needed).
 //
-// Driver mini-map / driver card from the prototype's delivery variant are
-// app-only (window.DeliveryMiniMap / DriverCard) and have no web
-// equivalent — intentionally omitted; the delivery card shows the same
-// order-number + total treatment with a "Delivery" label.
+// Delivery variant: an active DELIVERY order out for delivery renders an inline
+// live tracking card (DeliveryTrackingCard) — small live map + ETA + driver +
+// call — mirroring the full-screen tracker on /order-confirmation/[orderId].
+// Before it's out for delivery (and for pickup orders) the standard active card
+// with the Received → Making → Ready stepper is shown.
 
 const STEPS = ["Received", "Making", "Ready"] as const;
 
@@ -25,7 +27,10 @@ function displayNumber(order: OrderHistoryItem): string {
 }
 
 function isActive(order: OrderHistoryItem): boolean {
-  return order.state === "OPEN";
+  // Server-computed: OPEN + placed today (Brisbane) + not yet fulfilled.
+  // (Square state stays OPEN forever for self-delivery / uncompleted pickups,
+  // so we no longer key off state alone — see /api/orders/history.)
+  return order.active === true;
 }
 
 /** Active-order status → progress step + label + tone. */
@@ -87,7 +92,22 @@ function OrderThumb({
   );
 }
 
+// Active-order slot. Delivery orders delegate to DeliveryTrackingCard, which
+// shows the inline live tracker once out for delivery and otherwise falls back
+// to the standard stepper card. Pickup orders always get the standard card.
 function ActiveOrderCard({ order }: { order: OrderHistoryItem }) {
+  if (order.fulfillmentType === "DELIVERY") {
+    return (
+      <DeliveryTrackingCard
+        order={order}
+        fallback={<StandardActiveCard order={order} />}
+      />
+    );
+  }
+  return <StandardActiveCard order={order} />;
+}
+
+function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
   const meta = activeMeta(order);
   const dotClass = meta.tone === "green" ? "bg-green" : "bg-star";
   const labelClass = meta.tone === "green" ? "text-green-dark" : "text-brand";
@@ -297,8 +317,8 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
                 </span>
               </div>
               <div
-                className={`mb-11 grid gap-[18px] ${
-                  active.length > 1 ? "lg:grid-cols-2" : "grid-cols-1"
+                className={`mb-11 grid grid-cols-1 gap-[18px] ${
+                  active.length > 1 ? "lg:grid-cols-2" : ""
                 }`}
               >
                 {active.map((o) => (
@@ -323,7 +343,7 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
               No past orders yet.
             </div>
           ) : (
-            <div className="grid gap-3.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               {visiblePast.map((o) => (
                 <PastOrderCard key={o.id} order={o} />
               ))}

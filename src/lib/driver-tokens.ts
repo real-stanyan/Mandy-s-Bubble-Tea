@@ -150,6 +150,26 @@ export async function getDriverFixesForOrders(
 }
 
 /**
+ * Batch-read which of the given orders have been delivered — returns the set of
+ * order ids whose dispatch row has a delivered_at timestamp. Orders with no
+ * dispatch row (driver never picked them up in the app) are simply absent, i.e.
+ * treated as not-yet-delivered. Used to classify delivery orders as done.
+ */
+export async function getDeliveredOrderIds(
+  orderIds: string[],
+): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select("order_id, delivered_at")
+    .in("order_id", orderIds)
+    .not("delivered_at", "is", null);
+  if (error) throw new Error(`getDeliveredOrderIds: ${error.message}`);
+  return new Set((data ?? []).map((row) => row.order_id as string));
+}
+
+/**
  * Read the cached driver→destination route for an order (see delivery-route.ts
  * for the refetch policy). Returns null when no dispatch row exists.
  */
