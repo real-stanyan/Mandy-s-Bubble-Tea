@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockCustomerGet = vi.fn();
 const mockAccountsSearch = vi.fn();
@@ -14,11 +14,12 @@ vi.mock("@/lib/loyalty", () => ({
   getActiveProgram: vi.fn().mockResolvedValue({ starsPerReward: 9 }),
 }));
 
-import { fetchCustomerPassData } from "./customer";
+import { fetchCustomerPassData, clearPassDataCache } from "./customer";
 
 describe("fetchCustomerPassData phoneE164 normalization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearPassDataCache();
     mockAccountsSearch.mockResolvedValue({ loyaltyAccounts: [{ balance: 3 }] });
   });
 
@@ -59,6 +60,7 @@ describe("fetchCustomerPassData phoneE164 normalization", () => {
 describe("fetchCustomerPassData lifetimePoints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearPassDataCache();
     mockCustomerGet.mockResolvedValue({
       customer: { givenName: "Stan", phoneNumber: "+61404978238", createdAt: "2026-01-01T00:00:00Z" },
     });
@@ -74,5 +76,46 @@ describe("fetchCustomerPassData lifetimePoints", () => {
     mockAccountsSearch.mockResolvedValue({ loyaltyAccounts: [{ balance: 5 }] });
     const data = await fetchCustomerPassData("CUST2");
     expect(data.lifetimePoints).toBe(5);
+  });
+});
+
+// Apple Wallet's passd polls the pass endpoint and each miss hit two Square
+// APIs (customers.get + loyalty.accounts.search). A poll burst tripped the
+// merchant rate limit (RATE_LIMITED 429). A short per-customer TTL cache
+// collapses repeated polls into a single Square round-trip.
+describe("fetchCustomerPassData TTL cache", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearPassDataCache();
+    vi.useFakeTimers();
+    mockCustomerGet.mockResolvedValue({
+      customer: { givenName: "Stan", phoneNumber: "+61404978238", createdAt: "2026-01-01T00:00:00Z" },
+    });
+    mockAccountsSearch.mockResolvedValue({ loyaltyAccounts: [{ balance: 3, lifetimePoints: 9 }] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("serves repeated calls for the same customer from cache (one Square round-trip)", async () => {
+    const a = await fetchCustomerPassData("CUST_CACHE");
+    const b = await fetchCustomerPassData("CUST_CACHE");
+    expect(mockCustomerGet).toHaveBeenCalledTimes(1);
+    expect(mockAccountsSearch).toHaveBeenCalledTimes(1);
+    expect(b).toEqual(a);
+  });
+
+  it("re-fetches after the TTL expires", async () => {
+    await fetchCustomerPassData("CUST_CACHE");
+    vi.advanceTimersByTime(61_000);
+    await fetchCustomerPassData("CUST_CACHE");
+    expect(mockCustomerGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not share cache across different customers", async () => {
+    await fetchCustomerPassData("CUST_A");
+    await fetchCustomerPassData("CUST_B");
+    expect(mockCustomerGet).toHaveBeenCalledTimes(2);
   });
 });
