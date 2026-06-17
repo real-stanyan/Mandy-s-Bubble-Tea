@@ -196,9 +196,9 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         </Link>
       </div>
 
-      <div className="grid items-start gap-7 lg:grid-cols-[1fr_360px]">
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* ===== Left: order number + status + items ===== */}
-        <div className="flex flex-col gap-[18px]">
+        <div className="flex min-w-0 flex-col gap-[18px]">
           {/* Prominent order number — staff + customer match on it */}
           <div
             className="flex items-center justify-between gap-4 rounded-card border-[1.5px] border-dashed p-5 sm:p-6"
@@ -293,7 +293,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         </div>
 
         {/* ===== Right: sticky summary + loyalty ===== */}
-        <div className="flex flex-col gap-[18px] lg:sticky lg:top-24">
+        <div className="flex min-w-0 flex-col gap-[18px] lg:sticky lg:top-24">
           <div className="rounded-card border border-line bg-card p-6 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
             <h2 className="font-serif text-[20px] font-semibold tracking-[-0.4px] text-ink">
               Summary

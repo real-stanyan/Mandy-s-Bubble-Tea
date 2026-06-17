@@ -5,11 +5,11 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Check, Clock, Phone } from "lucide-react";
 import { DELIVERY_DRIVER } from "@/lib/constants";
-import { FreshnessBar, type Tracking } from "./DeliveryMap";
+import { FreshnessBar, type Tracking } from "@/components/delivery/DeliveryMap";
 
 // Leaflet touches `window` at import time — load the map client-side only.
 const DeliveryMap = dynamic(
-  () => import("./DeliveryMap").then((m) => m.DeliveryMap),
+  () => import("@/components/delivery/DeliveryMap").then((m) => m.DeliveryMap),
   { ssr: false },
 );
 

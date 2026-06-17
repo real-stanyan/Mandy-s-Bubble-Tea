@@ -238,25 +238,27 @@ export function FreshnessBar({
   hasDriver: boolean;
   locationUpdatedAt: string | null;
 }) {
-  const [, force] = useState(0);
-  // Re-render every 10s so the "x ago" label stays honest.
+  const [label, setLabel] = useState("Waiting for driver location…");
+  // Recompute the freshness label off the clock — kept out of render (impure)
+  // and refreshed every 10s so the "x ago" copy stays honest.
   useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 10000);
+    const compute = () => {
+      if (!hasDriver || !locationUpdatedAt) {
+        setLabel("Waiting for driver location…");
+        return;
+      }
+      const ageSec = Math.max(
+        0,
+        Math.round((Date.now() - new Date(locationUpdatedAt).getTime()) / 1000),
+      );
+      if (ageSec < 15) setLabel("Live · driver on the way");
+      else if (ageSec < 60) setLabel(`Updated ${ageSec}s ago`);
+      else setLabel(`Updated ${Math.round(ageSec / 60)}m ago`);
+    };
+    compute();
+    const id = setInterval(compute, 10000);
     return () => clearInterval(id);
-  }, []);
-
-  let label: string;
-  if (!hasDriver || !locationUpdatedAt) {
-    label = "Waiting for driver location…";
-  } else {
-    const ageSec = Math.max(
-      0,
-      Math.round((Date.now() - new Date(locationUpdatedAt).getTime()) / 1000),
-    );
-    if (ageSec < 15) label = "Live · driver on the way";
-    else if (ageSec < 60) label = `Updated ${ageSec}s ago`;
-    else label = `Updated ${Math.round(ageSec / 60)}m ago`;
-  }
+  }, [hasDriver, locationUpdatedAt]);
 
   return (
     <div className="inline-flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-2 shadow-md backdrop-blur">
