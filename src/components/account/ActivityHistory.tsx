@@ -1,11 +1,18 @@
 "use client";
 
-import { Gift, Star } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Gift, Star } from "lucide-react";
 import { useLoyaltyEvents } from "@/hooks/use-loyalty-events";
 import type { LoyaltyEvent } from "@/hooks/use-loyalty-events";
 
+const INITIAL_VISIBLE = 10;
+
 export function ActivityHistory() {
   const { events, loading } = useLoyaltyEvents();
+  const [showAll, setShowAll] = useState(false);
+
+  const visible = showAll ? events : events.slice(0, INITIAL_VISIBLE);
+  const hiddenCount = events.length - INITIAL_VISIBLE;
 
   return (
     <section className="px-4 mt-5">
@@ -25,15 +32,28 @@ export function ActivityHistory() {
             No activity yet.
           </p>
         ) : (
-          events.map((event, i) => (
+          visible.map((event, i) => (
             <EventRow
               key={event.id}
               event={event}
-              isLast={i === events.length - 1}
+              isLast={i === visible.length - 1}
             />
           ))
         )}
       </div>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mx-auto mt-4 flex items-center gap-1.5 rounded-full border border-line bg-card px-5 py-2.5 text-sm font-semibold text-ink2 transition hover:bg-paper"
+        >
+          {showAll ? "Show less" : `Show all ${events.length} activities`}
+          <ChevronDown
+            size={16}
+            className={`transition-transform ${showAll ? "rotate-180" : ""}`}
+          />
+        </button>
+      )}
     </section>
   );
 }
