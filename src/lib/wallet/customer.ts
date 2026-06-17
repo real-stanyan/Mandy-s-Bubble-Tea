@@ -13,7 +13,35 @@ export interface CustomerPassData {
   availableRewards: number  // floor(balance / starsPerReward)
 }
 
+// Apple Wallet's passd polls the pass GET endpoint and every cache-miss made
+// two Square calls (customers.get + loyalty.accounts.search). A burst of polls
+// tripped the merchant rate limit (RATE_LIMITED 429). A short per-customer TTL
+// cache collapses repeated polls within the window into one Square round-trip.
+// Module scope: lives for the lifetime of the serverless instance, which is
+// exactly the burst we need to absorb. Loyalty balance changes are picked up
+// within the TTL.
+const PASS_DATA_TTL_MS = 60_000
+const passDataCache = new Map<string, { data: CustomerPassData; expires: number }>()
+
+/** Clear the per-customer pass-data cache (test seam + manual invalidation). */
+export function clearPassDataCache(): void {
+  passDataCache.clear()
+}
+
 export async function fetchCustomerPassData(
+  customerId: string,
+): Promise<CustomerPassData> {
+  const cached = passDataCache.get(customerId)
+  if (cached && cached.expires > Date.now()) {
+    return cached.data
+  }
+
+  const data = await fetchCustomerPassDataUncached(customerId)
+  passDataCache.set(customerId, { data, expires: Date.now() + PASS_DATA_TTL_MS })
+  return data
+}
+
+async function fetchCustomerPassDataUncached(
   customerId: string,
 ): Promise<CustomerPassData> {
   const customerRes = await squareClient.customers.get({ customerId })

@@ -55,6 +55,16 @@ describe("enqueuePrintJob — sticker number guard (POS phone-ticketName inciden
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
+  it("falls back to the store counter when a POS ticketName is a customer name", async () => {
+    // Square Register named the ticket after the attached member's NAME.
+    // The name belongs in the "Hi, {name}" greeting, not the number slot.
+    const res = await enqueuePrintJob({ order: order({ ticketName: "Mao Sasaki" }) });
+    expect(res).toMatchObject({ queued: true, stickerNumber: "42" });
+    expect(rpcMock).toHaveBeenCalledWith("next_store_order_number");
+    expect((res as { stickerNumber: string }).stickerNumber).not.toContain("Sasaki");
+    expect((res as { stickerNumber: string }).stickerNumber).toMatch(/^\d+$/);
+  });
+
   it("falls back to the store counter when a POS order has no ticketName", async () => {
     const res = await enqueuePrintJob({ order: order({}) });
     expect(res).toMatchObject({ queued: true, stickerNumber: "42" });
