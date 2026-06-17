@@ -4,23 +4,23 @@ import { usePathname } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { MobileAppBar } from "@/components/layout/MobileAppBar";
 
-// Renders the shared chrome on every route except those where it would get
-// in the way. The desktop nav (SiteHeader) and the mobile app bar
-// (MobileAppBar) each show at their own breakpoint. Currently only
-// /checkout is excluded — that flow has its own focused chrome.
+// Renders the shared chrome on every route. The desktop nav (SiteHeader) and
+// the mobile app bar (MobileAppBar) each show at their own breakpoint.
+// /checkout is a focused flow: it keeps the mobile app bar (back + "Checkout"
+// + cart, per the phone prototype) but drops the full desktop nav so the page
+// stays distraction-free on wide screens.
 
-const HIDE_PREFIXES = ["/checkout"];
+const FOCUSED_PREFIXES = ["/checkout"];
 
 export function SiteHeaderGate() {
   const pathname = usePathname() ?? "";
-  const hidden = HIDE_PREFIXES.some(
+  const focused = FOCUSED_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
-  if (hidden) return null;
   return (
     <>
       <MobileAppBar />
-      <SiteHeader />
+      {!focused && <SiteHeader />}
     </>
   );
 }

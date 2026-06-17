@@ -149,6 +149,11 @@ export const DELIVERY_FEE_NAME = "Delivery Fee";
 export const STORE_LAT = -27.9660;
 export const STORE_LNG = 153.4115;
 
+// Google Maps Place ID for the store (resolved 2026-06-17 via Find Place;
+// CID 15758058253926164700 matches the public Maps listing). Used to fetch
+// the live store rating shown on the home hero. See lib/store-rating.ts.
+export const STORE_PLACE_ID = "ChIJZZ8UjvIPkWsR3Ggu_33er9o";
+
 // Self-delivery driver shown on the customer's live-tracking card (Uber-Eats
 // style). Single store driver for now — update here if the driver changes.
 // `phone` is digits-only for the tel: link; `phoneDisplay` is what we render.

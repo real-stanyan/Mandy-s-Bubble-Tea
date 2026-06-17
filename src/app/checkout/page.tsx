@@ -927,22 +927,27 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         {/* ── Left column ── */}
         <div className="space-y-5 sm:space-y-6">
           {/* Fulfillment + delivery quote */}
-          <FulfillmentSelector
-            value={fulfillment}
-            onChange={setFulfillment}
-            drinksSubtotalCents={subtotal}
-          />
-
-          {fulfillment === "DELIVERY" && (
-            <div className="space-y-3">
-              <DeliveryAddressForm
-                value={deliveryAddress}
-                onChange={setDeliveryAddress}
-                defaultPhone={profile.phone_e164}
+          <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
+            <SectionLabel>Fulfillment</SectionLabel>
+            <div className="mt-3.5">
+              <FulfillmentSelector
+                value={fulfillment}
+                onChange={setFulfillment}
+                drinksSubtotalCents={subtotal}
               />
-              <DeliveryQuoteCard state={quoteState} />
             </div>
-          )}
+
+            {fulfillment === "DELIVERY" && (
+              <div className="mt-4 space-y-3">
+                <DeliveryAddressForm
+                  value={deliveryAddress}
+                  onChange={setDeliveryAddress}
+                  defaultPhone={profile.phone_e164}
+                />
+                <DeliveryQuoteCard state={quoteState} />
+              </div>
+            )}
+          </section>
 
           {/* Rewards Progress */}
           <section
@@ -1210,9 +1215,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       Calculated at payment
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-line pt-3 text-base">
-                    <span className="font-bold text-ink">Total</span>
-                    <span className="text-lg font-bold text-ink">
+                  <div className="flex items-baseline justify-between border-t border-line pt-3">
+                    <span className="text-base font-bold text-ink">Total</span>
+                    <span className="text-xl font-bold text-brand">
                       {formatPrice(displayTotal)}
                     </span>
                   </div>
@@ -1261,13 +1266,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           )}
 
           {/* ── Your Details — signed-in summary + optional note ── */}
-          <section className="rounded-2xl border border-line bg-white p-4 sm:p-5">
+          <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
             <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-ink sm:text-base">
-                  Your Details
-                </h3>
-                <p className="mt-0.5 truncate text-sm text-ink2">
+                <SectionLabel>Your Details</SectionLabel>
+                <p className="mt-1.5 truncate text-sm font-medium text-ink">
                   {displayName}
                 </p>
                 <p className="text-xs text-ink3">{profile.phone_e164}</p>
@@ -1296,12 +1299,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           {/* Payment Method — hidden when the reward fully covers the order */}
           {!isFreeRedeem && (
             <>
-              <section>
-                <h3 className="mb-3 text-sm font-bold text-ink sm:mb-4 sm:text-base">
-                  Payment Method
-                </h3>
+              <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
+                <SectionLabel>Payment Method</SectionLabel>
 
-                <div className="flex flex-col gap-2.5 sm:gap-3">
+                <div className="mt-3.5 flex flex-col gap-2.5 sm:gap-3">
                   {applePayAvailable && (
                     <button
                       type="button"
@@ -1390,10 +1391,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         </div>
 
         {/* ── Right column: Order Summary (desktop) ── */}
-        <section className="hidden rounded-2xl border border-line bg-white p-4 sm:p-6 lg:block lg:self-start">
-          <h3 className="mb-4 text-lg font-bold text-ink sm:mb-5 sm:text-xl">
-            Order Summary
-          </h3>
+        <section className="hidden rounded-2xl border border-line bg-card p-4 sm:p-6 lg:block lg:sticky lg:top-6 lg:self-start">
+          <h2 className="mb-4 font-serif text-xl font-semibold tracking-[-0.02em] text-ink sm:mb-5">
+            Order summary
+          </h2>
 
           <ul className="space-y-5">
             {lines.map((line) => (
@@ -1558,9 +1559,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 Calculated at payment
               </span>
             </div>
-            <div className="flex justify-between border-t border-line pt-3 text-base">
-              <span className="font-bold text-ink">Total</span>
-              <span className="text-lg font-bold text-ink">
+            <div className="flex items-baseline justify-between border-t border-line pt-3">
+              <span className="text-base font-bold text-ink">Total</span>
+              <span className="text-2xl font-bold text-brand">
                 {formatPrice(displayTotal)}
               </span>
             </div>
@@ -1578,11 +1579,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
-            className="mt-6 w-full rounded-full py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={
               storeClosed
                 ? { backgroundColor: "#a1a1aa" }
-                : { backgroundColor: BRAND.primaryColor }
+                : payMethod === "apple"
+                  ? { backgroundColor: "#000000" }
+                  : payMethod === "google"
+                    ? { backgroundColor: "#1a1a1a" }
+                    : { backgroundColor: BRAND.primaryColor }
             }
           >
             {storeClosed
@@ -1598,16 +1603,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : isFreeRedeem
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
-                      ? "Pay with Apple Pay"
+                      ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
                       : payMethod === "google"
-                        ? "Pay with Google Pay"
+                        ? <><span>Pay with</span> <GoogleGLogo /> <span className="font-semibold">Pay</span></>
                         : cardReady
-                          ? "Place Order"
+                          ? `Pay ${formatPrice(displayTotal)}`
                           : "Loading payment…"}
           </button>
 
-          <p className="mt-3 text-center text-[11px] text-ink4">
-            By clicking &quot;Place Order&quot;, you agree to Mandy&apos;s{" "}
+          <p className="mt-3 text-center text-xs text-ink3">
+            You&apos;ll earn {starsThisOrder} ⭐ on this order
+          </p>
+          <p className="mt-2 text-center text-[11px] text-ink4">
+            By placing your order, you agree to Mandy&apos;s{" "}
             <a href="#" className="underline">Terms of Service</a>{" "}
             and <a href="#" className="underline">Privacy Policy</a>.
           </p>
@@ -1709,31 +1717,50 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 function CheckoutFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col">
-      <header
-        className="w-full px-4 py-6 sm:px-6 sm:py-8"
-        style={{ backgroundColor: BRAND.accentColor }}
-      >
-        <div className="mx-auto max-w-5xl">
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="mb-2 flex items-center gap-1 text-sm text-ink2 transition hover:text-ink"
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-10 pt-4 sm:px-6 lg:pt-10">
+        {/* Desktop keeps the focused stacked header; mobile uses the sticky
+            MobileAppBar (back + "Checkout" + cart) from the global chrome. */}
+        <div className="hidden lg:block">
+          <Link
+            href="/menu"
+            className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-ink2 transition hover:text-ink"
           >
-            <span aria-hidden="true">←</span> Back
-          </button>
-          <h1 className="font-serif text-[clamp(28px,4vw,40px)] font-semibold leading-[1.0] tracking-[-0.03em] text-ink">
+            <BackArrow /> Back to menu
+          </Link>
+          <h1 className="mb-8 font-serif text-[clamp(32px,5vw,44px)] font-semibold leading-[1.05] tracking-[-0.035em] text-ink">
             Checkout
           </h1>
-          <p className="mt-1.5 text-sm text-ink2">
-            Pickup or delivery — finalize your order below.
-          </p>
         </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         {children}
       </main>
     </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[12px] font-bold uppercase tracking-[0.1em] text-ink3">
+      {children}
+    </h3>
+  );
+}
+
+function BackArrow() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
   );
 }
 

@@ -2,10 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Star } from "lucide-react";
 import { getMenu, type MenuItem } from "@/lib/catalog";
-import { FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
+import { FRAGRANCE_BLIND_BOX_PROMO, STORE_PLACE_ID } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
 import { OrderModePopup } from "@/components/home/OrderModePopup";
+import { HeroCup } from "@/components/home/HeroCup";
+import { getStoreRating, type StoreRating } from "@/lib/store-rating";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
 import { FragranceBlindBoxPromo } from "@/components/home/FragranceBlindBoxPromo";
 
@@ -88,14 +90,16 @@ async function loadHomeData(): Promise<HomeData> {
 }
 
 export default async function Home() {
-  const { featured, review } = await loadHomeData();
-  const heroCup = HERO_CUPS[Math.floor(Math.random() * HERO_CUPS.length)];
+  const [{ featured, review }, storeRating] = await Promise.all([
+    loadHomeData(),
+    getStoreRating(),
+  ]);
 
   return (
     <div className="flex flex-1 flex-col">
       <WelcomeDiscountBanner />
       {FRAGRANCE_BLIND_BOX_PROMO && <FragranceBlindBoxPromo />}
-      <Hero heroCup={heroCup} review={review} />
+      <Hero review={review} storeRating={storeRating} />
       <Marquee />
       <Featured items={featured} />
       <StoryTeaser />
@@ -106,12 +110,35 @@ export default async function Home() {
   );
 }
 
+function GoogleGLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#34A853"
+        d="M10.53 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.99 23.99 0 0 0 0 24c0 3.77.9 7.35 2.56 10.53l7.97-5.94z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.94C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
 function Hero({
-  heroCup,
   review,
+  storeRating,
 }: {
-  heroCup: string;
   review: (typeof CUSTOMER_REVIEWS)[number];
+  storeRating: StoreRating | null;
 }) {
   return (
     <section className="px-5 pt-6 sm:px-8 sm:pt-14">
@@ -149,7 +176,7 @@ function Hero({
             {[
               ["7", "Drink families"],
               ["30+", "Signature drinks"],
-              ["4.9★", "Customer rating"],
+              [`${(storeRating?.rating ?? 4.4).toFixed(1)}★`, "Customer rating"],
             ].map(([v, l]) => (
               <div key={l}>
                 <div className="font-serif text-[30px] font-semibold tracking-[-0.5px] text-brand">
@@ -165,39 +192,101 @@ function Hero({
 
         {/* right visual */}
         <div className="relative grid place-items-center">
+          {/* soft warm spotlight — radial peach glow fading to nothing, no hard
+              edge, so the cup reads as lit from behind rather than stuck on a disc */}
           <div
-            className="absolute aspect-square w-[78%] rounded-full opacity-90 sm:w-[84%]"
+            className="absolute aspect-square w-[92%] rounded-full sm:w-[100%]"
             style={{
               background:
-                "radial-gradient(circle at 38% 32%, var(--color-peach), var(--color-brand) 78%)",
+                "radial-gradient(circle at 50% 42%, rgba(255,179,128,0.55), rgba(255,179,128,0.16) 46%, transparent 70%)",
+              filter: "blur(8px)",
             }}
           />
-          <div className="absolute aspect-square w-[62%] rounded-full border border-dashed border-white/40 sm:w-[68%]" />
+          {/* bright cream core so the cup pops off the glow */}
+          <div
+            className="absolute aspect-square w-[58%] rounded-full"
+            style={{
+              background:
+                "radial-gradient(circle at 50% 44%, rgba(255,243,222,0.72), transparent 70%)",
+              filter: "blur(6px)",
+            }}
+          />
+          {/* grounding shadow ellipse — cup reads as floating above a surface */}
+          <div
+            className="absolute bottom-[9%] left-1/2 h-[7%] w-[50%] -translate-x-1/2 rounded-[50%]"
+            style={{
+              background: "rgba(42,30,20,0.20)",
+              filter: "blur(12px)",
+            }}
+          />
           <div className="home-float relative z-[2] w-[72%] sm:w-[78%]">
-            <Image
-              src={heroCup}
-              alt="Mandy's Bubble Tea"
-              width={520}
-              height={520}
-              priority
-              className="h-auto w-full object-contain"
-              style={{ filter: "drop-shadow(0 30px 44px rgba(42,30,20,0.34))" }}
-            />
+            <HeroCup cups={HERO_CUPS} />
           </div>
-          {/* floating review card */}
-          <div className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[252px] items-center gap-3 rounded-[18px] bg-card p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-star">
-              <Star size={18} className="fill-current" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[12.5px] font-bold text-ink">
-                {review.author}
+          {/* floating rating card — live Google Maps store rating; falls back
+              to a static review if the rating can't be fetched */}
+          {storeRating ? (
+            <a
+              href={
+                storeRating.url ??
+                `https://www.google.com/maps/place/?q=place_id:${STORE_PLACE_ID}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Mandy's rated ${storeRating.rating.toFixed(1)} out of 5 from ${storeRating.total} Google reviews`}
+              className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[260px] items-center gap-2.5 rounded-[16px] bg-white p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)] ring-1 ring-black/[0.06] transition hover:-translate-y-0.5"
+            >
+              <GoogleGLogo className="h-[26px] w-[26px] shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-[11px] font-medium text-ink3">
+                  Google Rating
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[15px] font-bold leading-none text-[#202124]">
+                    {storeRating.rating.toFixed(1)}
+                  </span>
+                  <span className="flex items-center gap-px" aria-hidden="true">
+                    {[0, 1, 2, 3, 4].map((i) => {
+                      const fill = Math.max(
+                        0,
+                        Math.min(1, storeRating.rating - i),
+                      );
+                      return (
+                        <span key={i} className="relative inline-flex">
+                          <Star size={12} className="fill-[#E0E0E0] text-[#E0E0E0]" />
+                          <span
+                            className="absolute inset-0 overflow-hidden"
+                            style={{ width: `${fill * 100}%` }}
+                          >
+                            <Star
+                              size={12}
+                              className="fill-[#FBBC04] text-[#FBBC04]"
+                            />
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </span>
+                  <span className="text-[11px] text-ink3">
+                    ({storeRating.total.toLocaleString()})
+                  </span>
+                </span>
               </span>
-              <span className="block text-[12.5px] leading-snug text-ink3">
-                &ldquo;{review.text}&rdquo;
+            </a>
+          ) : (
+            <div className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[252px] items-center gap-3 rounded-[18px] bg-card p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-star">
+                <Star size={18} className="fill-current" />
               </span>
-            </span>
-          </div>
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-bold text-ink">
+                  {review.author}
+                </span>
+                <span className="block text-[12.5px] leading-snug text-ink3">
+                  &ldquo;{review.text}&rdquo;
+                </span>
+              </span>
+            </div>
+          )}
           {/* floating badge */}
           <div className="absolute right-[-1%] top-[8%] z-[3] flex items-center gap-2 rounded-full bg-card px-4 py-2.5 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
             <Star size={17} className="text-peach" />
@@ -324,14 +413,14 @@ function StoryTeaser() {
                   "radial-gradient(circle, rgba(255,179,128,.34), transparent 66%)",
               }}
             />
-            <div className="relative aspect-square w-[58%]">
+            <div className="relative aspect-square w-[82%]">
               <Image
-                src="/logo.webp"
-                alt="Mandy's"
+                src="/image/image_1.webp"
+                alt="Mona Lisa enjoying bubble tea"
                 fill
-                sizes="240px"
-                className="object-contain"
-                style={{ filter: "drop-shadow(0 22px 30px rgba(0,0,0,.45))" }}
+                sizes="(max-width: 768px) 320px, 400px"
+                className="rounded-[20px] object-contain"
+                style={{ filter: "drop-shadow(0 22px 34px rgba(0,0,0,.45))" }}
               />
             </div>
           </div>
@@ -382,7 +471,7 @@ function AppPromo() {
   return (
     <section className="mx-auto w-full max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
       <div
-        className="relative grid items-center gap-8 overflow-hidden rounded-[30px] p-10 sm:p-14 md:grid-cols-[1.3fr_1fr]"
+        className="relative overflow-hidden rounded-[30px] p-10 sm:p-14"
         style={{ background: "#2E1D12" }}
       >
         <div
@@ -407,23 +496,6 @@ function AppPromo() {
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <StoreBadge top="Download on the" big="App Store" />
-            <StoreBadge top="Get it on" big="Google Play" />
-          </div>
-        </div>
-        <div className="relative grid place-items-center">
-          <div
-            className="aspect-[9/19] w-[200px] rounded-[34px] p-2"
-            style={{ background: "#1d140d", boxShadow: "0 30px 60px rgba(0,0,0,.5)" }}
-          >
-            <div
-              className="flex h-full w-full flex-col items-center justify-center gap-3.5 rounded-[27px] p-4 text-center"
-              style={{ background: "linear-gradient(160deg,#F2E8DF,#E8DAC6)" }}
-            >
-              <Image src="/logo.webp" alt="Mandy's" width={70} height={70} />
-              <span className="text-[11px] font-semibold text-ink3">
-                Order on the go
-              </span>
-            </div>
           </div>
         </div>
       </div>

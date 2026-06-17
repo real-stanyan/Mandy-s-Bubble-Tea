@@ -24,6 +24,8 @@ function resolveBar(pathname: string): Bar {
     return { kind: "title", title: "Menu", subtitle: "Mandy's · Southport" };
   if (pathname.startsWith("/menu/"))
     return { kind: "back", title: "Menu", backHref: "/menu" };
+  if (pathname === "/checkout" || pathname.startsWith("/checkout/"))
+    return { kind: "back", title: "Checkout", backHref: "/menu" };
   if (pathname.startsWith("/account/orders"))
     return { kind: "title", title: "Orders", subtitle: "Mandy's · Southport" };
   if (pathname.startsWith("/account")) return { kind: "title", title: "Account" };

@@ -56,13 +56,27 @@ export function SiteFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
           {/* Brand */}
           <div>
-            <Image
-              src="/logo.webp"
-              width={160}
-              height={64}
-              alt="Mandy's"
-              className="h-[50px] w-auto opacity-95 brightness-0 invert"
-            />
+            {/* Colored logo straight on the dark footer (no white box). A soft
+                warm halo lifts the dark hair off the near-black background so
+                the mark stays legible without inverting it to a white blob. */}
+            <span className="relative inline-flex">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -inset-x-4 -inset-y-3 rounded-full"
+                style={{
+                  background:
+                    "radial-gradient(60% 60% at 35% 50%, rgba(255,179,128,0.22), transparent 72%)",
+                }}
+              />
+              <Image
+                src="/logo.webp"
+                width={160}
+                height={75}
+                alt="Mandy's Bubble Tea"
+                className="relative h-[46px] w-auto"
+                style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.45))" }}
+              />
+            </span>
             <p className="mt-4 max-w-[300px] text-[14px] leading-relaxed text-white/60">
               Silky milk teas and chewy pearls, shaken to order — a
               neighbourhood bubble tea spot on the Gold Coast.
