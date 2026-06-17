@@ -2,7 +2,7 @@
 import "server-only";
 import type { Order, OrderLineItem, OrderLineItemModifier } from "square";
 import { getSupabaseAdmin } from "./supabase-server";
-import { looksLikePhoneNumber } from "./sticker-number";
+import { isUsableOrderTicketName } from "./sticker-number";
 import type { ModifierBucket } from "./modifier-buckets";
 
 type CupRow = {
@@ -68,12 +68,14 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   // customer's receipt / ticket dispenser, so the cup sticker matches.
   //
   // Exception: Square Register names the ticket after the attached
-  // customer's PHONE NUMBER when a member is left attached to the order
-  // ("auto-logged-in member"). We must never print a raw phone number on
-  // a public cup sticker — staff can't match it to an order and it leaks
-  // the customer's phone. Treat a phone-like ticketName as "no usable
-  // ticketName" and fall through to the store counter. (2026-05-31
-  // incident: a cup printed "+61451519606" instead of an order number.)
+  // customer when a member is left attached to the order
+  // ("auto-logged-in member") — either their PHONE NUMBER (2026-05-31
+  // incident: a cup printed "+61451519606") or their NAME ("Mao Sasaki").
+  // Neither belongs in the number slot: a phone leaks PII and staff can't
+  // match it, and a name belongs in the "Hi, {name}" greeting (the cup
+  // label's left column). isUsableOrderTicketName accepts only ticketNames
+  // that carry a digit (real ticket / order numbers) and rejects both
+  // shapes, falling through to the store counter for the printed number.
   //
   // Fallback: our own daily store counter (next_store_order_number,
   // resets daily Brisbane). Emitted as a plain number to match the look
@@ -86,7 +88,7 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   let stickerNumber: string;
   const admin = getSupabaseAdmin();
   const usableTicketName =
-    order.ticketName && !looksLikePhoneNumber(order.ticketName) ? order.ticketName : null;
+    order.ticketName && isUsableOrderTicketName(order.ticketName) ? order.ticketName : null;
   if (usableTicketName) {
     stickerNumber = usableTicketName;
   } else if (source === "web") {
@@ -98,7 +100,7 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     }
     stickerNumber = String(Number(data));
     const reason = order.ticketName
-      ? `phone-like ticketName "${order.ticketName}" (attached member)`
+      ? `unusable ticketName "${order.ticketName}" (phone or customer name from attached member)`
       : "no ticketName";
     console.warn(
       `[print-jobs] POS order ${order.id} ${reason}; fell back to store counter (${stickerNumber}). Check Square Register "Assign ticket numbers" + attached-customer.`,
