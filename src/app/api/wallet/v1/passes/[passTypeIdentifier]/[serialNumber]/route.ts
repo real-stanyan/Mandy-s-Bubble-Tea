@@ -25,18 +25,33 @@ export async function GET(request: Request, ctx: Ctx) {
     }
   }
 
-  const data = await fetchCustomerPassData(pass.customer_id)
-  const buffer = await buildPass({
-    serialNumber: pass.serial_number,
-    authToken: pass.auth_token,
-    memberNumber: pass.member_number,
-    memberName: data.memberName,
-    memberSince: data.memberSince,
-    phoneE164: data.phoneE164,
-    stars: data.stars,
-    lifetimePoints: data.lifetimePoints,
-    availableRewards: data.availableRewards,
-  })
+  // passd polls this endpoint to refresh the pass. If the downstream Square
+  // calls fail — most commonly RATE_LIMITED (429) under a poll burst — bubbling
+  // a 500 makes the device retry aggressively and amplifies the rate-limit
+  // storm. Instead, answer 304 (Not Modified): the device keeps its current
+  // pass and backs off to its normal poll cadence. The error is logged for
+  // Vercel/Sentry visibility but does not escalate.
+  let buffer: Buffer
+  try {
+    const data = await fetchCustomerPassData(pass.customer_id)
+    buffer = await buildPass({
+      serialNumber: pass.serial_number,
+      authToken: pass.auth_token,
+      memberNumber: pass.member_number,
+      memberName: data.memberName,
+      memberSince: data.memberSince,
+      phoneE164: data.phoneE164,
+      stars: data.stars,
+      lifetimePoints: data.lifetimePoints,
+      availableRewards: data.availableRewards,
+    })
+  } catch (err) {
+    console.error(
+      `[wallet/pass] failed to build pass for serial=${serialNumber}; answering 304 to avoid retry storm`,
+      err,
+    )
+    return new Response(null, { status: 304 })
+  }
 
   return new Response(new Uint8Array(buffer), {
     headers: {
