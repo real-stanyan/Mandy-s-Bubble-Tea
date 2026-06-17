@@ -425,12 +425,29 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     if (isPosOrder) {
       // In-store POS: the webhook is the SOLE enqueuer (no payment route),
       // so print immediately. Each cup gets a random lucky cat by design.
+      //
+      // Greeting name: when a member is attached, fetch their first name so
+      // the label's left column reads "Hi, {name}" (mirrors the web/app
+      // path, which passes the logged-in profile's first_name). The
+      // customer's name no longer prints in the number slot — see
+      // print-jobs `isUsableOrderTicketName`. Non-fatal: any failure (no
+      // attached customer / Square error) leaves it null → "Hi, Soul".
+      let posFirstName: string | null = null;
+      if (order.customerId) {
+        try {
+          const custRes = await squareClient.customers.get({ customerId: order.customerId });
+          posFirstName = custRes?.customer?.givenName?.trim() || null;
+        } catch (e) {
+          console.error("[cup-label] POS customer fetch for greeting failed (non-fatal)", e);
+        }
+      }
       try {
         const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
         await enqueueCupLabelJobs({
           order,
           stickerNumber: result.stickerNumber,
           mode: "pos",
+          customerFirstName: posFirstName,
         });
       } catch (e) {
         console.error("[cup-label] POS enqueue failed (non-fatal)", e);

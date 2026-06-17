@@ -25,6 +25,28 @@ describe("Zebra cup-label compositor", () => {
     expect(out.zpl).toContain("Pearl Milk Tea"); // drink name
   });
 
+  it("POS fix: customer name goes to the greeting, a numeric order number to the right slot", async () => {
+    // Regression for the "Hi, Soul" / "Mao Sasaki · 1/1" mismap: a POS
+    // order with an attached member should read "Hi, {firstName}" on the
+    // left and a plain number on the right — NOT the customer's name in
+    // the number slot, NOT the "Soul" fallback greeting.
+    const out = await renderCupLabel({
+      stickerNumber: "47", // store-counter number (no longer the ticket NAME)
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Guava Iced Green Tea",
+      modifiersText: "Lychee Jelly",
+      doodleSvg: POOL[0].svg,
+      customerFirstName: "Mao", // first name from the attached Square customer
+    });
+    expect(out.zpl).toContain("Hi, Mao"); // greeting carries the name
+    expect(out.zpl).not.toContain("Hi, Soul"); // not the empty-name fallback
+    expect(out.zpl).toContain("47 · 1/1"); // right slot = number · cupFrac
+    // The right-column ^FD must carry the number, never the customer name.
+    const rightField = out.zpl.split("\n").find((l) => l.includes("· 1/1"))!;
+    expect(rightField).toContain("47");
+    expect(rightField).not.toContain("Mao");
+  });
+
   it("escapes ZPL control chars in user content", async () => {
     const out = await renderCupLabel({
       stickerNumber: "OL000",
