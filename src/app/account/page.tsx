@@ -52,8 +52,16 @@ export default function AccountPage() {
   }, [userId]);
 
   const { activeOrders, pastOrders } = useMemo(() => {
-    const active = orders.filter((o) => o.state === "OPEN");
-    const past = orders.filter((o) => o.state !== "OPEN");
+    // Server-computed `active` = OPEN + placed today (Brisbane) + not yet
+    // fulfilled. Self-delivery orders keep Square state=OPEN forever, so
+    // splitting on `state` left delivered orders pinned to "In Progress"
+    // (Jorja Grant 06-14/06-15 — delivered + accrued but still showing in
+    // progress). Trust the server flag; fall back to state for any legacy
+    // payload that predates the field.
+    const isActive = (o: OrderHistoryItem) =>
+      o.active === undefined ? o.state === "OPEN" : o.active === true;
+    const active = orders.filter(isActive);
+    const past = orders.filter((o) => !isActive(o));
     return { activeOrders: active, pastOrders: past };
   }, [orders]);
 

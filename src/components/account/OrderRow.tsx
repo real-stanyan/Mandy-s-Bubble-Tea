@@ -23,7 +23,7 @@ export type OrderHistoryItem = {
 };
 
 export function OrderRow({ order }: { order: OrderHistoryItem }) {
-  const stateKey = effectiveState(order.state, order.fulfillmentState);
+  const stateKey = effectiveState(order);
   const badge = STATE_STYLES[stateKey];
   const isDelivery = order.fulfillmentType === "DELIVERY";
 
@@ -83,12 +83,25 @@ export function OrderRow({ order }: { order: OrderHistoryItem }) {
   );
 }
 
-function effectiveState(
-  state: string | null,
-  fulfillmentState: string | null,
-): string {
-  if (state === "OPEN" && fulfillmentState === "PREPARED") return "READY";
-  return state ?? "";
+// Map an order to a badge key. Self-delivery orders keep Square state=OPEN
+// forever (PICKUP fulfillment tagged DELIVERY), so a delivered order is still
+// state=OPEN — keying off `state` alone pins it to "In Progress". Prefer the
+// server-computed `active` flag (OPEN + placed today + not yet fulfilled):
+//   • active + PREPARED → Ready
+//   • active           → In Progress
+//   • not active       → Completed (delivered / fulfilled / stale OPEN)
+// Canceled always wins. Legacy payloads without `active` fall back to state.
+function effectiveState(order: OrderHistoryItem): string {
+  if (order.state === "CANCELED") return "CANCELED";
+  if (order.active === undefined) {
+    if (order.state === "OPEN" && order.fulfillmentState === "PREPARED")
+      return "READY";
+    return order.state ?? "";
+  }
+  if (order.active) {
+    return order.fulfillmentState === "PREPARED" ? "READY" : "OPEN";
+  }
+  return "COMPLETED";
 }
 
 const STATE_STYLES: Record<string, { label: string; className: string }> = {
