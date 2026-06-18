@@ -13,16 +13,13 @@ import {
   platformFee,
   publicHolidaySurcharge,
   type CartLine,
-  type CupLabelSelection,
 } from "@/store/cart";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
-import { LabelPicker } from "@/components/checkout/LabelPicker";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { CartCupLabels } from "@/components/cart/CartCupLabels";
 
 // Right-side slide-out drawer. Mounted once in the root layout so it's
 // available from every page. Backdrop click and ESC close the drawer.
@@ -39,10 +36,6 @@ export function CartDrawer() {
   const closeDrawer = useCart((s) => s.closeDrawer);
   const setQuantity = useCart((s) => s.setQuantity);
   const removeLine = useCart((s) => s.removeLine);
-  const labelSelections = useCart((s) => s.labelSelections);
-  const setLabel = useCart((s) => s.setLabel);
-  const clearLabel = useCart((s) => s.clearLabel);
-  const cartSessionId = useCart((s) => s.cartSessionId);
 
   // Close on ESC.
   useEffect(() => {
@@ -124,10 +117,6 @@ export function CartDrawer() {
           closeDrawer={closeDrawer}
           setQuantity={setQuantity}
           removeLine={removeLine}
-          labelSelections={labelSelections}
-          setLabel={setLabel}
-          clearLabel={clearLabel}
-          cartSessionId={cartSessionId}
         />
       </aside>
     </div>
@@ -143,19 +132,11 @@ function CartBody({
   closeDrawer,
   setQuantity,
   removeLine,
-  labelSelections,
-  setLabel,
-  clearLabel,
-  cartSessionId,
 }: {
   lines: CartLine[];
   closeDrawer: () => void;
   setQuantity: (id: string, q: number) => void;
   removeLine: (id: string) => void;
-  labelSelections: Record<string, CupLabelSelection>;
-  setLabel: (cupKey: string, selection: CupLabelSelection) => void;
-  clearLabel: (cupKey: string) => void;
-  cartSessionId: string;
 }) {
   const {
     profile,
@@ -166,14 +147,9 @@ function CartBody({
     starsPerReward: authStarsPerReward,
   } = useAuth();
 
-  // Per-cup label picker — single modal instance covers all lines, the
-  // pickerCupKey state tracks which cup is currently being edited. Cup
-  // labels are optional: a cup left untouched carries no selection and the
-  // server prints a random lucky cat for it (no pre-fill here).
-  const [pickerCupKey, setPickerCupKey] = useState<string | null>(null);
-  const pickerCurrent: CupLabelSelection | undefined = pickerCupKey
-    ? labelSelections[pickerCupKey]
-    : undefined;
+  // Cup-label customization lives on /checkout (CupLabelSection) — the cart
+  // drawer just lists what's in the cart. Labels stay optional; an untouched
+  // cup prints a random lucky cat server-side.
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const stars = loyalty?.balance ?? 0;
@@ -264,7 +240,6 @@ function CartBody({
                   line={line}
                   onQuantityChange={(q) => setQuantity(line.id, q)}
                   onRemove={() => removeLine(line.id)}
-                  onPickerOpen={setPickerCupKey}
                 />
               ))}
             </div>
@@ -288,25 +263,6 @@ function CartBody({
           authLoading={authLoading}
         />
       )}
-
-      {/* Single LabelPicker instance shared across every line — slotKey
-          switches as the user taps a different cup. */}
-      <LabelPicker
-        open={pickerCupKey !== null}
-        onOpenChange={(open) => {
-          if (!open) setPickerCupKey(null);
-        }}
-        slotKey={pickerCupKey ?? ""}
-        cartSessionId={cartSessionId}
-        isSignedIn={!!profile}
-        current={pickerCurrent}
-        onSelect={(selection) => {
-          if (pickerCupKey) setLabel(pickerCupKey, selection);
-        }}
-        onClear={() => {
-          if (pickerCupKey) clearLabel(pickerCupKey);
-        }}
-      />
     </>
   );
 }
@@ -393,12 +349,10 @@ const CartLineRow = memo(function CartLineRow({
   line,
   onQuantityChange,
   onRemove,
-  onPickerOpen,
 }: {
   line: CartLine;
   onQuantityChange: (q: number) => void;
   onRemove: () => void;
-  onPickerOpen: (cupKey: string) => void;
 }) {
   const total = lineTotal(line);
   const details = [
@@ -453,10 +407,6 @@ const CartLineRow = memo(function CartLineRow({
             Remove
           </button>
         </div>
-
-        {/* Per-cup label picker entry — auto-fills random preset on first
-            drawer open, tap any cup to swap design / draw / AI / photo. */}
-        <CartCupLabels line={line} onPickerOpen={onPickerOpen} />
       </div>
     </div>
   );
