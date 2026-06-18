@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import {
   useCart,
   lineTotal,
@@ -537,6 +538,13 @@ function CartFooter({
   const subtotal = cartSubtotal(lines);
   const closeDrawer = useCart((s) => s.closeDrawer);
 
+  // Fees + tax collapse into a tappable disclosure so the footer can't grow
+  // tall enough to bury the cart items above it (a single drink was almost
+  // entirely scrolled off on short viewports). Subtotal, any discounts, and
+  // the Total stay visible; the small add-on fees hide by default.
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const feesTotal = phSurchargeAmount + platformFeeAmount + surchargeAmount;
+
   // Ordering window — poll /api/store-status every 30s so the button flips
   // at the 22:15 cutoff (or pos_backup_mode toggle) while the drawer is
   // open. Server gate at /api/orders is authoritative; this is display-only.
@@ -626,47 +634,77 @@ function CartFooter({
               </span>
             </div>
           )}
-        {phSurchargeAmount > 0n && (
-          <div className="flex justify-between text-sm text-ink2">
-            <span>
-              {PH_SURCHARGE.name}{" "}
-              <span className="text-xs text-ink4">({PH_SURCHARGE.percentage}%)</span>
-            </span>
-            <span className="font-semibold text-ink">
-              {formatPrice(phSurchargeAmount)}
-            </span>
-          </div>
-        )}
-        {platformFeeAmount > 0n && (
-          <div className="flex justify-between text-sm text-ink2">
-            <span>
-              {PLATFORM_FEE.name}{" "}
-              <span className="text-xs text-ink4">({PLATFORM_FEE.percentage}%)</span>
-            </span>
-            <span className="font-semibold text-ink">
-              {formatPrice(platformFeeAmount)}
-            </span>
-          </div>
-        )}
-        {surchargeAmount > 0n && (
-          <div className="flex justify-between text-sm text-ink2">
-            <span>
-              {CARD_SURCHARGE.name}{" "}
-              <span className="text-xs text-ink4">
-                ({CARD_SURCHARGE.percentage}%)
-              </span>
-            </span>
-            <span className="font-semibold text-ink">
-              {formatPrice(surchargeAmount)}
-            </span>
-          </div>
-        )}
-        <div className="flex justify-between text-sm text-ink2">
-          <span>Tax</span>
-          <span className="font-semibold text-ink">
-            At checkout
+        {/* Fees & tax — collapsed by default so they can't push the cart
+            items off-screen. Tap to reveal the per-line breakdown. */}
+        <button
+          type="button"
+          onClick={() => setShowBreakdown((v) => !v)}
+          aria-expanded={showBreakdown}
+          className="flex w-full items-center justify-between text-sm text-ink2 transition hover:text-ink"
+        >
+          <span className="flex items-center gap-1">
+            Fees &amp; tax
+            <ChevronDown
+              size={14}
+              className={`text-ink4 transition-transform ${
+                showBreakdown ? "rotate-180" : ""
+              }`}
+            />
           </span>
-        </div>
+          {!showBreakdown && (
+            <span className="text-xs text-ink3">
+              {feesTotal > 0n ? `+${formatPrice(feesTotal)} · ` : ""}tax at
+              checkout
+            </span>
+          )}
+        </button>
+        {showBreakdown && (
+          <div className="space-y-2 pl-0.5">
+            {phSurchargeAmount > 0n && (
+              <div className="flex justify-between text-sm text-ink2">
+                <span>
+                  {PH_SURCHARGE.name}{" "}
+                  <span className="text-xs text-ink4">
+                    ({PH_SURCHARGE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-ink">
+                  {formatPrice(phSurchargeAmount)}
+                </span>
+              </div>
+            )}
+            {platformFeeAmount > 0n && (
+              <div className="flex justify-between text-sm text-ink2">
+                <span>
+                  {PLATFORM_FEE.name}{" "}
+                  <span className="text-xs text-ink4">
+                    ({PLATFORM_FEE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-ink">
+                  {formatPrice(platformFeeAmount)}
+                </span>
+              </div>
+            )}
+            {surchargeAmount > 0n && (
+              <div className="flex justify-between text-sm text-ink2">
+                <span>
+                  {CARD_SURCHARGE.name}{" "}
+                  <span className="text-xs text-ink4">
+                    ({CARD_SURCHARGE.percentage}%)
+                  </span>
+                </span>
+                <span className="font-semibold text-ink">
+                  {formatPrice(surchargeAmount)}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm text-ink2">
+              <span>Tax</span>
+              <span className="font-semibold text-ink">At checkout</span>
+            </div>
+          </div>
+        )}
       </div>
       <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">
         <span className="text-base font-bold text-ink">Total Price</span>
@@ -678,58 +716,59 @@ function CartFooter({
         </span>
       </div>
 
-      {storeClosed ? (
-        <button
-          type="button"
-          disabled
-          className="mt-5 w-full cursor-not-allowed rounded-full bg-bg2 py-3.5 text-base font-semibold text-ink4"
-        >
-          Orders closed · {orderingStatus?.nextLabel ?? ""}
-        </button>
-      ) : authLoading ? (
-        // Skeleton so the unauth CTA doesn't flash in front of an
-        // already-signed-in user before /api/me resolves.
-        <div
-          className="mt-5 h-[52px] w-full animate-pulse rounded-full bg-paper"
-          aria-hidden="true"
-        />
-      ) : !hasProfile ? (
-        // Not signed in — CTA routes to /checkout where SignInCard
-        // guides the user.
+      {/* Actions sit side-by-side to keep the footer short: secondary
+          "Continue shopping" on the left, primary CTA on the right. */}
+      <div className="mt-5 flex items-stretch gap-3">
         <Link
-          href="/checkout"
+          href="/menu"
           onClick={closeDrawer}
-          className="mt-5 block w-full rounded-full bg-brand py-3.5 text-center text-base font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
+          className="flex flex-1 items-center justify-center whitespace-nowrap rounded-full border border-line bg-card px-3 py-3.5 text-center text-sm font-semibold text-ink2 transition hover:bg-paper"
         >
-          Sign in to checkout
+          Continue shopping
         </Link>
-      ) : (
-        <>
-          {/* Single payment path — everything pays on /checkout (wallet
-              buttons included), so totals/labels/promos can't drift between
-              two implementations. */}
+
+        {storeClosed ? (
+          <button
+            type="button"
+            disabled
+            className="flex flex-1 cursor-not-allowed items-center justify-center whitespace-nowrap rounded-full bg-bg2 px-3 py-3.5 text-center text-sm font-semibold text-ink4"
+          >
+            Orders closed
+          </button>
+        ) : authLoading ? (
+          // Skeleton so the unauth CTA doesn't flash in front of an
+          // already-signed-in user before /api/me resolves.
+          <div
+            className="flex-1 animate-pulse rounded-full bg-paper"
+            aria-hidden="true"
+          />
+        ) : !hasProfile ? (
+          // Not signed in — CTA routes to /checkout where SignInCard
+          // guides the user. Single payment path: everything pays on
+          // /checkout (wallet buttons included) so totals/labels/promos
+          // can't drift between two implementations.
           <Link
             href="/checkout"
             onClick={closeDrawer}
-            className="mt-5 block w-full rounded-full bg-brand py-3.5 text-center text-base font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
+            className="flex flex-1 items-center justify-center whitespace-nowrap rounded-full bg-brand px-3 py-3.5 text-center text-sm font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
+          >
+            Sign in to checkout
+          </Link>
+        ) : (
+          <Link
+            href="/checkout"
+            onClick={closeDrawer}
+            className="flex flex-1 items-center justify-center whitespace-nowrap rounded-full bg-brand px-3 py-3.5 text-center text-sm font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.99]"
           >
             Checkout
           </Link>
-          <p className="mt-2 text-center text-xs text-ink3">
-            Pickup or delivery? Choose at checkout →
-          </p>
-        </>
+        )}
+      </div>
+      {!storeClosed && !authLoading && hasProfile && (
+        <p className="mt-2 text-center text-xs text-ink3">
+          Pickup or delivery? Choose at checkout →
+        </p>
       )}
-
-      {/* Secondary action in every footer state (open / closed / guest) —
-          closes the drawer and heads back to the menu to add more drinks. */}
-      <Link
-        href="/menu"
-        onClick={closeDrawer}
-        className="mt-3 block w-full rounded-full border border-line bg-card py-3 text-center text-sm font-semibold text-ink2 transition hover:bg-paper"
-      >
-        Continue shopping
-      </Link>
     </footer>
   );
 }
