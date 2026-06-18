@@ -3,14 +3,17 @@ import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { isAuthedDriver } from "@/lib/driver-auth";
 import { recordDispatch } from "@/lib/driver-tokens";
+import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 
-// Driver marks a delivery order picked up / delivered.
+// Driver advances a delivery order: accept → picked up → delivered.
 //
-// We flip the Square fulfillment state (so the order moves through the POS
-// the same way staff would advance it) AND record a delivery_dispatch row
-// (who drove it + timestamps). The Square write is the source of truth for
-// the order's lifecycle; the dispatch row is delivery-specific bookkeeping.
+// "accepted" CAPTURES the held card authorization — the moment the customer is
+// actually charged (Mandy Delivery holds funds at checkout, charges on accept).
+// "picked_up"/"delivered" flip the Square fulfillment state (so the order moves
+// through the POS like staff would advance it). Each touch also records a
+// delivery_dispatch row (who drove it + timestamps).
 //
+//   action "accepted"  → payments.complete (charge); fulfillment stays PROPOSED
 //   action "picked_up" → fulfillment PREPARED
 //   action "delivered" → fulfillment COMPLETED
 
@@ -21,7 +24,9 @@ const ACTION_TO_STATE = {
   delivered: "COMPLETED",
 } as const;
 
-type Action = keyof typeof ACTION_TO_STATE;
+type FulfillmentAction = keyof typeof ACTION_TO_STATE;
+type Action = "accepted" | FulfillmentAction;
+const VALID_ACTIONS: readonly Action[] = ["accepted", "picked_up", "delivered"];
 
 export async function POST(
   request: Request,
@@ -53,9 +58,12 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
   const action = body.action as Action | undefined;
-  if (!action || !(action in ACTION_TO_STATE)) {
+  if (!action || !VALID_ACTIONS.includes(action)) {
     return NextResponse.json(
-      { ok: false, error: "action must be 'picked_up' or 'delivered'" },
+      {
+        ok: false,
+        error: "action must be 'accepted', 'picked_up' or 'delivered'",
+      },
       { status: 400 },
     );
   }
@@ -77,6 +85,49 @@ export async function POST(
         { ok: false, error: "not a delivery order" },
         { status: 409 },
       );
+    }
+
+    // "Accept" captures the held card authorization — the moment the customer
+    // is actually charged. The drink is still being made, so the fulfillment
+    // stays PROPOSED; only the money moves. Idempotent: a re-tap when the
+    // tender is already CAPTURED is a no-op success.
+    if (action === "accepted") {
+      const tender = order.tenders?.find((t) => t.cardDetails?.status);
+      const paymentId = tender?.id;
+      const tenderStatus = tender?.cardDetails?.status;
+      if (!paymentId) {
+        return NextResponse.json(
+          { ok: false, error: "no card authorization to capture" },
+          { status: 409 },
+        );
+      }
+      if (tenderStatus === "AUTHORIZED") {
+        await squareClient.payments.complete({ paymentId });
+        // Burn any first-order discount now that the charge is real — the
+        // payment route deferred this for delivery orders.
+        await consumeOrderDiscounts(order).catch((e) =>
+          console.error(
+            "[driver/status] discount consume failed (non-fatal)",
+            e,
+          ),
+        );
+      } else if (tenderStatus !== "CAPTURED") {
+        // VOIDED (timed-out / cancelled) or another terminal state.
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `cannot accept: authorization is ${tenderStatus}`,
+          },
+          { status: 409 },
+        );
+      }
+      await recordDispatch({
+        orderId,
+        orderNumber: order.referenceId ?? order.ticketName ?? null,
+        status: "accepted",
+        driverLabel: body.driverLabel ?? null,
+      });
+      return NextResponse.json({ ok: true, captured: true });
     }
 
     const nextState = ACTION_TO_STATE[action];

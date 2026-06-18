@@ -2,11 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockOrdersGet = vi.fn()
 const mockOrdersUpdate = vi.fn()
+const mockPaymentsComplete = vi.fn()
 vi.mock("@/lib/square", () => ({
   squareClient: {
     orders: {
       get: (...a: unknown[]) => mockOrdersGet(...a),
       update: (...a: unknown[]) => mockOrdersUpdate(...a),
+    },
+    payments: {
+      complete: (...a: unknown[]) => mockPaymentsComplete(...a),
     },
   },
   SQUARE_LOCATION_ID: "L1",
@@ -14,6 +18,10 @@ vi.mock("@/lib/square", () => ({
 const mockRecordDispatch = vi.fn()
 vi.mock("@/lib/driver-tokens", () => ({
   recordDispatch: (...a: unknown[]) => mockRecordDispatch(...a),
+}))
+const mockConsumeDiscounts = vi.fn()
+vi.mock("@/lib/consume-order-discounts", () => ({
+  consumeOrderDiscounts: (...a: unknown[]) => mockConsumeDiscounts(...a),
 }))
 
 import { POST } from "./route"
@@ -61,5 +69,67 @@ describe("POST /api/driver/orders/[orderId]/status — admin guard", () => {
     const res = await POST(req("driver-secret", { action: "picked_up" }), { params })
     expect(res.status).toBe(200)
     expect(mockRecordDispatch).toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.STAFF_DELIVERY_TOKEN = "driver-secret"
+    process.env.ADMIN_DELIVERY_TOKEN = "admin-secret"
+    mockConsumeDiscounts.mockResolvedValue(undefined)
+  })
+
+  const orderWithTender = (tenderStatus: string | null) => ({
+    order: {
+      id: "O1",
+      version: 2,
+      metadata: { fulfillment_type: "DELIVERY" },
+      fulfillments: [{ uid: "F1", state: "PROPOSED" }],
+      referenceId: "DE821",
+      tenders: tenderStatus
+        ? [{ id: "PAY1", cardDetails: { status: tenderStatus } }]
+        : [],
+    },
+  })
+
+  it("captures an AUTHORIZED hold, consumes discounts, records accepted — no fulfillment change", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender("AUTHORIZED"))
+    mockPaymentsComplete.mockResolvedValue({})
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json()).captured).toBe(true)
+    expect(mockPaymentsComplete).toHaveBeenCalledWith({ paymentId: "PAY1" })
+    expect(mockConsumeDiscounts).toHaveBeenCalled()
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "accepted" }),
+    )
+    // fulfillment state must NOT move on accept
+    expect(mockOrdersUpdate).not.toHaveBeenCalled()
+  })
+
+  it("is idempotent when already CAPTURED — no second charge", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender("CAPTURED"))
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(200)
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "accepted" }),
+    )
+  })
+
+  it("409s a VOIDED (timed-out) authorization without charging", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender("VOIDED"))
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(409)
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).not.toHaveBeenCalled()
+  })
+
+  it("409s when there is no card authorization to capture", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender(null))
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(409)
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
   })
 })

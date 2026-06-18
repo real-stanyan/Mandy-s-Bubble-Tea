@@ -47,7 +47,11 @@ export async function getAllDriverPushTokens(): Promise<string[]> {
   return (data ?? []).map((r) => r.token as string);
 }
 
-export type DispatchStatus = "pending" | "picked_up" | "delivered";
+export type DispatchStatus =
+  | "pending"
+  | "accepted"
+  | "picked_up"
+  | "delivered";
 
 /**
  * Record a delivery lifecycle transition. Upsert keyed on order_id so the
@@ -69,6 +73,7 @@ export async function recordDispatch(args: {
     driver_label: args.driverLabel ?? null,
     updated_at: now,
   };
+  if (args.status === "accepted") row.accepted_at = now;
   if (args.status === "picked_up") row.picked_up_at = now;
   if (args.status === "delivered") row.delivered_at = now;
 
