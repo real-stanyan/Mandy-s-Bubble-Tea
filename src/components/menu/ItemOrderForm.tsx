@@ -434,7 +434,7 @@ export function ItemOrderForm({
           type="button"
           onClick={handleAdd}
           disabled={!canAdd}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold text-white transition ${
+          className={`flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 py-3.5 text-sm font-semibold text-white transition ${
             canAdd ? "hover:opacity-90" : "cursor-not-allowed opacity-50"
           }`}
           style={{ backgroundColor: BRAND.primaryColor }}
