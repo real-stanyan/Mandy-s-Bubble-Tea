@@ -3,6 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { ItemModalCloseContext } from "@/components/menu/ItemModalContext";
 
 // Client dialog shell for the intercepted item route. Renders a backdrop +
 // centered card; dismissing (backdrop click, close button, Escape) pops the
@@ -49,7 +50,9 @@ export function ItemModal({ children }: { children: React.ReactNode }) {
         >
           <X size={18} />
         </button>
-        {children}
+        <ItemModalCloseContext.Provider value={close}>
+          {children}
+        </ItemModalCloseContext.Provider>
       </div>
     </div>
   );

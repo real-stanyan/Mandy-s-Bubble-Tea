@@ -11,6 +11,7 @@ import type {
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
 import { isLockedToppingName, lockedModifierIds } from "@/lib/menu/top10-presets";
+import { useItemModalClose } from "@/components/menu/ItemModalContext";
 
 type Props = {
   item: MenuItem;
@@ -83,6 +84,10 @@ export function ItemOrderForm({
   displayName,
 }: Props) {
   const addLine = useCart((s) => s.addLine);
+  // Non-null only when rendered inside the item modal — dismiss it after a
+  // successful add so the shopper returns to the menu (the full-route page has
+  // no provider, so add-to-cart stays put there).
+  const closeModal = useItemModalClose();
 
   const [variationId, setVariationId] = useState<string>(
     (item.variations.find((v) => !v.soldOut) ?? item.variations[0])?.id ?? "",
@@ -274,6 +279,9 @@ export function ItemOrderForm({
 
     setSelectedByList(buildDefaults(modifierLists, lockedToppings));
     setQuantity(1);
+
+    // Inside the modal: dismiss it so the shopper drops back to the menu.
+    closeModal?.();
   }
 
   return (
