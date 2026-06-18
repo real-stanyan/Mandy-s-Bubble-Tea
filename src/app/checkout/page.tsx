@@ -33,6 +33,8 @@ import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { OrderBlockedDialog } from "@/components/checkout/OrderBlockedDialog";
+import { classifyOrderBlock, type OrderBlock } from "@/lib/checkout/order-block";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
@@ -138,6 +140,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  // Delivery eligibility rejections from /api/orders surface here instead of
+  // the payment-failed dialog — they're not payment failures and "Retry"
+  // wouldn't help (see classifyOrderBlock).
+  const [orderBlock, setOrderBlock] = useState<OrderBlock | null>(null);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("PICKUP");
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddress>({
     address: "",
@@ -889,7 +895,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           sdkReady,
         },
       });
-      setPaymentError(described.message);
+      // Delivery eligibility gates (minimum order, hours, zone, address) are
+      // not payment failures — show an actionable dialog instead of "Retry".
+      const block = classifyOrderBlock(described.message, subtotal);
+      if (block) {
+        setOrderBlock(block);
+      } else {
+        setPaymentError(described.message);
+      }
       setSubmitting(false);
     }
   }
@@ -916,6 +929,29 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           setPaymentError(null);
           handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
         }}
+      />
+
+      <OrderBlockedDialog
+        open={!!orderBlock}
+        title={orderBlock?.title ?? ""}
+        body={orderBlock?.body ?? ""}
+        onAddItems={
+          orderBlock?.canAddItems
+            ? () => {
+                setOrderBlock(null);
+                router.push("/menu");
+              }
+            : undefined
+        }
+        onSwitchToPickup={
+          orderBlock?.canSwitchToPickup
+            ? () => {
+                setOrderBlock(null);
+                setFulfillment("PICKUP");
+              }
+            : undefined
+        }
+        onCancel={() => setOrderBlock(null)}
       />
 
       <form
