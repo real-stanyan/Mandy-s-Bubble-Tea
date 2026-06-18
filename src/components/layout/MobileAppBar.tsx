@@ -90,6 +90,11 @@ function TitleBlock({ title, subtitle }: { title: string; subtitle?: string }) {
 export function MobileAppBar() {
   const pathname = usePathname() ?? "/";
   const bar = resolveBar(pathname);
+  // Checkout is a focused flow — the order summary already lists the cart, so
+  // the cart button is redundant here (and the slide-out shouldn't cover the
+  // checkout). Matches desktop, where SiteHeader is hidden on /checkout.
+  const isCheckout =
+    pathname === "/checkout" || pathname.startsWith("/checkout/");
 
   return (
     <header className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-bg/90 px-[18px] pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur-md lg:hidden">
@@ -124,7 +129,7 @@ export function MobileAppBar() {
 
       <div className="flex shrink-0 items-center gap-2">
         <OrdersButton />
-        <CartButton />
+        {!isCheckout && <CartButton />}
       </div>
     </header>
   );
