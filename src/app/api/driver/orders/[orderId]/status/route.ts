@@ -92,17 +92,17 @@ export async function POST(
     // stays PROPOSED; only the money moves. Idempotent: a re-tap when the
     // tender is already CAPTURED is a no-op success.
     if (action === "accepted") {
+      // Accepting is a driver agreeing to deliver. For a paid order it also
+      // captures the held card authorization (the actual charge). A $0 loyalty-
+      // redeemed order has no card tender — nothing to capture — but a driver
+      // must still accept it, so we record the acceptance without a charge.
       const tender = order.tenders?.find((t) => t.cardDetails?.status);
-      const paymentId = tender?.id;
       const tenderStatus = tender?.cardDetails?.status;
-      if (!paymentId) {
-        return NextResponse.json(
-          { ok: false, error: "no card authorization to capture" },
-          { status: 409 },
-        );
-      }
-      if (tenderStatus === "AUTHORIZED") {
-        await squareClient.payments.complete({ paymentId });
+      let captured = false;
+
+      if (tenderStatus === "AUTHORIZED" && tender?.id) {
+        await squareClient.payments.complete({ paymentId: tender.id });
+        captured = true;
         // Burn any first-order discount now that the charge is real — the
         // payment route deferred this for delivery orders.
         await consumeOrderDiscounts(order).catch((e) =>
@@ -111,8 +111,10 @@ export async function POST(
             e,
           ),
         );
-      } else if (tenderStatus !== "CAPTURED") {
-        // VOIDED (timed-out / cancelled) or another terminal state.
+      } else if (tenderStatus && tenderStatus !== "CAPTURED") {
+        // VOIDED (timed-out / cancelled) or another terminal state — can't take
+        // it. (CAPTURED = already accepted → idempotent re-tap; no tender = $0
+        // order → just record the acceptance below.)
         return NextResponse.json(
           {
             ok: false,
@@ -121,13 +123,14 @@ export async function POST(
           { status: 409 },
         );
       }
+
       await recordDispatch({
         orderId,
         orderNumber: order.referenceId ?? order.ticketName ?? null,
         status: "accepted",
         driverLabel: body.driverLabel ?? null,
       });
-      return NextResponse.json({ ok: true, captured: true });
+      return NextResponse.json({ ok: true, captured });
     }
 
     const nextState = ACTION_TO_STATE[action];

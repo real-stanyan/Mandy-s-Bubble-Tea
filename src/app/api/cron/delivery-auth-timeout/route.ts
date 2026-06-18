@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { bearerTokenMatches } from "@/lib/bearer-auth";
+import { getAcceptedOrderIds } from "@/lib/driver-tokens";
+
+const ACTIVE_FULFILLMENT_STATES = new Set(["PROPOSED", "RESERVED"]);
 
 export const dynamic = "force-dynamic";
 
@@ -53,26 +56,41 @@ export async function GET(request: Request) {
       });
       cursor = res.cursor;
 
-      for (const order of res.orders ?? []) {
-        const isDelivery = order.metadata?.fulfillment_type === "DELIVERY";
-        if (!isDelivery || !order.id) continue;
+      // Unaccepted, still-active delivery orders in this page. Acceptance is the
+      // dispatch ledger (works for $0 loyalty orders too), so we drop anything a
+      // driver has already taken.
+      const candidates = (res.orders ?? []).filter(
+        (o) =>
+          o.metadata?.fulfillment_type === "DELIVERY" &&
+          o.id &&
+          ACTIVE_FULFILLMENT_STATES.has(o.fulfillments?.[0]?.state ?? "PROPOSED"),
+      );
+      const acceptedSet = await getAcceptedOrderIds(
+        candidates.map((o) => o.id).filter((id): id is string => !!id),
+      );
 
-        // Only the authorized-but-not-accepted ones. CAPTURED = accepted,
-        // VOIDED = a previous sweep already handled it.
+      for (const order of candidates) {
+        if (acceptedSet.has(order.id!)) continue; // a driver took it
+
         const tender = order.tenders?.find((t) => t.cardDetails?.status);
-        if (tender?.cardDetails?.status !== "AUTHORIZED" || !tender.id) continue;
+        const tenderStatus = tender?.cardDetails?.status;
+        // CAPTURED implies accepted (capture happens on accept) — leave it.
+        // AUTHORIZED → paid hold to release. Undefined → $0 loyalty order, just
+        // cancel. VOIDED → a prior sweep already handled it.
+        if (tenderStatus === "CAPTURED" || tenderStatus === "VOIDED") continue;
 
         scanned += 1;
         try {
-          // Release the hold first, then cancel the fulfillment. If the void
-          // succeeds but the cancel fails, the next sweep skips the now-VOIDED
-          // tender — the customer is already released, which is what matters.
-          await squareClient.payments.cancel({ paymentId: tender.id });
+          // Release a held authorization first (paid orders); $0 orders have
+          // none. Then cancel the fulfillment so it leaves the active queue.
+          if (tenderStatus === "AUTHORIZED" && tender?.id) {
+            await squareClient.payments.cancel({ paymentId: tender.id });
+          }
 
           const fulfillment = order.fulfillments?.[0];
           if (fulfillment?.uid && order.version != null) {
             await squareClient.orders.update({
-              orderId: order.id,
+              orderId: order.id!,
               order: {
                 locationId: SQUARE_LOCATION_ID,
                 version: order.version,
@@ -83,7 +101,9 @@ export async function GET(request: Request) {
           }
           cancelled += 1;
           console.log(
-            `[cron/delivery-auth-timeout] voided + cancelled ${order.referenceId ?? order.id}`,
+            `[cron/delivery-auth-timeout] cancelled ${order.referenceId ?? order.id}${
+              tenderStatus === "AUTHORIZED" ? " (voided hold)" : " ($0)"
+            }`,
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

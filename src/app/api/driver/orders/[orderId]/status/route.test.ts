@@ -126,10 +126,14 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     expect(mockRecordDispatch).not.toHaveBeenCalled()
   })
 
-  it("409s when there is no card authorization to capture", async () => {
+  it("accepts a $0 order (no card tender) — records accepted, no charge", async () => {
     mockOrdersGet.mockResolvedValue(orderWithTender(null))
     const res = await POST(req("driver-secret", { action: "accepted" }), { params })
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(200)
+    expect((await res.json()).captured).toBe(false)
     expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "accepted" }),
+    )
   })
 })

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { serializeSquareResponse } from "@/lib/utils";
 import { isAuthedDriver } from "@/lib/driver-auth";
-import { getDriverFixesForOrders } from "@/lib/driver-tokens";
+import {
+  getDriverFixesForOrders,
+  getAcceptedOrderIds,
+} from "@/lib/driver-tokens";
 
 // Driver app — the active delivery queue.
 //
@@ -57,7 +60,7 @@ export async function GET(request: Request) {
 
     const all = response.orders ?? [];
 
-    const deliveries = all
+    const candidates = all
       .filter((o) => o.metadata?.fulfillment_type === "DELIVERY")
       // Show orders that are either paid (netAmountDue===0 — card-captured,
       // full/partial loyalty $0) OR holding an authorization awaiting a driver.
@@ -76,7 +79,16 @@ export async function GET(request: Request) {
       .filter((o) => {
         const state = o.fulfillments?.[0]?.state ?? "PROPOSED";
         return ACTIVE_FULFILLMENT_STATES.has(state);
-      })
+      });
+
+    // Which of these a driver has already accepted (dispatch ledger). This is
+    // the real "a driver took this job" signal and works for $0 loyalty orders
+    // too — they have no card tender to infer acceptance from.
+    const acceptedSet = await getAcceptedOrderIds(
+      candidates.map((o) => o.id).filter((id): id is string => !!id),
+    );
+
+    const deliveries = candidates
       .map((order) => {
         const f = order.fulfillments?.[0];
         const lat = order.metadata?.delivery_lat;
@@ -88,15 +100,13 @@ export async function GET(request: Request) {
           createdAt: order.createdAt ?? null,
           fulfillmentUid: f?.uid ?? null,
           fulfillmentState: f?.state ?? null,
-          // false while the card is still only AUTHORIZED — the driver hasn't
-          // accepted (captured) yet; true once captured or for $0 loyalty
-          // orders. Drives the "Accept" vs "Mark picked up" button.
+          // Has a driver taken this job? From the dispatch ledger, not payment,
+          // so $0 loyalty orders still require acceptance. Past pickup implies
+          // accepted. Drives "Accept" vs "Mark picked up" in the app.
           accepted:
-            !(
-              order.tenders?.some(
-                (t) => t.cardDetails?.status === "AUTHORIZED",
-              ) ?? false
-            ),
+            acceptedSet.has(order.id ?? "") ||
+            f?.state === "PREPARED" ||
+            f?.state === "COMPLETED",
           address: order.metadata?.delivery_address ?? null,
           lat: lat != null ? Number(lat) : null,
           lng: lng != null ? Number(lng) : null,

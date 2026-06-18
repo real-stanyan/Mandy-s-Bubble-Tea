@@ -6,8 +6,10 @@ vi.mock("@/lib/square", () => ({
   SQUARE_LOCATION_ID: "L1",
 }))
 const mockGetFixes = vi.fn()
+const mockGetAccepted = vi.fn(async () => new Set<string>())
 vi.mock("@/lib/driver-tokens", () => ({
   getDriverFixesForOrders: (...a: unknown[]) => mockGetFixes(...a),
+  getAcceptedOrderIds: (...a: unknown[]) => mockGetAccepted(...a),
 }))
 
 import { GET } from "./route"

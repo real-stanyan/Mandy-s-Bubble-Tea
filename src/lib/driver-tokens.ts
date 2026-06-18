@@ -131,6 +131,28 @@ export type DriverFix = {
  * admin (read-only manager) view of the driver app. Orders with no dispatch
  * row or no fix yet are simply absent from the result.
  */
+/**
+ * Which of these orders a driver has already accepted. Acceptance is the
+ * dispatch row reaching status 'accepted' (or beyond — picked_up/delivered),
+ * which is the real "a driver took this job" signal for BOTH paid orders (where
+ * accept also captures the card) and $0 loyalty-redeemed orders (no payment to
+ * capture, but a driver must still agree to deliver). Orders with no dispatch
+ * row, or still 'pending', are not yet accepted.
+ */
+export async function getAcceptedOrderIds(
+  orderIds: string[],
+): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select("order_id, status")
+    .in("order_id", orderIds)
+    .in("status", ["accepted", "picked_up", "delivered"]);
+  if (error) throw new Error(`getAcceptedOrderIds: ${error.message}`);
+  return new Set((data ?? []).map((r) => r.order_id as string));
+}
+
 export async function getDriverFixesForOrders(
   orderIds: string[],
 ): Promise<Record<string, DriverFix>> {
