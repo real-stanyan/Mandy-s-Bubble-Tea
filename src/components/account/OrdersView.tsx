@@ -280,15 +280,6 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
 
   return (
     <div className="px-4">
-      <div className="mb-7">
-        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
-          Mandy&apos;s · Southport
-        </p>
-        <h1 className="mt-2 font-serif text-[40px] font-semibold leading-none tracking-[-0.03em] text-ink">
-          Your Orders
-        </h1>
-      </div>
-
       {orders.length === 0 ? (
         <div className="rounded-card border border-line bg-card px-10 py-[60px] text-center shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
           <div className="text-[52px]">🧋</div>
