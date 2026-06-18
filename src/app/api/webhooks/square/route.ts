@@ -5,7 +5,7 @@ import { squareClient } from "@/lib/square";
 import { classifyDeletedCustomerResult } from "@/lib/square-customer-status";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
-import { getAllDriverPushTokens } from "@/lib/driver-tokens";
+import { notifyDriversNewDelivery } from "@/lib/driver-notify";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { reverseAccrualForOrder } from "@/lib/loyalty";
 
@@ -339,44 +339,6 @@ async function enqueueLoyaltyBackfill(orderId: string): Promise<void> {
  * then enqueues a cup-sticker print job. Idempotent via
  * unique(square_order_id) on print_jobs.
  */
-/**
- * Push a "new delivery" alert to all registered driver devices when a paid
- * self-delivery order lands. Self-delivery orders are PICKUP fulfillments
- * tagged metadata.fulfillment_type=DELIVERY. Idempotent via the
- * order_push_notifications ledger (kind='new_delivery') so Square's webhook
- * retries don't double-notify.
- */
-async function maybeNotifyDriversNewDelivery(
-  order: Square.Order,
-  eventId?: string,
-): Promise<void> {
-  if (order.metadata?.fulfillment_type !== "DELIVERY") return;
-  const orderId = order.id;
-  if (!orderId) return;
-
-  // Paid check — same netAmountDue===0 signal used everywhere else.
-  const total = order.totalMoney?.amount ?? 0n;
-  const due = order.netAmountDueMoney?.amount ?? total;
-  if (due !== 0n) return;
-
-  const claimed = await claimOrderPushSlot(orderId, "new_delivery");
-  if (!claimed) return;
-
-  const tokens = await getAllDriverPushTokens();
-  if (tokens.length === 0) return;
-
-  const number = order.referenceId ?? order.ticketName ?? "";
-  const address = (order.metadata?.delivery_address as string | undefined) ?? "";
-  const accepted = await sendExpoPush(tokens, {
-    title: "New delivery 🚚",
-    body: [number, address].filter(Boolean).join(" · ") || "New delivery order",
-    data: { orderId, kind: "new_delivery" },
-  });
-  console.log(
-    `[driver-push] new delivery ${number} → ${accepted}/${tokens.length} event_id=${eventId}`,
-  );
-}
-
 async function handleOrderPaid(orderId: string, eventId?: string): Promise<void> {
   let order;
   try {
@@ -392,11 +354,12 @@ async function handleOrderPaid(orderId: string, eventId?: string): Promise<void>
     return;
   }
 
-  // Notify drivers of a new self-delivery order. Non-blocking + idempotent
-  // (claimOrderPushSlot dedupes Square's webhook retries). Must never break
-  // the print/loyalty flow below.
+  // Notify drivers of a new self-delivery order. Fallback to the payment
+  // route's authorization-time trigger — both are idempotent via
+  // claimOrderPushSlot, so whichever fires first wins. Must never break the
+  // print/loyalty flow below.
   try {
-    await maybeNotifyDriversNewDelivery(order, eventId);
+    await notifyDriversNewDelivery(order, eventId);
   } catch (e) {
     console.error("[driver-push] notify failed (non-fatal)", e);
   }

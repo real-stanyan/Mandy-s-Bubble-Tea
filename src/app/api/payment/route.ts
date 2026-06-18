@@ -10,6 +10,7 @@ import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
+import { notifyDriversNewDelivery } from "@/lib/driver-notify";
 import { brisbaneMonthKey } from "@/lib/membership-tier";
 import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
 
@@ -201,6 +202,14 @@ export async function POST(request: Request) {
         );
       }
 
+      // Mandy Delivery: hold the funds but DON'T capture at checkout. Self-
+      // delivery orders (PICKUP fulfillment tagged metadata.fulfillment_type=
+      // DELIVERY) are only charged once a driver accepts the job — the accept
+      // action captures this authorization (POST /api/driver/orders/[id]/status
+      // action=accepted → payments.complete), and a 30-min timeout sweep voids
+      // it if nobody accepts. Pickup/in-store orders capture immediately.
+      const isDelivery = order.metadata?.fulfillment_type === "DELIVERY";
+
       const payment = await squareClient.payments.create({
         sourceId: body.sourceId,
         idempotencyKey: randomUUID(),
@@ -211,9 +220,24 @@ export async function POST(request: Request) {
         orderId: body.orderId,
         customerId,
         locationId: SQUARE_LOCATION_ID,
-        autocomplete: true,
+        autocomplete: !isDelivery,
         verificationToken: body.verificationToken,
       });
+
+      // Delivery order authorized — advertise it to drivers now so one can
+      // accept (which captures the hold). The order isn't "paid" yet, so the
+      // webhook's paid-driven notify won't fire; trigger it here. after()
+      // keeps the push off the payment response's critical path; idempotent
+      // via claimOrderPushSlot, so the webhook fallback can't double-send.
+      if (isDelivery) {
+        after(async () => {
+          try {
+            await notifyDriversNewDelivery(order);
+          } catch (e) {
+            console.error("[driver-push] authorize-time notify failed (non-fatal)", e);
+          }
+        });
+      }
 
       const id = payment.payment?.id;
       if (!id) {
