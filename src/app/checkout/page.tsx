@@ -925,7 +925,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         className="grid gap-5 sm:gap-8 lg:grid-cols-[1fr_380px] pb-24 lg:pb-0"
       >
         {/* ── Left column ── */}
-        <div className="space-y-5 sm:space-y-6">
+        <div className="min-w-0 space-y-5 sm:space-y-6">
           {/* Fulfillment + delivery quote */}
           <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
             <SectionLabel>Fulfillment</SectionLabel>
@@ -1625,13 +1625,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       {/* ── Mobile sticky bottom bar ── */}
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
         <div className="mx-auto flex max-w-lg items-center gap-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-xs text-ink3">Total</p>
             <p className="text-lg font-bold text-ink">
               {formatPrice(displayTotal)}
             </p>
             {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
-              <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
+              <p className="truncate text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
                 Welcome {welcomeDiscount.percentage}% Off ·{" "}
                 {promoCoverage.welcomeCount} drink
                 {promoCoverage.welcomeCount === 1 ? "" : "s"} · −
@@ -1639,7 +1639,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             )}
             {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
-              <p className="text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
+              <p className="truncate text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
                 IG Follow {igFollowDiscount.percentage || 10}% Off ·{" "}
                 {promoCoverage.igFollowCount} drink
                 {promoCoverage.igFollowCount === 1 ? "" : "s"} · −
@@ -1647,7 +1647,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               </p>
             )}
             {effectiveSurcharge > 0n && (
-              <p className="text-[11px] text-ink3">
+              <p className="truncate text-[11px] text-ink3">
                 {effectivePhSurcharge > 0n && (
                   <>Incl. {PH_SURCHARGE.name} {formatPrice(effectivePhSurcharge)} · </>
                 )}
@@ -1671,7 +1671,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
             }
-            className={`flex flex-1 items-center justify-center gap-1 rounded-full py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex min-w-[148px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               storeClosed
                 ? ""
                 : payMethod === "apple"
@@ -1716,7 +1716,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
 function CheckoutFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-1 flex-col">
+    // overflow-x-clip guards against any stray horizontal overflow (e.g. an
+    // SDK-injected wallet button) scrolling the page sideways on mobile — it
+    // clips the x-axis without establishing a scroll container, so vertical
+    // scroll and the sticky/fixed bars are unaffected.
+    <div className="flex flex-1 flex-col overflow-x-clip">
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-10 pt-4 sm:px-6 lg:pt-10">
         {/* Desktop keeps the focused stacked header; mobile uses the sticky
             MobileAppBar (back + "Checkout" + cart) from the global chrome. */}
