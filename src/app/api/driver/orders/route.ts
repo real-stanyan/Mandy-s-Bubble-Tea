@@ -59,13 +59,19 @@ export async function GET(request: Request) {
 
     const deliveries = all
       .filter((o) => o.metadata?.fulfillment_type === "DELIVERY")
-      // Paid only — the reliable cross-path signal is netAmountDue===0
-      // (card, full-loyalty, and partial-loyalty orders all settle to 0;
-      // abandoned carts stay > 0). Same rule as orders/history.
+      // Show orders that are either paid (netAmountDue===0 — card-captured,
+      // full/partial loyalty $0) OR holding an authorization awaiting a driver.
+      // Mandy Delivery authorizes the card at checkout and captures only when a
+      // driver accepts, so a not-yet-accepted order has due>0 but an AUTHORIZED
+      // card tender — it must still surface so a driver can accept it.
+      // Abandoned carts (no tender, due>0) stay excluded.
       .filter((o) => {
         const total = o.totalMoney?.amount ?? 0n;
         const due = o.netAmountDueMoney?.amount ?? total;
-        return due === 0n;
+        const held =
+          o.tenders?.some((t) => t.cardDetails?.status === "AUTHORIZED") ??
+          false;
+        return due === 0n || held;
       })
       .filter((o) => {
         const state = o.fulfillments?.[0]?.state ?? "PROPOSED";
@@ -82,6 +88,15 @@ export async function GET(request: Request) {
           createdAt: order.createdAt ?? null,
           fulfillmentUid: f?.uid ?? null,
           fulfillmentState: f?.state ?? null,
+          // false while the card is still only AUTHORIZED — the driver hasn't
+          // accepted (captured) yet; true once captured or for $0 loyalty
+          // orders. Drives the "Accept" vs "Mark picked up" button.
+          accepted:
+            !(
+              order.tenders?.some(
+                (t) => t.cardDetails?.status === "AUTHORIZED",
+              ) ?? false
+            ),
           address: order.metadata?.delivery_address ?? null,
           lat: lat != null ? Number(lat) : null,
           lng: lng != null ? Number(lng) : null,
