@@ -58,14 +58,18 @@ export function DeliveryMap({ tracking }: Props) {
 
       const map = L.map(containerRef.current, {
         zoomControl: false,
-        attributionControl: true,
+        attributionControl: false,
         dragging: true,
         scrollWheelZoom: false,
       });
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap",
-        maxZoom: 19,
-      }).addTo(map);
+      // Minimal label-free basemap (CARTO "light_nolabels") — a clean pale-grey
+      // canvas with no street/suburb names, so the only things the customer
+      // reads are our own pins (🧋 🏠 🛵) and the route. The default OSM tiles
+      // were too busy. Attribution control is off for the same uncluttered look.
+      L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+        { subdomains: "abcd", maxZoom: 20 },
+      ).addTo(map);
 
       // Store + destination markers (static).
       L.marker([storeLat, storeLng], {
@@ -129,11 +133,32 @@ export function DeliveryMap({ tracking }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Street-level zoom for the live-driver view — close enough that the 🛵
+  // reads clearly (Uber-Eats style), wide enough to keep the surrounding
+  // streets and the route for context.
+  const DRIVER_ZOOM = 16;
+
   function fitAll(L: typeof import("leaflet"), map: LeafletMap) {
+    const driverLive =
+      tracking.driverLat != null && tracking.driverLng != null;
+    const hasDest = destLat != null && destLng != null;
+
+    // Once the driver is live (GPS streaming in from the driver app), keep the
+    // map centred tightly on the driver and let it follow as new fixes arrive —
+    // the customer's question is "where's my driver right now". Fitting the
+    // driver→destination span (let alone the far-away shop) would zoom out
+    // until the 🛵 is a speck, so we deliberately don't fit the destination
+    // here; the route line still points the way to it.
+    if (driverLive) {
+      map.setView([tracking.driverLat!, tracking.driverLng!], DRIVER_ZOOM, {
+        animate: false,
+      });
+      return;
+    }
+
+    // Pre-pickup overview: store → destination.
     const pts: [number, number][] = [[storeLat, storeLng]];
-    if (destLat != null && destLng != null) pts.push([destLat, destLng]);
-    if (tracking.driverLat != null && tracking.driverLng != null)
-      pts.push([tracking.driverLat, tracking.driverLng]);
+    if (hasDest) pts.push([destLat, destLng]);
     if (pts.length === 1) {
       map.setView(pts[0], 15);
     } else {
