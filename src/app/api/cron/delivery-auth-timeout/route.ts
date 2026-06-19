@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { bearerTokenMatches } from "@/lib/bearer-auth";
 import { getAcceptedOrderIds } from "@/lib/driver-tokens";
-import { returnOrderRewards } from "@/lib/loyalty";
+import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 
 const ACTIVE_FULFILLMENT_STATES = new Set(["PROPOSED", "RESERVED"]);
 
@@ -82,37 +81,15 @@ export async function GET(request: Request) {
 
         scanned += 1;
         try {
-          // Return any loyalty stars spent on this order first. It was never
-          // accepted, so the customer must not lose stars (especially a $0
-          // free-redeem order, where stars ARE the payment). Deleting the
-          // reward returns the points and strips the discount.
-          const { returned } = await returnOrderRewards(order);
-
-          // Release a held authorization (paid orders); $0 orders have none.
-          if (tenderStatus === "AUTHORIZED" && tender?.id) {
-            await squareClient.payments.cancel({ paymentId: tender.id });
-          }
-
-          // Cancel the fulfillment so it leaves the active queue. Re-fetch the
-          // order first: returning rewards (and voiding the hold) bumps the
-          // version, so the search-time version would be stale here.
-          const fresh = await squareClient.orders.get({ orderId: order.id! });
-          const fulfillment = fresh.order?.fulfillments?.[0];
-          if (fulfillment?.uid && fresh.order?.version != null) {
-            await squareClient.orders.update({
-              orderId: order.id!,
-              order: {
-                locationId: SQUARE_LOCATION_ID,
-                version: fresh.order.version,
-                fulfillments: [{ uid: fulfillment.uid, state: "CANCELED" }],
-              },
-              idempotencyKey: randomUUID(),
-            });
-          }
+          // Same release an explicit driver "Decline" performs — return spent
+          // stars, void the held authorization ($0 orders have none), cancel the
+          // fulfillment. The customer must not lose money or stars on an order
+          // no driver took.
+          const { returned, voided } = await releaseDeliveryOrder(order);
           cancelled += 1;
           console.log(
             `[cron/delivery-auth-timeout] cancelled ${order.referenceId ?? order.id}${
-              tenderStatus === "AUTHORIZED" ? " (voided hold)" : " ($0)"
+              voided ? " (voided hold)" : " ($0)"
             }${returned > 0 ? ` (returned ${returned} reward${returned > 1 ? "s" : ""})` : ""}`,
           );
         } catch (err) {

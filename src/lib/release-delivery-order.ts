@@ -1,0 +1,57 @@
+import "server-only";
+import { randomUUID } from "node:crypto";
+import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
+import { returnOrderRewards } from "@/lib/loyalty";
+
+// Release an unaccepted Mandy Delivery order back to the customer: return any
+// redeemed stars, void the held card authorization, and cancel the fulfillment
+// so it leaves the active queue. Shared by the 30-minute auto-cancel sweep
+// (cron) and an explicit driver "Decline" (status route) — same outcome, one
+// implementation.
+//
+// Order of operations matters: returning rewards (delete) and voiding the hold
+// both bump the order version, so the fulfillment cancel re-fetches the order
+// for the current version rather than trusting whatever the caller passed in.
+
+type ReleasableOrder = {
+  id?: string;
+  tenders?: { id?: string; cardDetails?: { status?: string } }[] | null;
+  rewards?: { id?: string }[] | null;
+};
+
+export async function releaseDeliveryOrder(
+  order: ReleasableOrder,
+): Promise<{ returned: number; voided: boolean }> {
+  if (!order.id) return { returned: 0, voided: false };
+
+  // 1. Return spent stars. The order was never captured, so its rewards are
+  //    ISSUED and deletable (returns the points + strips the discount line).
+  const { returned } = await returnOrderRewards(order);
+
+  // 2. Release the held card authorization, if there is one ($0 loyalty orders
+  //    have no tender).
+  const tender = order.tenders?.find((t) => t.cardDetails?.status);
+  let voided = false;
+  if (tender?.cardDetails?.status === "AUTHORIZED" && tender.id) {
+    await squareClient.payments.cancel({ paymentId: tender.id });
+    voided = true;
+  }
+
+  // 3. Cancel the fulfillment so it drops out of the active queue. Re-fetch for
+  //    the fresh version — steps 1–2 moved it.
+  const fresh = await squareClient.orders.get({ orderId: order.id });
+  const fulfillment = fresh.order?.fulfillments?.[0];
+  if (fulfillment?.uid && fresh.order?.version != null) {
+    await squareClient.orders.update({
+      orderId: order.id,
+      order: {
+        locationId: SQUARE_LOCATION_ID,
+        version: fresh.order.version,
+        fulfillments: [{ uid: fulfillment.uid, state: "CANCELED" }],
+      },
+      idempotencyKey: randomUUID(),
+    });
+  }
+
+  return { returned, voided };
+}

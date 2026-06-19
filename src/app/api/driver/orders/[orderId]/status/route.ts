@@ -4,16 +4,22 @@ import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { isAuthedDriver } from "@/lib/driver-auth";
 import { recordDispatch } from "@/lib/driver-tokens";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
+import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 
-// Driver advances a delivery order: accept → picked up → delivered.
+// Driver advances a delivery order: accept → picked up → delivered, or declines
+// it before accepting.
 //
 // "accepted" CAPTURES the held card authorization — the moment the customer is
 // actually charged (Mandy Delivery holds funds at checkout, charges on accept).
+// "rejected" does the opposite: releases the customer (void hold + return stars
+// + cancel fulfillment) — only valid before the charge, since after capture the
+// money path is a refund, not a void.
 // "picked_up"/"delivered" flip the Square fulfillment state (so the order moves
 // through the POS like staff would advance it). Each touch also records a
 // delivery_dispatch row (who drove it + timestamps).
 //
 //   action "accepted"  → payments.complete (charge); fulfillment stays PROPOSED
+//   action "rejected"  → void hold + return stars + fulfillment CANCELED
 //   action "picked_up" → fulfillment PREPARED
 //   action "delivered" → fulfillment COMPLETED
 
@@ -25,8 +31,13 @@ const ACTION_TO_STATE = {
 } as const;
 
 type FulfillmentAction = keyof typeof ACTION_TO_STATE;
-type Action = "accepted" | FulfillmentAction;
-const VALID_ACTIONS: readonly Action[] = ["accepted", "picked_up", "delivered"];
+type Action = "accepted" | "rejected" | FulfillmentAction;
+const VALID_ACTIONS: readonly Action[] = [
+  "accepted",
+  "rejected",
+  "picked_up",
+  "delivered",
+];
 
 export async function POST(
   request: Request,
@@ -62,7 +73,7 @@ export async function POST(
     return NextResponse.json(
       {
         ok: false,
-        error: "action must be 'accepted', 'picked_up' or 'delivered'",
+        error: "action must be 'accepted', 'rejected', 'picked_up' or 'delivered'",
       },
       { status: 400 },
     );
@@ -85,6 +96,26 @@ export async function POST(
         { ok: false, error: "not a delivery order" },
         { status: 409 },
       );
+    }
+
+    // "Decline" releases the customer before any charge: void the held card
+    // authorization, return redeemed stars, and cancel the fulfillment. Only
+    // valid pre-capture — once the card is CAPTURED (accepted), the money path
+    // is a refund (issue it in Square), so we refuse here rather than leave the
+    // customer charged with a cancelled order.
+    if (action === "rejected") {
+      const tender = order.tenders?.find((t) => t.cardDetails?.status);
+      if (tender?.cardDetails?.status === "CAPTURED") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "cannot decline: order already accepted (charged) — refund it instead",
+          },
+          { status: 409 },
+        );
+      }
+      const { returned, voided } = await releaseDeliveryOrder(order);
+      return NextResponse.json({ ok: true, released: true, returned, voided });
     }
 
     // "Accept" captures the held card authorization — the moment the customer

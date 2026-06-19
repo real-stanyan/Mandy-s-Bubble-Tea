@@ -23,6 +23,10 @@ const mockConsumeDiscounts = vi.fn()
 vi.mock("@/lib/consume-order-discounts", () => ({
   consumeOrderDiscounts: (...a: unknown[]) => mockConsumeDiscounts(...a),
 }))
+const mockRelease = vi.fn()
+vi.mock("@/lib/release-delivery-order", () => ({
+  releaseDeliveryOrder: (...a: unknown[]) => mockRelease(...a),
+}))
 
 import { POST } from "./route"
 
@@ -135,5 +139,60 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     expect(mockRecordDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ status: "accepted" }),
     )
+  })
+})
+
+describe("POST /api/driver/orders/[orderId]/status — reject (decline)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.STAFF_DELIVERY_TOKEN = "driver-secret"
+    process.env.ADMIN_DELIVERY_TOKEN = "admin-secret"
+    mockRelease.mockResolvedValue({ returned: 9, voided: true })
+  })
+
+  const orderWithTender = (tenderStatus: string | null) => ({
+    order: {
+      id: "O1",
+      version: 2,
+      metadata: { fulfillment_type: "DELIVERY" },
+      fulfillments: [{ uid: "F1", state: "PROPOSED" }],
+      referenceId: "DE826",
+      tenders: tenderStatus
+        ? [{ id: "PAY1", cardDetails: { status: tenderStatus } }]
+        : [],
+    },
+  })
+
+  it("releases an AUTHORIZED order (void + return stars + cancel)", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender("AUTHORIZED"))
+    const res = await POST(req("driver-secret", { action: "rejected" }), { params })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, released: true, returned: 9, voided: true })
+    expect(mockRelease).toHaveBeenCalledWith(expect.objectContaining({ id: "O1" }))
+    // declining is not a dispatch milestone
+    expect(mockRecordDispatch).not.toHaveBeenCalled()
+  })
+
+  it("releases a $0 free-redeem order (no tender)", async () => {
+    mockRelease.mockResolvedValue({ returned: 9, voided: false })
+    mockOrdersGet.mockResolvedValue(orderWithTender(null))
+    const res = await POST(req("driver-secret", { action: "rejected" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json())).toMatchObject({ released: true, voided: false })
+    expect(mockRelease).toHaveBeenCalled()
+  })
+
+  it("409s declining an already-CAPTURED (accepted) order — must refund instead", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender("CAPTURED"))
+    const res = await POST(req("driver-secret", { action: "rejected" }), { params })
+    expect(res.status).toBe(409)
+    expect(mockRelease).not.toHaveBeenCalled()
+  })
+
+  it("admin (read-only) cannot decline", async () => {
+    const res = await POST(req("admin-secret", { action: "rejected" }), { params })
+    expect(res.status).toBe(403)
+    expect(mockRelease).not.toHaveBeenCalled()
   })
 })
