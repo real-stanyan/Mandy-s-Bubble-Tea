@@ -11,6 +11,7 @@ import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
+import { getPresetSource, downloadBucketBinarized } from "./gallery-store";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -158,6 +159,13 @@ type Row = {
   // for the (square_order_id, line_id, cup_idx, copy_idx) unique key.
   copy_idx: number;
 };
+
+/** Resolve a preset sticker's 1-bit print buffer from the right source. */
+export async function resolvePresetBuffer(hash: string): Promise<Buffer> {
+  const source = await getPresetSource(hash);
+  if (source === "upload") return downloadBucketBinarized(hash);
+  return fs.readFile(path.join(GALLERY_DIR, hash, "binarized.png"));
+}
 
 export async function enqueueCupLabelJobs({
   order,
@@ -379,22 +387,17 @@ export async function enqueueCupLabelJobs({
       if (mode === "pos") {
         await useDefaultFallback();
       } else if (presetStickerHash) {
-        // Static gallery sticker — committed PNG under public/cup-label/gallery.
-        // Read the pre-binarized (1-bit Atkinson-dithered) variant directly so
-        // sharp doesn't soften it back into greyscale before ZPL packing.
+        // Gallery sticker — may be a committed PNG (builtin) or an admin-uploaded
+        // image in the Supabase bucket. resolvePresetBuffer picks the right source.
         try {
-          const filePath = path.join(GALLERY_DIR, presetStickerHash, "binarized.png");
-          doodlePngBuffer = await fs.readFile(filePath);
+          doodlePngBuffer = await resolvePresetBuffer(presetStickerHash);
           source = "preset_sticker";
           poolKey = presetStickerHash;
           originalImagePath = `cup-label/gallery/${presetStickerHash}/binarized.png`;
           doodleSvg = "";
           keepsakeEligible = true;
         } catch (e) {
-          console.error(
-            "[cup-label] preset sticker load failed, falling back",
-            { hash: presetStickerHash, error: e instanceof Error ? e.message : e },
-          );
+          console.error("[cup-label] preset sticker load failed, falling back", { hash: presetStickerHash, error: e instanceof Error ? e.message : e });
           await useDefaultFallback();
         }
       } else if (aiDoodleId && userId) {
