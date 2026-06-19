@@ -7,6 +7,7 @@ import {
   getDispatchTracking,
   getRouteCache,
   saveRouteCache,
+  type DispatchStatus,
 } from "@/lib/driver-tokens";
 import {
   decodePolyline,
@@ -93,6 +94,18 @@ export async function GET(
       order?.metadata?.fulfillment_type === "DELIVERY" ||
       fulfillment?.type === "DELIVERY";
 
+    // For delivery orders we read the dispatch row once: its plain status string
+    // (pending → accepted → picked_up → delivered) drives the customer's
+    // progress stepper and is NOT PII, so it's returned to everyone (like the
+    // fulfillment `state`). The driver's GPS fix on the same row IS PII and stays
+    // owner-gated below.
+    let dispatchStatus: DispatchStatus | null = null;
+    let dispatch: Awaited<ReturnType<typeof getDispatchTracking>> = null;
+    if (isDelivery) {
+      dispatch = await getDispatchTracking(orderId).catch(() => null);
+      dispatchStatus = dispatch?.status ?? null;
+    }
+
     // Tracking carries PII — the customer's home coordinates + the driver's
     // live GPS fix — so it is ONLY returned to the authenticated order owner.
     // The basic fulfillment `state` stays public so the confirmation page poll
@@ -106,7 +119,6 @@ export async function GET(
         order?.customerId ?? null,
       );
       if (isOwner) {
-        const dispatch = await getDispatchTracking(orderId).catch(() => null);
         const destLat = num(order?.metadata?.delivery_lat);
         const destLng = num(order?.metadata?.delivery_lng);
         const driverLat = dispatch?.driverLat ?? null;
@@ -140,7 +152,7 @@ export async function GET(
     }
 
     return NextResponse.json(
-      { ok: true, state, tracking },
+      { ok: true, state, dispatchStatus, tracking },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

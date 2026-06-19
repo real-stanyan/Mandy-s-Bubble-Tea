@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Check, Clock, Phone } from "lucide-react";
 import { DELIVERY_DRIVER } from "@/lib/constants";
 import { FreshnessBar, type Tracking } from "@/components/delivery/DeliveryMap";
+import {
+  deriveStatusUi,
+  type DispatchStatus,
+  type FulfillmentState,
+} from "@/lib/order-status-ui";
 
 // Leaflet touches `window` at import time — load the map client-side only.
 const DeliveryMap = dynamic(
@@ -13,18 +18,13 @@ const DeliveryMap = dynamic(
   { ssr: false },
 );
 
-export type FulfillmentState =
-  | "PROPOSED"
-  | "RESERVED"
-  | "PREPARED"
-  | "COMPLETED"
-  | "CANCELED"
-  | "FAILED";
+export type { FulfillmentState } from "@/lib/order-status-ui";
 
 type Props = {
   orderId: string;
   initialState: FulfillmentState | null;
   isDelivery?: boolean;
+  initialDispatchStatus?: DispatchStatus | null;
   orderNumber?: string | null;
   deliveryAddress?: string | null;
   etaText?: string | null;
@@ -38,20 +38,25 @@ const TERMINAL: ReadonlySet<FulfillmentState> = new Set([
   "FAILED",
 ]);
 
-const ORDER_STEPS = ["Received", "Preparing", "Ready"] as const;
-
 export function OrderStatusHero({
   orderId,
   initialState,
   isDelivery = false,
+  initialDispatchStatus = null,
   orderNumber,
   deliveryAddress,
   etaText,
 }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
+  const [dispatchStatus, setDispatchStatus] = useState<DispatchStatus | null>(
+    initialDispatchStatus,
+  );
   const [tracking, setTracking] = useState<Tracking | null>(null);
 
   useEffect(() => {
+    // Delivery isn't done until it's delivered (fulfillment COMPLETED) — the
+    // fulfillment can sit at PROPOSED for a long time while the dispatch status
+    // advances, so we keep polling until a terminal fulfillment state.
     if (state && TERMINAL.has(state)) return;
 
     let cancelled = false;
@@ -65,12 +70,14 @@ export function OrderStatusHero({
         const data = (await res.json()) as {
           ok: boolean;
           state: FulfillmentState | null;
+          dispatchStatus?: DispatchStatus | null;
           tracking: Tracking | null;
         };
         if (cancelled) return;
         if (data.ok && data.state && data.state !== state) {
           setState(data.state);
         }
+        if (data.ok) setDispatchStatus(data.dispatchStatus ?? null);
         // tracking is only populated for delivery orders that are PREPARED.
         if (data.ok) setTracking(data.tracking ?? null);
       } catch {
@@ -100,59 +107,129 @@ export function OrderStatusHero({
     );
   }
 
-  return <StatusCard state={state} isDelivery={isDelivery} etaText={etaText} />;
+  return (
+    <StatusCard
+      state={state}
+      isDelivery={isDelivery}
+      dispatchStatus={dispatchStatus}
+      orderNumber={orderNumber}
+      etaText={etaText}
+    />
+  );
 }
 
-// In-flow status card: a tone pill + a Received → Preparing → Ready stepper,
-// matching the redesign (web-account.jsx). Completed/canceled get a compact
-// single-line card instead of the stepper.
+// One order = one card. The order number and the live status share a single
+// bordered shell (number on top, dashed divider, status below) so the
+// confirmation reads as a single unit rather than two floating cards. `tone`
+// switches the active (gradient + brand border) vs settled (white + line
+// border) look.
+function CardShell({
+  orderNumber,
+  isDelivery,
+  tone,
+  children,
+}: {
+  orderNumber?: string | null;
+  isDelivery: boolean;
+  tone: "active" | "muted";
+  children: ReactNode;
+}) {
+  const active = tone === "active";
+  return (
+    <div
+      className={
+        "overflow-hidden rounded-card border-[1.5px] " +
+        (active
+          ? "border-brand shadow-[0_14px_32px_rgba(141,85,36,0.14)]"
+          : "border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)]")
+      }
+      style={active ? { background: "linear-gradient(180deg,#FFF7EC,#FFF1DE)" } : undefined}
+    >
+      <div className="flex items-center justify-between gap-4 px-6 pb-5 pt-6">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
+            {isDelivery ? "Order number" : "Pickup number"}
+          </p>
+          <p className="mt-2 whitespace-nowrap font-mono text-[clamp(36px,6vw,52px)] font-bold leading-none tracking-[2px] text-ink">
+            {orderNumber || "—"}
+          </p>
+        </div>
+        <span className="max-w-[130px] shrink-0 text-right text-[12.5px] font-semibold leading-snug text-ink3">
+          {isDelivery
+            ? "Quote this on delivery"
+            : "Show this at the counter to collect"}
+        </span>
+      </div>
+      <div
+        className="mx-6 border-t border-dashed"
+        style={{ borderColor: "rgba(141,85,36,.22)" }}
+      />
+      <div className="p-6">{children}</div>
+    </div>
+  );
+}
+
+// In-flow status card: a tone pill + a stepper. Pickup shows
+// Received → Preparing → Ready; delivery shows Placed → Accepted → Picked up →
+// Delivered (driven by the dispatch lifecycle; "Placed" lights up as soon as the
+// order is submitted). Completed/canceled get a compact single-line card instead
+// of the stepper.
 function StatusCard({
   state,
   isDelivery,
+  dispatchStatus,
+  orderNumber,
   etaText,
 }: {
   state: FulfillmentState | null;
   isDelivery: boolean;
+  dispatchStatus: DispatchStatus | null;
+  orderNumber?: string | null;
   etaText?: string | null;
 }) {
-  const ui = stateToUi(state, isDelivery);
+  const ui = deriveStatusUi({ state, isDelivery, dispatchStatus });
+  // A prep-time ETA ("5–7 mins") is misleading while a delivery order is still
+  // placed/awaiting a driver, so only show it once the order is out for delivery
+  // (step ≥ 2 now that "Placed" leads the delivery stepper). Pickup keeps its ETA
+  // throughout.
+  const showEta = !!etaText && !(isDelivery && ui.step < 2);
 
   if (ui.kind === "completed") {
     return (
-      <div className="flex items-center gap-3.5 rounded-card border border-line bg-card p-5 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-green/15 text-green-dark">
-          <Check size={22} />
-        </span>
-        <div>
-          <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
-          <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
+      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted">
+        <div className="flex items-center gap-3.5">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-green/15 text-green-dark">
+            <Check size={22} />
+          </span>
+          <div>
+            <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
+            <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
+          </div>
         </div>
-      </div>
+      </CardShell>
     );
   }
 
   if (ui.kind === "canceled") {
     return (
-      <div className="flex items-center gap-3.5 rounded-card border border-line bg-card p-5 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink4/10 text-ink3">
-          <Check size={22} className="rotate-45" />
-        </span>
-        <div>
-          <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
-          <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
+      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted">
+        <div className="flex items-center gap-3.5">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink4/10 text-ink3">
+            <Check size={22} className="rotate-45" />
+          </span>
+          <div>
+            <p className="text-[15.5px] font-bold text-ink">{ui.heading}</p>
+            <p className="mt-0.5 text-[13px] text-ink3">{ui.body}</p>
+          </div>
         </div>
-      </div>
+      </CardShell>
     );
   }
 
-  // active — gradient card with the stepper
+  // active — unified card: order number on top, then the stepper
   return (
-    <div
-      className="rounded-card border-[1.5px] border-brand p-6 shadow-[0_14px_32px_rgba(141,85,36,0.14)]"
-      style={{ background: "linear-gradient(180deg,#FFF7EC,#FFF1DE)" }}
-      role="status"
-      aria-live="polite"
-    >
+    <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="active">
+    <div role="status" aria-live="polite">
       <div className="flex items-center justify-between gap-3">
         <span className="inline-flex items-center gap-2 rounded-full border border-line bg-white py-1.5 pl-3 pr-3.5">
           <span
@@ -172,7 +249,7 @@ function StatusCard({
             {ui.heading}
           </span>
         </span>
-        {etaText && (
+        {showEta && (
           <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand">
             <Clock size={14} /> {etaText}
           </span>
@@ -182,7 +259,7 @@ function StatusCard({
       <p className="mt-3 text-[13.5px] leading-relaxed text-ink2">{ui.body}</p>
 
       <div className="mt-5 flex items-center gap-2">
-        {ORDER_STEPS.map((label, i) => {
+        {ui.steps.map((label, i) => {
           const done = i <= ui.step;
           return (
             <div key={label} className="flex flex-1 items-center gap-2 last:flex-none">
@@ -204,7 +281,7 @@ function StatusCard({
                   {label}
                 </span>
               </div>
-              {i < ORDER_STEPS.length - 1 && (
+              {i < ui.steps.length - 1 && (
                 <span
                   className={
                     "mb-[18px] h-[2.5px] flex-1 rounded " +
@@ -217,6 +294,7 @@ function StatusCard({
         })}
       </div>
     </div>
+    </CardShell>
   );
 }
 
@@ -401,54 +479,3 @@ function DriverCard({ bare = false }: { bare?: boolean }) {
   );
 }
 
-type Ui = {
-  kind: "active" | "completed" | "canceled";
-  heading: string;
-  body: string;
-  tone: "green" | "amber";
-  step: number; // index into ORDER_STEPS
-};
-
-function stateToUi(state: FulfillmentState | null, isDelivery: boolean): Ui {
-  switch (state) {
-    case "PREPARED":
-      return {
-        kind: "active",
-        heading: isDelivery ? "Out for Delivery!" : "Ready for Pickup!",
-        body: isDelivery
-          ? "Your order is made and our team is on the way to your address."
-          : "Your order is ready at the counter. Come grab it — show your pickup number to our team.",
-        tone: "green",
-        step: 2,
-      };
-    case "COMPLETED":
-      return {
-        kind: "completed",
-        heading: isDelivery ? "Delivered" : "Picked Up",
-        body: "Enjoy your drink! Thanks for visiting Mandy's Bubble Tea.",
-        tone: "green",
-        step: 3,
-      };
-    case "CANCELED":
-    case "FAILED":
-      return {
-        kind: "canceled",
-        heading: "Order Canceled",
-        body: "This order was canceled. If you were charged, please speak to a team member at the counter.",
-        tone: "amber",
-        step: 0,
-      };
-    case "PROPOSED":
-    case "RESERVED":
-    default:
-      return {
-        kind: "active",
-        heading: isDelivery ? "Order Confirmed!" : "Preparing your order",
-        body: isDelivery
-          ? "Our tea masters are crafting your order — our team will deliver it to your door shortly."
-          : "Our tea masters are crafting your order. We'll have it ready for you at the counter shortly.",
-        tone: "amber",
-        step: 1,
-      };
-  }
-}

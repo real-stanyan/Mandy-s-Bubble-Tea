@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/utils";
 import { BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
 import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
+import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 
@@ -113,6 +114,17 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     fulfillment?.type === "DELIVERY";
   const deliveryAddress = order.metadata?.delivery_address ?? null;
 
+  // For delivery, the progress stepper is driven by the dispatch lifecycle, not
+  // the Square fulfillment state — fetch the current dispatch status so the
+  // first server render is correct (the client poll keeps it fresh after).
+  let initialDispatchStatus: DispatchStatus | null = null;
+  if (isDelivery) {
+    const dispatch = await getDispatchTracking(order.id ?? orderId).catch(
+      () => null,
+    );
+    initialDispatchStatus = dispatch?.status ?? null;
+  }
+
   // Pickup number is written to Square's ticketName at order creation
   // (see /api/orders/route.ts). Staff see the same number on the POS
   // / Dashboard. Fall back to the tail of the order id for orders
@@ -197,36 +209,16 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
       </div>
 
       <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
-        {/* ===== Left: order number + status + items ===== */}
+        {/* ===== Left: order (number + status) + items ===== */}
         <div className="flex min-w-0 flex-col gap-[18px]">
-          {/* Prominent order number — staff + customer match on it */}
-          <div
-            className="flex items-center justify-between gap-4 rounded-card border-[1.5px] border-dashed p-5 sm:p-6"
-            style={{
-              backgroundColor: "var(--color-cream)",
-              borderColor: "rgba(141,85,36,.4)",
-            }}
-          >
-            <div>
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
-                {isDelivery ? "Order number" : "Pickup number"}
-              </p>
-              <p className="mt-2 whitespace-nowrap font-mono text-[clamp(40px,7vw,56px)] font-bold leading-none tracking-[2px] text-ink">
-                {pickupNumber}
-              </p>
-            </div>
-            <span className="max-w-[130px] text-right text-[12.5px] font-semibold leading-snug text-ink3">
-              {isDelivery
-                ? "Quote this on delivery"
-                : "Show this at the counter to collect"}
-            </span>
-          </div>
-
-          {/* Live status (polls; takes over the screen for out-for-delivery) */}
+          {/* One order = one card: the order number + live status share a single
+              shell (rendered inside OrderStatusHero), then takes over the screen
+              for out-for-delivery. */}
           <OrderStatusHero
             orderId={orderId}
             initialState={initialState}
             isDelivery={isDelivery}
+            initialDispatchStatus={initialDispatchStatus}
             orderNumber={pickupNumber}
             deliveryAddress={deliveryAddress}
             etaText={waitText}
