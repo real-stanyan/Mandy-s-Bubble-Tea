@@ -396,3 +396,39 @@ export async function reverseAccrualForOrder(
 
   return { reversed: totalPoints, accountId };
 }
+
+/**
+ * Return the loyalty rewards (stars) a customer spent on an order, by deleting
+ * each reward attached to it. Deleting an ISSUED reward returns its points to
+ * the account and strips the reward's discount line from the order (same call
+ * the redeem route uses for rollback) — so a customer never loses stars on an
+ * order that gets released before it's accepted (Mandy Delivery auto-cancel).
+ *
+ * The reward ids come from `order.rewards`. The delete is version-free (it
+ * targets the reward, not the order), but it DOES bump the order's version —
+ * callers that update the order afterwards must re-fetch first.
+ *
+ * Idempotent and best-effort: a reward already deleted (or REDEEMED once the
+ * order was paid — which shouldn't happen for an unaccepted order) throws, so
+ * we swallow per-reward errors and keep going rather than block the cancel.
+ */
+export async function returnOrderRewards(order: {
+  id?: string;
+  rewards?: { id?: string }[] | null;
+}): Promise<{ returned: number }> {
+  const rewards = order.rewards ?? [];
+  let returned = 0;
+  for (const reward of rewards) {
+    if (!reward.id) continue;
+    try {
+      await squareClient.loyalty.rewards.delete({ rewardId: reward.id });
+      returned += 1;
+    } catch (err) {
+      console.error(
+        `[returnOrderRewards] order=${order.id} reward=${reward.id} delete failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return { returned };
+}
