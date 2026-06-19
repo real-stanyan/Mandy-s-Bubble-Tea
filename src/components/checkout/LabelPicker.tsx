@@ -22,7 +22,8 @@ import {
 import { DrawCanvas, BRUSHES, type BrushWidth } from "./cup-label/DrawCanvas";
 import type { SvgPath } from "@/lib/doodle/render-svg";
 
-type Manifest = { hashes: string[] };
+type GalleryItem = { hash: string; thumbUrl: string; source: "builtin" | "upload" };
+type Gallery = { presets: GalleryItem[] };
 
 type LabelPickerProps = {
   open: boolean;
@@ -56,13 +57,13 @@ function initialTabFor(sel: CupLabelSelection | undefined): Tab {
   return "preset";
 }
 
-let manifestCache: Manifest | null = null;
-async function loadManifest(): Promise<Manifest> {
-  if (manifestCache) return manifestCache;
-  const res = await fetch("/cup-label/gallery/manifest.json");
-  if (!res.ok) throw new Error(`manifest fetch failed: ${res.status}`);
-  const data = (await res.json()) as Manifest;
-  manifestCache = data;
+let galleryCache: Gallery | null = null;
+async function loadGallery(): Promise<Gallery> {
+  if (galleryCache) return galleryCache;
+  const res = await fetch("/api/cup-label/gallery");
+  if (!res.ok) throw new Error(`gallery fetch failed: ${res.status}`);
+  const data = (await res.json()) as Gallery;
+  galleryCache = data;
   return data;
 }
 
@@ -200,19 +201,19 @@ function GalleryTab({
   current: string | undefined;
   onSelect: (hash: string) => void;
 }) {
-  const [manifest, setManifest] = useState<Manifest | null>(manifestCache);
+  const [gallery, setGallery] = useState<Gallery | null>(galleryCache);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (manifest) return;
-    loadManifest().then(setManifest).catch((e) => setError(String(e)));
-  }, [manifest]);
+    if (gallery) return;
+    loadGallery().then(setGallery).catch((e) => setError(String(e)));
+  }, [gallery]);
 
   if (error) return <p className="text-sm text-red-600">Failed to load gallery: {error}</p>;
-  if (!manifest) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (!gallery) return <p className="text-sm text-zinc-500">Loading…</p>;
 
   return (
     <div className="grid max-h-[60vh] grid-cols-3 gap-3 overflow-y-auto p-1 sm:grid-cols-4 md:grid-cols-5">
-      {manifest.hashes.map((hash) => {
+      {gallery.presets.map(({ hash, thumbUrl }) => {
         const selected = hash === current;
         return (
           <button
@@ -228,7 +229,7 @@ function GalleryTab({
             aria-pressed={selected}
           >
             <Image
-              src={`/cup-label/gallery/${hash}/binarized.png`}
+              src={thumbUrl}
               alt=""
               width={592}
               height={592}
