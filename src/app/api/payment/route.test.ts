@@ -60,6 +60,10 @@ vi.mock("@/lib/cup-label/enqueue", () => ({
   enqueueCupLabelJobs: (...args: unknown[]) =>
     mockEnqueueCupLabelJobs(...args),
 }));
+const mockNotifyDrivers = vi.fn();
+vi.mock("@/lib/driver-notify", () => ({
+  notifyDriversNewDelivery: (...args: unknown[]) => mockNotifyDrivers(...args),
+}));
 
 import { POST } from "./route";
 
@@ -159,6 +163,61 @@ describe("POST /api/payment — loyalty accrual gating (bug `loyalty-payment-not
 
     expect(json.loyaltyAccrued).toBe(true);
     expect(mockAccrueForOrder).toHaveBeenCalledWith("acc1", "ord1");
+  });
+});
+
+describe("POST /api/payment — $0 delivery defers to the driver flow (DE833 fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthedUser.mockResolvedValue({
+      userId: "u1",
+      profile: {
+        square_customer_id: "cust1",
+        phone_e164: "+61400000001",
+        first_name: "Stan",
+      },
+    });
+    mockNotifyDrivers.mockResolvedValue(undefined);
+    mockEnqueuePrintJob.mockResolvedValue({ queued: false, reason: "noop" });
+  });
+
+  it("does NOT settle a $0 delivery order (no orders.pay) and advertises it to drivers", async () => {
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ordD",
+        totalMoney: { amount: 0n },
+        rewards: [{ id: "r1" }],
+        discounts: [],
+        metadata: { fulfillment_type: "DELIVERY" },
+      },
+    });
+
+    const res = await POST(makeRequest({ orderId: "ordD" }));
+    expect(res.status).toBe(200);
+    // The DE833 bug: orders.pay completed the order pre-acceptance. Must NOT run.
+    expect(mockOrdersPay).not.toHaveBeenCalled();
+    // Drivers are told so one can accept it.
+    expect(mockNotifyDrivers).toHaveBeenCalled();
+    // Print is deferred to driver accept (no settle, no webhook for a $0 order).
+    expect(mockEnqueuePrintJob).not.toHaveBeenCalled();
+  });
+
+  it("still settles a $0 PICKUP order via orders.pay (unchanged)", async () => {
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "ordP",
+        totalMoney: { amount: 0n },
+        rewards: [{ id: "r1" }],
+        discounts: [],
+        metadata: {},
+      },
+    });
+    mockOrdersPay.mockResolvedValue({ order: { id: "ordP", state: "COMPLETED" } });
+
+    const res = await POST(makeRequest({ orderId: "ordP" }));
+    expect(res.status).toBe(200);
+    expect(mockOrdersPay).toHaveBeenCalled();
+    expect(mockNotifyDrivers).not.toHaveBeenCalled();
   });
 });
 

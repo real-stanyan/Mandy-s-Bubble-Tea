@@ -316,12 +316,28 @@ export async function POST(request: Request) {
           console.error("[cup-label] paid-branch user-doodle enqueue setup failed (non-fatal)", e);
         }
       }
+    } else if (order.metadata?.fulfillment_type === "DELIVERY") {
+      // $0 DELIVERY order (fully comped by a loyalty reward). Do NOT settle it
+      // at checkout: like a paid delivery order it must run the driver flow
+      // (accept → deliver), not be closed immediately. Calling orders.pay here
+      // would mark the order — and its fulfillment — COMPLETED before any driver
+      // touched it (the DE833 bug). The reward already zeroed the total, so
+      // there's nothing to collect; leave it OPEN/PROPOSED and advertise it to
+      // drivers. Print + discount consumption are deferred to driver accept (no
+      // webhook fires for a $0 order, so the accept route runs them).
+      after(async () => {
+        try {
+          await notifyDriversNewDelivery(order);
+        } catch (e) {
+          console.error("[driver-push] $0 authorize-time notify failed (non-fatal)", e);
+        }
+      });
     } else {
-      // Zero-total order: fully covered by a loyalty reward (or other
-      // discount). Square rejects zero-amount Payment objects, so we
-      // close the order via orders.pay with an empty paymentIds list
-      // instead. Square accepts that because the order total (0) is
-      // satisfied by the sum of payments (0).
+      // Zero-total PICKUP/in-store order: fully covered by a loyalty reward (or
+      // other discount). Square rejects zero-amount Payment objects, so we close
+      // the order via orders.pay with an empty paymentIds list instead. Square
+      // accepts that because the order total (0) is satisfied by the sum of
+      // payments (0). No driver step, so settle + print immediately.
       const payResp = await squareClient.orders.pay({
         orderId: body.orderId,
         idempotencyKey: randomUUID(),
@@ -410,8 +426,14 @@ export async function POST(request: Request) {
     // orders.pay; throws would have hit the outer catch). Must gate
     // accrual: PENDING/FAILED card charges that didn't throw must not
     // mint stars.
+    // $0 pickup orders settle at checkout (orders.pay above); $0 delivery orders
+    // are intentionally left OPEN for the driver flow, so they are NOT settled
+    // here — defer discount consumption to driver accept, same as a paid
+    // delivery order whose authorization hasn't been captured yet.
+    const isZeroDelivery =
+      amount === 0n && order.metadata?.fulfillment_type === "DELIVERY";
     const paymentSettled =
-      amount > 0n ? paymentStatus === "COMPLETED" : true;
+      amount > 0n ? paymentStatus === "COMPLETED" : !isZeroDelivery;
 
     let loyaltyAccrued = false;
     if (!skipAccrual && paymentSettled) {

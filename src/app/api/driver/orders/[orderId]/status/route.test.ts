@@ -16,8 +16,10 @@ vi.mock("@/lib/square", () => ({
   SQUARE_LOCATION_ID: "L1",
 }))
 const mockRecordDispatch = vi.fn()
+const mockGetAccepted = vi.fn()
 vi.mock("@/lib/driver-tokens", () => ({
   recordDispatch: (...a: unknown[]) => mockRecordDispatch(...a),
+  getAcceptedOrderIds: (...a: unknown[]) => mockGetAccepted(...a),
 }))
 const mockConsumeDiscounts = vi.fn()
 vi.mock("@/lib/consume-order-discounts", () => ({
@@ -26,6 +28,14 @@ vi.mock("@/lib/consume-order-discounts", () => ({
 const mockRelease = vi.fn()
 vi.mock("@/lib/release-delivery-order", () => ({
   releaseDeliveryOrder: (...a: unknown[]) => mockRelease(...a),
+}))
+const mockEnqueuePrint = vi.fn()
+vi.mock("@/lib/print-jobs", () => ({
+  enqueuePrintJob: (...a: unknown[]) => mockEnqueuePrint(...a),
+}))
+const mockEnqueueCupLabel = vi.fn()
+vi.mock("@/lib/cup-label/enqueue", () => ({
+  enqueueCupLabelJobs: (...a: unknown[]) => mockEnqueueCupLabel(...a),
 }))
 
 import { POST } from "./route"
@@ -82,6 +92,9 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     process.env.STAFF_DELIVERY_TOKEN = "driver-secret"
     process.env.ADMIN_DELIVERY_TOKEN = "admin-secret"
     mockConsumeDiscounts.mockResolvedValue(undefined)
+    mockGetAccepted.mockResolvedValue(new Set())
+    mockEnqueuePrint.mockResolvedValue({ queued: true, stickerNumber: "001" })
+    mockEnqueueCupLabel.mockResolvedValue(undefined)
   })
 
   const orderWithTender = (tenderStatus: string | null) => ({
@@ -130,12 +143,33 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     expect(mockRecordDispatch).not.toHaveBeenCalled()
   })
 
-  it("accepts a $0 order (no card tender) — records accepted, no charge", async () => {
+  it("accepts a $0 order (no card tender) — runs deferred print + discount, no charge", async () => {
     mockOrdersGet.mockResolvedValue(orderWithTender(null))
     const res = await POST(req("driver-secret", { action: "accepted" }), { params })
     expect(res.status).toBe(200)
     expect((await res.json()).captured).toBe(false)
     expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    // deferred-from-checkout side-effects run on the $0 accept
+    expect(mockConsumeDiscounts).toHaveBeenCalled()
+    expect(mockEnqueuePrint).toHaveBeenCalledWith(
+      expect.objectContaining({ assumeSettled: true }),
+    )
+    expect(mockEnqueueCupLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ stickerNumber: "001" }),
+    )
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "accepted" }),
+    )
+  })
+
+  it("re-accepting a $0 order is idempotent — no double print/consume", async () => {
+    mockOrdersGet.mockResolvedValue(orderWithTender(null))
+    mockGetAccepted.mockResolvedValue(new Set(["O1"])) // already accepted earlier
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(200)
+    expect(mockConsumeDiscounts).not.toHaveBeenCalled()
+    expect(mockEnqueuePrint).not.toHaveBeenCalled()
+    // still records the (idempotent) acceptance
     expect(mockRecordDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ status: "accepted" }),
     )

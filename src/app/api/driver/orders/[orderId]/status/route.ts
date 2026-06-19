@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { isAuthedDriver } from "@/lib/driver-auth";
-import { recordDispatch } from "@/lib/driver-tokens";
+import { recordDispatch, getAcceptedOrderIds } from "@/lib/driver-tokens";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 
@@ -144,8 +144,7 @@ export async function POST(
         );
       } else if (tenderStatus && tenderStatus !== "CAPTURED") {
         // VOIDED (timed-out / cancelled) or another terminal state — can't take
-        // it. (CAPTURED = already accepted → idempotent re-tap; no tender = $0
-        // order → just record the acceptance below.)
+        // it. (CAPTURED = already accepted → idempotent re-tap.)
         return NextResponse.json(
           {
             ok: false,
@@ -153,6 +152,34 @@ export async function POST(
           },
           { status: 409 },
         );
+      } else if (!tenderStatus) {
+        // $0 delivery order (loyalty-comped, no card). Checkout deliberately did
+        // NOT settle it (orders.pay would have completed it pre-acceptance), so
+        // its checkout side-effects were deferred here: burn the discount and
+        // enqueue the print. Guard on the dispatch ledger so a re-tap doesn't
+        // double-consume / double-print — the AUTHORIZED branch is guarded by
+        // the CAPTURED transition, but a $0 order has no such state to key on.
+        const already = await getAcceptedOrderIds([orderId]);
+        if (!already.has(orderId)) {
+          await consumeOrderDiscounts(order).catch((e) =>
+            console.error("[driver/status] $0 discount consume failed (non-fatal)", e),
+          );
+          try {
+            const { enqueuePrintJob } = await import("@/lib/print-jobs");
+            const result = await enqueuePrintJob({ order, assumeSettled: true });
+            if (result.queued) {
+              const { enqueueCupLabelJobs } = await import("@/lib/cup-label/enqueue");
+              await enqueueCupLabelJobs({
+                order,
+                stickerNumber: result.stickerNumber,
+              }).catch((e) =>
+                console.error("[driver/status] $0 cup-label enqueue failed (non-fatal)", e),
+              );
+            }
+          } catch (e) {
+            console.error("[driver/status] $0 accept print enqueue failed (non-fatal)", e);
+          }
+        }
       }
 
       await recordDispatch({
