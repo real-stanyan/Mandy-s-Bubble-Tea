@@ -11,7 +11,7 @@ import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
-import { getPresetSource, downloadBucketBinarized } from "./gallery-store";
+import { downloadBucketBinarized } from "./gallery-store";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -160,11 +160,16 @@ type Row = {
   copy_idx: number;
 };
 
-/** Resolve a preset sticker's 1-bit print buffer from the right source. */
+/** Resolve a preset sticker's 1-bit print buffer. Built-ins live on disk
+ *  (no DB/network dependency); admin uploads fall through to the bucket. */
 export async function resolvePresetBuffer(hash: string): Promise<Buffer> {
-  const source = await getPresetSource(hash);
-  if (source === "upload") return downloadBucketBinarized(hash);
-  return fs.readFile(path.join(GALLERY_DIR, hash, "binarized.png"));
+  try {
+    // Built-in static presets — pure disk read, resilient to Supabase outage.
+    return await fs.readFile(path.join(GALLERY_DIR, hash, "binarized.png"));
+  } catch {
+    // Not on disk → it's an admin-uploaded preset in the Supabase bucket.
+    return downloadBucketBinarized(hash);
+  }
 }
 
 export async function enqueueCupLabelJobs({
