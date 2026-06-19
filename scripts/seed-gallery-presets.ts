@@ -1,8 +1,8 @@
 // Idempotent seed of the 235 built-in presets into gallery_presets.
-// Run ONCE against prod after the migration:  pnpm tsx src/lib/seed-gallery-presets.ts
+// Run ONCE against prod after the migration:  pnpm tsx scripts/seed-gallery-presets.ts
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getSupabaseAdmin } from "./supabase-server";
+import { getSupabaseAdmin } from "../src/lib/supabase-server";
 
 export type GalleryPresetSeedRow = {
   hash: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSeedRows } from "./lib/seed-gallery-presets";
+import { buildSeedRows } from "../scripts/seed-gallery-presets";
 
 describe("buildSeedRows", () => {
   it("maps hashes to builtin/static rows with ascending sort_order", () => {
