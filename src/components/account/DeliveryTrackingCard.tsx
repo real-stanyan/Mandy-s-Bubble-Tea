@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Clock, Phone } from "lucide-react";
 import { DELIVERY_DRIVER } from "@/lib/constants";
 import { FreshnessBar, type Tracking } from "@/components/delivery/DeliveryMap";
@@ -100,13 +100,34 @@ export function InlineTrackingCard({
 }) {
   const hasDriver = tracking.driverLat != null && tracking.driverLng != null;
   const eta = liveEta(tracking.etaSeconds);
+  const router = useRouter();
+  const href = `/order-confirmation/${order.id}`;
+  const open = () => router.push(href);
 
   return (
-    <div className="overflow-hidden rounded-[22px] border-[1.5px] border-brand shadow-[0_14px_32px_rgba(141,85,36,0.16)]">
+    // Whole card is the tap target → order detail. Implemented with onClick (not
+    // a <Link>) so the driver's `tel:` <a> can live inside without illegal anchor
+    // nesting; that anchor stops propagation so tapping "call" dials instead of
+    // navigating. role/tabIndex/keydown keep it keyboard- and SR-accessible.
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+      className="cursor-pointer overflow-hidden rounded-[22px] border-[1.5px] border-brand shadow-[0_14px_32px_rgba(141,85,36,0.16)] transition active:scale-[0.995] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+    >
       {/* live map — z-0 wrapper traps Leaflet's internal panes beneath the
-          overlay chips (mirrors the full-screen tracker on the detail page) */}
+          overlay chips (mirrors the full-screen tracker on the detail page).
+          pointer-events-none: this is a glanceable preview, so taps fall through
+          to the card instead of panning the mini-map — the detail page has the
+          interactive map. */}
       <div className="relative h-[190px] w-full" style={{ background: "#E8E5DE" }}>
-        <div className="absolute inset-0 z-0">
+        <div className="pointer-events-none absolute inset-0 z-0">
           <DeliveryMap tracking={tracking} />
         </div>
         <div className="pointer-events-none absolute left-3 top-3 z-10">
@@ -139,10 +160,10 @@ export function InlineTrackingCard({
           </span>
         </div>
 
-        {/* prominent order number — quoted to the driver on arrival */}
-        <Link
-          href={`/order-confirmation/${order.id}`}
-          className="mt-4 block rounded-2xl px-[18px] py-4 transition active:scale-[0.99]"
+        {/* prominent order number — quoted to the driver on arrival. The whole
+            card already navigates, so this is a plain block (not its own link). */}
+        <div
+          className="mt-4 block rounded-2xl px-[18px] py-4"
           style={{
             background: "rgba(255,255,255,0.6)",
             border: "1.5px dashed rgba(141,85,36,0.38)",
@@ -159,7 +180,7 @@ export function InlineTrackingCard({
           <div className="mt-2 whitespace-nowrap font-mono text-[40px] font-bold leading-none tracking-[2px] text-ink">
             {displayNumber(order)}
           </div>
-        </Link>
+        </div>
 
         {/* driver strip */}
         <div
@@ -187,6 +208,7 @@ export function InlineTrackingCard({
           <a
             href={`tel:${DELIVERY_DRIVER.phone}`}
             aria-label={`Call ${DELIVERY_DRIVER.name}`}
+            onClick={(e) => e.stopPropagation()}
             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition active:scale-95"
             style={{ backgroundColor: "#3CA96E" }}
           >
