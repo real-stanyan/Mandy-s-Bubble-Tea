@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Check, Clock, Phone } from "lucide-react";
@@ -317,6 +317,10 @@ function DeliveryTrackingView({
   // with a full-viewport fixed layer). Measured live so it tracks the header's
   // real height (mobile vs desktop, holiday banner, etc.).
   const [topOffset, setTopOffset] = useState(64);
+  // How much of the full-bleed map the bottom sheet covers — fed to the map so
+  // it recentres the driver into the visible band above the sheet.
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const [sheetInset, setSheetInset] = useState(0);
 
   // Lock background scroll while the overlay owns the screen.
   useEffect(() => {
@@ -332,10 +336,16 @@ function DeliveryTrackingView({
       const header = document.querySelector("header");
       const bottom = header?.getBoundingClientRect().bottom ?? 64;
       setTopOffset(Math.max(0, Math.round(bottom)));
+      setSheetInset(sheetRef.current?.offsetHeight ?? 0);
     };
     measure();
+    // Re-measure after layout settles (web fonts, safe-area insets).
+    const raf = requestAnimationFrame(measure);
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (
@@ -346,7 +356,7 @@ function DeliveryTrackingView({
       {/* Full-bleed live map. z-0 establishes a stacking context so Leaflet's
           internal panes (z-index up to ~700) stay trapped beneath the overlays. */}
       <div className="absolute inset-0 z-0">
-        <DeliveryMap tracking={tracking} />
+        <DeliveryMap tracking={tracking} bottomInset={sheetInset} />
       </div>
 
       {/* Top: live freshness chip */}
@@ -363,6 +373,7 @@ function DeliveryTrackingView({
       {/* Bottom sheet */}
       <div className="absolute inset-x-0 bottom-0 z-10">
         <div
+          ref={sheetRef}
           className="mx-auto max-w-lg rounded-t-3xl bg-card px-5 pt-3 shadow-[0_-8px_30px_rgba(42,30,20,0.18)]"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 18px)" }}
         >

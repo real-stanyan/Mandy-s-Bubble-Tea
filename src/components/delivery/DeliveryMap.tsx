@@ -21,7 +21,10 @@ export type Tracking = {
   etaSeconds?: number | null;
 };
 
-type Props = { tracking: Tracking };
+// `bottomInset` = pixels obscured at the bottom of the map by an overlay (the
+// out-for-delivery sheet). The driver is recentred into the visible band above
+// it. 0 (default) for the inline mini-map, which has nothing covering it.
+type Props = { tracking: Tracking; bottomInset?: number };
 
 // Emoji pin built as a Leaflet divIcon — avoids the classic bundler issue with
 // Leaflet's default marker image paths, and keeps us on the brand palette.
@@ -34,13 +37,16 @@ function pinHtml(emoji: string, ring: string): string {
   ">${emoji}</div>`;
 }
 
-export function DeliveryMap({ tracking }: Props) {
+export function DeliveryMap({ tracking, bottomInset = 0 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const driverMarkerRef = useRef<Marker | null>(null);
   const routeLineRef = useRef<Polyline | null>(null);
   const animRef = useRef<number | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
+  // Kept in a ref so every fitAll caller (init, resize, driver-move tween) reads
+  // the current inset without being re-bound.
+  const bottomInsetRef = useRef(0);
   // Leaflet module, loaded lazily (references window at import time).
   const LRef = useRef<typeof import("leaflet") | null>(null);
   const [ready, setReady] = useState(false);
@@ -149,10 +155,28 @@ export function DeliveryMap({ tracking }: Props) {
     // driver→destination span (let alone the far-away shop) would zoom out
     // until the 🛵 is a speck, so we deliberately don't fit the destination
     // here; the route line still points the way to it.
+    const h = map.getSize().y || 600;
+    // How much of the map's bottom is hidden behind the overlay sheet. Use the
+    // measured inset when the parent supplies it, else a sane fraction; cap so a
+    // fit/offset still leaves usable viewport.
+    const obscured = Math.min(
+      bottomInsetRef.current > 0 ? bottomInsetRef.current : Math.round(h * 0.38),
+      Math.round(h * 0.45),
+    );
+
     if (driverLive) {
-      map.setView([tracking.driverLat!, tracking.driverLng!], DRIVER_ZOOM, {
-        animate: false,
-      });
+      const driver = L.latLng(tracking.driverLat!, tracking.driverLng!);
+      if (obscured > 0) {
+        // Shift the map centre DOWN by half the obscured height so the 🛵 lands
+        // in the visible band above the sheet (the map is full-bleed behind it).
+        const center = map.unproject(
+          map.project(driver, DRIVER_ZOOM).add(L.point(0, Math.round(obscured / 2))),
+          DRIVER_ZOOM,
+        );
+        map.setView(center, DRIVER_ZOOM, { animate: false });
+      } else {
+        map.setView(driver, DRIVER_ZOOM, { animate: false });
+      }
       return;
     }
 
@@ -163,19 +187,28 @@ export function DeliveryMap({ tracking }: Props) {
       map.setView(pts[0], 15);
     } else {
       const bounds: LatLngBoundsExpression = L.latLngBounds(pts).pad(0.3);
-      // Reserve room at the bottom for the overlay sheet, but cap it at ~38% of
-      // the map height so fitBounds always has enough viewport left to actually
-      // fit all points (a fixed padding bigger than the viewport breaks the
-      // fit). maxZoom guards the case where points are nearly coincident.
-      const h = map.getSize().y || 600;
-      const bottomPad = Math.min(240, Math.round(h * 0.38));
+      // Reserve room at the bottom for the overlay sheet (the fraction cap above
+      // keeps fitBounds with enough viewport left to actually fit all points — a
+      // padding bigger than the viewport breaks the fit). maxZoom guards the case
+      // where points are nearly coincident.
       map.fitBounds(bounds, {
         maxZoom: 16,
         paddingTopLeft: [30, 40],
-        paddingBottomRight: [30, bottomPad],
+        paddingBottomRight: [30, obscured],
       });
     }
   }
+
+  // Track the obscured-bottom inset; re-fit when the parent measures/changes it
+  // so the driver re-centres into the visible band (the sheet height isn't known
+  // until after the first layout pass).
+  useEffect(() => {
+    bottomInsetRef.current = bottomInset;
+    if (ready && LRef.current && mapRef.current) {
+      fitAll(LRef.current, mapRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bottomInset, ready]);
 
   // Move the driver marker whenever a fresh fix arrives, tweening for smoothness.
   useEffect(() => {
