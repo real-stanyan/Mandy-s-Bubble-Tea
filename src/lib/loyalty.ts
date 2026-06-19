@@ -398,6 +398,61 @@ export async function reverseAccrualForOrder(
 }
 
 /**
+ * Return the stars a customer SPENT on rewards for an order, on full refund.
+ * Counterpart to reverseAccrualForOrder (which claws back stars earned): here
+ * we credit back stars redeemed. Used when an order that was already paid gets
+ * refunded — its rewards are in REDEEMED state and can't be deleted (unlike the
+ * pre-payment path, see returnOrderRewards), so we credit the points directly.
+ *
+ * Each REDEEM_REWARD event on the order is one reward, costing the program's
+ * starsPerReward (this seller runs a single reward tier). Idempotent: the
+ * idempotencyKey is derived from refundId so a re-delivered webhook is deduped
+ * by Square. Returns `{returned: 0, accountId: null}` when the order redeemed
+ * no rewards (the common case).
+ */
+export async function returnRedeemedStarsForOrder(
+  orderId: string,
+  refundId: string,
+): Promise<{ returned: number; accountId: string | null }> {
+  const response = await squareClient.loyalty.searchEvents({
+    query: {
+      filter: {
+        orderFilter: { orderId },
+        typeFilter: { types: ["REDEEM_REWARD"] },
+      },
+    },
+    limit: 30,
+  });
+
+  const events = response.events ?? [];
+  let accountId: string | null = null;
+  for (const e of events) {
+    if (e.loyaltyAccountId) {
+      accountId = e.loyaltyAccountId;
+      break;
+    }
+  }
+
+  if (events.length === 0 || !accountId) {
+    return { returned: 0, accountId };
+  }
+
+  const { starsPerReward } = await getActiveProgram();
+  const points = events.length * starsPerReward;
+
+  await squareClient.loyalty.accounts.adjust({
+    accountId,
+    idempotencyKey: `refund-redeem-return-${refundId}`,
+    adjustPoints: {
+      points,
+      reason: `Reward star return for refund ${refundId}`,
+    },
+  });
+
+  return { returned: points, accountId };
+}
+
+/**
  * Return the loyalty rewards (stars) a customer spent on an order, by deleting
  * each reward attached to it. Deleting an ISSUED reward returns its points to
  * the account and strips the reward's discount line from the order (same call

@@ -7,7 +7,10 @@ import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-token
 import { sendExpoPush } from "@/lib/push";
 import { notifyDriversNewDelivery } from "@/lib/driver-notify";
 import { enqueuePrintJob } from "@/lib/print-jobs";
-import { reverseAccrualForOrder } from "@/lib/loyalty";
+import {
+  reverseAccrualForOrder,
+  returnRedeemedStarsForOrder,
+} from "@/lib/loyalty";
 
 // Square Webhook endpoint. Subscribed events (configured in Square
 // Developer Dashboard):
@@ -548,6 +551,28 @@ async function handleRefund(
     const message = err instanceof Error ? err.message : String(err);
     console.error(
       `[square-webhook] refund reverse failed order=${details.orderId} refund=${details.refundId} event_id=${eventId}: ${message}`,
+    );
+  }
+
+  // Independently of accrual: if the customer SPENT stars on a reward for this
+  // order, a full refund must hand those stars back too (the redeemed reward is
+  // gone once the order was paid, so Square won't auto-return them). Separate
+  // try/catch so an accrual-reverse failure above doesn't skip this, and vice
+  // versa.
+  try {
+    const result = await returnRedeemedStarsForOrder(
+      details.orderId,
+      details.refundId,
+    );
+    if (result.returned > 0) {
+      console.log(
+        `[square-webhook] refund returned ${result.returned} redeemed stars order=${details.orderId} refund=${details.refundId} account=${result.accountId ?? "none"} event_id=${eventId}`,
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[square-webhook] refund redeem-return failed order=${details.orderId} refund=${details.refundId} event_id=${eventId}: ${message}`,
     );
   }
 }
