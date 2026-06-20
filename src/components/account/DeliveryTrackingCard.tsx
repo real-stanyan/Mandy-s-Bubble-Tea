@@ -78,9 +78,24 @@ export function DeliveryTrackingCard({
     };
     tick();
     const id = setInterval(tick, POLL_MS);
+
+    // Mobile browsers throttle/suspend setInterval + network in backgrounded
+    // tabs, so a customer who locks their phone or app-switches while waiting
+    // stops polling and returns to a minutes-stale position. Refetch the moment
+    // the page is foregrounded again (or regains focus / network) so the card
+    // recovers immediately instead of waiting for a throttled tick.
+    const onWake = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    window.addEventListener("online", onWake);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+      window.removeEventListener("online", onWake);
     };
   }, [order.id]);
 

@@ -382,10 +382,10 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
         />
         <div className="mt-2 flex">
           <Link
-            href="/"
+            href="/account/orders"
             className="flex flex-1 items-center justify-center rounded-full border border-line bg-card py-3 text-sm font-semibold text-ink2 shadow-sm transition hover:bg-paper"
           >
-            Back to Home
+            Back to Orders
           </Link>
         </div>
       </div>

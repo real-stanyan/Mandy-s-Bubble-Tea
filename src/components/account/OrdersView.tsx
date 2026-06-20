@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Clock, ChevronDown, ArrowRight } from "lucide-react";
+import { Check, Clock, ChevronDown, ArrowRight, RotateCcw } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import type { OrderHistoryItem } from "@/components/account/OrderRow";
 import { DeliveryTrackingCard } from "@/components/account/DeliveryTrackingCard";
+import { useCart } from "@/store/cart";
 
 // Redesigned Your Orders surface, recreated from
 // design_handoff_account_auth's web-account.jsx OrdersPage. Pure props so
@@ -219,51 +220,99 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
 
 function PastOrderCard({ order }: { order: OrderHistoryItem }) {
   const router = useRouter();
+  const addLine = useCart((s) => s.addLine);
+  const clearCart = useCart((s) => s.clear);
+  const openDrawer = useCart((s) => s.openDrawer);
   const canceled = order.state === "CANCELED";
+  const total = BigInt(order.totalCents);
+  const title =
+    order.itemSummary ||
+    `${order.lineCount} item${order.lineCount !== 1 ? "s" : ""}`;
+
+  // Rebuild the exact cart from the past order's lines and open the cart.
+  // Reorder REPLACES the current cart (clear first) — it's "order this again",
+  // not "add to what I'm building", so tapping it twice doesn't stack orders.
+  // Prices/names come straight off the historical lines; Square re-prices
+  // against the live catalog at checkout, and a since-removed variation is
+  // caught by the existing sold-out guard on order creation. Falls back to
+  // the menu only if this payload predates lineItems.
+  function reorder() {
+    const lines = order.lineItems ?? [];
+    if (lines.length === 0) {
+      router.push("/menu");
+      return;
+    }
+    clearCart();
+    for (const li of lines) {
+      addLine(
+        {
+          itemId: li.itemId,
+          itemName: li.name,
+          itemImageUrl: li.imageUrl,
+          variationId: li.variationId,
+          variationName: li.variationName,
+          variationPriceCents: BigInt(li.basePriceCents),
+          modifiers: li.modifiers.map((m) => ({
+            id: m.id,
+            name: m.name,
+            priceCents: BigInt(m.priceCents),
+          })),
+        },
+        li.quantity,
+      );
+    }
+    openDrawer();
+  }
+
   return (
     <Link
       href={`/order-confirmation/${order.id}`}
-      className="flex items-center gap-4 rounded-card border border-line bg-card p-[18px] shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(42,30,20,0.12)]"
+      className="flex items-stretch gap-3.5 rounded-card border border-line bg-card p-3.5 shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(42,30,20,0.12)]"
     >
-      <OrderThumb order={order} size={56} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2.5">
-          <span className="whitespace-nowrap font-mono text-[18px] font-bold tracking-[0.8px] text-ink">
-            {displayNumber(order)}
-          </span>
+      <OrderThumb order={order} size={58} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* what they ordered (the hero) — now full width */}
+        <h3 className="truncate font-serif text-[15.5px] font-semibold leading-snug text-ink">
+          {title}
+        </h3>
+
+        {/* mode · date · status (status carries the colour, not the price) */}
+        <p className="mt-1 truncate text-[12px] text-ink4">
+          {modeLabel(order)} · {whenText(order.createdAt)} ·{" "}
           {canceled ? (
-            <span className="shrink-0 text-[11px] font-bold text-red-600">
-              Cancelled
-            </span>
+            <span className="font-semibold text-red-600">Cancelled</span>
           ) : (
-            <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-green-dark">
-              <Check size={12} /> Completed
+            <span className="font-semibold text-green-dark">Completed</span>
+          )}
+        </p>
+
+        {/* price chip sits in the order-number slot; the order number rides
+            alongside it, muted. $0 is a valid total (Star reward redemption),
+            so we always show the price — including $0.00. */}
+        <div className="mt-2.5 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="rounded-md bg-cream px-2 py-0.5 font-mono text-[13px] font-bold tracking-[0.4px] text-ink">
+              {formatPrice(total)}
             </span>
+            <span className="truncate font-mono text-[11px] font-semibold tracking-[0.5px] text-ink4">
+              {displayNumber(order)}
+            </span>
+          </div>
+          {!canceled && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                reorder();
+              }}
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] px-3 py-1.5 text-[12px] font-bold text-brand transition hover:bg-brand hover:text-white"
+            >
+              <RotateCcw size={13} strokeWidth={2.5} /> Reorder
+            </button>
           )}
         </div>
-        <p className="mt-1 truncate text-[14px] text-ink2">
-          {order.itemSummary ||
-            `${order.lineCount} item${order.lineCount !== 1 ? "s" : ""}`}
-        </p>
-        <p className="mt-1 text-[12px] text-ink4">
-          {modeLabel(order)} · {whenText(order.createdAt)} · {order.lineCount}{" "}
-          drink{order.lineCount !== 1 ? "s" : ""}
-        </p>
-      </div>
-      <div className="shrink-0 text-right">
-        <p className="text-[15px] font-bold text-brand">
-          {formatPrice(BigInt(order.totalCents))}
-        </p>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            router.push("/menu");
-          }}
-          className="mt-1 text-[12.5px] font-semibold text-brand hover:text-brand-dark"
-        >
-          Reorder
-        </button>
       </div>
     </Link>
   );

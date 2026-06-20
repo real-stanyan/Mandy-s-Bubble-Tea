@@ -32,7 +32,7 @@ function resolveBar(pathname: string): Bar {
   if (pathname === "/our-story")
     return { kind: "back", title: "Our Story", backHref: "/" };
   if (pathname.startsWith("/order-confirmation"))
-    return { kind: "back", title: "Order", backHref: "/" };
+    return { kind: "back", title: "Order", backHref: "/account/orders" };
   return { kind: "logo" };
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Map as LeafletMap, Marker, Polyline, LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { BRAND } from "@/lib/constants";
+import { freshness } from "@/lib/delivery-freshness";
 
 export type Tracking = {
   destLat: number | null;
@@ -156,13 +157,15 @@ export function DeliveryMap({ tracking, bottomInset = 0 }: Props) {
     // until the 🛵 is a speck, so we deliberately don't fit the destination
     // here; the route line still points the way to it.
     const h = map.getSize().y || 600;
-    // How much of the map's bottom is hidden behind the overlay sheet. Use the
-    // measured inset when the parent supplies it, else a sane fraction; cap so a
-    // fit/offset still leaves usable viewport.
-    const obscured = Math.min(
-      bottomInsetRef.current > 0 ? bottomInsetRef.current : Math.round(h * 0.38),
-      Math.round(h * 0.45),
-    );
+    // How much of the map's bottom is hidden behind an overlay sheet. Only the
+    // full-screen tracker has one (it passes the measured height via bottomInset);
+    // the inline account-card map is a clean rectangle with no overlay, so its
+    // inset is 0 and the driver stays dead-centre. Cap so a fit/offset still
+    // leaves usable viewport.
+    const obscured =
+      bottomInsetRef.current > 0
+        ? Math.min(bottomInsetRef.current, Math.round(h * 0.45))
+        : 0;
 
     if (driverLive) {
       const driver = L.latLng(tracking.driverLat!, tracking.driverLng!);
@@ -296,36 +299,32 @@ export function FreshnessBar({
   hasDriver: boolean;
   locationUpdatedAt: string | null;
 }) {
-  const [label, setLabel] = useState("Waiting for driver location…");
+  const [info, setInfo] = useState<ReturnType<typeof freshness>>({
+    label: "Waiting for driver location…",
+    state: "waiting",
+  });
   // Recompute the freshness label off the clock — kept out of render (impure)
-  // and refreshed every 10s so the "x ago" copy stays honest.
+  // and refreshed every 10s so the "x ago" copy stays honest. Once a fix goes
+  // stale (driver stream dropped) the chip flips to an amber "paused" state so
+  // we never show a dead position behind a healthy green light.
   useEffect(() => {
-    const compute = () => {
-      if (!hasDriver || !locationUpdatedAt) {
-        setLabel("Waiting for driver location…");
-        return;
-      }
-      const ageSec = Math.max(
-        0,
-        Math.round((Date.now() - new Date(locationUpdatedAt).getTime()) / 1000),
-      );
-      if (ageSec < 15) setLabel("Live · driver on the way");
-      else if (ageSec < 60) setLabel(`Updated ${ageSec}s ago`);
-      else setLabel(`Updated ${Math.round(ageSec / 60)}m ago`);
-    };
+    const compute = () => setInfo(freshness(hasDriver, locationUpdatedAt, Date.now()));
     compute();
     const id = setInterval(compute, 10000);
     return () => clearInterval(id);
   }, [hasDriver, locationUpdatedAt]);
 
+  // green = live/recent, amber = waiting-for-first-fix OR stream gone stale.
+  const dot = info.state === "live" || info.state === "recent" ? "#5B7A52" : "#C9A227";
+
   return (
     <div className="inline-flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-2 shadow-md backdrop-blur">
       <span
         className="inline-block h-2 w-2 rounded-full"
-        style={{ background: hasDriver ? "#5B7A52" : "#C9A227" }}
+        style={{ background: dot }}
         aria-hidden="true"
       />
-      <p className="text-xs font-semibold text-zinc-700">{label}</p>
+      <p className="text-xs font-semibold text-zinc-700">{info.label}</p>
     </div>
   );
 }

@@ -20,6 +20,25 @@ export type OrderHistoryItem = {
   // state stays OPEN indefinitely for self-delivery + uncompleted pickups, so
   // the list/badges can't key off state alone. Optional for older callers.
   active?: boolean;
+  // Full per-line breakdown from /api/orders/history — used to reconstruct an
+  // identical cart for "Reorder". Optional for older callers.
+  lineItems?: ReorderLine[];
+};
+
+export type ReorderLine = {
+  variationId: string;
+  itemId: string;
+  imageUrl: string | null;
+  name: string;
+  variationName: string;
+  quantity: number;
+  basePriceCents: string;
+  modifiers: {
+    id: string;
+    name: string;
+    listName: string;
+    priceCents: string;
+  }[];
 };
 
 export function OrderRow({ order }: { order: OrderHistoryItem }) {
