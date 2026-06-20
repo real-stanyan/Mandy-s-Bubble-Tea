@@ -1,7 +1,11 @@
 import "server-only";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { RARE_LUCKY_CAT_HASH } from "@/lib/cup-label/lucky-cat";
 
 const BUCKET = "cup-label-gallery";
+const LUCKY_CAT_DIR = path.join(process.cwd(), "public", "cup-label", "lucky-cat");
 
 export type GalleryPreset = {
   hash: string;
@@ -100,6 +104,33 @@ export async function uploadBucketArtifacts(hash: string, colorPng: Buffer, bina
   for (const [name, buf] of [["color.png", colorPng], ["binarized.png", binarizedPng]] as const) {
     const { error } = await sb.storage.from(BUCKET).upload(`${hash}/${name}`, buf, { contentType: "image/png", upsert: true });
     if (error) throw new Error(`${name}: ${error.message}`);
+  }
+}
+
+export function splitLuckyCatPool(hashes: string[]): { commons: string[]; hasRare: boolean } {
+  return {
+    commons: hashes.filter((h) => h !== RARE_LUCKY_CAT_HASH),
+    hasRare: hashes.includes(RARE_LUCKY_CAT_HASH),
+  };
+}
+
+export async function listLuckyCatPoolHashes(): Promise<{ commons: string[]; hasRare: boolean }> {
+  const sb = getSupabaseAdmin();
+  const { data, error } = await sb
+    .from("gallery_presets")
+    .select("hash")
+    .eq("kind", "lucky_cat")
+    .eq("hidden", false)
+    .is("deleted_at", null);
+  if (error) throw new Error(error.message);
+  return splitLuckyCatPool((data as { hash: string }[]).map((r) => r.hash));
+}
+
+export async function getLuckyCatBinarized(hash: string): Promise<Buffer> {
+  try {
+    return await fs.readFile(path.join(LUCKY_CAT_DIR, hash, "binarized.png"));
+  } catch {
+    return downloadBucketBinarized(hash);
   }
 }
 
