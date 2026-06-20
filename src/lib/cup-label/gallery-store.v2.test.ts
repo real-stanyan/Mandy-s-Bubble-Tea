@@ -23,7 +23,7 @@ function makeSb() {
 let sb: any;
 vi.mock("@/lib/supabase-server", () => ({ getSupabaseAdmin: () => sb }));
 
-import { listVisiblePresets, insertUploadPreset, softDeletePreset } from "./gallery-store";
+import { listVisiblePresets, insertUploadPreset, softDeletePreset, listAllForAdmin } from "./gallery-store";
 
 beforeEach(() => { for (const k in calls) delete calls[k]; sb = makeSb(); });
 
@@ -53,5 +53,14 @@ describe("gallery-store v2", () => {
   it("softDeletePreset returns not_found when missing", async () => {
     calls._single = null;
     expect(await softDeletePreset("h")).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("listAllForAdmin filters deleted-at null and includes kind", async () => {
+    calls._rows = [{ hash: "h1", source: "builtin", storage: "static", hidden: false, sort_order: 0, deleted_at: null, kind: "lucky_cat" }];
+    const result = await listAllForAdmin();
+    expect(calls.is).toContainEqual(["deleted_at", null]);
+    expect(result[0].kind).toBe("lucky_cat");
+    expect(result[0].thumbUrl).toBeDefined();
+    expect(result[0].hidden).toBe(false);
   });
 });
