@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAuthedGalleryAdmin } from "@/lib/cup-label/gallery-admin-auth";
-import { setHidden, softDeleteUpload } from "@/lib/cup-label/gallery-store";
+import { setHidden, softDeletePreset } from "@/lib/cup-label/gallery-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
       { status: auth.reason === "unconfigured" ? 500 : 401 }
     );
   const { hash } = await ctx.params;
-  const r = await softDeleteUpload(hash);
+  const r = await softDeletePreset(hash);
   if (!r.ok)
     return NextResponse.json(r, {
       status: r.reason === "not_found" ? 404 : 409,
