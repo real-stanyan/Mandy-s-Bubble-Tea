@@ -11,6 +11,7 @@ import type {
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
 import { isLockedToppingName, lockedModifierIds } from "@/lib/menu/top10-presets";
+import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
 import { useItemModalClose } from "@/components/menu/ItemModalContext";
 
 type Props = {
@@ -65,14 +66,6 @@ function totalInList(counts: CountMap, listId: string): number {
   return sum;
 }
 
-function distinctInList(counts: CountMap, listId: string): number {
-  const map = counts[listId];
-  if (!map) return 0;
-  let n = 0;
-  for (const v of Object.values(map)) if (v > 0) n += 1;
-  return n;
-}
-
 function countOf(counts: CountMap, listId: string, modId: string): number {
   return counts[listId]?.[modId] ?? 0;
 }
@@ -110,7 +103,9 @@ export function ItemOrderForm({
     const errors: Record<string, string> = {};
     for (const ml of modifierLists) {
       const picked = totalInList(selectedByList, ml.id);
-      const distinct = distinctInList(selectedByList, ml.id);
+      // Oreo is exempt from the "different toppings" cap (and unlimited), so
+      // it must not count toward maxDistinct.
+      const distinct = cappedDistinctCount(ml.modifiers, selectedByList[ml.id] ?? {});
       if (picked < ml.minSelected) {
         errors[ml.id] =
           ml.minSelected === 1
@@ -199,17 +194,23 @@ export function ItemOrderForm({
       if (partnerId && countOf(selectedByList, list.id, partnerId) > 0)
         return false;
     }
+    // Oreo is exempt: unlimited quantity and never counted toward the
+    // "different toppings" cap. Skip both caps for it.
+    const uncounted = isUncountedTopping(mod.name);
     // Distinct-kind cap: adding a brand new option would exceed the
     // "different kinds" limit. Bumping an already-picked option is fine.
+    // Oreo neither counts toward nor is blocked by this cap.
     if (
+      !uncounted &&
       list.maxDistinct != null &&
       current === 0 &&
-      distinctInList(selectedByList, list.id) >= list.maxDistinct
+      cappedDistinctCount(list.modifiers, selectedByList[list.id] ?? {}) >=
+        list.maxDistinct
     ) {
       return false;
     }
     // Per-kind cap: each modifier can only be stacked up to this count.
-    if (list.maxPerKind != null && current >= list.maxPerKind) {
+    if (!uncounted && list.maxPerKind != null && current >= list.maxPerKind) {
       return false;
     }
     // Bound by list-total maxSelected if set
@@ -588,12 +589,16 @@ function describeSelection(ml: ModifierList, multi: boolean): string {
   const { minSelected, maxSelected, maxDistinct, maxPerKind } = ml;
   if (minSelected === 0 && maxSelected === 1) return "Pick one (optional)";
   if (minSelected === 1 && maxSelected === 1) return "Pick one";
+  // Oreo is exempt from the cap — surface that when this list offers it.
+  const oreoFree = ml.modifiers.some((m) => isUncountedTopping(m.name))
+    ? " · Oreo unlimited (doesn't count)"
+    : "";
   if (multi) {
     if (maxDistinct != null && maxPerKind != null) {
-      return `Up to ${maxDistinct} kinds · max ${maxPerKind} of each`;
+      return `Up to ${maxDistinct} kinds · max ${maxPerKind} of each${oreoFree}`;
     }
     if (maxDistinct != null) {
-      return `Up to ${maxDistinct} kinds · tap + for more of each`;
+      return `Up to ${maxDistinct} kinds · tap + for more of each${oreoFree}`;
     }
     if (maxSelected == null && minSelected === 0) return "Tap to add · tap + for more";
     if (maxSelected == null && minSelected > 0)
