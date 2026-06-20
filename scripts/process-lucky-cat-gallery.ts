@@ -33,9 +33,9 @@ import { readdir, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import sharp from "sharp";
-import { binarizeForThermal, DOODLE_SIZE } from "../src/lib/doodle/binarize";
+import { binarizeForThermal } from "../src/lib/doodle/binarize";
 import { RARE_LUCKY_CAT_HASH } from "../src/lib/cup-label/lucky-cat";
+import { valueChannelPng, inkLineBinarized } from "../src/lib/cup-label/recipes";
 
 const SRC_DIR = join(homedir(), "Desktop", "招财猫");
 const OUT_DIR = join(process.cwd(), "public", "cup-label", "lucky-cat");
@@ -48,61 +48,6 @@ const THRESHOLD = 200; // value-channel: anything not near-white → black ink
 // drop everything mid-tone → a clean coloring-book line drawing. Opt in by
 // naming the source file with the `inkline-` prefix.
 const INK_LINE_PREFIX = "inkline-";
-const INK_LINE_THRESHOLD = 70; // luminance < 70 → black ink; tuned across the set
-
-// Rebuild as a grayscale-RGB buffer where each pixel = max(R,G,B). This
-// drops saturated background color to white while keeping dark outlines.
-async function valueChannelPng(src: Buffer): Promise<Buffer> {
-  const { data, info } = await sharp(src)
-    .resize({
-      width: DOODLE_SIZE,
-      height: DOODLE_SIZE,
-      fit: "contain",
-      background: { r: 255, g: 255, b: 255, alpha: 1 },
-    })
-    .flatten({ background: { r: 255, g: 255, b: 255 } })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const px = info.width * info.height;
-  const out = Buffer.alloc(px * 3);
-  for (let i = 0; i < px; i++) {
-    const v = Math.max(data[i * 3], data[i * 3 + 1], data[i * 3 + 2]);
-    out[i * 3] = v;
-    out[i * 3 + 1] = v;
-    out[i * 3 + 2] = v;
-  }
-  return sharp(out, {
-    raw: { width: info.width, height: info.height, channels: 3 },
-  })
-    .png()
-    .toBuffer();
-}
-
-// Ink-line extraction for full-color cartoon cats: grayscale → mild blur to
-// tame jpeg noise → hard threshold keeping only near-black ink → median
-// despeckle. Produces a clean 1-bit line drawing; colored fills drop to white.
-async function inkLineBinarized(src: Buffer): Promise<Buffer> {
-  const { data, info } = await sharp(src)
-    .resize({
-      width: DOODLE_SIZE,
-      height: DOODLE_SIZE,
-      fit: "contain",
-      background: { r: 255, g: 255, b: 255, alpha: 1 },
-    })
-    .flatten({ background: { r: 255, g: 255, b: 255 } })
-    .removeAlpha()
-    .grayscale()
-    .blur(0.6)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const out = Buffer.alloc(info.width * info.height);
-  for (let i = 0; i < out.length; i++) out[i] = data[i] < INK_LINE_THRESHOLD ? 0 : 255;
-  return sharp(out, { raw: { width: info.width, height: info.height, channels: 1 } })
-    .median(3)
-    .png()
-    .toBuffer();
-}
 
 async function main() {
   const entries = await readdir(SRC_DIR);
