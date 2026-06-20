@@ -11,7 +11,7 @@ import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
-import { downloadBucketBinarized } from "./gallery-store";
+import { downloadBucketBinarized, listLuckyCatPoolHashes, getLuckyCatBinarized } from "./gallery-store";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -53,6 +53,20 @@ async function listLuckyCatHashes(): Promise<{ commons: string[]; hasRare: boole
     return { commons: [], hasRare: false };
   }
 }
+/** Lucky-cat pool for the auto-fill draw. DB-driven (honors admin hide/upload);
+ *  falls back to the on-disk deck scan if Supabase is unreachable so the
+ *  fallback never breaks. `diskScan` is injected for testability. */
+export async function luckyCatPool(
+  diskScan: () => Promise<{ commons: string[]; hasRare: boolean }> = listLuckyCatHashes,
+): Promise<{ commons: string[]; hasRare: boolean }> {
+  try {
+    return await listLuckyCatPoolHashes();
+  } catch (e) {
+    console.error("[cup-label] lucky-cat DB pool failed, falling back to disk scan:", e instanceof Error ? e.message : e);
+    return diskScan();
+  }
+}
+
 // Hard cap on the hash string we accept from the client — md5 hex is 32
 // chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
 const GALLERY_HASH_MAX_LEN = 64;
@@ -198,7 +212,7 @@ export async function enqueueCupLabelJobs({
   // re-enqueue reproduces identical rows. One jackpot cat at ~1/100 prints
   // a "ONE FREE DRINK" ticket (see below).
   const { commons: luckyCatCommons, hasRare: luckyCatHasRare } =
-    await listLuckyCatHashes();
+    await luckyCatPool();
   // Live boss-editable jackpot odds (1 in N), read once per order.
   const freeDrinkOdds = await getFreeDrinkOdds();
   // Mandy logo, loaded once — only a safety net if the cat deck is empty
@@ -341,9 +355,7 @@ export async function enqueueCupLabelJobs({
         );
         if (!hash) return false;
         try {
-          doodlePngBuffer = await fs.readFile(
-            path.join(LUCKY_CAT_DIR, hash, "binarized.png"),
-          );
+          doodlePngBuffer = await getLuckyCatBinarized(hash);
           source = "preset_sticker";
           poolKey = hash;
           originalImagePath = `cup-label/lucky-cat/${hash}/binarized.png`;
