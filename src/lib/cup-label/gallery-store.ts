@@ -135,19 +135,23 @@ export function splitLuckyCatPool(hashes: string[]): { commons: string[]; hasRar
   };
 }
 
-export async function listLuckyCatPoolHashes(): Promise<{ commons: string[]; hasRare: boolean }> {
+export async function listLuckyCatPoolHashes(): Promise<{ commons: string[]; hasRare: boolean; overrides: Set<string> }> {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from("gallery_presets")
-    .select("hash")
+    .select("hash,override_at")
     .eq("kind", "lucky_cat")
     .eq("hidden", false)
     .is("deleted_at", null);
   if (error) throw new Error(error.message);
-  return splitLuckyCatPool((data as { hash: string }[]).map((r) => r.hash));
+  const rows = data as { hash: string; override_at: string | null }[];
+  const { commons, hasRare } = splitLuckyCatPool(rows.map((r) => r.hash));
+  const overrides = new Set(rows.filter((r) => r.override_at != null).map((r) => r.hash));
+  return { commons, hasRare, overrides };
 }
 
-export async function getLuckyCatBinarized(hash: string): Promise<Buffer> {
+export async function getLuckyCatBinarized(hash: string, opts?: { hasOverride?: boolean }): Promise<Buffer> {
+  if (opts?.hasOverride) return downloadBucketBinarized(hash);
   try {
     return await fs.readFile(path.join(LUCKY_CAT_DIR, hash, "binarized.png"));
   } catch {
