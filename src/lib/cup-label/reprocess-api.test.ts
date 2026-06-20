@@ -67,4 +67,12 @@ describe("reprocess route", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).reason).toBe("bad_recipe");
   });
+
+  it("malformed hash → 400 bad hash, no side-effects", async () => {
+    const res = await POST(req({ hash: "../evil", recipeId: "default" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("bad hash");
+    expect(uploadArtifacts).not.toHaveBeenCalled();
+    expect(setOverrideMock).not.toHaveBeenCalled();
+  });
 });
