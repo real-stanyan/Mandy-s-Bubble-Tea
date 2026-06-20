@@ -6,6 +6,7 @@ import { RARE_LUCKY_CAT_HASH } from "@/lib/cup-label/lucky-cat";
 
 const BUCKET = "cup-label-gallery";
 const LUCKY_CAT_DIR = path.join(process.cwd(), "public", "cup-label", "lucky-cat");
+const GALLERY_DIR = path.join(process.cwd(), "public", "cup-label", "gallery");
 
 export type GalleryPreset = {
   hash: string;
@@ -152,6 +153,47 @@ export async function getLuckyCatBinarized(hash: string): Promise<Buffer> {
   } catch {
     return downloadBucketBinarized(hash);
   }
+}
+
+export async function loadSourceColor(hash: string): Promise<Buffer | null> {
+  const sb = getSupabaseAdmin();
+  const { data: row } = await sb.from("gallery_presets").select("source,kind").eq("hash", hash).maybeSingle();
+  const r = row as { source: "builtin" | "upload"; kind: "gallery" | "lucky_cat" } | null;
+  // Built-in gallery presets keep their color source on disk.
+  if (r?.source === "builtin" && r.kind === "gallery") {
+    try { return await fs.readFile(path.join(GALLERY_DIR, hash, "color.png")); } catch { /* fall through */ }
+  }
+  // Uploads (and re-uploaded built-ins) keep color in the bucket.
+  const { data, error } = await sb.storage.from(BUCKET).download(`${hash}/color.png`);
+  if (error || !data) return null;
+  return Buffer.from(await data.arrayBuffer());
+}
+
+export async function setOverride(hash: string): Promise<void> {
+  const sb = getSupabaseAdmin();
+  const { error } = await sb.from("gallery_presets").update({ override_at: new Date().toISOString() }).eq("hash", hash);
+  if (error) throw new Error(error.message);
+}
+
+export async function clearOverride(hash: string): Promise<{ ok: boolean; reason?: "not_found" }> {
+  const sb = getSupabaseAdmin();
+  const { data } = await sb.from("gallery_presets").select("source").eq("hash", hash).maybeSingle();
+  if (!data) return { ok: false, reason: "not_found" };
+  const { error } = await sb.from("gallery_presets").update({ override_at: null }).eq("hash", hash);
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
+export async function listPresetOverrides(hashes: string[]): Promise<Set<string>> {
+  if (hashes.length === 0) return new Set();
+  const sb = getSupabaseAdmin();
+  const { data, error } = await sb
+    .from("gallery_presets")
+    .select("hash")
+    .not("override_at", "is", null)
+    .in("hash", hashes);
+  if (error) throw new Error(error.message);
+  return new Set((data as { hash: string }[]).map((r) => r.hash));
 }
 
 export { toPreset };
