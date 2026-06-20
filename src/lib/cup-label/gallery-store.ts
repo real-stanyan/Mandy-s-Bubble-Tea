@@ -22,8 +22,16 @@ type DbRow = {
   hidden: boolean; sort_order: number; deleted_at: string | null;
 };
 
-export function thumbUrlFor(p: Pick<GalleryPreset, "hash" | "source">): string {
-  if (p.source === "builtin") return `/cup-label/gallery/${p.hash}/binarized.png`;
+export function thumbUrlFor(
+  p: Pick<GalleryPreset, "hash" | "source"> & { kind?: "gallery" | "lucky_cat" },
+): string {
+  if (p.source === "builtin") {
+    // Built-in lucky-cats live under public/cup-label/lucky-cat/, gallery presets
+    // under /gallery/. Pick the static dir by kind (defaults to gallery, which is
+    // correct for the gallery-only customer read path that omits kind).
+    const dir = p.kind === "lucky_cat" ? "lucky-cat" : "gallery";
+    return `/cup-label/${dir}/${p.hash}/binarized.png`;
+  }
   return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/color.png`).data.publicUrl;
 }
 

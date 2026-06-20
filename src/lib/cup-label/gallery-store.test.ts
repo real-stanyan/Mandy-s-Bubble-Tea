@@ -18,9 +18,13 @@ import { thumbUrlFor } from "./gallery-store";
 beforeEach(() => { rows.length = 0; });
 
 describe("gallery-store thumbUrlFor", () => {
-  it("builtin → static site-relative path", () => {
+  it("builtin gallery → /cup-label/gallery/ path (kind omitted defaults to gallery)", () => {
     expect(thumbUrlFor({ hash: "h1", source: "builtin", storage: "static" } as any))
       .toBe("/cup-label/gallery/h1/binarized.png");
+  });
+  it("builtin lucky_cat → /cup-label/lucky-cat/ path", () => {
+    expect(thumbUrlFor({ hash: "c1", source: "builtin", storage: "static", kind: "lucky_cat" } as any))
+      .toBe("/cup-label/lucky-cat/c1/binarized.png");
   });
   it("upload → bucket public color url", () => {
     expect(thumbUrlFor({ hash: "h2", source: "upload", storage: "supabase" } as any))
