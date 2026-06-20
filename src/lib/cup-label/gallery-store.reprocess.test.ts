@@ -5,6 +5,9 @@ const eqMock = vi.fn();
 const selectMock = vi.fn();
 const downloadMock = vi.fn();
 
+// Controls what maybeSingle() returns for the clearOverride select path.
+let maybeSingleResult: { data: unknown; error: null } = { data: null, error: null };
+
 vi.mock("@/lib/supabase-server", () => ({
   getSupabaseAdmin: vi.fn(() => ({
     from: () => ({
@@ -16,6 +19,9 @@ vi.mock("@/lib/supabase-server", () => ({
             in: (_c: string, hs: string[]) =>
               Promise.resolve({ data: hs.filter((h) => h === "ov").map((h) => ({ hash: h })), error: null }),
           }),
+          eq: (..._eqArgs: unknown[]) => ({
+            maybeSingle: () => Promise.resolve(maybeSingleResult),
+          }),
         };
       },
     }),
@@ -23,9 +29,9 @@ vi.mock("@/lib/supabase-server", () => ({
   })),
 }));
 
-import { setOverride, listPresetOverrides } from "./gallery-store";
+import { setOverride, listPresetOverrides, clearOverride } from "./gallery-store";
 
-beforeEach(() => { updateMock.mockClear(); eqMock.mockClear(); });
+beforeEach(() => { updateMock.mockClear(); eqMock.mockClear(); maybeSingleResult = { data: null, error: null }; });
 
 describe("override write helpers", () => {
   it("setOverride sets override_at and filters by hash", async () => {
@@ -45,5 +51,29 @@ describe("override write helpers", () => {
     const set = await listPresetOverrides([]);
     expect(set.size).toBe(0);
     expect(selectMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("clearOverride", () => {
+  it("returns {ok:false, reason:'not_found'} and does not update when row is missing", async () => {
+    maybeSingleResult = { data: null, error: null };
+    const result = await clearOverride("missing-hash");
+    expect(result).toEqual({ ok: false, reason: "not_found" });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns {ok:false, reason:'not_found'} and does NOT issue update for source='upload' row", async () => {
+    maybeSingleResult = { data: { source: "upload" }, error: null };
+    const result = await clearOverride("upload-hash");
+    expect(result).toEqual({ ok: false, reason: "not_found" });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("clears override_at and returns {ok:true} for source='builtin' row", async () => {
+    maybeSingleResult = { data: { source: "builtin" }, error: null };
+    const result = await clearOverride("builtin-hash");
+    expect(result).toEqual({ ok: true });
+    expect(updateMock).toHaveBeenCalledWith({ override_at: null });
+    expect(eqMock).toHaveBeenCalledWith("hash", "builtin-hash");
   });
 });

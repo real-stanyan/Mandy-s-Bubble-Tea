@@ -179,6 +179,7 @@ export async function clearOverride(hash: string): Promise<{ ok: boolean; reason
   const sb = getSupabaseAdmin();
   const { data } = await sb.from("gallery_presets").select("source").eq("hash", hash).maybeSingle();
   if (!data) return { ok: false, reason: "not_found" };
+  if ((data as { source: "builtin" | "upload" }).source !== "builtin") return { ok: false, reason: "not_found" };
   const { error } = await sb.from("gallery_presets").update({ override_at: null }).eq("hash", hash);
   if (error) throw new Error(error.message);
   return { ok: true };
