@@ -38,7 +38,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
   const r = await softDeletePreset(hash);
   if (!r.ok)
     return NextResponse.json(r, {
-      status: r.reason === "not_found" ? 404 : 409,
+      status: r.reason === "not_found" ? 404 : 500,
     });
   return NextResponse.json(r);
 }
