@@ -23,12 +23,16 @@ type DbRow = {
 };
 
 export function thumbUrlFor(
-  p: Pick<GalleryPreset, "hash" | "source"> & { kind?: "gallery" | "lucky_cat" },
+  p: Pick<GalleryPreset, "hash" | "source"> & {
+    kind?: "gallery" | "lucky_cat";
+    hasOverride?: boolean;
+  },
 ): string {
   if (p.source === "builtin") {
-    // Built-in lucky-cats live under public/cup-label/lucky-cat/, gallery presets
-    // under /gallery/. Pick the static dir by kind (defaults to gallery, which is
-    // correct for the gallery-only customer read path that omits kind).
+    // Re-processed built-in: canonical binarized.png lives in the bucket.
+    if (p.hasOverride) {
+      return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/binarized.png`).data.publicUrl;
+    }
     const dir = p.kind === "lucky_cat" ? "lucky-cat" : "gallery";
     return `/cup-label/${dir}/${p.hash}/binarized.png`;
   }
@@ -43,26 +47,34 @@ export async function listVisiblePresets(): Promise<VisiblePreset[]> {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from("gallery_presets")
-    .select("hash,source,storage,hidden,sort_order,deleted_at")
+    .select("hash,source,storage,hidden,sort_order,deleted_at,override_at")
     .eq("kind", "gallery")
     .eq("hidden", false)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data as DbRow[]).map((r) => ({ hash: r.hash, source: r.source, thumbUrl: thumbUrlFor(r) }));
+  return (data as (DbRow & { override_at: string | null })[]).map((r) => ({
+    hash: r.hash, source: r.source,
+    thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, hasOverride: r.override_at != null }),
+  }));
 }
 
 export async function listAllForAdmin() {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from("gallery_presets")
-    .select("hash,source,storage,hidden,sort_order,deleted_at,kind")
+    .select("hash,source,storage,hidden,sort_order,deleted_at,kind,override_at")
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data as (DbRow & { kind: "gallery" | "lucky_cat" })[]).map((r) => ({
-    hash: r.hash, source: r.source, thumbUrl: thumbUrlFor(r), hidden: r.hidden, deletedAt: r.deleted_at, kind: r.kind,
-  }));
+  return (data as (DbRow & { kind: "gallery" | "lucky_cat"; override_at: string | null })[]).map((r) => {
+    const hasOverride = r.override_at != null;
+    return {
+      hash: r.hash, source: r.source,
+      thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, kind: r.kind, hasOverride }),
+      hidden: r.hidden, deletedAt: r.deleted_at, kind: r.kind, hasOverride,
+    };
+  });
 }
 
 export async function insertUploadPreset(
