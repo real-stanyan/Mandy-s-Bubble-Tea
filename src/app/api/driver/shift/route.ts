@@ -27,6 +27,12 @@ function readPrefs(raw: Record<string, unknown> | undefined): ShiftPrefs {
   };
 }
 
+// Location-sharing mode is a persistent driver preference (drivers.prefs), so it
+// survives off-shift — unlike the cosmetic copy carried on the open shift row.
+function readLocationMode(raw: Record<string, unknown> | undefined): LocationMode {
+  return raw?.locationMode === "always" ? "always" : "while";
+}
+
 async function buildState(driverId: string, driver: {
   name: string; suburb: string | null; phone: string | null; vehicle: string | null;
   joinedAt: string | null; rating: number | null; prefs: Record<string, unknown>;
@@ -50,7 +56,7 @@ async function buildState(driverId: string, driver: {
     ok: true,
     onShift: !!open,
     startedAt: open?.startedAt ?? null,
-    locationMode: open?.locationMode ?? "while",
+    locationMode: readLocationMode(driver.prefs),
     today: { deliveries: today.length, earnedCents, onlineSecs },
     profile: {
       name: driver.name,
@@ -121,7 +127,7 @@ export async function POST(request: Request) {
         if (body.locationMode !== "while" && body.locationMode !== "always") {
           return NextResponse.json({ ok: false, error: "Bad locationMode" }, { status: 400 });
         }
-        await setLocationMode(auth.driverId, body.locationMode);
+        auth.driver.prefs = await setLocationMode(auth.driverId, body.locationMode);
         break;
       case "set_prefs": {
         if (!body.prefs || typeof body.prefs !== "object") {

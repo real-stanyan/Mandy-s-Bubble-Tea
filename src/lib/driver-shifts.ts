@@ -63,18 +63,16 @@ export async function endShift(driverId: string): Promise<void> {
   if (error) throw new Error(`endShift: ${error.message}`);
 }
 
-/** Switch the live location mode on the current open shift. */
+/**
+ * Persist the driver's preferred location-sharing mode. Lives on the driver
+ * row (drivers.prefs), NOT the open shift — so toggling survives off-shift and
+ * seeds the next "Go online". Returns the merged prefs.
+ */
 export async function setLocationMode(
   driverId: string,
   mode: LocationMode,
-): Promise<void> {
-  const admin = getSupabaseAdmin();
-  const { error } = await admin
-    .from("driver_shifts")
-    .update({ location_mode: mode })
-    .eq("driver_id", driverId)
-    .is("ended_at", null);
-  if (error) throw new Error(`setLocationMode: ${error.message}`);
+): Promise<Record<string, unknown>> {
+  return updateDriverPrefs(driverId, { locationMode: mode });
 }
 
 /** Merge keys into drivers.prefs (jsonb). Read-modify-write — small object. */
