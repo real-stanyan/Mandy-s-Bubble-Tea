@@ -5,3 +5,7 @@ printer-client/
 # are reachable from runtime code in src/, so strip them from the
 # deploy package entirely.
 scripts/
+# tests/ holds local Playwright e2e specs that import @playwright/test (a
+# local-only devDependency). Same story as scripts/ — they trip `next build`'s
+# tsc step and never run in production, so keep them out of the deploy package.
+tests/
