@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
 import { RECIPES, getRecipe, colorThumb, clampParams, runParametric, PRESET_PARAMS, PARAM_BOUNDS } from "./recipes";
+import { binarizeForThermal } from "@/lib/doodle/binarize";
 
 // A small synthetic source: 200x200, left half black, right half saturated red.
 async function sampleSource(): Promise<Buffer> {
@@ -56,6 +57,7 @@ describe("clampParams", () => {
       blur: PARAM_BOUNDS.blur.default,
       threshold: PARAM_BOUNDS.threshold.default,
       mode: "atkinson",
+      scale: PARAM_BOUNDS.scale.default,
     });
     const bad = clampParams({ contrast: NaN, brightness: "x" as unknown as number, threshold: undefined });
     expect(bad.contrast).toBe(PARAM_BOUNDS.contrast.default);
@@ -120,6 +122,27 @@ describe("runParametric", () => {
     const src = await sampleSource();
     const out = await runParametric(src, { contrast: -5, brightness: 999, blur: -1, threshold: 9999 } as never);
     expect((await sharp(out).metadata()).width).toBe(592);
+  });
+
+  it("scale=1 is a no-op (identical to the default recipe)", async () => {
+    const src = await sampleSource();
+    const a = await runParametric(src, { ...PRESET_PARAMS.default, scale: 1 });
+    const b = await binarizeForThermal(src, { mode: "atkinson" });
+    expect(a.equals(b)).toBe(true);
+  });
+
+  it("shrinking (scale<1) adds white margin → more white than scale=1", async () => {
+    // A mostly-black full-frame source: shrinking it leaves a white border.
+    const w = 300, h = 300, buf = Buffer.alloc(w * h * 3, 0); // all black
+    const src = await sharp(buf, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+    const whiteCount = async (scale: number) => {
+      const out = await runParametric(src, { ...PRESET_PARAMS.default, scale });
+      const { data, info } = await sharp(out).raw().toBuffer({ resolveWithObject: true });
+      let n = 0;
+      for (let i = 0; i < data.length; i += info.channels) if (data[i] >= 128) n++;
+      return n;
+    };
+    expect(await whiteCount(0.5)).toBeGreaterThan(await whiteCount(1));
   });
 });
 
