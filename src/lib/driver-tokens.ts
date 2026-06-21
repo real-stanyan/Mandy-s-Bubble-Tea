@@ -152,14 +152,42 @@ export async function updateDriverLocation(args: {
   heading?: number | null;
 }): Promise<void> {
   const admin = getSupabaseAdmin();
+  const patch = {
+    driver_lat: args.lat,
+    driver_lng: args.lng,
+    driver_heading: args.heading ?? null,
+    location_updated_at: new Date().toISOString(),
+  };
+
+  // The driver app only streams GPS for the ONE order it is currently
+  // tracking, so a driver carrying stacked orders starves the others — their
+  // customers see "Location paused" while the driver is actively moving. The
+  // driver's position is identical for all their concurrent deliveries, so fan
+  // each fix out to every in-progress dispatch belonging to the same driver
+  // (resolved from the posted order). Delivered orders are excluded.
+  const { data: row, error: lookupError } = await admin
+    .from("delivery_dispatch")
+    .select("driver_id")
+    .eq("order_id", args.orderId)
+    .maybeSingle();
+  if (lookupError)
+    throw new Error(`updateDriverLocation lookup: ${lookupError.message}`);
+
+  if (row?.driver_id) {
+    const { error } = await admin
+      .from("delivery_dispatch")
+      .update(patch)
+      .eq("driver_id", row.driver_id)
+      .in("status", ["accepted", "picked_up"]);
+    if (error) throw new Error(`updateDriverLocation: ${error.message}`);
+    return;
+  }
+
+  // No driver_id on the row (legacy / manually-created dispatch) — fall back to
+  // the original single-order update keyed on order_id.
   const { error } = await admin
     .from("delivery_dispatch")
-    .update({
-      driver_lat: args.lat,
-      driver_lng: args.lng,
-      driver_heading: args.heading ?? null,
-      location_updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq("order_id", args.orderId);
   if (error) throw new Error(`updateDriverLocation: ${error.message}`);
 }
