@@ -194,6 +194,25 @@ export async function POST(
 
     const nextState = ACTION_TO_STATE[action];
 
+    // Square refuses to COMPLETE a fulfillment on an unpaid order. Normally the
+    // card is captured at "accept", so by delivery the order is paid. But if an
+    // order ever reaches delivery still only AUTHORIZED (e.g. its fulfillment was
+    // advanced to PREPARED outside the accept flow), capture the held card now —
+    // a delivered order must be paid — so "Mark delivered" never dead-ends with
+    // an opaque "not paid for" error. Idempotent: only fires while AUTHORIZED.
+    if (action === "delivered") {
+      const tender = order.tenders?.find((t) => t.cardDetails?.status);
+      if (tender?.cardDetails?.status === "AUTHORIZED" && tender.id) {
+        await squareClient.payments.complete({ paymentId: tender.id });
+        // Burn any deferred first-order discount, mirroring the accept path.
+        await consumeOrderDiscounts(order).catch((e) =>
+          console.error("[driver/status] deliver-capture discount consume failed (non-fatal)", e),
+        );
+        // Capture bumps the order version; the retry loop below re-reads on the
+        // resulting VERSION_MISMATCH, so no extra refresh is needed here.
+      }
+    }
+
     // Apply the fulfillment-state change with a version-conflict retry.
     // The order version can move between our get and update — e.g. staff
     // advancing the same ticket in Square POS, or Square's own background

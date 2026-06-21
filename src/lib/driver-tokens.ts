@@ -208,6 +208,83 @@ export async function getAcceptedOrderIds(
   return new Set((data ?? []).map((r) => r.order_id as string));
 }
 
+export type DispatchRow = {
+  status: DispatchStatus;
+  driverId: string | null;
+  driverLabel: string | null;
+  fix: DriverFix | null;
+};
+
+/**
+ * Batch-read the full dispatch row (status + owning driver + latest GPS fix)
+ * for a set of orders — feeds the manager Live-Operations roster, which needs
+ * to group active deliveries by driver and classify each as at-store / en-route
+ * / GPS-paused. Orders with no dispatch row are simply absent from the result.
+ */
+export async function getDispatchRowsForOrders(
+  orderIds: string[],
+): Promise<Record<string, DispatchRow>> {
+  if (orderIds.length === 0) return {};
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("delivery_dispatch")
+    .select(
+      "order_id, status, driver_id, driver_label, driver_lat, driver_lng, driver_heading, location_updated_at",
+    )
+    .in("order_id", orderIds);
+  if (error) throw new Error(`getDispatchRowsForOrders: ${error.message}`);
+  const rows: Record<string, DispatchRow> = {};
+  for (const row of data ?? []) {
+    const hasFix = row.driver_lat != null && row.driver_lng != null;
+    rows[row.order_id as string] = {
+      status: row.status as DispatchStatus,
+      driverId: (row.driver_id as string | null) ?? null,
+      driverLabel: (row.driver_label as string | null) ?? null,
+      fix: hasFix
+        ? {
+            lat: row.driver_lat as number,
+            lng: row.driver_lng as number,
+            heading: row.driver_heading as number | null,
+            updatedAt: row.location_updated_at as string | null,
+          }
+        : null,
+    };
+  }
+  return rows;
+}
+
+/**
+ * Batch-read driver profiles by id — resolves a roster's driver_id set to
+ * names/suburbs/initials. Inactive drivers are still returned (a driver may go
+ * inactive mid-shift; we still want to label their in-flight order).
+ */
+export async function getDriversByIds(
+  ids: string[],
+): Promise<Record<string, DriverIdentity>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return {};
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("drivers")
+    .select("id, name, suburb, phone, vehicle, joined_at, rating, prefs")
+    .in("id", unique);
+  if (error) throw new Error(`getDriversByIds: ${error.message}`);
+  const out: Record<string, DriverIdentity> = {};
+  for (const d of data ?? []) {
+    out[d.id as string] = {
+      id: d.id as string,
+      name: d.name as string,
+      suburb: (d.suburb as string | null) ?? null,
+      phone: (d.phone as string | null) ?? null,
+      vehicle: (d.vehicle as string | null) ?? null,
+      joinedAt: (d.joined_at as string | null) ?? null,
+      rating: (d.rating as number | null) ?? null,
+      prefs: (d.prefs as Record<string, unknown> | null) ?? {},
+    };
+  }
+  return out;
+}
+
 export async function getDriverFixesForOrders(
   orderIds: string[],
 ): Promise<Record<string, DriverFix>> {
