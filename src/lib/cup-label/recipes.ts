@@ -71,6 +71,7 @@ export type ReprocessParams = {
   blur: number; // pre-blur sigma (sharp needs ≥0.3; 0 = off)
   threshold: number; // 0–255, used in threshold mode only
   mode: DitherMode;
+  scale: number; // zoom: <1 shrinks image (white margin), >1 enlarges (centre-crop), 1 = no-op
 };
 
 export const PARAM_BOUNDS = {
@@ -78,6 +79,7 @@ export const PARAM_BOUNDS = {
   brightness: { min: -80, max: 40, step: 1, default: 0 },
   blur: { min: 0, max: 2, step: 0.1, default: 0 },
   threshold: { min: 0, max: 255, step: 1, default: VALUE_CHANNEL_THRESHOLD },
+  scale: { min: 0.3, max: 2.0, step: 0.1, default: 1.0 },
 } as const;
 
 const MIN_BLUR_SIGMA = 0.3; // sharp.blur() throws below this
@@ -91,6 +93,7 @@ export function clampParams(p: Partial<ReprocessParams> | null | undefined): Rep
     blur: num(p?.blur, PARAM_BOUNDS.blur),
     threshold: Math.round(num(p?.threshold, PARAM_BOUNDS.threshold)),
     mode: p?.mode === "threshold" ? "threshold" : "atkinson",
+    scale: num(p?.scale, PARAM_BOUNDS.scale),
   };
 }
 
@@ -98,16 +101,35 @@ export function clampParams(p: Partial<ReprocessParams> | null | undefined): Rep
 // approximate each recipe in linear-space; the preset BUTTON still runs the
 // exact recipe, so there is no regression — these only pre-fill the sliders.
 export const PRESET_PARAMS: Record<RecipeId, ReprocessParams> = {
-  default: { contrast: 1.0, brightness: 0, blur: 0, threshold: 200, mode: "atkinson" },
-  "high-contrast": { contrast: 1.35, brightness: 10, blur: 0, threshold: 200, mode: "atkinson" },
-  bolder: { contrast: 1.1, brightness: -28, blur: 0, threshold: 200, mode: "atkinson" },
-  "ink-line": { contrast: 1.2, brightness: -10, blur: 0.6, threshold: 70, mode: "threshold" },
-  "drop-bg": { contrast: 1.0, brightness: 0, blur: 0, threshold: VALUE_CHANNEL_THRESHOLD, mode: "threshold" },
+  default: { contrast: 1.0, brightness: 0, blur: 0, threshold: 200, mode: "atkinson", scale: 1 },
+  "high-contrast": { contrast: 1.35, brightness: 10, blur: 0, threshold: 200, mode: "atkinson", scale: 1 },
+  bolder: { contrast: 1.1, brightness: -28, blur: 0, threshold: 200, mode: "atkinson", scale: 1 },
+  "ink-line": { contrast: 1.2, brightness: -10, blur: 0.6, threshold: 70, mode: "threshold", scale: 1 },
+  "drop-bg": { contrast: 1.0, brightness: 0, blur: 0, threshold: VALUE_CHANNEL_THRESHOLD, mode: "threshold", scale: 1 },
 };
+
+const SCALE_EPS = 0.02; // scale within this of 1.0 → no-op (preserve cover-fit default)
+
+// Re-frame the source on a 592 white canvas: <1 shrinks it (white margin),
+// >1 enlarges + centre-crops. Returns the source untouched at scale≈1 so the
+// default rendering is unchanged.
+async function applyScale(src: Buffer, scale: number): Promise<Buffer> {
+  if (Math.abs(scale - 1) <= SCALE_EPS) return src;
+  const target = Math.max(1, Math.round(DOODLE_SIZE * scale));
+  const scaled = await sharp(src)
+    .resize(target, target, { fit: "inside", withoutEnlargement: false })
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .toBuffer();
+  return sharp({ create: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+    .composite([{ input: scaled, gravity: "center" }])
+    .png()
+    .toBuffer();
+}
 
 export async function runParametric(src: Buffer, raw: Partial<ReprocessParams> | null | undefined): Promise<Buffer> {
   const p = clampParams(raw);
-  let pre = sharp(src).linear(p.contrast, p.brightness);
+  const framed = await applyScale(src, p.scale);
+  let pre = sharp(framed).linear(p.contrast, p.brightness);
   if (p.blur >= MIN_BLUR_SIGMA) pre = pre.blur(p.blur);
   const preBuf = await pre.png().toBuffer();
   return binarizeForThermal(preBuf, p.mode === "threshold" ? { mode: "threshold", threshold: p.threshold } : { mode: "atkinson" });
