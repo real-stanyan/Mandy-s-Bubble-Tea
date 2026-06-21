@@ -1,7 +1,7 @@
 // src/app/api/admin/gallery/reprocess/route.ts
 import { NextResponse } from "next/server";
 import { isAuthedGalleryAdmin } from "@/lib/cup-label/gallery-admin-auth";
-import { getRecipe, colorThumb } from "@/lib/cup-label/recipes";
+import { getRecipe, colorThumb, runParametric, type ReprocessParams } from "@/lib/cup-label/recipes";
 import { loadSourceColor, uploadBucketArtifacts, setOverride } from "@/lib/cup-label/gallery-store";
 
 export const runtime = "nodejs";
@@ -21,13 +21,16 @@ export async function POST(request: Request) {
   if (!auth.ok) return NextResponse.json({ ok: false, reason: auth.reason }, { status: auth.reason === "unconfigured" ? 500 : 401 });
 
   const body = (await request.json().catch(() => null)) as
-    | { hash?: string; recipeId?: string; image?: string; commit?: boolean }
+    | { hash?: string; recipeId?: string; image?: string; commit?: boolean; params?: Partial<ReprocessParams> }
     | null;
   if (!body?.hash || typeof body.hash !== "string") return NextResponse.json({ ok: false, error: "hash required" }, { status: 400 });
   if (!HASH_RE.test(body.hash)) return NextResponse.json({ ok: false, error: "bad hash" }, { status: 400 });
 
-  const recipe = getRecipe(body.recipeId ?? "");
-  if (!recipe) return NextResponse.json({ ok: false, reason: "bad_recipe" }, { status: 400 });
+  // Two processing modes: `params` (tunable sliders) takes precedence; otherwise
+  // fall back to the exact named recipe (preset buttons — pixel-stable).
+  const useParams = body.params != null && typeof body.params === "object";
+  const recipe = useParams ? null : getRecipe(body.recipeId ?? "");
+  if (!useParams && !recipe) return NextResponse.json({ ok: false, reason: "bad_recipe" }, { status: 400 });
 
   let source: Buffer | null;
   if (typeof body.image === "string" && body.image.length > 0) {
@@ -40,7 +43,7 @@ export async function POST(request: Request) {
 
   let binarized: Buffer, color: Buffer;
   try {
-    binarized = await recipe.run(source);
+    binarized = useParams ? await runParametric(source, body.params!) : await recipe!.run(source);
     color = await colorThumb(source);
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "processing failed" }, { status: 500 });

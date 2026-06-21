@@ -13,9 +13,11 @@ vi.mock("@/lib/cup-label/gallery-store", () => ({
   loadSourceColor: (...a: unknown[]) => loadSource(...a),
 }));
 // Recipe + colorThumb return tiny fixed buffers so we assert flow, not pixels.
+const runParametricMock = vi.fn(async (..._a: unknown[]) => Buffer.from("PARAM_BIN"));
 vi.mock("@/lib/cup-label/recipes", () => ({
   getRecipe: (id: string) => (id === "default" ? { id, label: "默认", run: async () => Buffer.from("BIN") } : null),
   colorThumb: async () => Buffer.from("COL"),
+  runParametric: (...a: unknown[]) => runParametricMock(...a),
 }));
 
 import { POST } from "@/app/api/admin/gallery/reprocess/route";
@@ -26,7 +28,7 @@ function req(body: unknown) {
   });
 }
 
-beforeEach(() => { uploadArtifacts.mockClear(); setOverrideMock.mockClear(); loadSource.mockReset(); });
+beforeEach(() => { uploadArtifacts.mockClear(); setOverrideMock.mockClear(); loadSource.mockReset(); runParametricMock.mockClear(); });
 
 describe("reprocess route", () => {
   it("preview from existing source writes nothing", async () => {
@@ -66,6 +68,31 @@ describe("reprocess route", () => {
     const res = await POST(req({ hash: "abc", recipeId: "nope" }));
     expect(res.status).toBe(400);
     expect((await res.json()).reason).toBe("bad_recipe");
+  });
+
+  it("params present → runs parametric pipeline, ignores recipe", async () => {
+    loadSource.mockResolvedValue(Buffer.from("SRC"));
+    const params = { contrast: 1.2, brightness: -20, blur: 0, threshold: 200, mode: "atkinson" };
+    const res = await POST(req({ hash: "abc", params }));
+    const j = await res.json();
+    expect(res.status).toBe(200);
+    expect(runParametricMock).toHaveBeenCalledWith(Buffer.from("SRC"), params);
+    expect(j.binarizedDataUrl).toBe(`data:image/png;base64,${Buffer.from("PARAM_BIN").toString("base64")}`);
+  });
+
+  it("params take precedence even without a valid recipeId (no bad_recipe)", async () => {
+    loadSource.mockResolvedValue(Buffer.from("SRC"));
+    const res = await POST(req({ hash: "abc", recipeId: "nope", params: { contrast: 1 } }));
+    expect(res.status).toBe(200);
+    expect(runParametricMock).toHaveBeenCalled();
+  });
+
+  it("params + commit writes parametric output to bucket + override", async () => {
+    loadSource.mockResolvedValue(Buffer.from("SRC"));
+    const res = await POST(req({ hash: "abc", params: { brightness: -40 }, commit: true }));
+    expect((await res.json()).ok).toBe(true);
+    expect(uploadArtifacts).toHaveBeenCalledWith("abc", Buffer.from("COL"), Buffer.from("PARAM_BIN"));
+    expect(setOverrideMock).toHaveBeenCalledWith("abc");
   });
 
   it("malformed hash → 400 bad hash, no side-effects", async () => {
