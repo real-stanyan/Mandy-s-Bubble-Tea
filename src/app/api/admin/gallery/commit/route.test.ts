@@ -2,15 +2,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/cup-label/gallery-admin-auth", () => ({ isAuthedGalleryAdmin: () => ({ ok: true }) }));
 const uploads: string[] = [];
 const inserts: string[] = [];
+const insertKinds: string[] = [];
 vi.mock("@/lib/cup-label/gallery-store", () => ({
   uploadBucketArtifacts: async (h: string) => { uploads.push(h); },
-  insertUploadPreset: async (h: string) => { inserts.push(h); },
+  insertUploadPreset: async (_h: string, _c: string, kind: string) => { inserts.push(_h); insertKinds.push(kind); },
 }));
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import { POST } from "./route";
 
-beforeEach(() => { process.env.GALLERY_ADMIN_TOKEN = "t"; uploads.length = 0; inserts.length = 0; });
+beforeEach(() => { process.env.GALLERY_ADMIN_TOKEN = "t"; uploads.length = 0; inserts.length = 0; insertKinds.length = 0; });
 
 async function img() {
   const buf = await sharp({ create: { width: 24, height: 24, channels: 3, background: { r: 10, g: 200, b: 50 } } }).png().toBuffer();
@@ -33,5 +34,11 @@ describe("POST commit", () => {
     const json = await res.json();
     expect(json.committed).toHaveLength(0);
     expect(json.failed[0].error).toContain("hash mismatch");
+  });
+  it("passes kind=lucky_cat through to insertUploadPreset", async () => {
+    const one = await img();
+    const body = JSON.stringify({ images: [one], kind: "lucky_cat" });
+    await POST(new Request("http://x", { method: "POST", body }));
+    expect(insertKinds).toContain("lucky_cat");
   });
 });

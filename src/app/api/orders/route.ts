@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { deriveOrderIdempotencyKey } from "@/lib/order-idempotency";
 import type { Currency, OrderServiceCharge } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
@@ -95,11 +95,18 @@ type CreateOrderBody = {
    *  nor IG discount is active on this order, pickPromoCups isn't called
    *  and this field only affects skipSurcharges.) */
   loyaltyRewardCount?: number;
+  /** Client-supplied idempotency token (stable per checkout attempt). Used to
+   *  dedupe order creation so a retry of the same order doesn't make a second
+   *  order + charge. Namespaced by customer server-side before hitting Square. */
+  idempotencyKey?: string;
 };
 
 function isValidBody(body: unknown): body is CreateOrderBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<CreateOrderBody>;
+  if (b.idempotencyKey !== undefined && typeof b.idempotencyKey !== "string") {
+    return false;
+  }
   if (!Array.isArray(b.lines) || b.lines.length === 0) return false;
   return b.lines.every((line) => {
     if (!line || typeof line !== "object") return false;
@@ -648,8 +655,15 @@ export async function POST(request: Request) {
       }
     }
 
+    // Dedupe order creation so a retry of the same checkout attempt reuses the
+    // original order instead of making a duplicate + second charge.
+    const orderIdempotencyKey = deriveOrderIdempotencyKey(
+      customerId,
+      body.idempotencyKey,
+    );
+
     const response = await squareClient.orders.create({
-      idempotencyKey: randomUUID(),
+      idempotencyKey: orderIdempotencyKey,
       order: {
         locationId: SQUARE_LOCATION_ID,
         customerId,

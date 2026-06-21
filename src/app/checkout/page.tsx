@@ -165,6 +165,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const [rewardCount, setRewardCount] = useState(0);
 
+  // Per-checkout idempotency nonce for order creation. Combined with the order
+  // body, it gives a stable key so a retry of the *same* order (e.g. the first
+  // attempt charged but the client threw before navigating) reuses the same
+  // Square order instead of creating a duplicate + a second charge. Reset after
+  // a fully successful order so the next order is genuinely new.
+  const orderNonceRef = useRef<string>("");
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
@@ -739,41 +745,53 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       // 1) Create the order. The server derives customer/phone/name
       // from the Supabase session — no need to send them.
       step = "create-order";
+      const orderBody = {
+        note: note.trim() || undefined,
+        applyWelcomeDiscount:
+          welcomeDiscount.available && welcomeDiscountEligible(fulfillment),
+        applyIgFollowDiscount: igFollowDiscount.available,
+        applyLoyaltyReward: rewardCount > 0,
+        loyaltyRewardCount: rewardCount,
+        fulfillmentType: fulfillment,
+        delivery:
+          fulfillment === "DELIVERY" && quoteState.kind === "ok"
+            ? {
+                address: deliveryAddress.address,
+                lat: deliveryAddress.lat,
+                lng: deliveryAddress.lng,
+                unit: deliveryAddress.unit || undefined,
+                driverNote: deliveryAddress.driverNote || undefined,
+                postcode: deliveryAddress.postcode,
+              }
+            : undefined,
+        lines: lines.map((l) => ({
+          itemName: l.itemName,
+          variationId: l.variationId,
+          variationName: l.variationName,
+          variationPriceCents: Number(l.variationPriceCents),
+          modifiers: l.modifiers.map((m) => ({
+            id: m.id,
+            name: m.name,
+            priceCents: Number(m.priceCents),
+          })),
+          quantity: l.quantity,
+        })),
+      };
+      // Stable idempotency key = per-checkout nonce + the exact order body, so a
+      // retry of this same order dedupes at Square (no duplicate order / charge),
+      // while a real cart/fulfilment change produces a new body → new order.
+      if (!orderNonceRef.current) orderNonceRef.current = crypto.randomUUID();
+      const idemDigest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(orderNonceRef.current + "|" + JSON.stringify(orderBody)),
+      );
+      const idempotencyKey = Array.from(new Uint8Array(idemDigest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          note: note.trim() || undefined,
-          applyWelcomeDiscount:
-            welcomeDiscount.available && welcomeDiscountEligible(fulfillment),
-          applyIgFollowDiscount: igFollowDiscount.available,
-          applyLoyaltyReward: rewardCount > 0,
-          loyaltyRewardCount: rewardCount,
-          fulfillmentType: fulfillment,
-          delivery:
-            fulfillment === "DELIVERY" && quoteState.kind === "ok"
-              ? {
-                  address: deliveryAddress.address,
-                  lat: deliveryAddress.lat,
-                  lng: deliveryAddress.lng,
-                  unit: deliveryAddress.unit || undefined,
-                  driverNote: deliveryAddress.driverNote || undefined,
-                  postcode: deliveryAddress.postcode,
-                }
-              : undefined,
-          lines: lines.map((l) => ({
-            itemName: l.itemName,
-            variationId: l.variationId,
-            variationName: l.variationName,
-            variationPriceCents: Number(l.variationPriceCents),
-            modifiers: l.modifiers.map((m) => ({
-              id: m.id,
-              name: m.name,
-              priceCents: Number(m.priceCents),
-            })),
-            quantity: l.quantity,
-          })),
-        }),
+        body: JSON.stringify({ ...orderBody, idempotencyKey }),
       });
       const orderJson = await orderRes.json();
       if (!orderRes.ok || !orderJson.ok) {
@@ -878,6 +896,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         void refresh();
       }
 
+      // Order fully placed — rotate the nonce so a brand-new order later (even
+      // an identical cart) is never deduped against this one.
+      orderNonceRef.current = crypto.randomUUID();
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {

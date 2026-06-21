@@ -11,7 +11,7 @@ import { clientLineIdFromSquareLine } from "./client-line-id";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
-import { downloadBucketBinarized } from "./gallery-store";
+import { downloadBucketBinarized, listLuckyCatPoolHashes, getLuckyCatBinarized, listPresetOverrides } from "./gallery-store";
 
 // Static gallery preset stickers live in the Next.js public/ tree. They're
 // committed PNGs (1-bit Atkinson-dithered for thermal output), keyed by md5
@@ -38,7 +38,7 @@ const LOGO_DOODLE_PATH = path.join(
 
 // Scan the lucky-cat deck once per order: every cat hash on disk, split
 // into the jackpot cat (if present) and the common pool.
-async function listLuckyCatHashes(): Promise<{ commons: string[]; hasRare: boolean }> {
+async function listLuckyCatHashes(): Promise<{ commons: string[]; hasRare: boolean; overrides: Set<string> }> {
   try {
     const entries = await fs.readdir(LUCKY_CAT_DIR, { withFileTypes: true });
     const all = entries
@@ -47,12 +47,27 @@ async function listLuckyCatHashes(): Promise<{ commons: string[]; hasRare: boole
     return {
       commons: all.filter((h) => h !== RARE_LUCKY_CAT_HASH),
       hasRare: all.includes(RARE_LUCKY_CAT_HASH),
+      overrides: new Set<string>(),
     };
   } catch (e) {
     console.error("[cup-label] lucky-cat dir scan failed", e);
-    return { commons: [], hasRare: false };
+    return { commons: [], hasRare: false, overrides: new Set<string>() };
   }
 }
+/** Lucky-cat pool for the auto-fill draw. DB-driven (honors admin hide/upload);
+ *  falls back to the on-disk deck scan if Supabase is unreachable so the
+ *  fallback never breaks. `diskScan` is injected for testability. */
+export async function luckyCatPool(
+  diskScan: () => Promise<{ commons: string[]; hasRare: boolean; overrides: Set<string> }> = listLuckyCatHashes,
+): Promise<{ commons: string[]; hasRare: boolean; overrides: Set<string> }> {
+  try {
+    return await listLuckyCatPoolHashes();
+  } catch (e) {
+    console.error("[cup-label] lucky-cat DB pool failed, falling back to disk scan:", e instanceof Error ? e.message : e);
+    return diskScan();
+  }
+}
+
 // Hard cap on the hash string we accept from the client — md5 hex is 32
 // chars, sticker_N_no_bg shims fit under 32, anything longer is hostile.
 const GALLERY_HASH_MAX_LEN = 64;
@@ -161,8 +176,14 @@ type Row = {
 };
 
 /** Resolve a preset sticker's 1-bit print buffer. Built-ins live on disk
- *  (no DB/network dependency); admin uploads fall through to the bucket. */
-export async function resolvePresetBuffer(hash: string): Promise<Buffer> {
+ *  (no DB/network dependency); admin uploads fall through to the bucket.
+ *  When opts.hasOverride is true, the canonical print image lives in the
+ *  bucket (re-processed built-in) — skip disk entirely. */
+export async function resolvePresetBuffer(hash: string, opts?: { hasOverride?: boolean }): Promise<Buffer> {
+  if (opts?.hasOverride) {
+    // Re-processed built-in: canonical print image lives in the bucket.
+    return downloadBucketBinarized(hash);
+  }
   try {
     // Built-in static presets — pure disk read, resilient to Supabase outage.
     return await fs.readFile(path.join(GALLERY_DIR, hash, "binarized.png"));
@@ -197,8 +218,8 @@ export async function enqueueCupLabelJobs({
   // The per-cup draw is deterministic (seeded by order+line+cup) so a
   // re-enqueue reproduces identical rows. One jackpot cat at ~1/100 prints
   // a "ONE FREE DRINK" ticket (see below).
-  const { commons: luckyCatCommons, hasRare: luckyCatHasRare } =
-    await listLuckyCatHashes();
+  const { commons: luckyCatCommons, hasRare: luckyCatHasRare, overrides: luckyCatOverrides } =
+    await luckyCatPool();
   // Live boss-editable jackpot odds (1 in N), read once per order.
   const freeDrinkOdds = await getFreeDrinkOdds();
   // Mandy logo, loaded once — only a safety net if the cat deck is empty
@@ -245,6 +266,11 @@ export async function enqueueCupLabelJobs({
   // clientLineId group (needed for the UNIQUE constraint + admin
   // grouping by drink).
   let orderCupSeq = 0;
+
+  // Batch-fetch which preset sticker hashes have been re-processed (override_at set).
+  // Graceful degrade: a DB error → empty set → disk seed → order still prints.
+  const presetStickerHashValues = presetStickerHashes ? Object.values(presetStickerHashes) : [];
+  const presetOverrides = await listPresetOverrides(presetStickerHashValues).catch(() => new Set<string>());
 
   for (const [lineIdx, line] of lineItems.entries()) {
     const lineId = line.uid ?? line.catalogObjectId ?? `idx-${lineIdx}`;
@@ -341,9 +367,7 @@ export async function enqueueCupLabelJobs({
         );
         if (!hash) return false;
         try {
-          doodlePngBuffer = await fs.readFile(
-            path.join(LUCKY_CAT_DIR, hash, "binarized.png"),
-          );
+          doodlePngBuffer = await getLuckyCatBinarized(hash, { hasOverride: luckyCatOverrides.has(hash) });
           source = "preset_sticker";
           poolKey = hash;
           originalImagePath = `cup-label/lucky-cat/${hash}/binarized.png`;
@@ -395,7 +419,7 @@ export async function enqueueCupLabelJobs({
         // Gallery sticker — may be a committed PNG (builtin) or an admin-uploaded
         // image in the Supabase bucket. resolvePresetBuffer picks the right source.
         try {
-          doodlePngBuffer = await resolvePresetBuffer(presetStickerHash);
+          doodlePngBuffer = await resolvePresetBuffer(presetStickerHash, { hasOverride: presetOverrides.has(presetStickerHash) });
           source = "preset_sticker";
           poolKey = presetStickerHash;
           originalImagePath = `cup-label/gallery/${presetStickerHash}/binarized.png`;
