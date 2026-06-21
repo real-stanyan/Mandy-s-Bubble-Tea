@@ -9,3 +9,11 @@ scripts/
 # local-only devDependency). Same story as scripts/ — they trip `next build`'s
 # tsc step and never run in production, so keep them out of the deploy package.
 tests/
+# More local-only files Vercel's CLI uploads because it ignores .gitignore:
+#   - .archviz/ is a separate gitignored sub-project (with its own node_modules,
+#     ~170MB) that has nothing to do with the storefront.
+#   - vitest.contract.config.ts is a local contract-test config whose vitest
+#     version trips `next build`'s tsc.
+# Neither is part of the deployed app; strip both.
+.archviz/
+vitest.contract.config.ts
