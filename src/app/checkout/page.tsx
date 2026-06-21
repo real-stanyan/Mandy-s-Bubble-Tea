@@ -21,6 +21,7 @@ import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFO
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
+import { getOrCreateOrderNonce, clearOrderNonce } from "@/lib/checkout-nonce";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -165,12 +166,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
   const [rewardCount, setRewardCount] = useState(0);
 
-  // Per-checkout idempotency nonce for order creation. Combined with the order
-  // body, it gives a stable key so a retry of the *same* order (e.g. the first
-  // attempt charged but the client threw before navigating) reuses the same
-  // Square order instead of creating a duplicate + a second charge. Reset after
-  // a fully successful order so the next order is genuinely new.
-  const orderNonceRef = useRef<string>("");
   const cardRef = useRef<CardInstance | null>(null);
   const applePayRef = useRef<ApplePayInstance | null>(null);
   const googlePayRef = useRef<GooglePayInstance | null>(null);
@@ -780,10 +775,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       // Stable idempotency key = per-checkout nonce + the exact order body, so a
       // retry of this same order dedupes at Square (no duplicate order / charge),
       // while a real cart/fulfilment change produces a new body → new order.
-      if (!orderNonceRef.current) orderNonceRef.current = crypto.randomUUID();
+      // The nonce is persisted (localStorage) so it survives a page reload /
+      // re-entry — otherwise a reload-then-repay creates a 2nd order + charge.
+      const orderNonce = getOrCreateOrderNonce();
       const idemDigest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(orderNonceRef.current + "|" + JSON.stringify(orderBody)),
+        new TextEncoder().encode(orderNonce + "|" + JSON.stringify(orderBody)),
       );
       const idempotencyKey = Array.from(new Uint8Array(idemDigest))
         .map((b) => b.toString(16).padStart(2, "0"))
@@ -896,9 +893,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         void refresh();
       }
 
-      // Order fully placed — rotate the nonce so a brand-new order later (even
-      // an identical cart) is never deduped against this one.
-      orderNonceRef.current = crypto.randomUUID();
+      // Order fully placed — clear the persisted nonce so a brand-new order
+      // later (even an identical cart) is genuinely new, not deduped against
+      // this one.
+      clearOrderNonce();
       clear();
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {

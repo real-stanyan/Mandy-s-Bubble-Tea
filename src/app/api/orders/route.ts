@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deriveOrderIdempotencyKey } from "@/lib/order-idempotency";
+import { cartHash, pickDuplicateOrder } from "@/lib/order-dedup";
 import type { Currency, OrderServiceCharge } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
@@ -662,6 +663,51 @@ export async function POST(request: Request) {
       body.idempotencyKey,
     );
 
+    // Server-side backstop for duplicate orders: the client nonce can't dedupe a
+    // re-submit from a different device/browser (different client key). Stamp a
+    // cart fingerprint on every order and, before creating a new one, reuse a
+    // recent identical order from the same customer if one exists.
+    const cartFingerprint = cartHash(body.lines);
+    const DEDUP_WINDOW_MS = 5 * 60 * 1000;
+    if (customerId) {
+      try {
+        const recent = await squareClient.orders.search({
+          locationIds: [SQUARE_LOCATION_ID],
+          limit: 20,
+          query: {
+            filter: {
+              customerFilter: { customerIds: [customerId] },
+              stateFilter: { states: ["OPEN", "COMPLETED"] },
+              dateTimeFilter: {
+                createdAt: {
+                  startAt: new Date(Date.now() - DEDUP_WINDOW_MS).toISOString(),
+                },
+              },
+            },
+            sort: { sortField: "CREATED_AT", sortOrder: "DESC" },
+          },
+        });
+        const dup = pickDuplicateOrder(
+          recent.orders ?? [],
+          cartFingerprint,
+          DEDUP_WINDOW_MS,
+          Date.now(),
+        );
+        if (dup?.id) {
+          return NextResponse.json({
+            ok: true,
+            orderId: dup.id,
+            amountCents: dup.totalMoney?.amount?.toString() ?? "0",
+            order: serializeSquareResponse(dup),
+            deduped: true,
+          });
+        }
+      } catch {
+        // A search failure must never block a real order — fall through and
+        // create normally (the client nonce + Square key still protect retries).
+      }
+    }
+
     const response = await squareClient.orders.create({
       idempotencyKey: orderIdempotencyKey,
       order: {
@@ -708,6 +754,8 @@ export async function POST(request: Request) {
         metadata: {
           source: "web",
           site: BUSINESS.domain,
+          // Cart fingerprint for the server-side duplicate-order backstop above.
+          cart_hash: cartFingerprint,
           ...(welcomeDrinksCovered > 0
             ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
             : {}),
