@@ -37,7 +37,9 @@ export function thumbUrlFor(
     const dir = p.kind === "lucky_cat" ? "lucky-cat" : "gallery";
     return `/cup-label/${dir}/${p.hash}/binarized.png`;
   }
-  return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/color.png`).data.publicUrl;
+  // Upload: show the binarized print image (what actually prints on the cup),
+  // not the colour source — keeps thumbnails WYSIWYG across admin + picker.
+  return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/binarized.png`).data.publicUrl;
 }
 
 function toPreset(r: DbRow): GalleryPreset {

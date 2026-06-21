@@ -26,8 +26,8 @@ describe("gallery-store thumbUrlFor", () => {
     expect(thumbUrlFor({ hash: "c1", source: "builtin", storage: "static", kind: "lucky_cat" } as any))
       .toBe("/cup-label/lucky-cat/c1/binarized.png");
   });
-  it("upload → bucket public color url", () => {
+  it("upload → bucket public binarized (print-effect) url", () => {
     expect(thumbUrlFor({ hash: "h2", source: "upload", storage: "supabase" } as any))
-      .toBe("https://cdn/h2/color.png");
+      .toBe("https://cdn/h2/binarized.png");
   });
 });
