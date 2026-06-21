@@ -5,3 +5,11 @@ printer-client/
 # are reachable from runtime code in src/, so strip them from the
 # deploy package entirely.
 scripts/
+# Local-only files Vercel's CLI uploads because it ignores .gitignore, and which
+# trip `next build`'s tsc step (none are part of the deployed app):
+#   tests/                    — Playwright e2e (imports @playwright/test, local dep)
+#   .archviz/                 — separate gitignored sub-project (own node_modules)
+#   vitest.contract.config.ts — local contract-test config (vitest version mismatch)
+tests/
+.archviz/
+vitest.contract.config.ts
