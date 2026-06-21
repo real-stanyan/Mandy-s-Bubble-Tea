@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthedDriver } from "@/lib/driver-auth";
+import { authDriver } from "@/lib/driver-auth";
 import { updateDriverLocation } from "@/lib/driver-tokens";
 
 // Driver app streams its GPS position here while a delivery is in progress.
@@ -10,10 +10,10 @@ import { updateDriverLocation } from "@/lib/driver-tokens";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = isAuthedDriver(request);
+  const auth = await authDriver(request);
   if (!auth.ok) {
     if (auth.reason === "unconfigured") {
-      console.error("[driver/location] STAFF_DELIVERY_TOKEN not set on server");
+      console.error("[driver/location] no driver auth configured on server");
       return NextResponse.json({ ok: false }, { status: 500 });
     }
     return NextResponse.json(

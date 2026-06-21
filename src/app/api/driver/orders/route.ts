@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { serializeSquareResponse } from "@/lib/utils";
-import { isAuthedDriver } from "@/lib/driver-auth";
+import { authDriver } from "@/lib/driver-auth";
 import {
   getDriverFixesForOrders,
   getAcceptedOrderIds,
@@ -24,10 +24,10 @@ export const dynamic = "force-dynamic";
 const ACTIVE_FULFILLMENT_STATES = new Set(["PROPOSED", "RESERVED", "PREPARED"]);
 
 export async function GET(request: Request) {
-  const auth = isAuthedDriver(request);
+  const auth = await authDriver(request);
   if (!auth.ok) {
     if (auth.reason === "unconfigured") {
-      console.error("[driver/orders] STAFF_DELIVERY_TOKEN not set on server");
+      console.error("[driver/orders] no driver auth configured on server");
       return NextResponse.json({ ok: false }, { status: 500 });
     }
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -110,6 +110,8 @@ export async function GET(request: Request) {
           address: order.metadata?.delivery_address ?? null,
           lat: lat != null ? Number(lat) : null,
           lng: lng != null ? Number(lng) : null,
+          // Customer display name for the order sheet (Prototype's customer card).
+          customerName: f?.pickupDetails?.recipient?.displayName ?? null,
           // Customer phone for the call button.
           phone: f?.pickupDetails?.recipient?.phoneNumber ?? null,
           // Free-text note (driver instructions + order note), stamped with

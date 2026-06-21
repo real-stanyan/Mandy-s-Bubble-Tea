@@ -1,8 +1,57 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "./supabase-server";
 
 // Driver push tokens + delivery dispatch records. Service-role only — these
 // tables have no RLS and sit behind the Bearer-guarded /api/driver/* routes.
+
+// ── Driver identity ──────────────────────────────────────────────────────────
+// A driver logs in with a short code; the code resolves to a `drivers` row via
+// sha256(code) = code_hash. Replaces the single shared STAFF_DELIVERY_TOKEN.
+
+export type DriverIdentity = {
+  id: string;
+  name: string;
+  suburb: string | null;
+  phone: string | null;
+  vehicle: string | null;
+  joinedAt: string | null;
+  rating: number | null;
+  prefs: Record<string, unknown>;
+};
+
+function hashCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+/**
+ * Resolve a login code to its driver. Returns null when the code matches no
+ * active driver (so the caller can fall back to the legacy shared token during
+ * the cutover).
+ */
+export async function getDriverByCode(
+  code: string,
+): Promise<DriverIdentity | null> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("drivers")
+    .select("id, name, suburb, phone, vehicle, joined_at, rating, prefs")
+    .eq("code_hash", hashCode(code))
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw new Error(`getDriverByCode: ${error.message}`);
+  if (!data) return null;
+  return {
+    id: data.id as string,
+    name: data.name as string,
+    suburb: (data.suburb as string | null) ?? null,
+    phone: (data.phone as string | null) ?? null,
+    vehicle: (data.vehicle as string | null) ?? null,
+    joinedAt: (data.joined_at as string | null) ?? null,
+    rating: (data.rating as number | null) ?? null,
+    prefs: (data.prefs as Record<string, unknown> | null) ?? {},
+  };
+}
 
 /**
  * Upsert a driver device's Expo push token. Keyed on token, so a phone
@@ -13,18 +62,20 @@ export async function upsertDriverPushToken(args: {
   platform: "ios" | "android";
   label?: string | null;
   appVersion?: string | null;
+  driverId?: string | null;
 }): Promise<void> {
   const admin = getSupabaseAdmin();
-  const { error } = await admin.from("driver_push_tokens").upsert(
-    {
-      token: args.token,
-      platform: args.platform,
-      label: args.label ?? null,
-      app_version: args.appVersion ?? null,
-      last_seen_at: new Date().toISOString(),
-    },
-    { onConflict: "token" },
-  );
+  const row: Record<string, unknown> = {
+    token: args.token,
+    platform: args.platform,
+    label: args.label ?? null,
+    app_version: args.appVersion ?? null,
+    last_seen_at: new Date().toISOString(),
+  };
+  if (args.driverId) row.driver_id = args.driverId;
+  const { error } = await admin
+    .from("driver_push_tokens")
+    .upsert(row, { onConflict: "token" });
   if (error) throw new Error(`upsertDriverPushToken: ${error.message}`);
 }
 
@@ -63,6 +114,7 @@ export async function recordDispatch(args: {
   orderNumber?: string | null;
   status: DispatchStatus;
   driverLabel?: string | null;
+  driverId?: string | null;
 }): Promise<void> {
   const admin = getSupabaseAdmin();
   const now = new Date().toISOString();
@@ -73,6 +125,9 @@ export async function recordDispatch(args: {
     driver_label: args.driverLabel ?? null,
     updated_at: now,
   };
+  // Stamp the owning driver. Only when known — a later picked_up/delivered
+  // upsert must not null out a driver_id set at accept time.
+  if (args.driverId) row.driver_id = args.driverId;
   if (args.status === "accepted") row.accepted_at = now;
   if (args.status === "picked_up") row.picked_up_at = now;
   if (args.status === "delivered") row.delivered_at = now;

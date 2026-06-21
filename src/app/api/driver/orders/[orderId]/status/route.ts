@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { isAuthedDriver } from "@/lib/driver-auth";
+import { authDriver } from "@/lib/driver-auth";
 import { recordDispatch, getAcceptedOrderIds } from "@/lib/driver-tokens";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
@@ -43,10 +43,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ orderId: string }> },
 ) {
-  const auth = isAuthedDriver(request);
+  const auth = await authDriver(request);
   if (!auth.ok) {
     if (auth.reason === "unconfigured") {
-      console.error("[driver/status] STAFF_DELIVERY_TOKEN not set on server");
+      console.error("[driver/status] no driver auth configured on server");
       return NextResponse.json({ ok: false }, { status: 500 });
     }
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -187,6 +187,7 @@ export async function POST(
         orderNumber: order.referenceId ?? order.ticketName ?? null,
         status: "accepted",
         driverLabel: body.driverLabel ?? null,
+        driverId: auth.driverId ?? null,
       });
       return NextResponse.json({ ok: true, captured });
     }
@@ -229,6 +230,7 @@ export async function POST(
       orderNumber: order.referenceId ?? order.ticketName ?? null,
       status: action,
       driverLabel: body.driverLabel ?? null,
+      driverId: auth.driverId ?? null,
     });
 
     return NextResponse.json({ ok: true, fulfillmentState: nextState });

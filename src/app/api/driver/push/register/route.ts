@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthedDriver } from "@/lib/driver-auth";
+import { authDriver } from "@/lib/driver-auth";
 import { upsertDriverPushToken } from "@/lib/driver-tokens";
 
 // Driver app registers its Expo push token after login + notification
@@ -8,7 +8,7 @@ import { upsertDriverPushToken } from "@/lib/driver-tokens";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = isAuthedDriver(request);
+  const auth = await authDriver(request);
   if (!auth.ok) {
     if (auth.reason === "unconfigured") {
       return NextResponse.json({ ok: false }, { status: 500 });
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       platform,
       label: body.label ?? null,
       appVersion: body.appVersion ?? null,
+      driverId: auth.driverId ?? null,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
