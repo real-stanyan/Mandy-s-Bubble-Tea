@@ -144,6 +144,14 @@ describe("runParametric", () => {
     };
     expect(await whiteCount(0.5)).toBeGreaterThan(await whiteCount(1));
   });
+
+  it("enlarging (scale>1) centre-crops to 592×592 without throwing (regression: composite size error)", async () => {
+    const src = await sampleSource();
+    const out = await runParametric(src, { ...PRESET_PARAMS.default, scale: 2 });
+    const m = await sharp(out).metadata();
+    expect(m.width).toBe(592);
+    expect(m.height).toBe(592);
+  });
 });
 
 describe("PRESET_PARAMS", () => {

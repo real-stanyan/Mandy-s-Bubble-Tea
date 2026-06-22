@@ -120,8 +120,19 @@ async function applyScale(src: Buffer, scale: number): Promise<Buffer> {
     .resize(target, target, { fit: "inside", withoutEnlargement: false })
     .flatten({ background: { r: 255, g: 255, b: 255 } })
     .toBuffer();
-  return sharp({ create: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 3, background: { r: 255, g: 255, b: 255 } } })
-    .composite([{ input: scaled, gravity: "center" }])
+  // scale<1: scaled is smaller → centre it on a white 592 canvas (white margin).
+  // scale>1: scaled is LARGER than the canvas → composite would throw
+  // ("Image to composite must have same dimensions or smaller"), so centre-crop
+  // the enlarged image down to 592 instead.
+  if (target <= DOODLE_SIZE) {
+    return sharp({ create: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+      .composite([{ input: scaled, gravity: "center" }])
+      .png()
+      .toBuffer();
+  }
+  const offset = Math.round((target - DOODLE_SIZE) / 2);
+  return sharp(scaled)
+    .extract({ left: offset, top: offset, width: DOODLE_SIZE, height: DOODLE_SIZE })
     .png()
     .toBuffer();
 }
