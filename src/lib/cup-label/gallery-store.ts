@@ -27,19 +27,28 @@ export function thumbUrlFor(
   p: Pick<GalleryPreset, "hash" | "source"> & {
     kind?: "gallery" | "lucky_cat";
     hasOverride?: boolean;
+    // override_at (or any change timestamp). Appended as ?v= so the <img> URL
+    // changes after a reprocess save — otherwise the bucket object is
+    // overwritten at the same path and the browser keeps showing the cached
+    // image (looks like "save had no effect").
+    version?: string | null;
   },
 ): string {
+  const bucketUrl = (name: string) => {
+    const base = getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/${name}`).data.publicUrl;
+    if (!p.version) return base;
+    const v = Date.parse(p.version) || encodeURIComponent(p.version);
+    return `${base}?v=${v}`;
+  };
   if (p.source === "builtin") {
     // Re-processed built-in: canonical binarized.png lives in the bucket.
-    if (p.hasOverride) {
-      return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/binarized.png`).data.publicUrl;
-    }
+    if (p.hasOverride) return bucketUrl("binarized.png");
     const dir = p.kind === "lucky_cat" ? "lucky-cat" : "gallery";
     return `/cup-label/${dir}/${p.hash}/binarized.png`;
   }
   // Upload: show the binarized print image (what actually prints on the cup),
   // not the colour source — keeps thumbnails WYSIWYG across admin + picker.
-  return getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(`${p.hash}/binarized.png`).data.publicUrl;
+  return bucketUrl("binarized.png");
 }
 
 function toPreset(r: DbRow): GalleryPreset {
@@ -58,7 +67,7 @@ export async function listVisiblePresets(): Promise<VisiblePreset[]> {
   if (error) throw new Error(error.message);
   return (data as (DbRow & { override_at: string | null })[]).map((r) => ({
     hash: r.hash, source: r.source,
-    thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, hasOverride: r.override_at != null }),
+    thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, hasOverride: r.override_at != null, version: r.override_at }),
   }));
 }
 
@@ -74,7 +83,7 @@ export async function listAllForAdmin() {
     const hasOverride = r.override_at != null;
     return {
       hash: r.hash, source: r.source,
-      thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, kind: r.kind, hasOverride }),
+      thumbUrl: thumbUrlFor({ hash: r.hash, source: r.source, kind: r.kind, hasOverride, version: r.override_at }),
       hidden: r.hidden, deletedAt: r.deleted_at, kind: r.kind, hasOverride,
     };
   });

@@ -79,7 +79,7 @@ export const PARAM_BOUNDS = {
   brightness: { min: -80, max: 40, step: 1, default: 0 },
   blur: { min: 0, max: 2, step: 0.1, default: 0 },
   threshold: { min: 0, max: 255, step: 1, default: VALUE_CHANNEL_THRESHOLD },
-  scale: { min: 0.3, max: 2.0, step: 0.1, default: 1.0 },
+  scale: { min: 0.3, max: 2.0, step: 0.05, default: 1.0 },
 } as const;
 
 const MIN_BLUR_SIGMA = 0.3; // sharp.blur() throws below this
