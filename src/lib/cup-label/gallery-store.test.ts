@@ -30,4 +30,12 @@ describe("gallery-store thumbUrlFor", () => {
     expect(thumbUrlFor({ hash: "h2", source: "upload", storage: "supabase" } as any))
       .toBe("https://cdn/h2/binarized.png");
   });
+  it("appends ?v= cache-bust from version (override_at) for bucket urls", () => {
+    const url = thumbUrlFor({ hash: "h2", source: "upload", storage: "supabase", version: "2026-06-22T01:02:03.000Z" } as any);
+    expect(url).toBe(`https://cdn/h2/binarized.png?v=${Date.parse("2026-06-22T01:02:03.000Z")}`);
+  });
+  it("does NOT append ?v= to static built-in paths", () => {
+    expect(thumbUrlFor({ hash: "h1", source: "builtin", storage: "static", version: "2026-06-22T01:02:03.000Z" } as any))
+      .toBe("/cup-label/gallery/h1/binarized.png");
+  });
 });
