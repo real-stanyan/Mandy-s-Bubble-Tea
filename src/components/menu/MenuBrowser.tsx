@@ -110,7 +110,7 @@ function ChipBar({
   onSelect: (slug: string) => void;
 }) {
   return (
-    <div className="scrollbar-hide flex gap-2 overflow-x-auto px-4 pb-1.5 pt-3.5">
+    <div className="scrollbar-hide sticky top-[calc(max(env(safe-area-inset-top),14px)+54px)] z-30 flex gap-2 overflow-x-auto border-b border-line/60 bg-bg/95 px-4 pb-2 pt-3.5 backdrop-blur-md">
       {items.map((it) => {
         const on = it.slug === active;
         return (
@@ -245,7 +245,12 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
             <ChipBar
               items={sidebarItems}
               active={mobileSection?.slug ?? ""}
-              onSelect={setMobileCat}
+              onSelect={(slug) => {
+                setMobileCat(slug);
+                // Switching category should land on that category from the top,
+                // not wherever the previous category was scrolled to.
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
             />
             <div className="pb-4 pt-3">
               {mobileSection && <CategorySection section={mobileSection} />}
