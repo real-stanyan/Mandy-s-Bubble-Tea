@@ -125,6 +125,53 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     expect(mockOrdersUpdate).not.toHaveBeenCalled()
   })
 
+  it("captures the AUTHORIZED hold even when a FAILED tender precedes it (DE831 retry bug)", async () => {
+    // Customer's first card declined (FAILED), retried successfully (AUTHORIZED).
+    // Square keeps both tenders; accept must capture the live one, not bail on
+    // the leading FAILED.
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "O1",
+        version: 2,
+        metadata: { fulfillment_type: "DELIVERY" },
+        fulfillments: [{ uid: "F1", state: "PROPOSED" }],
+        referenceId: "DE831",
+        tenders: [
+          { id: "PAY-FAILED", cardDetails: { status: "FAILED" } },
+          { id: "PAY-OK", cardDetails: { status: "AUTHORIZED" } },
+        ],
+      },
+    })
+    mockPaymentsComplete.mockResolvedValue({})
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json()).captured).toBe(true)
+    expect(mockPaymentsComplete).toHaveBeenCalledWith({ paymentId: "PAY-OK" })
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "accepted" }),
+    )
+  })
+
+  it("409s when every tender is dead (FAILED + VOIDED, no live hold)", async () => {
+    mockOrdersGet.mockResolvedValue({
+      order: {
+        id: "O1",
+        version: 2,
+        metadata: { fulfillment_type: "DELIVERY" },
+        fulfillments: [{ uid: "F1", state: "PROPOSED" }],
+        referenceId: "DE832",
+        tenders: [
+          { id: "PAY-FAILED", cardDetails: { status: "FAILED" } },
+          { id: "PAY-VOID", cardDetails: { status: "VOIDED" } },
+        ],
+      },
+    })
+    const res = await POST(req("driver-secret", { action: "accepted" }), { params })
+    expect(res.status).toBe(409)
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).not.toHaveBeenCalled()
+  })
+
   it("is idempotent when already CAPTURED — no second charge", async () => {
     mockOrdersGet.mockResolvedValue(orderWithTender("CAPTURED"))
     const res = await POST(req("driver-secret", { action: "accepted" }), { params })

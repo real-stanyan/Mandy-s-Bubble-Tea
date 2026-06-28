@@ -5,6 +5,7 @@ import { authDriver } from "@/lib/driver-auth";
 import { recordDispatch, getAcceptedOrderIds } from "@/lib/driver-tokens";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
+import { pickActiveCardTender, hasAnyCardTender } from "@/lib/order-tender";
 
 // Driver advances a delivery order: accept → picked up → delivered, or declines
 // it before accepting.
@@ -104,8 +105,8 @@ export async function POST(
     // is a refund (issue it in Square), so we refuse here rather than leave the
     // customer charged with a cancelled order.
     if (action === "rejected") {
-      const tender = order.tenders?.find((t) => t.cardDetails?.status);
-      if (tender?.cardDetails?.status === "CAPTURED") {
+      const active = pickActiveCardTender(order.tenders);
+      if (active?.cardDetails?.status === "CAPTURED") {
         return NextResponse.json(
           {
             ok: false,
@@ -127,12 +128,15 @@ export async function POST(
       // captures the held card authorization (the actual charge). A $0 loyalty-
       // redeemed order has no card tender — nothing to capture — but a driver
       // must still accept it, so we record the acceptance without a charge.
-      const tender = order.tenders?.find((t) => t.cardDetails?.status);
-      const tenderStatus = tender?.cardDetails?.status;
+      // An order can hold MULTIPLE card tenders: a declined first attempt leaves
+      // a FAILED tender alongside the AUTHORIZED retry. Pick the LIVE one so a
+      // valid hold sitting behind a FAILED attempt is still captured (DE831 bug).
+      const active = pickActiveCardTender(order.tenders);
+      const activeStatus = active?.cardDetails?.status;
       let captured = false;
 
-      if (tenderStatus === "AUTHORIZED" && tender?.id) {
-        await squareClient.payments.complete({ paymentId: tender.id });
+      if (activeStatus === "AUTHORIZED" && active?.id) {
+        await squareClient.payments.complete({ paymentId: active.id });
         captured = true;
         // Burn any first-order discount now that the charge is real — the
         // payment route deferred this for delivery orders.
@@ -142,17 +146,22 @@ export async function POST(
             e,
           ),
         );
-      } else if (tenderStatus && tenderStatus !== "CAPTURED") {
-        // VOIDED (timed-out / cancelled) or another terminal state — can't take
-        // it. (CAPTURED = already accepted → idempotent re-tap.)
+      } else if (activeStatus === "CAPTURED") {
+        // Already accepted/charged → idempotent re-tap (fall through to record).
+      } else if (hasAnyCardTender(order.tenders)) {
+        // Card tender(s) exist but none is live — every attempt is FAILED/VOIDED
+        // (declined / timed-out / cancelled). Can't take it.
+        const deadStatus = order.tenders?.find(
+          (t) => t.cardDetails?.status,
+        )?.cardDetails?.status;
         return NextResponse.json(
           {
             ok: false,
-            error: `cannot accept: authorization is ${tenderStatus}`,
+            error: `cannot accept: authorization is ${deadStatus}`,
           },
           { status: 409 },
         );
-      } else if (!tenderStatus) {
+      } else {
         // $0 delivery order (loyalty-comped, no card). Checkout deliberately did
         // NOT settle it (orders.pay would have completed it pre-acceptance), so
         // its checkout side-effects were deferred here: burn the discount and
@@ -201,9 +210,9 @@ export async function POST(
     // a delivered order must be paid — so "Mark delivered" never dead-ends with
     // an opaque "not paid for" error. Idempotent: only fires while AUTHORIZED.
     if (action === "delivered") {
-      const tender = order.tenders?.find((t) => t.cardDetails?.status);
-      if (tender?.cardDetails?.status === "AUTHORIZED" && tender.id) {
-        await squareClient.payments.complete({ paymentId: tender.id });
+      const active = pickActiveCardTender(order.tenders);
+      if (active?.cardDetails?.status === "AUTHORIZED" && active.id) {
+        await squareClient.payments.complete({ paymentId: active.id });
         // Burn any deferred first-order discount, mirroring the accept path.
         await consumeOrderDiscounts(order).catch((e) =>
           console.error("[driver/status] deliver-capture discount consume failed (non-fatal)", e),
