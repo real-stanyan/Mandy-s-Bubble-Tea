@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { returnOrderRewards } from "@/lib/loyalty";
+import { pickActiveCardTender } from "@/lib/order-tender";
 
 // Release an unaccepted Mandy Delivery order back to the customer: return any
 // redeemed stars, void the held card authorization, and cancel the fulfillment
@@ -29,8 +30,9 @@ export async function releaseDeliveryOrder(
   const { returned } = await returnOrderRewards(order);
 
   // 2. Release the held card authorization, if there is one ($0 loyalty orders
-  //    have no tender).
-  const tender = order.tenders?.find((t) => t.cardDetails?.status);
+  //    have no tender). Pick the LIVE tender (an AUTHORIZED retry can sit behind
+  //    a FAILED first attempt) so a multi-tender order's hold is actually voided.
+  const tender = pickActiveCardTender(order.tenders);
   let voided = false;
   if (tender?.cardDetails?.status === "AUTHORIZED" && tender.id) {
     await squareClient.payments.cancel({ paymentId: tender.id });
