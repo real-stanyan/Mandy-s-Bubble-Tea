@@ -7,6 +7,7 @@ import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, PLATFORM_FEE
 import { getActivePublicHoliday } from "@/lib/holiday";
 import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
+import { clientPlatformFrom } from "@/lib/client-platform";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
@@ -139,6 +140,14 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  // Which client placed this order — the native app or the web site. Both
+  // POST here through the same Square OAuth app, so this header/UA check is
+  // the only thing that can tell them apart. Stamped into metadata.source.
+  const clientPlatform = clientPlatformFrom(
+    request.headers.get("x-client-platform"),
+    request.headers.get("user-agent"),
+  );
 
   const user = await getAuthedUser(request);
   if (!user?.profile?.square_customer_id || !user.profile.phone_e164) {
@@ -752,7 +761,9 @@ export async function POST(request: Request) {
           },
         ],
         metadata: {
-          source: "web",
+          // web | app — derived from X-Client-Platform header / User-Agent.
+          // Pre-2026-06 orders all read "web" (this field was hard-coded).
+          source: clientPlatform,
           site: BUSINESS.domain,
           // Cart fingerprint for the server-side duplicate-order backstop above.
           cart_hash: cartFingerprint,
