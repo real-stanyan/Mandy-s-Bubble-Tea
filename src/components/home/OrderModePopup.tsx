@@ -11,24 +11,43 @@ import {
 } from "@/lib/order-mode";
 import type { FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 
-const DELIVERY_ENABLED = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
+const DELIVERY_ENV_MASTER = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
 
 // Order-mode popup, shown once per session to logged-in visitors on the home
 // page. The two buttons set a session-scoped Checkout default (PICKUP /
 // DELIVERY). Only relevant — and only shown — when delivery is enabled, since
-// otherwise there is no choice to make. Mutually exclusive with LoyaltyPopup,
-// which targets logged-out visitors.
+// otherwise there is no choice to make. Delivery availability is the live boss
+// toggle (app_settings.delivery_enabled via /api/store-status) ANDed with the
+// build-time env master. Mutually exclusive with LoyaltyPopup, which targets
+// logged-out visitors.
 
 export function OrderModePopup() {
   const { profile, loading } = useAuth();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!loading && profile && DELIVERY_ENABLED && !wasPopupShown()) {
-      setVisible(true);
-    } else {
-      setVisible(false);
+    if (loading || !profile || !DELIVERY_ENV_MASTER || wasPopupShown()) {
+      return;
     }
+    // Only confirm the popup once we know delivery is actually switched on, so
+    // we never offer a "choose delivery" prompt for a disabled service.
+    // `visible` starts false and is only ever flipped true here, so there's no
+    // synchronous setState in the effect body.
+    let cancelled = false;
+    fetch("/api/store-status", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { deliveryEnabled?: boolean } | null) => {
+        if (cancelled) return;
+        if (data?.deliveryEnabled !== false && !wasPopupShown()) {
+          setVisible(true);
+        }
+      })
+      .catch(() => {
+        /* network blip — just don't show the popup this session */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [loading, profile]);
 
   if (!visible) return null;

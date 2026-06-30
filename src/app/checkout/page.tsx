@@ -62,6 +62,12 @@ import type {
 // Ensure the global Window.Square augmentation is loaded.
 import "@/types/square-sdk";
 
+// Build-time master kill-switch for delivery. The day-to-day on/off is the
+// boss toggle (app_settings.delivery_enabled), read live from /api/store-status
+// and ANDed with this — so an environment with delivery fundamentally disabled
+// stays disabled regardless of the runtime flag.
+const DELIVERY_ENV_MASTER = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
+
 const SQUARE_ENV = process.env.NEXT_PUBLIC_SQUARE_ENVIRONMENT ?? "sandbox";
 const WEB_SDK_SRC =
   SQUARE_ENV === "production"
@@ -180,6 +186,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // enabled and the subtotal meets the minimum, otherwise we fall back to
   // PICKUP. Runs after cart hydration (this component only renders post-hydrate)
   // so `subtotal` is accurate; the ref guard keeps a later manual toggle intact.
+  // Live delivery on/off from the boss toggle, ANDed with the build-time master
+  // kill-switch. Optimistically initialised to the env master so the selector
+  // doesn't flash pickup-only before the first /api/store-status poll; corrected
+  // within 30s by the poll below.
+  const [deliveryEnabled, setDeliveryEnabled] = useState<boolean>(
+    DELIVERY_ENV_MASTER,
+  );
   const appliedOrderModeRef = useRef(false);
   useEffect(() => {
     if (appliedOrderModeRef.current) return;
@@ -187,10 +200,18 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     const mode = resolveInitialFulfillment(
       getPreferredFulfillment(),
       subtotal,
-      process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true",
+      deliveryEnabled,
     );
     if (mode !== "PICKUP") setFulfillment(mode);
-  }, [subtotal]);
+  }, [subtotal, deliveryEnabled]);
+
+  // If the boss flips delivery OFF mid-session, drop any selected DELIVERY back
+  // to PICKUP so the UI can't sit on an option the server will now reject.
+  useEffect(() => {
+    if (!deliveryEnabled) {
+      setFulfillment((prev) => (prev === "DELIVERY" ? "PICKUP" : prev));
+    }
+  }, [deliveryEnabled]);
 
   // Expand all cup unit prices, sorted ascending — used for multi-reward discount.
   const sortedUnitPrices = useMemo(() => {
@@ -437,8 +458,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       try {
         const res = await fetch("/api/store-status", { cache: "no-store" });
         if (!res.ok) return;
-        const data = (await res.json()) as OrderingStatus;
-        if (!cancelled) setOrderingStatus(data);
+        const data = (await res.json()) as OrderingStatus & {
+          deliveryEnabled?: boolean;
+        };
+        if (!cancelled) {
+          setOrderingStatus(data);
+          setDeliveryEnabled(DELIVERY_ENV_MASTER && data.deliveryEnabled !== false);
+        }
       } catch {
         /* keep last-known good value */
       }
@@ -989,6 +1015,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 value={fulfillment}
                 onChange={setFulfillment}
                 drinksSubtotalCents={subtotal}
+                deliveryEnabled={deliveryEnabled}
               />
             </div>
 

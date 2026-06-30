@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   getEffectiveOrderingStatus,
+  isDeliveryEnabled,
   __resetPosBackupCacheForTests,
+  __resetDeliveryEnabledCacheForTests,
 } from "./store-status-server";
 
 const mockMaybeSingle = vi.fn();
@@ -79,5 +81,59 @@ describe("getEffectiveOrderingStatus", () => {
   it("supabase fetch throws → falls back to default (defensive)", async () => {
     mockMaybeSingle.mockRejectedValue(new Error("network down"));
     expect((await getEffectiveOrderingStatus(brisbane("2026-05-16", 22, 15))).open).toBe(false);
+  });
+});
+
+describe("isDeliveryEnabled", () => {
+  beforeEach(() => {
+    __resetDeliveryEnabledCacheForTests();
+    mockMaybeSingle.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("stored value=true → enabled (regardless of env master)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "");
+    mockMaybeSingle.mockResolvedValue({ data: { value: true }, error: null });
+    expect(await isDeliveryEnabled()).toBe(true);
+  });
+
+  it("stored value=false → disabled (even when env master is on)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "true");
+    mockMaybeSingle.mockResolvedValue({ data: { value: false }, error: null });
+    expect(await isDeliveryEnabled()).toBe(false);
+  });
+
+  it("row missing + env master on → inherits env (enabled)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "true");
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    expect(await isDeliveryEnabled()).toBe(true);
+  });
+
+  it("row missing + env master off → inherits env (disabled)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "");
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    expect(await isDeliveryEnabled()).toBe(false);
+  });
+
+  it("supabase throws + env master on → falls back to env (enabled)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "true");
+    mockMaybeSingle.mockRejectedValue(new Error("network down"));
+    expect(await isDeliveryEnabled()).toBe(true);
+  });
+
+  it("supabase throws + env master off → falls back to env (disabled)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "");
+    mockMaybeSingle.mockRejectedValue(new Error("network down"));
+    expect(await isDeliveryEnabled()).toBe(false);
+  });
+
+  it("caches within TTL — second call does not re-query supabase", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DELIVERY_ENABLED", "");
+    mockMaybeSingle.mockResolvedValue({ data: { value: true }, error: null });
+    expect(await isDeliveryEnabled()).toBe(true);
+    expect(await isDeliveryEnabled()).toBe(true);
+    expect(mockMaybeSingle).toHaveBeenCalledTimes(1);
   });
 });
