@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X, Gift } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { MenuHeader } from "@/components/menu/MenuHeader";
 import { getStoreStatus, type StoreStatus } from "@/lib/store-status";
 import { ProductCard } from "@/components/menu/ProductCard";
@@ -79,22 +79,6 @@ function MobileStoreStatus() {
       >
         {label}
       </span>
-    </div>
-  );
-}
-
-function BlindBoxCard() {
-  return (
-    <div className="mt-3 rounded-card bg-cream p-4">
-      <div className="flex items-center gap-2">
-        <Gift size={17} className="text-brand" />
-        <span className="text-[12.5px] font-bold text-ink">
-          Buy 2, get a blind box
-        </span>
-      </div>
-      <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink3">
-        Any two drinks unlock a fragrance-tag blind box, free.
-      </p>
     </div>
   );
 }
@@ -271,7 +255,6 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
               active={active}
               onSelect={scrollToCategory}
             />
-            <BlindBoxCard />
           </div>
         </aside>
 
