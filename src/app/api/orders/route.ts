@@ -5,7 +5,7 @@ import type { Currency, OrderServiceCharge } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { BUSINESS, CARD_SURCHARGE, DELIVERY_FEE_NAME, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
 import { getActivePublicHoliday } from "@/lib/holiday";
-import { getEffectiveOrderingStatus } from "@/lib/store-status-server";
+import { getEffectiveOrderingStatus, isDeliveryEnabled } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
 import { clientPlatformFrom } from "@/lib/client-platform";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
@@ -301,6 +301,23 @@ export async function POST(request: Request) {
         ? `${body.delivery.unit}, ${body.delivery.address}`
         : body.delivery.address
       : null;
+
+  // Boss-controlled delivery kill-switch (Admin → app_settings.delivery_enabled).
+  // Server-authoritative so it gates web AND the App (shared route), regardless
+  // of a stale client UI still showing the delivery option. Runs before the
+  // per-field prerequisites so a delivery order can never reach Square while the
+  // shop has delivery switched off. Fires for any delivery order, even one with
+  // missing details.
+  if (isDelivery && !(await isDeliveryEnabled())) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Delivery is currently unavailable. Please choose Pickup.",
+        deliveryDisabled: true,
+      },
+      { status: 409 },
+    );
+  }
 
   // Delivery prerequisites — eligibility, hours, radius. These run regardless
   // of free-redeem because they're not surcharges, they're "is this even a

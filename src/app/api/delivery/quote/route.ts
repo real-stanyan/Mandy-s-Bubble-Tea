@@ -3,6 +3,7 @@ import { distanceKm, STORE_COORDS } from "@/lib/places";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
+import { isDeliveryEnabled } from "@/lib/store-status-server";
 import { getAuthedUser } from "@/lib/auth";
 
 type QuoteBody = {
@@ -53,6 +54,10 @@ export async function POST(request: Request) {
 
   const drinksSubtotalCents = BigInt(Math.max(0, Math.floor(body.drinksSubtotalCents)));
 
+  // Boss kill-switch: don't even price a delivery while the shop has it off.
+  if (!(await isDeliveryEnabled())) {
+    return NextResponse.json({ ok: false, reason: "unavailable" });
+  }
   if (!isDeliveryEligible(drinksSubtotalCents)) {
     return NextResponse.json({ ok: false, reason: "min_order" });
   }

@@ -6,19 +6,29 @@ import { formatPrice } from "@/lib/utils";
 
 export type FulfillmentType = "PICKUP" | "DELIVERY";
 
-const DELIVERY_ENABLED = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
+const DELIVERY_ENV_MASTER = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
 
 type Props = {
   value: FulfillmentType;
   onChange: (next: FulfillmentType) => void;
   drinksSubtotalCents: bigint;
+  // Live boss toggle (app_settings.delivery_enabled) from /api/store-status.
+  // Defaults to enabled; ANDed with the build-time env master below. Omitting
+  // it preserves the old env-only behaviour.
+  deliveryEnabled?: boolean;
 };
 
-export function FulfillmentSelector({ value, onChange, drinksSubtotalCents }: Props) {
+export function FulfillmentSelector({
+  value,
+  onChange,
+  drinksSubtotalCents,
+  deliveryEnabled = true,
+}: Props) {
   const eligible = isDeliveryEligible(drinksSubtotalCents);
   const remainingCents = DELIVERY.minimumSubtotalCents - drinksSubtotalCents;
+  const deliveryOn = DELIVERY_ENV_MASTER && deliveryEnabled;
 
-  if (!DELIVERY_ENABLED) {
+  if (!deliveryOn) {
     // Pickup-only — rendered inside the page's Fulfillment card, so no border here.
     return (
       <div className="flex items-start gap-3">
