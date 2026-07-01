@@ -411,7 +411,11 @@ function AppPromo() {
             stars stack up automatically toward a free cup.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <StoreBadge top="Download on the" big="App Store" />
+            <StoreBadge
+              top="Download on the"
+              big="App Store"
+              href="https://apps.apple.com/au/app/mandys-bubble-tea/id6762111842"
+            />
           </div>
         </div>
       </div>
@@ -419,10 +423,22 @@ function AppPromo() {
   );
 }
 
-function StoreBadge({ top, big }: { top: string; big: string }) {
+function StoreBadge({
+  top,
+  big,
+  href,
+}: {
+  top: string;
+  big: string;
+  href: string;
+}) {
   return (
-    <span
-      className="inline-flex items-center gap-2.5 rounded-[14px] px-4 py-2.5"
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${top} ${big}`}
+      className="inline-flex items-center gap-2.5 rounded-[14px] px-4 py-2.5 transition-transform hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F5C9A3]"
       style={{ background: "#F5E6C8" }}
     >
       <span className="text-left leading-tight">
@@ -431,6 +447,6 @@ function StoreBadge({ top, big }: { top: string; big: string }) {
         </span>
         <span className="block text-[15px] font-bold text-[#1a1a1a]">{big}</span>
       </span>
-    </span>
+    </a>
   );
 }
