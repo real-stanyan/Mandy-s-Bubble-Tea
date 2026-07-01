@@ -280,13 +280,24 @@ export function AuthForm({
       if (!els || !els.length) return;
       const mm = gsap.matchMedia();
       mm.add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from(els, {
-          opacity: 0,
-          y: 16,
-          duration: 0.5,
-          ease: "power3.out",
-          stagger: 0.05,
-        });
+        // fromTo (not from): the visible end state is hard-coded, so a re-run
+        // that fires mid-stagger can never capture a half-faded 0 as the target
+        // and strand an element (usually the last button) at opacity:0.
+        // overwrite kills any in-flight tween on the same targets; clearProps
+        // removes the inline opacity/transform once shown.
+        gsap.fromTo(
+          els,
+          { opacity: 0, y: 16 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.5,
+            ease: "power3.out",
+            stagger: 0.05,
+            overwrite: "auto",
+            clearProps: "opacity,transform",
+          },
+        );
       });
       return () => mm.revert();
     },
