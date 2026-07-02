@@ -219,6 +219,49 @@ export async function POST(
         );
         // Capture bumps the order version; the retry loop below re-reads on the
         // resulting VERSION_MISMATCH, so no extra refresh is needed here.
+      } else if (!active && !((order.totalMoney?.amount ?? 0n) > 0n)) {
+        // $0 loyalty-comped delivery order (DE837): no card tender exists and
+        // checkout deliberately did NOT settle it — orders.pay at checkout
+        // would have COMPLETED the order + fulfillment before any driver
+        // touched it (the DE833 regression), killing the accept → deliver
+        // flow. Accept intentionally doesn't settle either (same reason: the
+        // ride isn't over). So the order arrives here still OPEN with zero
+        // tenders, and Square refuses to COMPLETE a fulfillment on an unpaid
+        // order — without this branch the $0 order can never be marked
+        // delivered and never lands on the Square books.
+        //
+        // Delivery is the moment the "sale" is final, so settle NOW via
+        // orders.pay with an empty paymentIds list (Square accepts it because
+        // the order total, 0, is satisfied by the sum of payments, 0 — same
+        // trick as the $0 pickup branch in /api/payment). orders.pay closes
+        // the order AND its fulfillment in one move, so we must skip the
+        // fulfillment orders.update below — a second write against the now-
+        // COMPLETED order would just error or version-conflict.
+        //
+        // Idempotency: a re-tap re-reads the order as state=COMPLETED and
+        // skips the pay call (mirrors the AUTHORIZED-only guard on the
+        // capture path above), so repeat "delivered" taps are no-op successes.
+        if (order.state !== "COMPLETED") {
+          await squareClient.orders.pay({
+            orderId,
+            idempotencyKey: randomUUID(),
+            paymentIds: [],
+          });
+        }
+
+        await recordDispatch({
+          orderId,
+          orderNumber: order.referenceId ?? order.ticketName ?? null,
+          status: action,
+          driverLabel: body.driverLabel ?? null,
+          driverId: auth.driverId ?? null,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          fulfillmentState: "COMPLETED",
+          settled: true,
+        });
       }
     }
 

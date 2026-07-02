@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockOrdersGet = vi.fn()
 const mockOrdersUpdate = vi.fn()
+const mockOrdersPay = vi.fn()
 const mockPaymentsComplete = vi.fn()
 vi.mock("@/lib/square", () => ({
   squareClient: {
     orders: {
       get: (...a: unknown[]) => mockOrdersGet(...a),
       update: (...a: unknown[]) => mockOrdersUpdate(...a),
+      pay: (...a: unknown[]) => mockOrdersPay(...a),
     },
     payments: {
       complete: (...a: unknown[]) => mockPaymentsComplete(...a),
@@ -220,6 +222,107 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     expect(mockRecordDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ status: "accepted" }),
     )
+  })
+})
+
+describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.STAFF_DELIVERY_TOKEN = "driver-secret"
+    process.env.ADMIN_DELIVERY_TOKEN = "admin-secret"
+    mockConsumeDiscounts.mockResolvedValue(undefined)
+  })
+
+  const zeroOrder = (state: string = "OPEN") => ({
+    order: {
+      id: "O1",
+      version: 3,
+      state,
+      metadata: { fulfillment_type: "DELIVERY" },
+      fulfillments: [{ uid: "F1", state: "PREPARED" }],
+      referenceId: "DE837",
+      totalMoney: { amount: 0n, currency: "AUD" },
+      tenders: [],
+    },
+  })
+
+  const paidOrder = (tenderStatus: string) => ({
+    order: {
+      id: "O1",
+      version: 3,
+      state: "OPEN",
+      metadata: { fulfillment_type: "DELIVERY" },
+      fulfillments: [{ uid: "F1", state: "PREPARED" }],
+      referenceId: "DE836",
+      totalMoney: { amount: 1250n, currency: "AUD" },
+      tenders: [{ id: "PAY1", cardDetails: { status: tenderStatus } }],
+    },
+  })
+
+  it("settles a $0 no-tender order via orders.pay (empty paymentIds) and skips the fulfillment update", async () => {
+    // DE837 bug: a $0 loyalty-comped delivery order has no tender and was never
+    // settled at checkout (DE833 deferral). Square refuses to COMPLETE a
+    // fulfillment on an unpaid order, so 'delivered' must settle via orders.pay
+    // — which completes both the order and its fulfillment in one call.
+    mockOrdersGet.mockResolvedValue(zeroOrder())
+    mockOrdersPay.mockResolvedValue({ order: { id: "O1", state: "COMPLETED" } })
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.ok).toBe(true)
+    expect(json.fulfillmentState).toBe("COMPLETED")
+    expect(mockOrdersPay).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: "O1", paymentIds: [] }),
+    )
+    // orders.pay already completed the fulfillment — a follow-up orders.update
+    // would hit a version conflict / error on the closed order.
+    expect(mockOrdersUpdate).not.toHaveBeenCalled()
+    // no card to capture
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "delivered" }),
+    )
+  })
+
+  it("re-tapping delivered on an already-COMPLETED $0 order is a no-op success (no second orders.pay)", async () => {
+    mockOrdersGet.mockResolvedValue(zeroOrder("COMPLETED"))
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(true)
+    expect(mockOrdersPay).not.toHaveBeenCalled()
+    expect(mockOrdersUpdate).not.toHaveBeenCalled()
+  })
+
+  it("paid (CAPTURED) order keeps the original path: fulfillment update, no orders.pay", async () => {
+    mockOrdersGet.mockResolvedValue(paidOrder("CAPTURED"))
+    mockOrdersUpdate.mockResolvedValue({})
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json()).fulfillmentState).toBe("COMPLETED")
+    expect(mockOrdersPay).not.toHaveBeenCalled()
+    expect(mockPaymentsComplete).not.toHaveBeenCalled()
+    expect(mockOrdersUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "O1",
+        order: expect.objectContaining({
+          fulfillments: [{ uid: "F1", state: "COMPLETED" }],
+        }),
+      }),
+    )
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "delivered" }),
+    )
+  })
+
+  it("paid order still only AUTHORIZED at delivery: captures then updates fulfillment (existing safety net)", async () => {
+    mockOrdersGet.mockResolvedValue(paidOrder("AUTHORIZED"))
+    mockPaymentsComplete.mockResolvedValue({})
+    mockOrdersUpdate.mockResolvedValue({})
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    expect(mockPaymentsComplete).toHaveBeenCalledWith({ paymentId: "PAY1" })
+    expect(mockOrdersPay).not.toHaveBeenCalled()
+    expect(mockOrdersUpdate).toHaveBeenCalled()
   })
 })
 
