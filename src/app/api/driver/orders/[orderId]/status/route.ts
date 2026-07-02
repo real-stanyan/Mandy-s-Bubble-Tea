@@ -203,6 +203,12 @@ export async function POST(
 
     const nextState = ACTION_TO_STATE[action];
 
+    // Version + fulfillment uid fed to the orders.update below. The $0-settle
+    // branch may refresh these from a post-pay re-read (pay bumps the version,
+    // so the pre-pay values would be guaranteed stale).
+    let version = order.version;
+    let uid = fulfillment.uid;
+
     // Square refuses to COMPLETE a fulfillment on an unpaid order. Normally the
     // card is captured at "accept", so by delivery the order is paid. But if an
     // order ever reaches delivery still only AUTHORIZED (e.g. its fulfillment was
@@ -219,6 +225,108 @@ export async function POST(
         );
         // Capture bumps the order version; the retry loop below re-reads on the
         // resulting VERSION_MISMATCH, so no extra refresh is needed here.
+      } else if (!active && !((order.totalMoney?.amount ?? 0n) > 0n)) {
+        // $0 loyalty-comped delivery order (DE837): no card tender exists and
+        // checkout deliberately did NOT settle it — orders.pay at checkout
+        // would have COMPLETED the order + fulfillment before any driver
+        // touched it (the DE833 regression), killing the accept → deliver
+        // flow. Accept intentionally doesn't settle either (same reason: the
+        // ride isn't over). So the order arrives here still OPEN with zero
+        // tenders, and Square refuses to COMPLETE a fulfillment on an unpaid
+        // order — without this branch the $0 order can never be marked
+        // delivered and never lands on the Square books.
+        //
+        // Delivery is the moment the "sale" is final, so settle NOW via
+        // orders.pay with an empty paymentIds list (Square accepts it because
+        // the order total, 0, is satisfied by the sum of payments, 0 — same
+        // trick as the $0 pickup branch in /api/payment).
+        //
+        // State guards: only an OPEN order gets paid. CANCELED → explicit 409
+        // (a declined/swept order can't be "delivered"); COMPLETED (re-tap
+        // after a successful settle) → no-op success.
+        if (order.state === "CANCELED") {
+          return NextResponse.json(
+            { ok: false, error: "cannot deliver: order is canceled" },
+            { status: 409 },
+          );
+        }
+
+        let fulfillmentClosed = order.state !== "OPEN";
+
+        if (order.state === "OPEN") {
+          let lostSettleRace = false;
+          try {
+            await squareClient.orders.pay({
+              orderId,
+              idempotencyKey: randomUUID(),
+              paymentIds: [],
+            });
+          } catch (err) {
+            // Double-tap race: two "delivered" taps can BOTH read the order as
+            // OPEN — orders.pay's effect is visible with a lag (see the $0
+            // branch of /api/payment: "orders.pay succeeded ... still shows
+            // state=OPEN"), so the state guard above can't catch the second
+            // tap. The loser's pay reaches Square after the winner closed the
+            // order and gets rejected — but that rejection MEANS the order is
+            // settled, so treat it as success rather than bubbling a 502 at
+            // the driver. Anything else (network, auth, …) still throws.
+            // (Exact Square error text for paying a closed order isn't pinned
+            // down in this repo, hence the broad match + warn with the raw
+            // message so production logs can tighten it later.)
+            const text = err instanceof Error ? err.message : String(err);
+            const rejectedAsSettled =
+              /ALREADY[_ ]?(COMPLETED|PAID)|INVALID[_ ]?ORDER[_ ]?STATE|NOT[_ ]?(IN[_ ]?STATE[_ ]?)?OPEN|COMPLETED/i.test(
+                text,
+              );
+            if (!rejectedAsSettled) throw err;
+            console.warn(
+              "[driver/status] $0 orders.pay rejected — order already settled by a concurrent request, treating as delivered:",
+              text,
+            );
+            lostSettleRace = true;
+          }
+
+          if (lostSettleRace) {
+            // The winning request owns the fulfillment verification/backfill;
+            // a second writer here would just collide with it.
+            fulfillmentClosed = true;
+          } else {
+            // Verify orders.pay really closed the fulfillment. The repo's only
+            // evidence of the auto-close (DE833) covers a PROPOSED fulfillment
+            // at checkout; at delivery ours is PREPARED, and Square's behavior
+            // for that isn't documented here. Re-read and check; if it's still
+            // open, fall through to the normal orders.update below — the order
+            // is paid now, so Square accepts COMPLETE. Feed the loop the fresh
+            // version/uid (pay bumped the version; the stale one would burn a
+            // retry on a guaranteed VERSION_MISMATCH).
+            const fresh = (await squareClient.orders.get({ orderId })).order;
+            const freshFulfillment = fresh?.fulfillments?.[0];
+            fulfillmentClosed =
+              !freshFulfillment || freshFulfillment.state === "COMPLETED";
+            if (!fulfillmentClosed && fresh?.version != null && freshFulfillment?.uid) {
+              version = fresh.version;
+              uid = freshFulfillment.uid;
+            }
+          }
+        }
+
+        if (fulfillmentClosed) {
+          await recordDispatch({
+            orderId,
+            orderNumber: order.referenceId ?? order.ticketName ?? null,
+            status: action,
+            driverLabel: body.driverLabel ?? null,
+            driverId: auth.driverId ?? null,
+          });
+
+          return NextResponse.json({
+            ok: true,
+            fulfillmentState: "COMPLETED",
+            settled: true,
+          });
+        }
+        // Fulfillment still open after a successful pay → fall through to the
+        // shared orders.update below to push it to COMPLETED.
       }
     }
 
@@ -228,8 +336,6 @@ export async function POST(
     // settlement. On VERSION_MISMATCH we re-read the latest version + uid
     // and try again (the operation is idempotent: setting an already-set
     // state is a no-op).
-    let version = order.version;
-    let uid = fulfillment.uid;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await squareClient.orders.update({

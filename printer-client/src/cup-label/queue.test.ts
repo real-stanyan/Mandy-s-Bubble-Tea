@@ -215,6 +215,25 @@ describe("cup-label queue.handleJob", () => {
     expect(playOnlineOrderAlert).toHaveBeenCalledTimes(1);
   });
 
+  it("plays the cue for DE delivery orders (deduped across cups like OL)", async () => {
+    // DE837 gap: delivery orders printed cup labels silently — staff never
+    // heard the order land. DE stickers must cue exactly like OL ones.
+    const sticker = "DE837";
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      sticker_number: sticker,
+      status: "printing",
+      attempts: 1,
+    };
+    vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
+    vi.mocked(printCupLabelZPL).mockResolvedValue();
+
+    await handleJob({ ...baseRow, sticker_number: sticker, cup_idx: 0 });
+    await handleJob({ ...baseRow, sticker_number: sticker, cup_idx: 1 });
+
+    expect(playOnlineOrderAlert).toHaveBeenCalledTimes(1);
+  });
+
   it("does not play the cue for in-store (non-OL) orders", async () => {
     (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
       ...baseRow,
