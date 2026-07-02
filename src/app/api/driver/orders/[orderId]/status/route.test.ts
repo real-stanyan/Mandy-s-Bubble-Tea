@@ -233,13 +233,17 @@ describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () =
     mockConsumeDiscounts.mockResolvedValue(undefined)
   })
 
-  const zeroOrder = (state: string = "OPEN") => ({
+  const zeroOrder = (
+    state: string = "OPEN",
+    fulfillmentState: string = "PREPARED",
+    version: number = 3,
+  ) => ({
     order: {
       id: "O1",
-      version: 3,
+      version,
       state,
       metadata: { fulfillment_type: "DELIVERY" },
-      fulfillments: [{ uid: "F1", state: "PREPARED" }],
+      fulfillments: [{ uid: "F1", state: fulfillmentState }],
       referenceId: "DE837",
       totalMoney: { amount: 0n, currency: "AUD" },
       tenders: [],
@@ -259,12 +263,15 @@ describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () =
     },
   })
 
-  it("settles a $0 no-tender order via orders.pay (empty paymentIds) and skips the fulfillment update", async () => {
+  it("settles a $0 no-tender order via orders.pay (empty paymentIds) and skips the fulfillment update when Square auto-closed it", async () => {
     // DE837 bug: a $0 loyalty-comped delivery order has no tender and was never
     // settled at checkout (DE833 deferral). Square refuses to COMPLETE a
-    // fulfillment on an unpaid order, so 'delivered' must settle via orders.pay
-    // — which completes both the order and its fulfillment in one call.
-    mockOrdersGet.mockResolvedValue(zeroOrder())
+    // fulfillment on an unpaid order, so 'delivered' must settle via orders.pay.
+    // Here the post-pay re-read shows Square closed the fulfillment too, so no
+    // follow-up orders.update is needed (it would error on the closed order).
+    mockOrdersGet
+      .mockResolvedValueOnce(zeroOrder()) // initial read: OPEN / PREPARED
+      .mockResolvedValueOnce(zeroOrder("COMPLETED", "COMPLETED", 4)) // post-pay verify
     mockOrdersPay.mockResolvedValue({ order: { id: "O1", state: "COMPLETED" } })
     const res = await POST(req("driver-secret", { action: "delivered" }), { params })
     expect(res.status).toBe(200)
@@ -274,8 +281,6 @@ describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () =
     expect(mockOrdersPay).toHaveBeenCalledWith(
       expect.objectContaining({ orderId: "O1", paymentIds: [] }),
     )
-    // orders.pay already completed the fulfillment — a follow-up orders.update
-    // would hit a version conflict / error on the closed order.
     expect(mockOrdersUpdate).not.toHaveBeenCalled()
     // no card to capture
     expect(mockPaymentsComplete).not.toHaveBeenCalled()
@@ -284,13 +289,82 @@ describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () =
     )
   })
 
+  it("backfills a fulfillment COMPLETE via orders.update when orders.pay did not auto-close it", async () => {
+    // The DE833 evidence only covers orders.pay closing a PROPOSED fulfillment
+    // at checkout; at delivery ours is PREPARED. If the post-pay re-read shows
+    // the fulfillment still open, push it to COMPLETED — the order is paid now,
+    // so Square accepts the update (using the fresh version to avoid a
+    // guaranteed VERSION_MISMATCH).
+    mockOrdersGet
+      .mockResolvedValueOnce(zeroOrder()) // initial read: OPEN / PREPARED / v3
+      .mockResolvedValueOnce(zeroOrder("COMPLETED", "PREPARED", 4)) // post-pay: order closed, fulfillment not
+    mockOrdersPay.mockResolvedValue({ order: { id: "O1", state: "COMPLETED" } })
+    mockOrdersUpdate.mockResolvedValue({})
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.ok).toBe(true)
+    expect(json.fulfillmentState).toBe("COMPLETED")
+    expect(mockOrdersPay).toHaveBeenCalledTimes(1)
+    expect(mockOrdersUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "O1",
+        order: expect.objectContaining({
+          version: 4, // fresh post-pay version, not the stale pre-pay one
+          fulfillments: [{ uid: "F1", state: "COMPLETED" }],
+        }),
+      }),
+    )
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "delivered" }),
+    )
+  })
+
+  it("double-tap race: second request's rejected orders.pay is treated as success, not 502", async () => {
+    // Two rapid "delivered" taps can BOTH read the order as OPEN (pay's effects
+    // are visible with a lag — payment/route.ts records orders.pay returning
+    // state=OPEN even on success). The loser's pay then hits Square after the
+    // winner closed the order and is rejected — that rejection means the order
+    // IS settled, so it must surface as ok, not bubble up as a 502.
+    mockOrdersGet.mockResolvedValue(zeroOrder()) // stale OPEN read
+    mockOrdersPay.mockRejectedValue(
+      new Error('Square error: INVALID_ORDER_STATE — order is not in state OPEN'),
+    )
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(true)
+    // the winning request owns the fulfillment; the loser must not double-write
+    expect(mockOrdersUpdate).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "delivered" }),
+    )
+  })
+
+  it("a genuinely failed $0 orders.pay (network/etc) still surfaces as 502", async () => {
+    mockOrdersGet.mockResolvedValue(zeroOrder())
+    mockOrdersPay.mockRejectedValue(new Error("ECONNRESET"))
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(502)
+    expect(mockRecordDispatch).not.toHaveBeenCalled()
+  })
+
   it("re-tapping delivered on an already-COMPLETED $0 order is a no-op success (no second orders.pay)", async () => {
-    mockOrdersGet.mockResolvedValue(zeroOrder("COMPLETED"))
+    mockOrdersGet.mockResolvedValue(zeroOrder("COMPLETED", "COMPLETED"))
     const res = await POST(req("driver-secret", { action: "delivered" }), { params })
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(true)
     expect(mockOrdersPay).not.toHaveBeenCalled()
     expect(mockOrdersUpdate).not.toHaveBeenCalled()
+  })
+
+  it("409s delivering a CANCELED $0 order instead of letting Square error into a 502", async () => {
+    mockOrdersGet.mockResolvedValue(zeroOrder("CANCELED"))
+    const res = await POST(req("driver-secret", { action: "delivered" }), { params })
+    expect(res.status).toBe(409)
+    expect((await res.json()).ok).toBe(false)
+    expect(mockOrdersPay).not.toHaveBeenCalled()
+    expect(mockOrdersUpdate).not.toHaveBeenCalled()
+    expect(mockRecordDispatch).not.toHaveBeenCalled()
   })
 
   it("paid (CAPTURED) order keeps the original path: fulfillment update, no orders.pay", async () => {
