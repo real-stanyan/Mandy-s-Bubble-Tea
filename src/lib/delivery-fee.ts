@@ -1,9 +1,9 @@
 import { DELIVERY } from "./constants";
 
 // Customer-facing delivery fee, distance-based (straight-line km from store).
-// Each distance band carries its own free-delivery subtotal threshold:
-//  • 0–4km : free at/above $35, else $4.99.
-//  • 4–8km : free at/above $50, else $6.99 / $8.99.
+// Per-km bands (+$1 each km); each band carries its own free-delivery threshold:
+//  • 0–4km : free at/above $35, else $3.99 / $4.99 / $5.99 (per km).
+//  • 4–8km : free at/above $50, else $6.99 / $7.99 / $8.99 / $9.99 (per km).
 //  • 8km+  : flat $15, never waived (no free threshold).
 // Eligibility (minimum order) is enforced separately by `isDeliveryEligible`.
 export function deliveryFeeCents(

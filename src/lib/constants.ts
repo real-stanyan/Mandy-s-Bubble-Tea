@@ -105,15 +105,19 @@ export const PUBLIC_HOLIDAYS_2026: PublicHolidayDef[] = [
 // ---- Delivery (self-delivery by store staff) ----
 
 export const DELIVERY = {
-  // Pricing model (2026-06-03, distance-banded free thresholds):
-  //  • 0–4km : free at/above $35, else $4.99. (No more "always free <=3km".)
-  //  • 4–8km : free at/above $50, else $6.99 (4–6km) / $8.99 (6–8km).
+  // Pricing model (2026-07-04, per-km bands, +$1 each km):
+  //  • 0–4km : free at/above $35, else 0–2km $3.99 / 2–3km $4.99 / 3–4km $5.99.
+  //  • 4–8km : free at/above $50, else 4–5km $6.99 / 5–6km $7.99 / 6–7km $8.99 / 7–8km $9.99.
   //  • 8km+  : flat $15, NEVER free regardless of subtotal.
   // First tier whose maxKm >= distance wins; beyond the last tier → farFeeCents.
   tiers: [
-    { maxKm: 4, feeCents: 499n, freeAtCents: 3500n },
-    { maxKm: 6, feeCents: 699n, freeAtCents: 5000n },
-    { maxKm: 8, feeCents: 899n, freeAtCents: 5000n },
+    { maxKm: 2, feeCents: 399n, freeAtCents: 3500n },
+    { maxKm: 3, feeCents: 499n, freeAtCents: 3500n },
+    { maxKm: 4, feeCents: 599n, freeAtCents: 3500n },
+    { maxKm: 5, feeCents: 699n, freeAtCents: 5000n },
+    { maxKm: 6, feeCents: 799n, freeAtCents: 5000n },
+    { maxKm: 7, feeCents: 899n, freeAtCents: 5000n },
+    { maxKm: 8, feeCents: 999n, freeAtCents: 5000n },
   ],
   farFeeCents: 1500n,             // 8km+, flat, never waived
   maxKm: 10,                      // delivery radius (straight-line km)

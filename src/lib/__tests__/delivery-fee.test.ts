@@ -5,27 +5,37 @@ import {
   isDeliveryEligible,
 } from "../delivery-fee";
 
-describe("deliveryFeeCents — distance-banded free thresholds", () => {
-  // 0–4km band: $4.99, free at $35. The old "always free within 3km"
-  // radius is GONE — a small order close to the store now pays the band fee.
-  it("at store (0km) on a tiny order: pays the 0–4km fee, no free radius", () => {
-    expect(deliveryFeeCents(800n, 0)).toBe(499n);
+describe("deliveryFeeCents — per-km bands, distance-banded free thresholds", () => {
+  // 0–4km free zone: free at $35. Per-km fees 0–2 $3.99 / 2–3 $4.99 / 3–4 $5.99.
+  // The old "always free within 3km" radius is GONE.
+  it("at store (0km) on a tiny order: pays the 0–2km fee, no free radius", () => {
+    expect(deliveryFeeCents(800n, 0)).toBe(399n);
   });
-  it("2km, $20: 499n (below $35)", () => {
-    expect(deliveryFeeCents(2000n, 2)).toBe(499n);
+  it("2km, $20: 399n (0–2 band, below $35)", () => {
+    expect(deliveryFeeCents(2000n, 2)).toBe(399n);
   });
   it("2km, $35: free", () => {
     expect(deliveryFeeCents(3500n, 2)).toBe(0n);
   });
-  it("4km, $34.99: 499n (just below $35)", () => {
-    expect(deliveryFeeCents(3499n, 4)).toBe(499n);
+  it("2.01km, $20: 499n (into 2–3 band)", () => {
+    expect(deliveryFeeCents(2000n, 2.01)).toBe(499n);
+  });
+  it("3km, $34.99: 499n (2–3 band, just below $35)", () => {
+    expect(deliveryFeeCents(3499n, 3)).toBe(499n);
+  });
+  it("3.01km, $20: 599n (into 3–4 band)", () => {
+    expect(deliveryFeeCents(2000n, 3.01)).toBe(599n);
+  });
+  it("4km, $34.99: 599n (3–4 band, just below $35)", () => {
+    expect(deliveryFeeCents(3499n, 4)).toBe(599n);
   });
   it("exactly 4.0km, $35: free", () => {
     expect(deliveryFeeCents(3500n, 4)).toBe(0n);
   });
 
-  // 4–6km band: $6.99, free at $50 (NOT $35).
-  it("5km, $35: 699n (above $35 but below $50)", () => {
+  // 4–8km free zone: free at $50 (NOT $35). Per-km fees 4–5 $6.99 / 5–6 $7.99 /
+  // 6–7 $8.99 / 7–8 $9.99.
+  it("5km, $35: 699n (4–5 band, above $35 but below $50)", () => {
     expect(deliveryFeeCents(3500n, 5)).toBe(699n);
   });
   it("5km, $49.99: 699n", () => {
@@ -34,13 +44,14 @@ describe("deliveryFeeCents — distance-banded free thresholds", () => {
   it("5km, $50: free", () => {
     expect(deliveryFeeCents(5000n, 5)).toBe(0n);
   });
-
-  // 6–8km band: $8.99, free at $50.
-  it("7km, $49.99: 899n", () => {
+  it("6km, $49.99: 799n (5–6 band)", () => {
+    expect(deliveryFeeCents(4999n, 6)).toBe(799n);
+  });
+  it("7km, $49.99: 899n (6–7 band)", () => {
     expect(deliveryFeeCents(4999n, 7)).toBe(899n);
   });
-  it("exactly 8.0km, $49.99: 899n (boundary stays in 6–8 band)", () => {
-    expect(deliveryFeeCents(4999n, 8)).toBe(899n);
+  it("exactly 8.0km, $49.99: 999n (7–8 band)", () => {
+    expect(deliveryFeeCents(4999n, 8)).toBe(999n);
   });
   it("8km, $50: free", () => {
     expect(deliveryFeeCents(5000n, 8)).toBe(0n);
