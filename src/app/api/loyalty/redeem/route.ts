@@ -74,17 +74,6 @@ export async function POST(request: Request) {
 
     const { starsPerReward, rewardTierId } = await getActiveProgram();
     const starsNeeded = starsPerReward * count;
-    if (account.balance < starsNeeded) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Not enough stars — you have ${account.balance}, need ${starsNeeded} for ${count} reward${count > 1 ? "s" : ""}.`,
-          balance: account.balance,
-          starsPerReward,
-        },
-        { status: 400 },
-      );
-    }
 
     if (body.orderId) {
       // TOCTOU: the order could be edited between this check and the loop
@@ -96,6 +85,31 @@ export async function POST(request: Request) {
       const preCheck = await squareClient.orders.get({
         orderId: body.orderId,
       });
+
+      // Idempotency guard (App checkout retry, 2026-07): the app's
+      // idempotency key reuses the SAME order across Pay retries (e.g.
+      // user cancelled the payment sheet, order kept), so this route can
+      // be called twice for one order. If the order already carries the
+      // requested rewards, answer idempotently with the order's CURRENT
+      // total — creating more rewards would double-deduct stars and stack
+      // free-drink discounts. This must run BEFORE the balance check:
+      // the first redemption already deducted the stars, so a retry
+      // would otherwise die on "Not enough stars" and strand checkout.
+      const existingRewards = preCheck.order?.rewards ?? [];
+      if (existingRewards.length >= count) {
+        const amount = preCheck.order?.totalMoney?.amount;
+        return NextResponse.json({
+          ok: true,
+          loyaltyRewardIds: existingRewards.map((r) => r.id),
+          // Back-compat for older app binaries that read `loyaltyRewardId`
+          loyaltyRewardId: existingRewards[0]?.id,
+          // Stars were already deducted by the original redemption —
+          // the current balance IS the post-redemption balance.
+          remainingBalance: account.balance,
+          updatedAmountCents: amount != null ? amount.toString() : null,
+        });
+      }
+
       const cupCount = (preCheck.order?.lineItems ?? []).reduce(
         (sum, li) => sum + Number(li.quantity ?? "0"),
         0,
@@ -109,6 +123,18 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
+    }
+
+    if (account.balance < starsNeeded) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Not enough stars — you have ${account.balance}, need ${starsNeeded} for ${count} reward${count > 1 ? "s" : ""}.`,
+          balance: account.balance,
+          starsPerReward,
+        },
+        { status: 400 },
+      );
     }
 
     const createdIds: string[] = [];

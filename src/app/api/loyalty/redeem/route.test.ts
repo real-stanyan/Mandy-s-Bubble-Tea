@@ -183,3 +183,113 @@ describe("POST /api/loyalty/redeem", () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe("POST /api/loyalty/redeem — same-order idempotency guard (double redeem)", () => {
+  // App checkout retries reuse the SAME OPEN order (order idempotency key),
+  // so this route can be hit twice for one order. The second call must not
+  // create another reward (double star deduction + stacked free-drink
+  // discount) and must not die on the balance check — the first redemption
+  // already deducted the stars.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAuthedUser.mockResolvedValue({
+      profile: { phone_e164: "+61400000001" },
+    });
+    mockGetActiveProgram.mockResolvedValue({
+      starsPerReward: 9,
+      rewardTierId: "tier1",
+    });
+  });
+
+  it("order already has >= count rewards → idempotent 200, NO new reward, stars not re-deducted", async () => {
+    mockFindLoyaltyAccountByPhone.mockResolvedValue({
+      accountId: "acc1",
+      balance: 3, // post-first-redemption balance
+    });
+    mockOrdersGet.mockResolvedValueOnce({
+      order: {
+        lineItems: [{ quantity: "1" }],
+        rewards: [{ id: "rew1", rewardTierId: "tier1" }],
+        totalMoney: { amount: 150n }, // current total, reward already applied
+      },
+    });
+
+    const res = await POST(makeRequest({ orderId: "ord1", count: 1 }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.updatedAmountCents).toBe("150");
+    expect(mockRedeemReward).not.toHaveBeenCalled();
+    expect(mockRewardsDelete).not.toHaveBeenCalled();
+    // Exact same response shape as the create path.
+    expect(Object.keys(json).sort()).toEqual(
+      [
+        "ok",
+        "loyaltyRewardIds",
+        "loyaltyRewardId",
+        "remainingBalance",
+        "updatedAmountCents",
+      ].sort(),
+    );
+    expect(json.loyaltyRewardIds).toEqual(["rew1"]);
+    expect(json.loyaltyRewardId).toBe("rew1");
+    // Current balance IS the post-redemption balance — no second deduction.
+    expect(json.remainingBalance).toBe(3);
+  });
+
+  it("retry after the first redeem drained the balance → still idempotent 200 (guard runs before the balance check)", async () => {
+    mockFindLoyaltyAccountByPhone.mockResolvedValue({
+      accountId: "acc1",
+      balance: 0, // first redemption consumed everything
+    });
+    mockOrdersGet.mockResolvedValueOnce({
+      order: {
+        lineItems: [{ quantity: "1" }],
+        rewards: [{ id: "rew1", rewardTierId: "tier1" }],
+        totalMoney: { amount: 0n },
+      },
+    });
+
+    const res = await POST(makeRequest({ orderId: "ord1", count: 1 }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.updatedAmountCents).toBe("0");
+    expect(json.remainingBalance).toBe(0);
+    expect(mockRedeemReward).not.toHaveBeenCalled();
+  });
+
+  it("order has FEWER rewards than count → proceeds through the normal create path", async () => {
+    mockFindLoyaltyAccountByPhone.mockResolvedValue({
+      accountId: "acc1",
+      balance: 20,
+    });
+    mockOrdersGet
+      .mockResolvedValueOnce({
+        order: {
+          lineItems: [{ quantity: "3" }],
+          rewards: [{ id: "rew1", rewardTierId: "tier1" }],
+          totalMoney: { amount: 1200n },
+        },
+      })
+      // post-loop refetch
+      .mockResolvedValueOnce({
+        order: { totalMoney: { amount: 400n } },
+      });
+    mockRedeemReward
+      .mockResolvedValueOnce({ loyaltyRewardId: "rew2" })
+      .mockResolvedValueOnce({ loyaltyRewardId: "rew3" });
+
+    const res = await POST(makeRequest({ orderId: "ord1", count: 2 }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(mockRedeemReward).toHaveBeenCalledTimes(2);
+    expect(json.loyaltyRewardIds).toEqual(["rew2", "rew3"]);
+    expect(json.remainingBalance).toBe(20 - 9 * 2);
+    expect(json.updatedAmountCents).toBe("400");
+  });
+});
