@@ -8,6 +8,11 @@ import { getActivePublicHoliday } from "@/lib/holiday";
 import { getEffectiveOrderingStatus, isDeliveryEnabled } from "@/lib/store-status-server";
 import { serializeSquareResponse } from "@/lib/utils";
 import { clientPlatformFrom } from "@/lib/client-platform";
+import {
+  buildOrderMetadata,
+  sanitizeAppPlatform,
+  sanitizeAppVersion,
+} from "@/lib/order-metadata";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
@@ -148,6 +153,12 @@ export async function POST(request: Request) {
     request.headers.get("x-client-platform"),
     request.headers.get("user-agent"),
   );
+  // Which shipped app binary (e.g. "1.1.4+22" / "ios") — stamped into order
+  // metadata as a single app_client entry so payment failures can be
+  // attributed to a specific build. Sanitized: garbage headers → null → no
+  // metadata entry at all.
+  const appVersion = sanitizeAppVersion(request.headers.get("x-mbt-app-version"));
+  const appPlatform = sanitizeAppPlatform(request.headers.get("x-mbt-platform"));
 
   const user = await getAuthedUser(request);
   if (!user?.profile?.square_customer_id || !user.profile.phone_e164) {
@@ -777,33 +788,26 @@ export async function POST(request: Request) {
             },
           },
         ],
-        metadata: {
-          // web | app — derived from X-Client-Platform header / User-Agent.
-          // Pre-2026-06 orders all read "web" (this field was hard-coded).
-          source: clientPlatform,
+        // Square caps metadata at ~10 entries — the worst case here is
+        // exactly 10 (see order-metadata.test.ts, which pins the budget).
+        metadata: buildOrderMetadata({
+          clientPlatform,
+          appVersion,
+          appPlatform,
+          cartFingerprint,
           site: BUSINESS.domain,
-          // Cart fingerprint for the server-side duplicate-order backstop above.
-          cart_hash: cartFingerprint,
-          ...(welcomeDrinksCovered > 0
-            ? { welcomeDiscountDrinksCovered: String(welcomeDrinksCovered) }
-            : {}),
-          ...(isDelivery && body.delivery && deliveryFullAddress
-            ? {
-                // Mandy's own admin / forecast / fee accounting read this to
-                // know the order is a delivery even though Square sees a pickup.
-                fulfillment_type: "DELIVERY",
-                delivery_address: deliveryFullAddress,
-                delivery_lat: String(body.delivery.lat),
-                delivery_lng: String(body.delivery.lng),
-              }
-            : {}),
-          ...(igFollowDrinksCovered > 0
-            ? { igFollowDiscountDrinksCovered: String(igFollowDrinksCovered) }
-            : {}),
-          ...(tierToppingsCovered > 0
-            ? { tierToppingsCovered: String(tierToppingsCovered) }
-            : {}),
-        },
+          welcomeDrinksCovered,
+          igFollowDrinksCovered,
+          tierToppingsCovered,
+          delivery:
+            isDelivery && body.delivery && deliveryFullAddress
+              ? {
+                  address: deliveryFullAddress,
+                  lat: body.delivery.lat,
+                  lng: body.delivery.lng,
+                }
+              : null,
+        }),
       },
     });
 

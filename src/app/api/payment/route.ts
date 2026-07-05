@@ -167,11 +167,20 @@ export async function POST(request: Request) {
     // Square's totalMoney still shows the gross amount after an order is
     // paid, so without this a second POST would re-enter payments.create
     // with a fresh idempotency key (risking a SECOND card charge) and
-    // re-consume the welcome/IG discount. A COMPLETED order is already
-    // settled — a freshly-created order (paid OR $0-redeem) is still OPEN,
-    // so this never short-circuits a legitimate first call. Return success
-    // idempotently without charging or re-running side effects.
-    if (order.state === "COMPLETED") {
+    // re-consume the welcome/IG discount. Two already-paid shapes:
+    //   1. state === COMPLETED — the settled case.
+    //   2. state still OPEN but the order already has a tender. This is
+    //      the Thomas case (2026-07): a paid order can sit OPEN (e.g.
+    //      fulfillment not yet closed), and a Mandy-Delivery order is
+    //      authorize-only at checkout — the hold IS a tender while the
+    //      order stays OPEN until a driver accepts. A replayed POST used
+    //      to slip past the COMPLETED check and re-authorize the card
+    //      (second hold, then void). Any tender present ⇒ this checkout
+    //      already charged/held the card ⇒ answer idempotently.
+    // A freshly-created order (unpaid OR $0-redeem) is OPEN with NO
+    // tenders, so this never short-circuits a legitimate first call.
+    // Return success without charging or re-running side effects.
+    if (order.state === "COMPLETED" || (order.tenders?.length ?? 0) > 0) {
       return NextResponse.json({
         ok: true,
         paymentId: null,
