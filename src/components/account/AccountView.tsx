@@ -199,7 +199,7 @@ export function AccountView(props: AccountViewProps) {
 
         <StoreCard />
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3">
           <Flush>
             <SignOutBtn onSignOut={onSignOut} />
           </Flush>
@@ -331,7 +331,7 @@ export function AccountView(props: AccountViewProps) {
 
             <StoreCard />
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-3">
               <Flush>
                 <SignOutBtn onSignOut={onSignOut} />
               </Flush>
