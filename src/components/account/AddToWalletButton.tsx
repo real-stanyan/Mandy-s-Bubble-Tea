@@ -115,46 +115,52 @@ export function AddToWalletButton() {
           ? "Couldn't generate pass. Try again."
           : "Scan at the counter — updates automatically";
 
+  // Outer div carries only legacy self-margins (AccountView's <Flush> strips
+  // them via [&>*]:!mx-0/!px-0); the visual card lives one level down so its
+  // inner padding survives Flush. Root-level p-3 used to get zeroed → icon and
+  // button sat flush against the card edges.
   return (
-    <div className="mx-4 mt-3 flex items-center gap-3 rounded-card bg-paper p-3 shadow-card">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-tile bg-bg">
-        <CreditCard size={20} className="text-ink2" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <span
-          className="block font-serif text-ink"
-          style={{
-            fontSize: 17,
-            letterSpacing: -0.3,
-            fontWeight: 500,
-          }}
-        >
-          Save your member card
-        </span>
-        <span className="mt-0.5 block text-ink3" style={{ fontSize: 13 }}>
-          {subtitle}
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        className="flex h-9 min-w-[90px] items-center justify-center gap-1.5 rounded-full bg-ink px-3.5 text-white transition active:opacity-80 disabled:opacity-70"
-      >
-        {busy ? (
+    <div className="mx-4 mt-3">
+      <div className="flex items-center gap-3 rounded-card bg-paper p-4 shadow-card">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-tile bg-bg">
+          <CreditCard size={20} className="text-ink2" />
+        </div>
+        <div className="min-w-0 flex-1">
           <span
-            className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            aria-label="Loading"
-          />
-        ) : (
-          <>
-            <AppleLogoIcon size={14} className="text-white" />
-            <span style={{ fontSize: 13, fontWeight: 500 }}>
-              {added ? "Open" : "Add to Wallet"}
-            </span>
-          </>
-        )}
-      </button>
+            className="block font-serif text-ink"
+            style={{
+              fontSize: 17,
+              letterSpacing: -0.3,
+              fontWeight: 500,
+            }}
+          >
+            Save your member card
+          </span>
+          <span className="mt-0.5 block text-ink3" style={{ fontSize: 13 }}>
+            {subtitle}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={busy}
+          className="flex h-9 min-w-[90px] items-center justify-center gap-1.5 rounded-full bg-ink px-3.5 text-white transition active:opacity-80 disabled:opacity-70"
+        >
+          {busy ? (
+            <span
+              className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              aria-label="Loading"
+            />
+          ) : (
+            <>
+              <AppleLogoIcon size={14} className="text-white" />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>
+                {added ? "Open" : "Add to Wallet"}
+              </span>
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
