@@ -3,10 +3,12 @@ import { GET } from "./route";
 import { APP_CONFIG } from "@/lib/app-config-values";
 
 describe("GET /api/app-config", () => {
-  it("returns ok + per-platform config + killSwitch", async () => {
+  it("returns ok + per-platform config (no dead fields)", async () => {
     const res = await GET();
     expect(res.status).toBe(200);
     const json = await res.json();
+    // Exact shape — nothing extra (a killSwitch field was cut in review:
+    // no consumer, don't ship unwired toggles).
     expect(json).toEqual({
       ok: true,
       ios: {
@@ -15,7 +17,6 @@ describe("GET /api/app-config", () => {
         storeUrl: APP_CONFIG.ios.storeUrl,
       },
       android: null,
-      killSwitch: false,
     });
     // Shape the app's gate depends on.
     expect(typeof json.ios.minBuild).toBe("number");

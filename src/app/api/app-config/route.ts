@@ -8,7 +8,7 @@ import { APP_CONFIG } from "@/lib/app-config-values";
 // The app fails open if this endpoint is unreachable — never the reverse.
 export async function GET() {
   return NextResponse.json(
-    { ok: true, ...APP_CONFIG, killSwitch: false },
+    { ok: true, ...APP_CONFIG },
     {
       headers: {
         "Cache-Control": "public, s-maxage=300, stale-while-revalidate=86400",
