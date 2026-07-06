@@ -13,6 +13,7 @@ import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
 import { notifyDriversNewDelivery } from "@/lib/driver-notify";
 import { brisbaneMonthKey } from "@/lib/membership-tier";
 import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
+import { hasLiveTender } from "@/lib/tender-state";
 
 const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS:
@@ -175,12 +176,17 @@ export async function POST(request: Request) {
     //      authorize-only at checkout — the hold IS a tender while the
     //      order stays OPEN until a driver accepts. A replayed POST used
     //      to slip past the COMPLETED check and re-authorize the card
-    //      (second hold, then void). Any tender present ⇒ this checkout
+    //      (second hold, then void). A LIVE tender present ⇒ this checkout
     //      already charged/held the card ⇒ answer idempotently.
+    // Only LIVE tenders count (hasLiveTender): a DECLINED card leaves a
+    // FAILED tender on the still-OPEN order (OL807, 2026-07-06 —
+    // INSUFFICIENT_FUNDS), and counting it as payment turned the
+    // customer's retry into a fake alreadyPaid success. A dead tender
+    // must fall through so the retry can actually charge the new card.
     // A freshly-created order (unpaid OR $0-redeem) is OPEN with NO
     // tenders, so this never short-circuits a legitimate first call.
     // Return success without charging or re-running side effects.
-    if (order.state === "COMPLETED" || (order.tenders?.length ?? 0) > 0) {
+    if (order.state === "COMPLETED" || hasLiveTender(order)) {
       return NextResponse.json({
         ok: true,
         paymentId: null,
@@ -233,21 +239,6 @@ export async function POST(request: Request) {
         verificationToken: body.verificationToken,
       });
 
-      // Delivery order authorized — advertise it to drivers now so one can
-      // accept (which captures the hold). The order isn't "paid" yet, so the
-      // webhook's paid-driven notify won't fire; trigger it here. after()
-      // keeps the push off the payment response's critical path; idempotent
-      // via claimOrderPushSlot, so the webhook fallback can't double-send.
-      if (isDelivery) {
-        after(async () => {
-          try {
-            await notifyDriversNewDelivery(order);
-          } catch (e) {
-            console.error("[driver-push] authorize-time notify failed (non-fatal)", e);
-          }
-        });
-      }
-
       const id = payment.payment?.id;
       if (!id) {
         return NextResponse.json(
@@ -258,6 +249,48 @@ export async function POST(request: Request) {
       paymentId = id;
       paymentStatus = payment.payment?.status ?? null;
       paymentForResponse = serializeSquareResponse(payment.payment);
+
+      // A declined charge usually THROWS (SquareError → outer catch), but
+      // Square can also resolve with payment.status = "FAILED". That is not
+      // a success: answering ok:true here sent the customer to the
+      // confirmation page ("Preparing your order") with zero money taken
+      // (OL807, 2026-07-06). Only the definitively-dead statuses fail the
+      // request — PENDING is left alone (it may still settle; telling the
+      // customer "declined" while the charge later completes would invite a
+      // duplicate order and a second charge). COMPLETED (captured) and
+      // APPROVED (delivery authorize-only hold) are the success shapes.
+      if (paymentStatus === "FAILED" || paymentStatus === "CANCELED") {
+        console.warn(
+          `[payment] payment ${paymentId} did not settle (status=${paymentStatus}); returning failure`,
+        );
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Your card was declined and no money was taken. Please try a different card.",
+            status: paymentStatus,
+            paymentId,
+          },
+          { status: 402 },
+        );
+      }
+
+      // Delivery order authorized — advertise it to drivers now so one can
+      // accept (which captures the hold). The order isn't "paid" yet, so the
+      // webhook's paid-driven notify won't fire; trigger it here. after()
+      // keeps the push off the payment response's critical path; idempotent
+      // via claimOrderPushSlot, so the webhook fallback can't double-send.
+      // Runs AFTER the settle gate above — a FAILED charge must not
+      // advertise an unpaid job to drivers.
+      if (isDelivery) {
+        after(async () => {
+          try {
+            await notifyDriversNewDelivery(order);
+          } catch (e) {
+            console.error("[driver-push] authorize-time notify failed (non-fatal)", e);
+          }
+        });
+      }
 
       // Cup-label (Zebra ZD410-300dpi) parallel path — enqueue cup-label
       // jobs with user-selected doodleIds OR doodleDefaults when present.

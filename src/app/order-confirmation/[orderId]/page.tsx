@@ -9,6 +9,7 @@ import { BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
 import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
 import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
+import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 
@@ -132,6 +133,45 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
   const pickupNumber =
     order.ticketName ||
     (order.id ? `#${order.id.slice(-4).toUpperCase()}` : "");
+
+  // Ghost order (OL807, 2026-07-06): the card was declined, so the order is
+  // still OPEN with only dead (FAILED/VOIDED) tenders — no money was taken
+  // and staff never see it. Rendering the normal hero here showed the
+  // customer "Preparing your order" at the counter for a drink nobody was
+  // making. Show a payment-failed screen instead.
+  if (isPaymentFailedOrder(order)) {
+    return (
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
+          Order {pickupNumber}
+        </p>
+        <h1 className="mt-2 font-serif text-[clamp(30px,4vw,40px)] font-semibold leading-[1.0] tracking-[-0.03em] text-ink">
+          Payment didn&apos;t go through
+        </h1>
+        <div className="mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm">
+          <p className="text-[15px] leading-relaxed text-ink2">
+            Your card was declined, so this order was <strong>not placed</strong>{" "}
+            and <strong>no money was taken</strong>. The store hasn&apos;t
+            received it — please place the order again with a different card.
+          </p>
+        </div>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Link
+            href="/checkout"
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-brand px-5 py-3 text-[13.5px] font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.97]"
+          >
+            Try again <ArrowRight size={15} />
+          </Link>
+          <Link
+            href="/menu"
+            className="inline-flex flex-1 items-center justify-center rounded-full border border-line bg-card px-5 py-3 text-[13.5px] font-semibold text-ink2 shadow-sm transition hover:bg-paper"
+          >
+            Back to Menu
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   // Collect catalog object IDs from line items to fetch product images
   const lineItems = order.lineItems ?? [];
