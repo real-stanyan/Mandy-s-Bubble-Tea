@@ -123,6 +123,7 @@ describe("statusPushWithStaleDate — contract revision 2026-07-06", () => {
 
   it("no other status transition carries stale-date", () => {
     for (const kind of [
+      "la_preparing",
       "la_ready",
       "la_completed",
       "la_canceled",
