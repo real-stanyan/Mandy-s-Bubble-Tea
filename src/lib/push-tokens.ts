@@ -81,6 +81,17 @@ export async function getDevicePushTokensForUser(
   return (data ?? []) as DevicePushToken[];
 }
 
+/** Live Activity status-transition kinds (see src/lib/live-activity.ts). */
+export type LiveActivityPushKind =
+  | "la_ready"
+  | "la_completed"
+  | "la_canceled"
+  | "la_accepted"
+  | "la_picked_up"
+  | "la_delivered";
+
+export type OrderPushKind = "ready" | "new_delivery" | LiveActivityPushKind;
+
 /**
  * Atomically record that we sent a given notification kind for an
  * order. Returns true if this is the first record (caller should send
@@ -91,7 +102,7 @@ export async function getDevicePushTokensForUser(
  */
 export async function claimOrderPushSlot(
   orderId: string,
-  kind: "ready" | "new_delivery",
+  kind: OrderPushKind,
 ): Promise<boolean> {
   const admin = getSupabaseAdmin();
   const { error } = await admin

@@ -5,6 +5,10 @@ import { squareClient } from "@/lib/square";
 import { classifyDeletedCustomerResult } from "@/lib/square-customer-status";
 import { claimOrderPushSlot, getDevicePushTokensForUser } from "@/lib/push-tokens";
 import { sendExpoPush } from "@/lib/push";
+import {
+  pickFulfillmentTransition,
+  handleLiveActivityFulfillment,
+} from "@/lib/live-activity-webhook";
 import { notifyDriversNewDelivery } from "@/lib/driver-notify";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import {
@@ -148,6 +152,10 @@ function pickReadyOrderId(event: SquareEvent): string | null {
   if (!toPrepared) return null;
   return payload.order_id ?? null;
 }
+
+// Live Activity fan-out for fulfillment transitions lives in
+// src/lib/live-activity-webhook.ts (unit-testable; route files may only
+// export handlers). Registered below via after() — never throws.
 
 /**
  * Returns the order_id on an order.updated event, regardless of state.
@@ -673,6 +681,19 @@ export async function POST(request: Request) {
           `[square-webhook] handleOrderReady failed for order ${orderId} event_id=${event.event_id}: ${message}`,
         );
       }
+    }
+
+    // Live Activity fan-out — deferred (after()) + internally try/caught so
+    // it can neither slow down nor break the webhook ACK.
+    const laTransition = pickFulfillmentTransition(event);
+    if (laTransition) {
+      after(() =>
+        handleLiveActivityFulfillment(
+          laTransition.orderId,
+          laTransition.newStates,
+          event.event_id,
+        ),
+      );
     }
   }
 

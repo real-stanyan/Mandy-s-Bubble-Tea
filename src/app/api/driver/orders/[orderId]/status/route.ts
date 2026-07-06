@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { authDriver } from "@/lib/driver-auth";
 import { recordDispatch, getAcceptedOrderIds } from "@/lib/driver-tokens";
+import { sendLiveActivityStatusPush } from "@/lib/live-activity";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 import { pickActiveCardTender, hasAnyCardTender } from "@/lib/order-tender";
@@ -30,6 +31,42 @@ const ACTION_TO_STATE = {
   picked_up: "PREPARED",
   delivered: "COMPLETED",
 } as const;
+
+// Live Activity mirror of the dispatch transition. Deferred via after() +
+// internally try/caught in the lib, so a push failure can never affect the
+// driver's response. Idempotent via the la_* push-slot kinds (a re-tap
+// claims the same slot and no-ops).
+const LIVE_ACTIVITY_FOR_ACTION = {
+  accepted: { kind: "la_accepted", status: "accepted", event: "update" },
+  picked_up: { kind: "la_picked_up", status: "picked_up", event: "update" },
+  delivered: { kind: "la_delivered", status: "delivered", event: "end" },
+} as const;
+
+function scheduleLiveActivityPush(
+  orderId: string,
+  action: keyof typeof LIVE_ACTIVITY_FOR_ACTION,
+  driverName: string | null,
+) {
+  const push = LIVE_ACTIVITY_FOR_ACTION[action];
+  after(async () => {
+    try {
+      await sendLiveActivityStatusPush({
+        orderId,
+        kind: push.kind,
+        status: push.status,
+        event: push.event,
+        driverName,
+      });
+    } catch (err) {
+      // sendLiveActivityStatusPush already swallows its own errors; this
+      // catch is a belt-and-braces so after() can never surface a rejection.
+      console.error(
+        `[live-activity] ${action} push scheduling failed order=${orderId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  });
+}
 
 type FulfillmentAction = keyof typeof ACTION_TO_STATE;
 type Action = "accepted" | "rejected" | FulfillmentAction;
@@ -198,6 +235,11 @@ export async function POST(
         driverLabel: body.driverLabel ?? null,
         driverId: auth.driverId ?? null,
       });
+      scheduleLiveActivityPush(
+        orderId,
+        "accepted",
+        auth.driver?.name ?? body.driverLabel ?? null,
+      );
       return NextResponse.json({ ok: true, captured });
     }
 
@@ -318,6 +360,11 @@ export async function POST(
             driverLabel: body.driverLabel ?? null,
             driverId: auth.driverId ?? null,
           });
+          scheduleLiveActivityPush(
+            orderId,
+            "delivered",
+            auth.driver?.name ?? body.driverLabel ?? null,
+          );
 
           return NextResponse.json({
             ok: true,
@@ -366,6 +413,11 @@ export async function POST(
       driverLabel: body.driverLabel ?? null,
       driverId: auth.driverId ?? null,
     });
+    scheduleLiveActivityPush(
+      orderId,
+      action,
+      auth.driver?.name ?? body.driverLabel ?? null,
+    );
 
     return NextResponse.json({ ok: true, fulfillmentState: nextState });
   } catch (error) {

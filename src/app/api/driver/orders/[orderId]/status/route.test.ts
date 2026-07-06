@@ -39,6 +39,20 @@ const mockEnqueueCupLabel = vi.fn()
 vi.mock("@/lib/cup-label/enqueue", () => ({
   enqueueCupLabelJobs: (...a: unknown[]) => mockEnqueueCupLabel(...a),
 }))
+const mockSendLiveActivityStatusPush = vi.fn()
+vi.mock("@/lib/live-activity", () => ({
+  sendLiveActivityStatusPush: (...a: unknown[]) =>
+    mockSendLiveActivityStatusPush(...a),
+}))
+// Live Activity pushes register through after() (fire-and-forget past the
+// response). Run the callback inline so tests can assert the push happened.
+const mockAfter = vi.fn((cb: () => unknown) => {
+  void cb()
+})
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (cb: () => unknown) => mockAfter(cb),
+}))
 
 import { POST } from "./route"
 
@@ -85,6 +99,15 @@ describe("POST /api/driver/orders/[orderId]/status — admin guard", () => {
     const res = await POST(req("driver-secret", { action: "picked_up" }), { params })
     expect(res.status).toBe(200)
     expect(mockRecordDispatch).toHaveBeenCalled()
+    // Live Activity mirror rides along, via after()
+    expect(mockSendLiveActivityStatusPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "O1",
+        kind: "la_picked_up",
+        status: "picked_up",
+        event: "update",
+      }),
+    )
   })
 })
 
@@ -125,6 +148,14 @@ describe("POST /api/driver/orders/[orderId]/status — accept (capture)", () => 
     )
     // fulfillment state must NOT move on accept
     expect(mockOrdersUpdate).not.toHaveBeenCalled()
+    expect(mockSendLiveActivityStatusPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "O1",
+        kind: "la_accepted",
+        status: "accepted",
+        event: "update",
+      }),
+    )
   })
 
   it("captures the AUTHORIZED hold even when a FAILED tender precedes it (DE831 retry bug)", async () => {
@@ -287,6 +318,15 @@ describe("POST /api/driver/orders/[orderId]/status — delivered (settle)", () =
     expect(mockRecordDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ status: "delivered" }),
     )
+    // delivered ends the Live Activity
+    expect(mockSendLiveActivityStatusPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "O1",
+        kind: "la_delivered",
+        status: "delivered",
+        event: "end",
+      }),
+    )
   })
 
   it("backfills a fulfillment COMPLETE via orders.update when orders.pay did not auto-close it", async () => {
@@ -430,6 +470,9 @@ describe("POST /api/driver/orders/[orderId]/status — reject (decline)", () => 
     expect(mockRelease).toHaveBeenCalledWith(expect.objectContaining({ id: "O1" }))
     // declining is not a dispatch milestone
     expect(mockRecordDispatch).not.toHaveBeenCalled()
+    // ...and not a Live Activity transition either — the fulfillment CANCELED
+    // webhook owns the la_canceled end push
+    expect(mockSendLiveActivityStatusPush).not.toHaveBeenCalled()
   })
 
   it("releases a $0 free-redeem order (no tender)", async () => {
