@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { authDriver } from "@/lib/driver-auth";
 import { updateDriverLocation } from "@/lib/driver-tokens";
+import { sendLiveActivityGpsPush } from "@/lib/live-activity";
 
 // Driver app streams its GPS position here while a delivery is in progress.
 // Fire-and-forget from the device every ~10s; we stash the latest fix on the
@@ -64,6 +65,14 @@ export async function POST(request: Request) {
       lng,
       heading: typeof heading === "number" && Number.isFinite(heading) ? heading : null,
     });
+
+    // Forward the fix to the customer's Live Activity — deferred (after())
+    // and internally try/caught, so it can neither slow down nor break the
+    // driver's 200. The lib gates on dispatch status (accepted|picked_up)
+    // and throttles to one APNs heartbeat per order per 25s.
+    const driverName = auth.driver?.name ?? null;
+    after(() => sendLiveActivityGpsPush({ orderId, lat, lng, driverName }));
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
