@@ -8,6 +8,7 @@ import {
   buildLiveActivityPayload,
   gpsThrottleCutoffIso,
   liveActivityHeaders,
+  statusPushWithStaleDate,
   type LiveActivityContentState,
   type LiveActivityEvent,
   type LiveActivityStatus,
@@ -217,6 +218,9 @@ export async function sendLiveActivityStatusPush(args: {
         event: args.event,
         contentState,
         nowSeconds,
+        // Contract revision 2026-07-06: picked_up carries stale-date now+90s
+        // so the card degrades to PAUSED if GPS heartbeats never start.
+        withStaleDate: statusPushWithStaleDate(args.kind),
       }),
       priority: 10,
     });

@@ -5,6 +5,7 @@ import {
   shouldSendGpsPush,
   gpsThrottleCutoffIso,
   isValidActivityToken,
+  statusPushWithStaleDate,
   LIVE_ACTIVITY_TOPIC,
   GPS_STALE_SECONDS,
   END_DISMISSAL_SECONDS,
@@ -112,6 +113,34 @@ describe("shouldSendGpsPush — 25s throttle", () => {
 
   it("gpsThrottleCutoffIso is exactly now - 25s (the WHERE-guard bound)", () => {
     expect(gpsThrottleCutoffIso(now)).toBe("2026-07-06T02:59:35.000Z")
+  })
+})
+
+describe("statusPushWithStaleDate — contract revision 2026-07-06", () => {
+  it("picked_up carries stale-date (degrades to PAUSED if GPS never starts)", () => {
+    expect(statusPushWithStaleDate("la_picked_up")).toBe(true)
+  })
+
+  it("no other status transition carries stale-date", () => {
+    for (const kind of [
+      "la_ready",
+      "la_completed",
+      "la_canceled",
+      "la_accepted",
+      "la_delivered",
+    ]) {
+      expect(statusPushWithStaleDate(kind)).toBe(false)
+    }
+  })
+
+  it("composes: picked_up status payload gets stale-date = now + 90", () => {
+    const payload = buildLiveActivityPayload({
+      event: "update",
+      contentState: { status: "picked_up", driverName: "Kai", updatedAt: NOW },
+      nowSeconds: NOW,
+      withStaleDate: statusPushWithStaleDate("la_picked_up"),
+    })
+    expect(payload.aps["stale-date"]).toBe(NOW + GPS_STALE_SECONDS)
   })
 })
 

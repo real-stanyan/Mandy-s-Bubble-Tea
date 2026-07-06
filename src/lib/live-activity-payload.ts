@@ -104,6 +104,19 @@ export function gpsThrottleCutoffIso(now: Date): string {
 }
 
 /**
+ * Contract revision (2026-07-06, main-session ruling): the picked_up status
+ * transition ALSO carries stale-date now+90s, not just GPS heartbeats. GPS
+ * fixes should start flowing right after pickup — if none arrives within
+ * 90s the Lock Screen card degrades to PAUSED instead of sitting forever
+ * on a fake-LIVE map when the driver's GPS never started. Only picked_up:
+ * accepted has no map (no PAUSED visual), and end events dismiss anyway.
+ * The app-side isStale read is unaffected.
+ */
+export function statusPushWithStaleDate(kind: string): boolean {
+  return kind === "la_picked_up";
+}
+
+/**
  * ActivityKit push tokens are hex strings (typically 160 chars). Bound the
  * length so a garbage body can't stuff the table.
  */

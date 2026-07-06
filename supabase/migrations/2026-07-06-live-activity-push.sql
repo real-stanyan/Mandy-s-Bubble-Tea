@@ -5,9 +5,11 @@
 -- POST /api/orders/[orderId]/live-activity-token; the server pushes
 -- content-state updates through APNs (apns-push-type: liveactivity).
 --
--- No RLS: accessed exclusively via service-role client (getSupabaseAdmin),
--- same posture as device_push_tokens (2026-04-20-push-notifications.sql).
--- Do not wire client-side queries to this table without adding policies.
+-- Accessed exclusively via the service-role client (getSupabaseAdmin),
+-- which bypasses RLS — so RLS is enabled with NO policies: anon/authed
+-- PostgREST access is fully locked out (an RLS-off table is readable via
+-- the anon key, and activity_token must not leak). Add policies before
+-- wiring any client-side queries to this table.
 create table if not exists order_live_activities (
   order_id text primary key,
   activity_token text not null,
@@ -16,6 +18,8 @@ create table if not exists order_live_activities (
   -- driver location posts can't double-send within the 25s window.
   last_gps_push_at timestamptz
 );
+
+alter table order_live_activities enable row level security;
 
 -- Widen the order_push_notifications idempotency ledger so Live Activity
 -- status transitions dedupe the same way 'ready' / 'new_delivery' do
