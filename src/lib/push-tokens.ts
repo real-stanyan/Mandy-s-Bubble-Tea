@@ -83,6 +83,7 @@ export async function getDevicePushTokensForUser(
 
 /** Live Activity status-transition kinds (see src/lib/live-activity.ts). */
 export type LiveActivityPushKind =
+  | "la_preparing"
   | "la_ready"
   | "la_completed"
   | "la_canceled"

@@ -6,7 +6,9 @@
 // change shapes or key names without coordinating with the app):
 //
 //   content-state: { status, driverName?, driverLat?, driverLng?, updatedAt }
-//     pickup   status: preparing | ready | completed | canceled
+//     pickup   status: received | preparing | ready | completed | canceled
+//       ("received" is the app-local initial state — the server never sends it;
+//        contract revision 2026-07-06: three-state pickup card)
 //     delivery status: pending | accepted | picked_up | delivered | canceled
 //
 //   headers: apns-push-type: liveactivity
@@ -18,6 +20,7 @@
 //                     "dismissal-date"? (now+4h, event=end only) } }
 
 export type LiveActivityStatus =
+  | "received"
   | "preparing"
   | "ready"
   | "completed"

@@ -112,6 +112,57 @@ describe("handleLiveActivityFulfillment", () => {
     expect(mockSendStatusPush).not.toHaveBeenCalled()
   })
 
+  it("pickup RESERVED → la_preparing 'preparing' (update) — three-state card", async () => {
+    mockOrdersGet.mockResolvedValue(pickupOrder)
+    await handleLiveActivityFulfillment("O1", ["RESERVED"])
+    expect(mockSendStatusPush).toHaveBeenCalledTimes(1)
+    expect(mockSendStatusPush).toHaveBeenCalledWith({
+      orderId: "O1",
+      kind: "la_preparing",
+      status: "preparing",
+      event: "update",
+    })
+  })
+
+  it("delivery RESERVED sends NOTHING — 'preparing' is not in the delivery vocabulary", async () => {
+    mockOrdersGet.mockResolvedValue(deliveryOrder)
+    await handleLiveActivityFulfillment("O1", ["RESERVED"])
+    expect(mockSendStatusPush).not.toHaveBeenCalled()
+  })
+
+  it("RESERVED then PREPARED both send — la_preparing and la_ready are separate idempotency slots", async () => {
+    mockOrdersGet.mockResolvedValue(pickupOrder)
+    await handleLiveActivityFulfillment("O1", ["RESERVED"])
+    await handleLiveActivityFulfillment("O1", ["PREPARED"])
+    expect(mockSendStatusPush).toHaveBeenCalledTimes(2)
+    expect(mockSendStatusPush).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ kind: "la_preparing", status: "preparing" }),
+    )
+    expect(mockSendStatusPush).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ kind: "la_ready", status: "ready" }),
+    )
+  })
+
+  it("prepared outranks reserved when one event carries both", async () => {
+    mockOrdersGet.mockResolvedValue(pickupOrder)
+    await handleLiveActivityFulfillment("O1", ["RESERVED", "PREPARED"])
+    expect(mockSendStatusPush).toHaveBeenCalledTimes(1)
+    expect(mockSendStatusPush).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "la_ready" }),
+    )
+  })
+
+  it("cancel outranks reserved when one event carries both", async () => {
+    mockOrdersGet.mockResolvedValue(pickupOrder)
+    await handleLiveActivityFulfillment("O1", ["RESERVED", "CANCELED"])
+    expect(mockSendStatusPush).toHaveBeenCalledTimes(1)
+    expect(mockSendStatusPush).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "la_canceled" }),
+    )
+  })
+
   it("COMPLETED on a pickup order → la_completed 'completed' (end)", async () => {
     mockOrdersGet.mockResolvedValue(pickupOrder)
     await handleLiveActivityFulfillment("O1", ["COMPLETED"])
@@ -179,8 +230,8 @@ describe("handleLiveActivityFulfillment", () => {
     )
   })
 
-  it("ignores transitions outside the LA vocabulary (e.g. RESERVED)", async () => {
-    await handleLiveActivityFulfillment("O1", ["RESERVED"])
+  it("ignores transitions outside the LA vocabulary (e.g. PROPOSED)", async () => {
+    await handleLiveActivityFulfillment("O1", ["PROPOSED"])
     expect(mockGetToken).not.toHaveBeenCalled()
     expect(mockSendStatusPush).not.toHaveBeenCalled()
   })
