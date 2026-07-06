@@ -113,7 +113,7 @@ describe("POST /api/payment — loyalty accrual gating (bug `loyalty-payment-not
     expect(mockAccrueForOrder).not.toHaveBeenCalled();
   });
 
-  it("does NOT accrue stars when Square payment returns FAILED (no throw)", async () => {
+  it("Square payment returns FAILED (no throw) → ok:false, no stars (OL807 fix)", async () => {
     mockPaymentsCreate.mockResolvedValue({
       payment: { id: "pay2", status: "FAILED" },
     });
@@ -121,7 +121,11 @@ describe("POST /api/payment — loyalty accrual gating (bug `loyalty-payment-not
     const res = await POST(makeRequest({ orderId: "ord1", sourceId: "cnon:x" }));
     const json = await res.json();
 
-    expect(json.loyaltyAccrued).toBe(false);
+    // Pre-fix this answered ok:true and the client navigated to the
+    // confirmation page with zero money taken (OL807, 2026-07-06).
+    expect(res.status).toBe(402);
+    expect(json.ok).toBe(false);
+    expect(json.status).toBe("FAILED");
     expect(mockAccrueForOrder).not.toHaveBeenCalled();
   });
 

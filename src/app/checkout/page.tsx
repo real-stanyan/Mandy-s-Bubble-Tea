@@ -22,6 +22,7 @@ import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
 import { getOrCreateOrderNonce, clearOrderNonce } from "@/lib/checkout-nonce";
+import { isPaymentAccepted } from "@/lib/payment-response";
 import { DeliveryAddressForm, type DeliveryAddress } from "@/components/checkout/DeliveryAddressForm";
 import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/DeliveryQuoteCard";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -908,7 +909,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         ),
       });
       const paymentJson = await paymentRes.json();
-      if (!paymentRes.ok || !paymentJson.ok) {
+      // isPaymentAccepted (not a bare ok check): an ok:true response whose
+      // status is FAILED/CANCELED must NOT navigate to the confirmation
+      // page — that was the OL807 ghost order ("Preparing your order" shown
+      // for a declined card, 2026-07-06).
+      if (!paymentRes.ok || !isPaymentAccepted(paymentJson)) {
         throw new Error(paymentJson.error ?? "Payment failed");
       }
 
