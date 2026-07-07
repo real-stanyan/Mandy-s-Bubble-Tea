@@ -4,6 +4,7 @@ import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { authDriver } from "@/lib/driver-auth";
 import { recordDispatch, getAcceptedOrderIds } from "@/lib/driver-tokens";
 import { sendLiveActivityStatusPush } from "@/lib/live-activity";
+import { sendOrderCardPush } from "@/lib/order-card-push";
 import { consumeOrderDiscounts } from "@/lib/consume-order-discounts";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 import { pickActiveCardTender, hasAnyCardTender } from "@/lib/order-tender";
@@ -42,12 +43,28 @@ const LIVE_ACTIVITY_FOR_ACTION = {
   delivered: { kind: "la_delivered", status: "delivered", event: "end" },
 } as const;
 
+const ORDER_CARD_FOR_ACTION = {
+  accepted: "ac_accepted",
+  picked_up: "ac_picked_up",
+  delivered: "ac_delivered",
+} as const;
+
 function scheduleLiveActivityPush(
   orderId: string,
   action: keyof typeof LIVE_ACTIVITY_FOR_ACTION,
   driverName: string | null,
 ) {
   const push = LIVE_ACTIVITY_FOR_ACTION[action];
+  // Android ongoing-card mirror of the same transition (own gates + slots).
+  after(() =>
+    sendOrderCardPush({
+      orderId,
+      kind: ORDER_CARD_FOR_ACTION[action],
+      fulfillment: "delivery",
+      status: push.status,
+      driverName,
+    }),
+  );
   after(async () => {
     try {
       await sendLiveActivityStatusPush({

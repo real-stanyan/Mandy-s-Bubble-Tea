@@ -91,7 +91,22 @@ export type LiveActivityPushKind =
   | "la_picked_up"
   | "la_delivered";
 
-export type OrderPushKind = "ready" | "new_delivery" | LiveActivityPushKind;
+/** Android ongoing-card transition kinds — parallel slots to la_* so the
+ *  APNs Live Activity push and the FCM card push dedupe independently. */
+export type OrderCardPushKind =
+  | "ac_preparing"
+  | "ac_ready"
+  | "ac_completed"
+  | "ac_canceled"
+  | "ac_accepted"
+  | "ac_picked_up"
+  | "ac_delivered";
+
+export type OrderPushKind =
+  | "ready"
+  | "new_delivery"
+  | LiveActivityPushKind
+  | OrderCardPushKind;
 
 /**
  * Atomically record that we sent a given notification kind for an

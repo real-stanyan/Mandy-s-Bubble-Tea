@@ -1,5 +1,6 @@
 import "server-only";
 import { squareClient } from "./square";
+import { sendOrderCardPushForFulfillment } from "./order-card-push";
 import {
   getLiveActivityToken,
   sendLiveActivityStatusPush,
@@ -78,6 +79,15 @@ export async function handleLiveActivityFulfillment(
     const completed = newStates.includes("COMPLETED");
     const canceled = newStates.includes("CANCELED") || newStates.includes("FAILED");
     if (!reserved && !prepared && !completed && !canceled) return;
+
+    // Android ongoing-card mirror — fired BEFORE the LA token gate because
+    // Android devices never have an ActivityKit token. Does its own gates.
+    void sendOrderCardPushForFulfillment(orderId, {
+      reserved,
+      prepared,
+      completed,
+      canceled,
+    });
 
     // Cheap gate before touching Square: most orders have no Live Activity.
     const token = await getLiveActivityToken(orderId);

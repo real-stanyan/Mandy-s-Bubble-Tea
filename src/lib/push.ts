@@ -54,7 +54,30 @@ export async function sendExpoPush(
     data: payload.data ?? {},
     priority: "high",
   }));
+  return sendMessages(messages);
+}
 
+/**
+ * Data-only variant: nothing is displayed by the OS — the payload wakes the
+ * app's background task instead (Android order-status card refresh). Same
+ * token pruning semantics as sendExpoPush.
+ */
+export async function sendExpoDataPush(
+  tokens: string[],
+  data: Record<string, unknown>,
+): Promise<number> {
+  const valid = tokens.filter((t) => Expo.isExpoPushToken(t));
+  if (valid.length === 0) return 0;
+  const messages: ExpoPushMessage[] = valid.map((to) => ({
+    to,
+    data,
+    priority: "high",
+    _contentAvailable: true,
+  }));
+  return sendMessages(messages);
+}
+
+async function sendMessages(messages: ExpoPushMessage[]): Promise<number> {
   const chunks = expo.chunkPushNotifications(messages);
   let accepted = 0;
   for (const chunk of chunks) {
