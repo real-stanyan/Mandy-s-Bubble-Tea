@@ -17,7 +17,7 @@
 //
 //   payload: { aps: { timestamp, event: "update"|"end", "content-state",
 //                     "stale-date"?  (now+90, GPS/in-transit only),
-//                     "dismissal-date"? (now+4h, event=end only) } }
+//                     "dismissal-date"? (now — immediate, event=end only) } }
 
 export type LiveActivityStatus =
   | "received"
@@ -48,8 +48,10 @@ export const LIVE_ACTIVITY_TOPIC =
 /** GPS heartbeats go stale after 90s without a fresher push. */
 export const GPS_STALE_SECONDS = 90;
 
-/** Ended activities dismiss from the Lock Screen after 4h. */
-export const END_DISMISSAL_SECONDS = 4 * 60 * 60;
+/** Ended activities dismiss from the Lock Screen immediately (picked-up /
+ *  delivered / canceled orders shouldn't linger — product decision
+ *  2026-07-07; was previously now+4h). */
+export const END_DISMISSAL_SECONDS = 0;
 
 /** Forward at most one GPS heartbeat per order per 25s. */
 export const GPS_PUSH_MIN_INTERVAL_MS = 25_000;

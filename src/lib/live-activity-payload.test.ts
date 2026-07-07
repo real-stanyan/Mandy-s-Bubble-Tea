@@ -54,7 +54,7 @@ describe("buildLiveActivityPayload", () => {
     })
   })
 
-  it("end: adds dismissal-date = now + 4h", () => {
+  it("end: adds dismissal-date = now (immediate dismissal)", () => {
     const payload = buildLiveActivityPayload({
       event: "end",
       contentState: { status: "delivered", updatedAt: NOW },
@@ -62,7 +62,7 @@ describe("buildLiveActivityPayload", () => {
     })
     expect(payload.aps.event).toBe("end")
     expect(payload.aps["dismissal-date"]).toBe(NOW + END_DISMISSAL_SECONDS)
-    expect(END_DISMISSAL_SECONDS).toBe(4 * 60 * 60)
+    expect(END_DISMISSAL_SECONDS).toBe(0)
     expect(payload.aps["stale-date"]).toBeUndefined()
   })
 })
