@@ -1,6 +1,8 @@
 import type { Square } from "square";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
+import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
+import { brisbaneMonthKey } from "@/lib/membership-tier";
 
 /**
  * Burn any welcome / IG-follow discount applied to this order — now that its
@@ -31,5 +33,9 @@ export async function consumeOrderDiscounts(order: Square.Order): Promise<void> 
   if (discounts.some((d) => d.uid === "ig-follow-discount")) {
     const c = covered(order.metadata?.igFollowDiscountDrinksCovered);
     if (c > 0) await consumeIgFollowDiscount(customerId, orderId, c);
+  }
+  if (discounts.some((d) => d.uid === "tier-topping-allowance")) {
+    const c = covered(order.metadata?.tierToppingsCovered);
+    if (c > 0) await consumeToppingAllowance(customerId, brisbaneMonthKey(), c, orderId);
   }
 }
