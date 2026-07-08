@@ -5,7 +5,11 @@ import { useRef, type CSSProperties } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Gem, Star } from "lucide-react";
-import { tierProgress, type MembershipTier } from "@/lib/membership-tier";
+import {
+  DIAMOND_MONTHLY_FREE_TOPPINGS,
+  tierProgress,
+  type MembershipTier,
+} from "@/lib/membership-tier";
 
 gsap.registerPlugin(useGSAP);
 
@@ -323,6 +327,14 @@ export function LoyaltyCard({
 
   const progressPct = Math.min(100, Math.round((currentStars / goal) * 100));
 
+  // Diamond-only: this month's free-topping allowance as a 10-pip bar.
+  // `limit` is the checked-in constant (source of truth); only `remaining`
+  // is dynamic. Hidden for other tiers / while the value is unknown.
+  const showToppings = tier === "diamond" && freeToppingsRemaining != null;
+  const toppingsLeft = showToppings
+    ? Math.max(0, Math.min(DIAMOND_MONTHLY_FREE_TOPPINGS, freeToppingsRemaining))
+    : 0;
+
   return (
     <div className="px-4 mt-3" ref={wrapRef}>
       {/* metallic rim: 1.5px gradient frame around the card body */}
@@ -333,7 +345,15 @@ export function LoyaltyCard({
         style={{ background: visual.rim, boxShadow: visual.shadow }}
       >
         <div
-          className="relative flex aspect-[1.6/1] flex-col overflow-hidden rounded-[18.5px] p-[22px]"
+          className={
+            "relative flex flex-col overflow-hidden rounded-[18.5px] p-[22px] " +
+            // Diamond carries an extra row (5% + free-toppings pips), so it
+            // gets a slightly taller proportion; Silver/Gold keep the credit-
+            // card 1.6:1. The min-h floor guarantees the fixed-height content
+            // never clips at narrow widths where the aspect alone would be too
+            // short (content is ~pixel-fixed, not width-scaled).
+            (showToppings ? "aspect-[1.42/1] min-h-[216px]" : "aspect-[1.6/1]")
+          }
           style={visual.cardStyle}
         >
           {/* ── Decorative layers (behind content, never intercept taps) ── */}
@@ -473,6 +493,49 @@ export function LoyaltyCard({
                   }}
                 />
               </div>
+
+              {/* Diamond free-topping allowance — 10 pips, bright = available */}
+              {showToppings && (
+                <div className="mt-3.5">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span
+                      className="flex items-center gap-1.5 text-white/80"
+                      style={{ fontSize: 11 }}
+                    >
+                      <span style={{ fontSize: 12 }}>🧋</span>
+                      Free toppings this month
+                    </span>
+                    {toppingsLeft > 0 ? (
+                      <span
+                        className="font-serif text-[#bfd6ff]"
+                        style={{ fontSize: 11.5 }}
+                      >
+                        {`${toppingsLeft} of ${DIAMOND_MONTHLY_FREE_TOPPINGS} left`}
+                      </span>
+                    ) : (
+                      <span className="text-white/40" style={{ fontSize: 10.5 }}>
+                        used up · resets monthly
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    {Array.from({ length: DIAMOND_MONTHLY_FREE_TOPPINGS }).map(
+                      (_, i) => (
+                        <span
+                          key={i}
+                          className="h-[6px] flex-1 rounded-full"
+                          style={{
+                            background:
+                              i < toppingsLeft
+                                ? "linear-gradient(90deg,#8ec5ff,#bfd6ff)"
+                                : "rgba(255,255,255,0.08)",
+                          }}
+                        />
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-end justify-between">
@@ -496,11 +559,11 @@ export function LoyaltyCard({
                   className="mt-0.5 text-white/45"
                   style={{ fontSize: 11, lineHeight: "15px", letterSpacing: 0.3 }}
                 >
-                  {tier === "diamond" && freeToppingsRemaining != null
-                    ? `${freeToppingsRemaining} free toppings left this month`
-                    : starsToNext != null
-                      ? `${starsToNext} stars to ${nextTier === "gold" ? "Gold" : "Diamond"}`
-                      : "Top tier member"}
+                  {/* Diamond toppings now have their own pips block above;
+                      subline stays on tier progress. */}
+                  {starsToNext != null
+                    ? `${starsToNext} stars to ${nextTier === "gold" ? "Gold" : "Diamond"}`
+                    : "Top tier member"}
                 </p>
               </div>
               <span
