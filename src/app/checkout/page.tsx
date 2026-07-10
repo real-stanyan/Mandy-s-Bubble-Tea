@@ -337,6 +337,21 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // /api/orders: 0.5% of the pre-discount subtotal.
   const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
 
+  // What the customer actually pays for drinks after every discount
+  // (reward cups + welcome/IG + tier 5% + free toppings). The delivery fee,
+  // its free-delivery threshold and the 5% service fee are all computed on
+  // this (2026-07-10 rule) — it feeds the quote request below, mirroring
+  // the server's math in /api/orders.
+  const totalDiscount =
+    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount +
+    tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
+  const afterDiscount =
+    subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
+  // Drinks fully covered by a loyalty reward. Since the 2026-07-10 fee rule
+  // this no longer implies "$0 order": a DELIVERY redeem still pays its
+  // delivery + service fees (see noPaymentDue below).
+  const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
+
   // Every cup must have a *resolved* label selection before the user
   // can pay. Two failure modes this guards against:
   //   1. Empty slot — auto-random useEffect hasn't filled it yet
@@ -423,6 +438,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         driverNote: deliveryAddress.driverNote,
         postcode: deliveryAddress.postcode,
         drinksSubtotalCents: Number(subtotal),
+        paidDrinksSubtotalCents: Number(afterDiscount),
       }),
     })
       .then((r) => r.json())
@@ -447,7 +463,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         setQuoteState({ kind: "error", message: "Couldn't reach delivery service" });
       });
     return () => { cancelled = true; };
-  }, [fulfillment, deliveryAddress, hoursOpen, subtotal]);
+  }, [fulfillment, deliveryAddress, hoursOpen, subtotal, afterDiscount]);
 
   // Ordering window — poll /api/store-status every 30s so the Place Order
   // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
@@ -526,21 +542,22 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     if (rewardCount > maxRewardCount) setRewardCount(maxRewardCount);
   }, [maxRewardCount, rewardCount]);
 
-  // True reward redemption path — server skips the card surcharge and
-  // client skips tokenization entirely because Square's total comes out
-  // to $0 after the reward discount.
-  const totalDiscount =
-    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount +
-    tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
-  const afterDiscount =
-    subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
-  const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
+  // Delivery + service fees are charged even on a full redeem (they're sized
+  // on the post-discount paid amount — 2026-07-10 rule). Everything else
+  // (PH/platform/card surcharges) is still skipped by the server whenever a
+  // reward is applied.
+  const redeemDeliveryFeesDue =
+    fulfillment === "DELIVERY" ? deliveryFeeAmount + serviceFeeAmount : 0n;
+  // Nothing to charge at all: drinks covered AND no delivery fees due
+  // (pickup redeem, or a genuinely $0 delivery quote).
+  const noPaymentDue = isFreeRedeem && redeemDeliveryFeesDue === 0n;
 
   const displayTotal = useMemo(() => {
-    if (isFreeRedeem) return 0n;
+    if (isFreeRedeem) return redeemDeliveryFeesDue;
     return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
   }, [
     isFreeRedeem,
+    redeemDeliveryFeesDue,
     afterDiscount,
     surchargeAmount,
     platformFeeAmount,
@@ -549,29 +566,31 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     serviceFeeAmount,
   ]);
   // Hide the surcharge lines from the order summary when the reward
-  // will cover the order — the backend won't charge them.
+  // will cover the drinks — the backend won't charge them. Delivery +
+  // service fees stay visible: they ARE charged, even on a redeem.
   const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
   const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
   const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
-  const effectiveDeliveryFee = isFreeRedeem ? 0n : deliveryFeeAmount;
-  const effectiveServiceFee = isFreeRedeem ? 0n : serviceFeeAmount;
+  const effectiveDeliveryFee = deliveryFeeAmount;
+  const effectiveServiceFee = serviceFeeAmount;
 
   // DELIVERY selected but no authoritative quote yet (address incomplete, out
   // of zone, outside hours, or signed out) → deliveryFee/serviceFee both fall
   // back to 0n. Render a pending "—" instead of a misleading "FREE" / "$0.00":
-  // delivery is NOT actually free until a quote confirms it. Free-redeem orders
-  // are genuinely $0, so they bypass the pending state.
+  // delivery is NOT actually free until a quote confirms it. Redeem orders
+  // wait too — their delivery fees are real charges now.
   const deliveryFeesPending =
-    fulfillment === "DELIVERY" && !isFreeRedeem && quoteState.kind !== "ok";
+    fulfillment === "DELIVERY" && quoteState.kind !== "ok";
 
   useEffect(() => {
     if (applePayAvailable) setPayMethod("apple");
     else if (googlePayAvailable) setPayMethod("google");
   }, [applePayAvailable, googlePayAvailable]);
 
-  // When the reward fully covers the order, no card is charged so the
-  // card form can stay unmounted.
-  const needsCard = !isFreeRedeem;
+  // When nothing will be charged (drinks covered AND no delivery fees),
+  // the card form can stay unmounted. A delivery redeem still pays its
+  // fees, so it keeps the card form.
+  const needsCard = !noPaymentDue;
 
   // Initialize the Square card form once the SDK has loaded AND the
   // #card-container element is in the DOM.
@@ -716,7 +735,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       return;
     }
 
-    const expectFreeOrder = isFreeRedeem;
+    const expectFreeOrder = noPaymentDue;
     if (!expectFreeOrder) {
       if (payMethod === "apple") {
         if (!applePayRef.current) {
@@ -1326,7 +1345,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 This drink is on us! 🎉
               </p>
               <p className="mt-1 text-center text-xs text-ink2 sm:text-sm">
-                Your {starsPerReward} stars will be redeemed — no payment needed.
+                {noPaymentDue
+                  ? `Your ${starsPerReward} stars will be redeemed — no payment needed.`
+                  : `Your ${starsPerReward} stars will be redeemed — delivery + service fees still apply.`}
               </p>
             </section>
           )}
@@ -1383,8 +1404,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </label>
           </section>
 
-          {/* Payment Method — hidden when the reward fully covers the order */}
-          {!isFreeRedeem && (
+          {/* Payment Method — hidden only when nothing at all will be charged */}
+          {!noPaymentDue && (
             <>
               <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
                 <SectionLabel>Payment Method</SectionLabel>
@@ -1660,7 +1681,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               submitting ||
               storeClosed ||
               !allCupsLabeled ||
-              (!isFreeRedeem &&
+              (!noPaymentDue &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
@@ -1687,7 +1708,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       : cupLabelGate === "draw-pending"
                         ? "Saving your drawing…"
                         : "Preparing labels…")
-                  : isFreeRedeem
+                  : noPaymentDue
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
                       ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>
@@ -1752,7 +1773,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               submitting ||
               storeClosed ||
               !allCupsLabeled ||
-              (!isFreeRedeem &&
+              (!noPaymentDue &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
@@ -1785,7 +1806,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       : cupLabelGate === "draw-pending"
                         ? "Saving your drawing…"
                         : "Preparing labels…")
-                  : isFreeRedeem
+                  : noPaymentDue
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
                       ? <><span>Pay with</span> <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span></>

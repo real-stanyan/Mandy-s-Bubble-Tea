@@ -38,7 +38,12 @@ import {
 } from "@/lib/tier-toppings";
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
-import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
+import {
+  deliveryFeeCents,
+  isDeliveryEligible,
+  paidDrinksSubtotalCents,
+  serviceFeeCents,
+} from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { distanceKm, STORE_COORDS } from "@/lib/places";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
@@ -305,6 +310,35 @@ export async function POST(request: Request) {
         return sum + unit * BigInt(Math.max(1, line.quantity));
       }, 0n);
 
+  // Estimated money covered by loyalty-reward cups: the cheapest N unit
+  // prices, mirroring pickPromoCups and the tier-discount math. Square only
+  // attaches the reward discount AFTER order creation (CreateLoyaltyReward),
+  // so this estimate is how the delivery-fee math can see it at create time.
+  // Falls back to client prices only when the menu cache is down, same as
+  // drinksSubtotalCents above.
+  const loyaltyRewardCount = Math.max(
+    0,
+    Math.floor(body.loyaltyRewardCount ?? 0),
+  );
+  const unitPricesAsc: bigint[] = (priceMaps
+    ? authoritativeUnitPrices(body.lines, priceMaps)
+    : body.lines.flatMap((line) => {
+        const modSum = line.modifiers.reduce(
+          (s, m) => s + BigInt(Math.max(0, Math.floor(m.priceCents))),
+          0n,
+        );
+        const unit =
+          BigInt(Math.max(0, Math.floor(line.variationPriceCents))) + modSum;
+        return Array.from(
+          { length: Math.max(1, Math.floor(line.quantity)) },
+          () => unit,
+        );
+      })
+  ).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const rewardCupsSumCents = unitPricesAsc
+    .slice(0, Math.min(loyaltyRewardCount, unitPricesAsc.length))
+    .reduce((s, p) => s + p, 0n);
+
   const isDelivery = body.fulfillmentType === "DELIVERY";
   const deliveryFullAddress =
     isDelivery && body.delivery
@@ -531,14 +565,10 @@ export async function POST(request: Request) {
           const welcomeAmount = welcomeDiscounts?.[0]?.amountMoney.amount ?? 0n;
           const igAmount = igFollowDiscounts?.[0]?.amountMoney.amount ?? 0n;
 
-          // Reward cups = cheapest N unit prices — must mirror pickPromoCups.
-          const rewardCount = Math.max(0, Math.floor(body.loyaltyRewardCount ?? 0));
-          const unitPricesAsc = authoritativeUnitPrices(body.lines, priceMaps).sort(
-            (a, b) => (a < b ? -1 : a > b ? 1 : 0),
-          );
-          const rewardCupsSum = unitPricesAsc
-            .slice(0, Math.min(rewardCount, unitPricesAsc.length))
-            .reduce((s, p) => s + p, 0n);
+          // Reward cups = cheapest N unit prices — hoisted above (shared with
+          // the delivery-fee math), mirrors pickPromoCups.
+          const rewardCount = loyaltyRewardCount;
+          const rewardCupsSum = rewardCupsSumCents;
 
           // Diamond: monthly free toppings (paid toppings only, most expensive
           // first, reward cups excluded — their toppings are already free).
@@ -664,14 +694,26 @@ export async function POST(request: Request) {
       });
     }
 
-    // Delivery + service fees only when DELIVERY mode AND not a free-redeem.
-    // Both are SUBTOTAL_PHASE amount-money charges on the line-item subtotal.
-    if (isDelivery && body.delivery && !skipSurcharges) {
+    // Delivery + service fees on every DELIVERY order — including star-redeem
+    // orders (2026-07-10: a free drink still pays for its own delivery, so
+    // these two are NOT under skipSurcharges). Both are computed on the
+    // POST-discount paid drinks amount: attached discounts (welcome/IG/tier/
+    // toppings) plus the estimated loyalty-reward cups all come off before
+    // the free-delivery threshold and the 5% service fee are sized.
+    const attachedDiscountsCents = allDiscounts.reduce(
+      (s, d) => s + d.amountMoney.amount,
+      0n,
+    );
+    const paidDrinksCents = paidDrinksSubtotalCents(
+      drinksSubtotalCents,
+      attachedDiscountsCents + rewardCupsSumCents,
+    );
+    if (isDelivery && body.delivery) {
       const distKm = distanceKm(STORE_COORDS, {
         lat: body.delivery.lat,
         lng: body.delivery.lng,
       });
-      const fee = deliveryFeeCents(drinksSubtotalCents, distKm);
+      const fee = deliveryFeeCents(paidDrinksCents, distKm);
       if (fee > 0n) {
         orderServiceCharges.push({
           uid: "delivery-fee",
@@ -681,7 +723,7 @@ export async function POST(request: Request) {
           taxable: false,
         });
       }
-      const svc = serviceFeeCents(drinksSubtotalCents);
+      const svc = serviceFeeCents(paidDrinksCents);
       if (svc > 0n) {
         orderServiceCharges.push({
           uid: "service-fee",

@@ -3,10 +3,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock just enough to reach the delivery-toggle gate. Everything heavier
 // (Square order creation, pricing, loyalty) lives AFTER the gate, so the
 // 409 path never touches it.
-const { ordersCreate } = vi.hoisted(() => ({ ordersCreate: vi.fn() }));
+const { ordersCreate, ordersSearch } = vi.hoisted(() => ({
+  ordersCreate: vi.fn(),
+  ordersSearch: vi.fn(),
+}));
 vi.mock("@/lib/square", () => ({
   SQUARE_LOCATION_ID: "L1",
-  squareClient: { orders: { create: ordersCreate } },
+  squareClient: { orders: { create: ordersCreate, search: ordersSearch } },
 }));
 vi.mock("@/lib/auth", () => ({
   getAuthedUser: vi.fn(),
@@ -17,8 +20,19 @@ vi.mock("@/lib/store-status-server", () => ({
 }));
 vi.mock("@/lib/catalog", () => ({
   // Throw so priceMaps falls back to null (cache-outage path) — the gate runs
-  // regardless of pricing.
+  // regardless of pricing, and the fee tests below exercise the client-price
+  // fallback for both the subtotal and the reward-cup estimate.
   getMenu: vi.fn().mockRejectedValue(new Error("menu unavailable in test")),
+}));
+vi.mock("@/lib/supabase", () => ({
+  nextOnlineOrderNumber: vi.fn().mockResolvedValue("DE999"),
+  getWelcomeDiscountStatus: vi.fn(),
+}));
+vi.mock("@/lib/delivery-hours", () => ({
+  isDeliveryHoursOpen: vi.fn().mockReturnValue(true),
+}));
+vi.mock("@/lib/holiday", () => ({
+  getActivePublicHoliday: vi.fn().mockReturnValue(null),
 }));
 
 import { POST } from "./route";
@@ -82,5 +96,128 @@ describe("POST /api/orders — delivery toggle gate", () => {
     // toggle gate itself let it through.)
     const json = await res.json().catch(() => ({}));
     expect(json.deliveryDisabled).toBeUndefined();
+  });
+});
+
+describe("POST /api/orders — delivery fees on the POST-discount paid amount", () => {
+  // Store → (-27.96, 153.41) ≈ 0.68km ⇒ 0–2km band: $3.99, free at/above $35.
+  const deliveryBody = (over: Record<string, unknown>) => ({
+    fulfillmentType: "DELIVERY",
+    delivery: {
+      address: "34 Davenport St, Southport",
+      lat: -27.96,
+      lng: 153.41,
+      postcode: "4215",
+    },
+    ...over,
+  });
+  const cup = (cents: number, quantity = 1) => ({
+    itemName: "Test Cup",
+    variationId: "VAR1",
+    variationPriceCents: cents,
+    quantity,
+    modifiers: [],
+  });
+  const chargesOf = () => {
+    const order = ordersCreate.mock.calls[0][0].order;
+    return Object.fromEntries(
+      (order.serviceCharges ?? []).map(
+        (c: { uid: string; amountMoney?: { amount: bigint } }) => [
+          c.uid,
+          c.amountMoney?.amount,
+        ],
+      ),
+    );
+  };
+
+  beforeEach(() => {
+    ordersCreate.mockReset();
+    ordersSearch.mockReset();
+    ordersSearch.mockResolvedValue({ orders: [] });
+    ordersCreate.mockResolvedValue({
+      order: { id: "ORD1", totalMoney: { amount: 443n } },
+    });
+    vi.mocked(getAuthedUser).mockReset();
+    vi.mocked(getAuthedUser).mockResolvedValue({
+      profile: { square_customer_id: "C1", phone_e164: "+61400000000" },
+    } as Awaited<ReturnType<typeof getAuthedUser>>);
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+    vi.mocked(isDeliveryEnabled).mockResolvedValue(true);
+  });
+
+  it("no discounts: fee + svc on the full subtotal, platform/card attached", async () => {
+    const res = await POST(
+      orderRequest(deliveryBody({ lines: [cup(880, 2)] })),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect(charges["delivery-fee"]).toBe(399n); // $17.60 < $35
+    expect(charges["service-fee"]).toBe(88n); // 5% × $17.60
+    expect(charges["platform-fee"]).toBeUndefined(); // percentage-based, no amountMoney
+    expect("platform-fee" in charges).toBe(true);
+    expect("card-surcharge" in charges).toBe(true);
+  });
+
+  it("star redeem no longer skips delivery fees: fee on paid = subtotal − reward cup", async () => {
+    const res = await POST(
+      orderRequest(
+        deliveryBody({
+          lines: [cup(880, 2)],
+          applyLoyaltyReward: true,
+          loyaltyRewardCount: 1,
+        }),
+      ),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect(charges["delivery-fee"]).toBe(399n); // paid $8.80 < $35
+    expect(charges["service-fee"]).toBe(44n); // 5% × $8.80 paid, not $17.60 pre
+    // PH/platform/card stay skipped on redeem orders (unchanged behavior).
+    expect("platform-fee" in charges).toBe(false);
+    expect("card-surcharge" in charges).toBe(false);
+  });
+
+  it("full star redeem (paid $0): band fee still charged, svc omitted", async () => {
+    const res = await POST(
+      orderRequest(
+        deliveryBody({
+          lines: [cup(1280, 1)], // pre $12.80 ≥ $12 minimum (min uses pre)
+          applyLoyaltyReward: true,
+          loyaltyRewardCount: 1,
+        }),
+      ),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect(charges["delivery-fee"]).toBe(399n);
+    expect("service-fee" in charges).toBe(false); // 5% × $0
+  });
+
+  it("free threshold judges the paid amount: $36 pre − $2 reward cup → fee charged", async () => {
+    const res = await POST(
+      orderRequest(
+        deliveryBody({
+          lines: [cup(200, 1), cup(3400, 1)],
+          applyLoyaltyReward: true,
+          loyaltyRewardCount: 1,
+        }),
+      ),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect(charges["delivery-fee"]).toBe(399n); // paid $34 < $35 — no longer free
+  });
+
+  it("undiscounted order at/above $35 keeps FREE delivery", async () => {
+    const res = await POST(
+      orderRequest(deliveryBody({ lines: [cup(3500, 1)] })),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect("delivery-fee" in charges).toBe(false);
+    expect(charges["service-fee"]).toBe(175n); // 5% × $35
   });
 });

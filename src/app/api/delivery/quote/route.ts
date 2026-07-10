@@ -14,6 +14,13 @@ type QuoteBody = {
   driverNote?: string;
   postcode: string;
   drinksSubtotalCents: number;
+  /**
+   * Post-discount drinks amount (welcome/IG/tier/free-toppings/star-redeem
+   * all subtracted) — fee, free-threshold and the 5% service fee are computed
+   * on this (2026-07-10 rule). Optional: older clients (the RN App) don't
+   * send it, so it falls back to the pre-discount subtotal.
+   */
+  paidDrinksSubtotalCents?: number;
 };
 
 function isValidBody(b: unknown): b is QuoteBody {
@@ -25,7 +32,9 @@ function isValidBody(b: unknown): b is QuoteBody {
     typeof x.lat === "number" &&
     typeof x.lng === "number" &&
     typeof x.postcode === "string" &&
-    typeof x.drinksSubtotalCents === "number"
+    typeof x.drinksSubtotalCents === "number" &&
+    (x.paidDrinksSubtotalCents === undefined ||
+      typeof x.paidDrinksSubtotalCents === "number")
   );
 }
 
@@ -53,6 +62,15 @@ export async function POST(request: Request) {
   }
 
   const drinksSubtotalCents = BigInt(Math.max(0, Math.floor(body.drinksSubtotalCents)));
+  // Fee math runs on the post-discount paid amount; clamp into [0, pre] so a
+  // client can't inflate it to fake the free-delivery threshold. Eligibility
+  // ($12 minimum) below intentionally stays on the pre-discount subtotal,
+  // matching /api/orders.
+  const paidRaw =
+    body.paidDrinksSubtotalCents !== undefined
+      ? BigInt(Math.max(0, Math.floor(body.paidDrinksSubtotalCents)))
+      : drinksSubtotalCents;
+  const paidDrinksCents = paidRaw > drinksSubtotalCents ? drinksSubtotalCents : paidRaw;
 
   // Boss kill-switch: don't even price a delivery while the shop has it off.
   if (!(await isDeliveryEnabled())) {
@@ -72,7 +90,7 @@ export async function POST(request: Request) {
   const distKm = distanceKm(STORE_COORDS, dest);
   return NextResponse.json({
     ok: true,
-    feeCents: Number(deliveryFeeCents(drinksSubtotalCents, distKm)),
-    serviceFeeCents: Number(serviceFeeCents(drinksSubtotalCents)),
+    feeCents: Number(deliveryFeeCents(paidDrinksCents, distKm)),
+    serviceFeeCents: Number(serviceFeeCents(paidDrinksCents)),
   });
 }
