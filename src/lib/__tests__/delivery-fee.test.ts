@@ -1,9 +1,45 @@
 import { describe, it, expect } from "vitest";
 import {
   deliveryFeeCents,
+  paidDrinksSubtotalCents,
   serviceFeeCents,
   isDeliveryEligible,
 } from "../delivery-fee";
+
+describe("paidDrinksSubtotalCents — post-discount paid amount", () => {
+  it("no discounts: paid equals the pre-discount subtotal", () => {
+    expect(paidDrinksSubtotalCents(3560n, 0n)).toBe(3560n);
+  });
+  it("subtracts discounts: $35.60 − $9.00 = $26.60", () => {
+    expect(paidDrinksSubtotalCents(3560n, 900n)).toBe(2660n);
+  });
+  it("clamps at 0n when discounts cover everything (full star redeem)", () => {
+    expect(paidDrinksSubtotalCents(880n, 880n)).toBe(0n);
+  });
+  it("clamps at 0n when discounts exceed the subtotal", () => {
+    expect(paidDrinksSubtotalCents(836n, 924n)).toBe(0n);
+  });
+
+  // Production regression fixture — order DE848 (2026-07-08, 3.70km):
+  // pre-discount $35.60, Diamond free toppings $7.60 + Diamond 5% $1.40.
+  // Old rule: fee computed on $35.60 ≥ $35 → FREE, svc 5% × $35.60 = $1.78.
+  // New rule: paid $26.60 < $35 → band fee $5.99, svc 5% × $26.60 = $1.33.
+  it("DE848: paid $26.60 at 3.70km → $5.99 fee (no longer free)", () => {
+    const paid = paidDrinksSubtotalCents(3560n, 760n + 140n);
+    expect(paid).toBe(2660n);
+    expect(deliveryFeeCents(paid, 3.7)).toBe(599n);
+    expect(serviceFeeCents(paid)).toBe(133n);
+  });
+  it("full star redeem still pays its band fee: paid $0 at 3.70km → $5.99", () => {
+    const paid = paidDrinksSubtotalCents(880n, 880n);
+    expect(deliveryFeeCents(paid, 3.7)).toBe(599n);
+    expect(serviceFeeCents(paid)).toBe(0n);
+  });
+  it("undiscounted $36 order at 3.70km stays FREE (threshold unchanged)", () => {
+    const paid = paidDrinksSubtotalCents(3600n, 0n);
+    expect(deliveryFeeCents(paid, 3.7)).toBe(0n);
+  });
+});
 
 describe("deliveryFeeCents — per-km bands, distance-banded free thresholds", () => {
   // 0–4km free zone: free at $35. Per-km fees 0–2 $3.99 / 2–3 $4.99 / 3–4 $5.99.
