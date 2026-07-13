@@ -27,9 +27,35 @@ export async function nextOnlineOrderNumber(): Promise<string> {
  * Idempotent via upsert with ignoreDuplicates. Called after a fresh
  * Square customer is created in /api/customer. Swallows errors — must
  * never block signup.
+ *
+ * Tombstone gate: welcome_discounts is keyed by square_customer_id and
+ * purgeAccount deletes it on account deletion, so delete + re-signup
+ * with the same phone used to mint a fresh allowance every cycle.
+ * welcome_discount_history records consumption by phone (OTP-verified,
+ * survives deletion; see migration 004) — a phone present there never
+ * gets a new grant. History lookup failure fails OPEN (grant anyway):
+ * denying every new signup their welcome during a Supabase blip costs
+ * more than the rare abuse window.
  */
-export async function grantWelcomeDiscount(customerId: string): Promise<void> {
+export async function grantWelcomeDiscount(
+  customerId: string,
+  phoneE164: string,
+): Promise<void> {
   try {
+    const { data: consumed, error: histErr } = await getSupabase()
+      .from("welcome_discount_history")
+      .select("phone_e164")
+      .eq("phone_e164", phoneE164)
+      .maybeSingle();
+    if (histErr) {
+      console.error("[welcome-discount] history check failed:", histErr);
+    } else if (consumed) {
+      console.log(
+        `[welcome-discount] grant skipped — phone already consumed welcome (customer ${customerId})`,
+      );
+      return;
+    }
+
     const { error } = await getSupabase()
       .from("welcome_discounts")
       .upsert(
