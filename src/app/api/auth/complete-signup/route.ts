@@ -210,8 +210,9 @@ export async function POST(request: Request) {
     // new web signups (~6 affected users observed 2026-04-24..26).
     // Letting a rare in-store-only customer pick up a welcome on web
     // signup is much cheaper than denying every Squarish edge-case new
-    // user their welcome.
-    await grantWelcomeDiscount(customerId);
+    // user their welcome. The phone-history tombstone inside
+    // grantWelcomeDiscount blocks the delete-account + re-signup loop.
+    await grantWelcomeDiscount(customerId, e164);
 
     // Enroll the customer in the Square loyalty program at signup time so
     // the very first POS scan of their member QR earns a star — even if
