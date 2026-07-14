@@ -1,4 +1,37 @@
-import { DELIVERY } from "./constants";
+import {
+  DELIVERY,
+  PLATFORM_FEE_BPS,
+  CARD_SURCHARGE_BPS,
+  PH_SURCHARGE_BPS,
+} from "./constants";
+
+// Subtotal the free-delivery threshold is measured against. The waiver isn't
+// judged on the bare paid drinks but on what the customer actually pays at
+// SUBTOTAL_PHASE: the post-discount paid drinks (see paidDrinksSubtotalCents)
+// plus the surcharges that will be charged. The 5% service fee is charged on
+// every delivery order (including star-redeem); the platform (0.5%), card
+// (1.9%) and public-holiday (10%) surcharges are skipped on redeem orders, so
+// they only count when `orderSurcharges` is set. Each surcharge truncates to
+// whole cents, mirroring how the individual charges are computed.
+// `deliveryFeeCents` compares this to a band's `freeAtCents`; the distance band
+// itself is unaffected.
+export function freeDeliverySubtotalCents(
+  paidDrinksCents: bigint,
+  opts?: { orderSurcharges?: boolean; publicHoliday?: boolean },
+): bigint {
+  if (paidDrinksCents <= 0n) return 0n;
+  const withOrderSurcharges = opts?.orderSurcharges ?? true;
+  let surcharges = (paidDrinksCents * DELIVERY.serviceFeeBps) / 10000n;
+  if (withOrderSurcharges) {
+    surcharges +=
+      (paidDrinksCents * PLATFORM_FEE_BPS) / 10000n +
+      (paidDrinksCents * CARD_SURCHARGE_BPS) / 10000n +
+      (opts?.publicHoliday
+        ? (paidDrinksCents * PH_SURCHARGE_BPS) / 10000n
+        : 0n);
+  }
+  return paidDrinksCents + surcharges;
+}
 
 // What the customer actually pays for drinks: the pre-discount drinks subtotal
 // minus every discount (welcome/IG/tier 5%/free toppings + loyalty-reward

@@ -1,10 +1,97 @@
 import { describe, it, expect } from "vitest";
 import {
   deliveryFeeCents,
+  freeDeliverySubtotalCents,
   paidDrinksSubtotalCents,
   serviceFeeCents,
   isDeliveryEligible,
 } from "../delivery-fee";
+
+describe("freeDeliverySubtotalCents — free-delivery threshold base", () => {
+  // The free-delivery waiver is judged on what the customer actually pays at
+  // SUBTOTAL_PHASE: the post-discount paid drinks (see paidDrinksSubtotalCents)
+  // PLUS the surcharges that will be charged. The 5% service fee is always
+  // charged on a delivery order; platform (0.5%) and card (1.9%) are only
+  // charged when order surcharges apply (they're skipped on star-redeem
+  // orders). Each surcharge truncates to whole cents.
+  it("$33.82 paid, all surcharges → adds platform+card+service = 3631", () => {
+    // 3382 + floor(16.91) + floor(64.258) + floor(169.1) = 3382+16+64+169
+    expect(freeDeliverySubtotalCents(3382n, { orderSurcharges: true })).toBe(
+      3631n,
+    );
+  });
+  it("redeem order (no platform/card): adds only the 5% service fee", () => {
+    // 3382 + floor(169.1) = 3551
+    expect(freeDeliverySubtotalCents(3382n, { orderSurcharges: false })).toBe(
+      3551n,
+    );
+  });
+  it("defaults to including order surcharges", () => {
+    expect(freeDeliverySubtotalCents(3382n)).toBe(3631n);
+  });
+  it("adds the 10% public-holiday surcharge when active", () => {
+    // 3631 + floor(338.2)
+    expect(
+      freeDeliverySubtotalCents(3382n, {
+        orderSurcharges: true,
+        publicHoliday: true,
+      }),
+    ).toBe(3969n);
+  });
+  it("public holiday is ignored when order surcharges are skipped (redeem)", () => {
+    // PH is one of the skipped surcharges → service fee only.
+    expect(
+      freeDeliverySubtotalCents(3382n, {
+        orderSurcharges: false,
+        publicHoliday: true,
+      }),
+    ).toBe(3551n);
+  });
+  it("$0 paid → 0", () => {
+    expect(freeDeliverySubtotalCents(0n)).toBe(0n);
+  });
+});
+
+describe("deliveryFeeCents — free check on surcharge-inclusive subtotal", () => {
+  // $33.82 paid drinks at ~3.7km (0–4km band, $5.99). Bare paid is below $35 so
+  // the band fee applies, but the surcharge-inclusive subtotal ($36.31) clears
+  // $35 → free.
+  it("bare $33.82 at 3.7km pays the band fee (599n)", () => {
+    expect(deliveryFeeCents(3382n, 3.7)).toBe(599n);
+  });
+  it("surcharge-inclusive $33.82 at 3.7km is free", () => {
+    expect(
+      deliveryFeeCents(
+        freeDeliverySubtotalCents(3382n, { orderSurcharges: true }),
+        3.7,
+      ),
+    ).toBe(0n);
+  });
+  it("boundary: $32.60 paid reaches $35 with surcharges → free", () => {
+    expect(deliveryFeeCents(freeDeliverySubtotalCents(3260n), 4)).toBe(0n);
+  });
+  it("boundary: $32.59 paid stays below $35 → band fee", () => {
+    expect(deliveryFeeCents(freeDeliverySubtotalCents(3259n), 4)).toBe(599n);
+  });
+  it("redeem order still pays when service-fee-only base is below $35", () => {
+    // 3300 + floor(165) = 3465 < 3500 → 599n.
+    expect(
+      deliveryFeeCents(
+        freeDeliverySubtotalCents(3300n, { orderSurcharges: false }),
+        4,
+      ),
+    ).toBe(599n);
+  });
+  it("redeem order goes free once the service-fee-inclusive base clears $35", () => {
+    // 3400 + floor(170) = 3570 >= 3500 → free.
+    expect(
+      deliveryFeeCents(
+        freeDeliverySubtotalCents(3400n, { orderSurcharges: false }),
+        4,
+      ),
+    ).toBe(0n);
+  });
+});
 
 describe("paidDrinksSubtotalCents — post-discount paid amount", () => {
   it("no discounts: paid equals the pre-discount subtotal", () => {

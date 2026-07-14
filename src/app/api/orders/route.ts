@@ -40,6 +40,7 @@ import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import {
   deliveryFeeCents,
+  freeDeliverySubtotalCents,
   isDeliveryEligible,
   paidDrinksSubtotalCents,
   serviceFeeCents,
@@ -713,7 +714,17 @@ export async function POST(request: Request) {
         lat: body.delivery.lat,
         lng: body.delivery.lng,
       });
-      const fee = deliveryFeeCents(paidDrinksCents, distKm);
+      // Free-delivery threshold is judged on the surcharge-inclusive paid
+      // subtotal (paid drinks + 5% service + platform/card/PH when they apply),
+      // not bare paid drinks. Redeem orders skip platform/card/PH, so only the
+      // service fee folds in for them. Distance band / service fee are unchanged.
+      const fee = deliveryFeeCents(
+        freeDeliverySubtotalCents(paidDrinksCents, {
+          orderSurcharges: !skipSurcharges,
+          publicHoliday: !!activePH,
+        }),
+        distKm,
+      );
       if (fee > 0n) {
         orderServiceCharges.push({
           uid: "delivery-fee",

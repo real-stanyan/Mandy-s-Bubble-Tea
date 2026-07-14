@@ -196,7 +196,9 @@ describe("POST /api/orders — delivery fees on the POST-discount paid amount", 
     expect("service-fee" in charges).toBe(false); // 5% × $0
   });
 
-  it("free threshold judges the paid amount: $36 pre − $2 reward cup → fee charged", async () => {
+  it("free threshold folds in the 5% service fee: $36 pre − $2 reward → paid $34, +svc clears $35 → FREE", async () => {
+    // paid = $34.00; +5% service ($1.70) = $35.70 ≥ $35 → delivery waived.
+    // (Redeem orders skip platform/card, so only the service fee folds in.)
     const res = await POST(
       orderRequest(
         deliveryBody({
@@ -208,7 +210,25 @@ describe("POST /api/orders — delivery fees on the POST-discount paid amount", 
     );
     expect((await res.json()).ok).toBe(true);
     const charges = chargesOf();
-    expect(charges["delivery-fee"]).toBe(399n); // paid $34 < $35 — no longer free
+    expect("delivery-fee" in charges).toBe(false);
+    expect(charges["service-fee"]).toBe(170n); // 5% × $34 paid
+  });
+
+  it("still judged on the paid amount: $37 pre − $4 reward → paid $33, even +svc under $35 → fee charged", async () => {
+    // paid = $33.00; +5% service ($1.65) = $34.65 < $35 → band fee applies,
+    // proving the threshold is not reached on the $37 sticker price.
+    const res = await POST(
+      orderRequest(
+        deliveryBody({
+          lines: [cup(400, 1), cup(3300, 1)],
+          applyLoyaltyReward: true,
+          loyaltyRewardCount: 1,
+        }),
+      ),
+    );
+    expect((await res.json()).ok).toBe(true);
+    const charges = chargesOf();
+    expect(charges["delivery-fee"]).toBe(399n); // paid $33 + $1.65 svc < $35
   });
 
   it("undiscounted order at/above $35 keeps FREE delivery", async () => {

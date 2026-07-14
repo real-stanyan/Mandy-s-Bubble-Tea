@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { distanceKm, STORE_COORDS } from "@/lib/places";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
-import { deliveryFeeCents, isDeliveryEligible, serviceFeeCents } from "@/lib/delivery-fee";
+import {
+  deliveryFeeCents,
+  freeDeliverySubtotalCents,
+  isDeliveryEligible,
+  serviceFeeCents,
+} from "@/lib/delivery-fee";
+import { getActivePublicHoliday } from "@/lib/holiday";
 import { isDeliveryEnabled } from "@/lib/store-status-server";
 import { getAuthedUser } from "@/lib/auth";
 
@@ -88,9 +94,18 @@ export async function POST(request: Request) {
 
   const dest = { lat: body.lat, lng: body.lng };
   const distKm = distanceKm(STORE_COORDS, dest);
+  // Mirror /api/orders: the free-delivery threshold is judged on the
+  // surcharge-inclusive paid subtotal. This preview assumes a normal (non-
+  // redeem) order — it can't see whether platform/card are skipped — so a
+  // redeem order near the threshold defers to the authoritative /api/orders
+  // charge, consistent with the 2026-07-10 "server charge is authoritative" rule.
+  const freeThresholdCents = freeDeliverySubtotalCents(paidDrinksCents, {
+    orderSurcharges: true,
+    publicHoliday: !!getActivePublicHoliday(new Date()),
+  });
   return NextResponse.json({
     ok: true,
-    feeCents: Number(deliveryFeeCents(paidDrinksCents, distKm)),
+    feeCents: Number(deliveryFeeCents(freeThresholdCents, distKm)),
     serviceFeeCents: Number(serviceFeeCents(paidDrinksCents)),
   });
 }
