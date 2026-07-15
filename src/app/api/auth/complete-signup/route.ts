@@ -218,13 +218,43 @@ export async function POST(request: Request) {
     // the very first POS scan of their member QR earns a star — even if
     // they never place an online order. Best-effort: a Square loyalty
     // outage must not block account creation. findOrCreateLoyaltyAccount
-    // is idempotent, so re-running on a returning user is a no-op.
-    try {
-      await findOrCreateLoyaltyAccount(customerId, e164);
-    } catch (loyaltyErr) {
+    // is idempotent, so retrying is safe.
+    //
+    // Without retry, a single transient Square 5xx / network blip causes
+    // the user to permanently miss enrollment (re-visits don't trigger
+    // this code path). 2026-05-04 backfill found 46 of 47 web-only users
+    // whose enrollment had silently failed could be enrolled cleanly on a
+    // simple retry — i.e., these are recoverable transients, not data
+    // bugs. 3 attempts with 800ms / 2500ms backoff covers ~99% of them at
+    // the cost of up to ~3.3s extra latency on the unlucky path.
+    const RETRY_DELAYS_MS = [800, 2500];
+    let loyaltyAttempt = 0;
+    let loyaltyOk = false;
+    let lastErr: unknown;
+    while (loyaltyAttempt <= RETRY_DELAYS_MS.length) {
+      try {
+        await findOrCreateLoyaltyAccount(customerId, e164);
+        loyaltyOk = true;
+        if (loyaltyAttempt > 0) {
+          console.info(
+            `[complete-signup] loyalty enrollment recovered on attempt ${loyaltyAttempt + 1} for customer ${customerId}`,
+          );
+        }
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (loyaltyAttempt < RETRY_DELAYS_MS.length) {
+          await new Promise((r) =>
+            setTimeout(r, RETRY_DELAYS_MS[loyaltyAttempt]),
+          );
+        }
+        loyaltyAttempt++;
+      }
+    }
+    if (!loyaltyOk) {
       console.error(
-        "[complete-signup] loyalty enrollment failed:",
-        loyaltyErr instanceof Error ? loyaltyErr.message : loyaltyErr,
+        `[complete-signup] loyalty enrollment failed after ${loyaltyAttempt} attempts for customer ${customerId}:`,
+        lastErr instanceof Error ? lastErr.message : lastErr,
       );
     }
 
