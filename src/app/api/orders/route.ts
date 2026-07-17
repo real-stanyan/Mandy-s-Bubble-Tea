@@ -648,10 +648,13 @@ export async function POST(request: Request) {
     }
 
     // ---- Flash promo (store-wide, one Brisbane day, one order per customer).
-    // Server-authoritative: the client flag is verified against Supabase
-    // (promo active today AND no redemption row for this customer). Sized on
-    // what the customer actually pays for drinks — welcome/IG/reward/tier/
-    // topping money excluded so the same dollar is never discounted twice.
+    // Server-authoritative: verified against Supabase (promo active today AND
+    // no redemption row for this customer). EXCLUSIVE, not stackable: the
+    // order gets either the flash discount or the welcome/IG/tier bundle,
+    // whichever is worth more — flash never suppresses a better deal for a
+    // new customer, and auto tier 5% never locks a member out of the promo.
+    // Loyalty-reward cups are not a discount (earned stars); they just come
+    // off the flash base so a free cup is never also 20%-off.
     // The promo key rides inside the uid ("flash-promo:<key>") because the
     // Square metadata budget is already at its 10-entry worst case; the
     // burn path parses it back out (see consume-order-discounts.ts).
@@ -679,11 +682,10 @@ export async function POST(request: Request) {
             ...(igFollowDiscounts ?? []),
             ...(tierDiscounts ?? []),
           ].reduce((s, d) => s + d.amountMoney.amount, 0n);
-          let base =
-            drinksSubtotalCents - otherDiscountsCents - rewardCupsSumCents;
+          let base = drinksSubtotalCents - rewardCupsSumCents;
           if (base < 0n) base = 0n;
           const amount = (base * BigInt(flash.percentage)) / 100n;
-          if (amount > 0n) {
+          if (amount > 0n && amount > otherDiscountsCents) {
             flashDiscounts = [
               {
                 uid: `flash-promo:${flash.key}`,
@@ -693,6 +695,16 @@ export async function POST(request: Request) {
                 scope: "ORDER",
               },
             ];
+            // Exclusive: flash replaces the whole promo bundle. Zero the
+            // covered counts too so the order metadata never claims a
+            // discount that isn't attached (the burn paths gate on the
+            // discount uid, but the metadata must not lie).
+            welcomeDiscounts = undefined;
+            igFollowDiscounts = undefined;
+            tierDiscounts = undefined;
+            welcomeDrinksCovered = 0;
+            igFollowDrinksCovered = 0;
+            tierToppingsCovered = 0;
           }
         }
       } catch (flashError) {

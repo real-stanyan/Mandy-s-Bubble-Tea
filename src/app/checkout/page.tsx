@@ -343,17 +343,22 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // its free-delivery threshold and the 5% service fee are all computed on
   // this (2026-07-10 rule) — it feeds the quote request below, mirroring
   // the server's math in /api/orders.
-  const preFlashDiscount =
-    rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount +
+  // Flash promo (store-wide one-day %) is EXCLUSIVE: the order gets either
+  // the flash discount or the welcome/IG/tier bundle, whichever is worth
+  // more — mirroring the server's pick in /api/orders. Reward cups are not
+  // a discount; they only shrink the flash base.
+  const otherPromoDiscount =
+    welcomeDiscountAmount + igFollowDiscountAmount +
     tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
-  // Flash promo (store-wide one-day %) — sized on what's actually paid for
-  // drinks after every other discount, mirroring the server in /api/orders.
-  const preFlashAfterDiscount =
-    subtotal - preFlashDiscount > 0n ? subtotal - preFlashDiscount : 0n;
-  const flashPromoAmount = flashPromo.available
-    ? (preFlashAfterDiscount * BigInt(flashPromo.percentage)) / 100n
+  const flashBase =
+    subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n;
+  const flashCandidate = flashPromo.available
+    ? (flashBase * BigInt(flashPromo.percentage)) / 100n
     : 0n;
-  const totalDiscount = preFlashDiscount + flashPromoAmount;
+  const flashWins = flashCandidate > otherPromoDiscount;
+  const flashPromoAmount = flashWins ? flashCandidate : 0n;
+  const totalDiscount =
+    rewardDiscount + (flashWins ? flashPromoAmount : otherPromoDiscount);
   const afterDiscount =
     subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
   // Drinks fully covered by a loyalty reward. Since the 2026-07-10 fee rule
@@ -1182,7 +1187,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       {formatPrice(subtotal)}
                     </span>
                   </div>
-                  {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
+                  {!flashWins && welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1200,7 +1205,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+                  {!flashWins && igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1243,7 +1248,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {tierPreview.toppingCoveredCents > 0n && (
+                  {!flashWins && tierPreview.toppingCoveredCents > 0n && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1257,7 +1262,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {tierPreview.tierDiscountCents > 0n && (
+                  {!flashWins && tierPreview.tierDiscountCents > 0n && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
