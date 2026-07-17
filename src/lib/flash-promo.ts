@@ -3,16 +3,26 @@ import { getSupabaseAdmin } from "./supabase-server";
 import { brisbaneYmd } from "./brisbane-date";
 
 /**
- * The flash promo key rides inside the order discount uid
- * ("flash-promo:<key>") because the Square metadata budget is already at
- * its 10-entry worst case. This parses it back out of an order's discounts.
+ * The flash promo key rides inside the order discount uid because the
+ * Square metadata budget is already at its 10-entry worst case.
+ *
+ * Separator is a DOT — Square order uids allow only alphanumerics, dots,
+ * underscores, and hyphens (a colon here 400-rejected every flash order
+ * on 2026-07-17). Keys themselves are hyphenated, so the first dot is
+ * unambiguous.
  */
+export const FLASH_PROMO_UID_PREFIX = "flash-promo.";
+
+export function flashPromoUid(key: string): string {
+  return `${FLASH_PROMO_UID_PREFIX}${key}`;
+}
+
 export function flashPromoKeyFromDiscounts(
   discounts: Array<{ uid?: string | null }> | null | undefined,
 ): string | null {
   for (const d of discounts ?? []) {
-    if (d.uid?.startsWith("flash-promo:")) {
-      const key = d.uid.slice("flash-promo:".length);
+    if (d.uid?.startsWith(FLASH_PROMO_UID_PREFIX)) {
+      const key = d.uid.slice(FLASH_PROMO_UID_PREFIX.length);
       if (key) return key;
     }
   }

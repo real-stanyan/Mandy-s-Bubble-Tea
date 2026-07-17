@@ -15,7 +15,7 @@ import {
 } from "@/lib/order-metadata";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
-import { getFlashPromoStatus } from "@/lib/flash-promo";
+import { getFlashPromoStatus, flashPromoUid } from "@/lib/flash-promo";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
@@ -655,7 +655,7 @@ export async function POST(request: Request) {
     // new customer, and auto tier 5% never locks a member out of the promo.
     // Loyalty-reward cups are not a discount (earned stars); they just come
     // off the flash base so a free cup is never also 20%-off.
-    // The promo key rides inside the uid ("flash-promo:<key>") because the
+    // The promo key rides inside the uid ("flash-promo.<key>") because the
     // Square metadata budget is already at its 10-entry worst case; the
     // burn path parses it back out (see consume-order-discounts.ts).
     let flashDiscounts:
@@ -688,7 +688,7 @@ export async function POST(request: Request) {
           if (amount > 0n && amount > otherDiscountsCents) {
             flashDiscounts = [
               {
-                uid: `flash-promo:${flash.key}`,
+                uid: flashPromoUid(flash.key),
                 name: `Flash Sale ${flash.percentage}% Off`,
                 type: "FIXED_AMOUNT",
                 amountMoney: { amount, currency: BUSINESS.currency as Currency },

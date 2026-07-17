@@ -11,6 +11,7 @@ import {
   getFlashPromoStatus,
   consumeFlashPromo,
   flashPromoKeyFromDiscounts,
+  flashPromoUid,
 } from "./flash-promo";
 
 const mockedAdmin = vi.mocked(getSupabaseAdmin);
@@ -44,12 +45,26 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe("flashPromoUid", () => {
+  it("round-trips through flashPromoKeyFromDiscounts", () => {
+    expect(
+      flashPromoKeyFromDiscounts([{ uid: flashPromoUid("flash-2026-07-17") }]),
+    ).toBe("flash-2026-07-17");
+  });
+
+  it("only contains characters Square order uids accept", () => {
+    // Square 400-rejects any other character (a colon separator took down
+    // every flash order on 2026-07-17). Pin the whole-uid charset.
+    expect(flashPromoUid("flash-2026-07-17")).toMatch(/^[A-Za-z0-9._-]+$/);
+  });
+});
+
 describe("flashPromoKeyFromDiscounts", () => {
   it("parses the key out of a flash-promo uid", () => {
     expect(
       flashPromoKeyFromDiscounts([
         { uid: "welcome-discount" },
-        { uid: "flash-promo:flash-2026-07-17" },
+        { uid: "flash-promo.flash-2026-07-17" },
       ]),
     ).toBe("flash-2026-07-17");
   });
@@ -61,7 +76,7 @@ describe("flashPromoKeyFromDiscounts", () => {
   });
 
   it("returns null for a bare prefix with no key", () => {
-    expect(flashPromoKeyFromDiscounts([{ uid: "flash-promo:" }])).toBeNull();
+    expect(flashPromoKeyFromDiscounts([{ uid: "flash-promo." }])).toBeNull();
   });
 });
 

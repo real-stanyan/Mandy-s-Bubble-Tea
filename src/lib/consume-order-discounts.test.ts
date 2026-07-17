@@ -160,7 +160,7 @@ describe("consumeOrderDiscounts", () => {
       order({
         id: "O1",
         customerId: "C1",
-        discounts: [{ uid: "flash-promo:flash-2026-07-17" }],
+        discounts: [{ uid: "flash-promo.flash-2026-07-17" }],
         metadata: {},
       }),
     )
