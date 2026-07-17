@@ -136,6 +136,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     loyalty,
     welcomeDiscount,
     igFollowDiscount,
+    flashPromo,
     starsPerReward: authStarsPerReward,
     refresh,
   } = useAuth();
@@ -342,9 +343,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // its free-delivery threshold and the 5% service fee are all computed on
   // this (2026-07-10 rule) — it feeds the quote request below, mirroring
   // the server's math in /api/orders.
-  const totalDiscount =
+  const preFlashDiscount =
     rewardDiscount + welcomeDiscountAmount + igFollowDiscountAmount +
     tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
+  // Flash promo (store-wide one-day %) — sized on what's actually paid for
+  // drinks after every other discount, mirroring the server in /api/orders.
+  const preFlashAfterDiscount =
+    subtotal - preFlashDiscount > 0n ? subtotal - preFlashDiscount : 0n;
+  const flashPromoAmount = flashPromo.available
+    ? (preFlashAfterDiscount * BigInt(flashPromo.percentage)) / 100n
+    : 0n;
+  const totalDiscount = preFlashDiscount + flashPromoAmount;
   const afterDiscount =
     subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
   // Drinks fully covered by a loyalty reward. Since the 2026-07-10 fee rule
@@ -791,6 +800,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         applyWelcomeDiscount:
           welcomeDiscount.available && welcomeDiscountEligible(fulfillment),
         applyIgFollowDiscount: igFollowDiscount.available,
+        applyFlashPromo: flashPromo.available,
         applyLoyaltyReward: rewardCount > 0,
         loyaltyRewardCount: rewardCount,
         fulfillmentType: fulfillment,
@@ -938,7 +948,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
       if (
         paymentJson.welcomeDiscountConsumed ||
-        paymentJson.igFollowDiscountConsumed
+        paymentJson.igFollowDiscountConsumed ||
+        paymentJson.flashPromoConsumed
       ) {
         void refresh();
       }
@@ -1204,6 +1215,21 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                       <span style={{ color: BRAND.primaryColor }}>
                         −{formatPrice(igFollowDiscountAmount)}
+                      </span>
+                    </div>
+                  )}
+                  {flashPromoAmount > 0n && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        Flash Sale {flashPromo.percentage}% Off
+                        <span className="text-xs text-ink3">(today only)</span>
+                      </span>
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(flashPromoAmount)}
                       </span>
                     </div>
                   )}

@@ -1,6 +1,10 @@
 import type { Square } from "square";
 import { consumeWelcomeDiscount } from "@/lib/supabase";
 import { consumeIgFollowDiscount } from "@/lib/ig-follow-discount";
+import {
+  consumeFlashPromo,
+  flashPromoKeyFromDiscounts,
+} from "@/lib/flash-promo";
 import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
 import { brisbaneMonthKey } from "@/lib/membership-tier";
 
@@ -37,5 +41,9 @@ export async function consumeOrderDiscounts(order: Square.Order): Promise<void> 
   if (discounts.some((d) => d.uid === "tier-topping-allowance")) {
     const c = covered(order.metadata?.tierToppingsCovered);
     if (c > 0) await consumeToppingAllowance(customerId, brisbaneMonthKey(), c, orderId);
+  }
+  const flashPromoKey = flashPromoKeyFromDiscounts(discounts);
+  if (flashPromoKey) {
+    await consumeFlashPromo(flashPromoKey, customerId, orderId);
   }
 }

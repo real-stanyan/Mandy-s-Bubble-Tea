@@ -15,6 +15,14 @@ vi.mock("@/lib/tier-toppings-store", () => ({
 vi.mock("@/lib/membership-tier", () => ({
   brisbaneMonthKey: () => "2026-07",
 }))
+const mockFlash = vi.fn()
+vi.mock("@/lib/flash-promo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./flash-promo")>()
+  return {
+    flashPromoKeyFromDiscounts: actual.flashPromoKeyFromDiscounts,
+    consumeFlashPromo: (...a: unknown[]) => mockFlash(...a),
+  }
+})
 
 import { consumeOrderDiscounts } from "./consume-order-discounts"
 
@@ -145,5 +153,29 @@ describe("consumeOrderDiscounts", () => {
     )
     expect(mockWelcome).toHaveBeenCalledWith("C1", "O1", 2)
     expect(mockTopping).toHaveBeenCalledWith("C1", "2026-07", 5, "O1")
+  })
+
+  it("burns the flash promo with the key parsed from the discount uid", async () => {
+    await consumeOrderDiscounts(
+      order({
+        id: "O1",
+        customerId: "C1",
+        discounts: [{ uid: "flash-promo:flash-2026-07-17" }],
+        metadata: {},
+      }),
+    )
+    expect(mockFlash).toHaveBeenCalledWith("flash-2026-07-17", "C1", "O1")
+  })
+
+  it("skips the flash promo burn when no flash discount is attached", async () => {
+    await consumeOrderDiscounts(
+      order({
+        id: "O1",
+        customerId: "C1",
+        discounts: [{ uid: "welcome-discount" }],
+        metadata: { welcomeDiscountDrinksCovered: "1" },
+      }),
+    )
+    expect(mockFlash).not.toHaveBeenCalled()
   })
 })

@@ -3,6 +3,7 @@ import { SquareError } from "square";
 import { getAuthedUser } from "@/lib/auth";
 import { getWelcomeDiscountStatus, purgeAccount } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
+import { getFlashPromoStatus } from "@/lib/flash-promo";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { squareClient } from "@/lib/square";
 import {
@@ -49,6 +50,7 @@ export async function GET(request: Request) {
       loyalty: null,
       welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+      flashPromo: { available: false, key: null, percentage: 0 },
       starsPerReward,
     });
   }
@@ -66,6 +68,7 @@ export async function GET(request: Request) {
       loyalty: null,
       welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
       igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+      flashPromo: { available: false, key: null, percentage: 0 },
       starsPerReward,
     });
   }
@@ -122,6 +125,7 @@ export async function GET(request: Request) {
           loyalty: null,
           welcomeDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
           igFollowDiscount: { available: false, percentage: 0, drinksRemaining: 0 },
+          flashPromo: { available: false, key: null, percentage: 0 },
           starsPerReward,
         });
       }
@@ -131,11 +135,14 @@ export async function GET(request: Request) {
     }
   }
 
-  let [loyaltyAccount, welcomeDiscount, igFollowDiscount] = await Promise.all([
-    findLoyaltyAccountByPhone(user.profile.phone_e164).catch(() => null),
-    getWelcomeDiscountStatus(user.profile.square_customer_id),
-    getIgFollowDiscountStatus(user.profile.square_customer_id),
-  ]);
+  const [initialLoyaltyAccount, welcomeDiscount, igFollowDiscount, flashPromo] =
+    await Promise.all([
+      findLoyaltyAccountByPhone(user.profile.phone_e164).catch(() => null),
+      getWelcomeDiscountStatus(user.profile.square_customer_id),
+      getIgFollowDiscountStatus(user.profile.square_customer_id),
+      getFlashPromoStatus(user.profile.square_customer_id),
+    ]);
+  let loyaltyAccount = initialLoyaltyAccount;
 
   // Self-heal for users who signed up before loyalty enrollment moved
   // into complete-signup. If they never placed an online order, no path
@@ -174,6 +181,7 @@ export async function GET(request: Request) {
       percentage: igFollowDiscount.percentage,
       drinksRemaining: igFollowDiscount.drinksRemaining,
     },
+    flashPromo,
     starsPerReward,
   });
 }

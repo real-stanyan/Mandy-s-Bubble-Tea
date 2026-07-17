@@ -15,6 +15,7 @@ import {
 } from "@/lib/order-metadata";
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
+import { getFlashPromoStatus } from "@/lib/flash-promo";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
@@ -82,6 +83,10 @@ type CreateOrderBody = {
   note?: string;
   applyWelcomeDiscount?: boolean;
   applyIgFollowDiscount?: boolean;
+  /** Store-wide one-day flash promo. Accepted for forward-compat but the
+   *  server auto-applies the promo whenever one is active — old app
+   *  binaries that never send this still get the discount. */
+  applyFlashPromo?: boolean;
   /** Client signals a loyalty reward will fully cover the order. When
    *  true we skip the card surcharge because no card is charged
    *  (payment amount is $0 after reward redemption). Trusted the same
@@ -642,10 +647,67 @@ export async function POST(request: Request) {
       }
     }
 
+    // ---- Flash promo (store-wide, one Brisbane day, one order per customer).
+    // Server-authoritative: the client flag is verified against Supabase
+    // (promo active today AND no redemption row for this customer). Sized on
+    // what the customer actually pays for drinks — welcome/IG/reward/tier/
+    // topping money excluded so the same dollar is never discounted twice.
+    // The promo key rides inside the uid ("flash-promo:<key>") because the
+    // Square metadata budget is already at its 10-entry worst case; the
+    // burn path parses it back out (see consume-order-discounts.ts).
+    let flashDiscounts:
+      | Array<{
+          uid: string;
+          name: string;
+          type: "FIXED_AMOUNT";
+          amountMoney: { amount: bigint; currency: Currency };
+          scope: "ORDER";
+        }>
+      | undefined;
+
+    // Auto-applied (the client flag is NOT required): shipped app binaries
+    // predate this promo and can't send applyFlashPromo, but their charge is
+    // server-computed from the order total, so attaching the discount here
+    // still reaches them — the wallet sheet just shows the pre-discount
+    // amount and Square captures less.
+    if (priceMaps) {
+      try {
+        const flash = await getFlashPromoStatus(customerId);
+        if (flash.available && flash.key) {
+          const otherDiscountsCents = [
+            ...(welcomeDiscounts ?? []),
+            ...(igFollowDiscounts ?? []),
+            ...(tierDiscounts ?? []),
+          ].reduce((s, d) => s + d.amountMoney.amount, 0n);
+          let base =
+            drinksSubtotalCents - otherDiscountsCents - rewardCupsSumCents;
+          if (base < 0n) base = 0n;
+          const amount = (base * BigInt(flash.percentage)) / 100n;
+          if (amount > 0n) {
+            flashDiscounts = [
+              {
+                uid: `flash-promo:${flash.key}`,
+                name: `Flash Sale ${flash.percentage}% Off`,
+                type: "FIXED_AMOUNT",
+                amountMoney: { amount, currency: BUSINESS.currency as Currency },
+                scope: "ORDER",
+              },
+            ];
+          }
+        }
+      } catch (flashError) {
+        console.error(
+          "[orders] flash promo skipped:",
+          flashError instanceof Error ? flashError.message : flashError,
+        );
+      }
+    }
+
     const allDiscounts = [
       ...(welcomeDiscounts ?? []),
       ...(igFollowDiscounts ?? []),
       ...(tierDiscounts ?? []),
+      ...(flashDiscounts ?? []),
     ];
 
     // Note: loyalty rewards are NOT attached here. Square's order

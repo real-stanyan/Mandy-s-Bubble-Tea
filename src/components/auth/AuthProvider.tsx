@@ -54,6 +54,12 @@ export type IgFollowDiscountInfo = {
   drinksRemaining: number;
 };
 
+export type FlashPromoInfo = {
+  available: boolean;
+  key: string | null;
+  percentage: number;
+};
+
 export type MeResponse = {
   ok: true;
   authed: boolean;
@@ -63,6 +69,7 @@ export type MeResponse = {
   loyalty: LoyaltyInfo | null;
   welcomeDiscount: WelcomeDiscountInfo;
   igFollowDiscount: IgFollowDiscountInfo;
+  flashPromo?: FlashPromoInfo;
   starsPerReward: number;
 };
 
@@ -73,6 +80,7 @@ type AuthContextValue = {
   loyalty: LoyaltyInfo | null;
   welcomeDiscount: WelcomeDiscountInfo;
   igFollowDiscount: IgFollowDiscountInfo;
+  flashPromo: FlashPromoInfo;
   starsPerReward: number;
   loading: boolean;
   signInWithApple: (redirectTo?: string) => Promise<void>;
@@ -108,6 +116,12 @@ const DEFAULT_IG_FOLLOW: IgFollowDiscountInfo = {
   available: false,
   percentage: 0,
   drinksRemaining: 0,
+};
+
+const DEFAULT_FLASH_PROMO: FlashPromoInfo = {
+  available: false,
+  key: null,
+  percentage: 0,
 };
 
 // Rewrites Supabase auth errors to friendly copy when the failure is
@@ -152,6 +166,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useState<WelcomeDiscountInfo>(DEFAULT_WELCOME);
   const [igFollowDiscount, setIgFollowDiscount] =
     useState<IgFollowDiscountInfo>(DEFAULT_IG_FOLLOW);
+  const [flashPromo, setFlashPromo] =
+    useState<FlashPromoInfo>(DEFAULT_FLASH_PROMO);
   const [starsPerReward, setStarsPerReward] = useState(9);
   const [loading, setLoading] = useState(true);
 
@@ -181,6 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoyalty(null);
           setWelcomeDiscount(DEFAULT_WELCOME);
           setIgFollowDiscount(DEFAULT_IG_FOLLOW);
+          setFlashPromo(DEFAULT_FLASH_PROMO);
           setStarsPerReward(json.starsPerReward);
           return;
         }
@@ -188,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoyalty(json.loyalty);
         setWelcomeDiscount(json.welcomeDiscount);
         setIgFollowDiscount(json.igFollowDiscount ?? DEFAULT_IG_FOLLOW);
+        setFlashPromo(json.flashPromo ?? DEFAULT_FLASH_PROMO);
         setStarsPerReward(json.starsPerReward);
       } catch {
         // Non-fatal — leave state untouched.
@@ -376,6 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loyalty,
       welcomeDiscount,
       igFollowDiscount,
+      flashPromo,
       starsPerReward,
       loading,
       signInWithApple,
@@ -394,6 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loyalty,
       welcomeDiscount,
       igFollowDiscount,
+      flashPromo,
       starsPerReward,
       loading,
       signInWithApple,
