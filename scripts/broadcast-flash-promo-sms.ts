@@ -17,8 +17,12 @@
 // (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN come from .env.local;
 //  TWILIO_FROM defaults to the MandysTea alpha sender, override if needed)
 import { createClient } from "@supabase/supabase-js";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const APPLY = process.argv.includes("--apply");
+// Ledger of already-sent numbers — makes reruns resume instead of
+// double-sending if the process dies mid-broadcast.
+const LEDGER = "scripts/.flash-promo-sms-sent.log";
 const limitIdx = process.argv.indexOf("--limit");
 const LIMIT =
   limitIdx > -1 ? parseInt(process.argv[limitIdx + 1] ?? "", 10) : Infinity;
@@ -92,9 +96,19 @@ async function sendOne(to: string): Promise<{ ok: boolean; detail: string }> {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const phones = TO_OVERRIDE
-    ? [TO_OVERRIDE]
-    : (await allPhones()).slice(0, Number.isFinite(LIMIT) ? LIMIT : undefined);
+  const alreadySent = new Set(
+    existsSync(LEDGER)
+      ? readFileSync(LEDGER, "utf8").split("\n").filter(Boolean)
+      : [],
+  );
+  const phones = (
+    TO_OVERRIDE
+      ? [TO_OVERRIDE]
+      : (await allPhones()).slice(0, Number.isFinite(LIMIT) ? LIMIT : undefined)
+  ).filter((p) => !alreadySent.has(p));
+  if (alreadySent.size > 0) {
+    console.log(`ledger: skipping ${alreadySent.size} already-sent numbers`);
+  }
   console.log(
     `${phones.length} recipients` +
       `\nmessage (${MESSAGE.length} chars): ${MESSAGE}` +
@@ -109,15 +123,19 @@ async function main() {
   let failed = 0;
   for (const to of phones) {
     const r = await sendOne(to);
-    if (r.ok) sent++;
-    else {
+    if (r.ok) {
+      sent++;
+      appendFileSync(LEDGER, to + "\n");
+    } else {
       failed++;
       console.warn(`FAILED ${to}: ${r.detail}`);
     }
     if ((sent + failed) % 25 === 0) {
       console.log(`progress: ${sent + failed}/${phones.length}`);
     }
-    await sleep(1100); // ~1 msg/s — default Twilio long-code throughput
+    // Submission pacing only — Twilio's sender queue meters actual
+    // delivery, and 2h+ of queue headroom covers this batch size.
+    await sleep(500);
   }
   console.log(`done: ${sent} sent, ${failed} failed`);
 }
