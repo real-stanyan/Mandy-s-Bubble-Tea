@@ -11,6 +11,7 @@ import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
 import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
 import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
+import { AppPromoModal } from "@/components/checkout/AppPromoModal";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 
 export const dynamic = "force-dynamic";
@@ -429,6 +430,10 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           </Link>
         </div>
       </div>
+
+      {/* Post-payment App download prompt — only fires when armed by
+          checkout (sessionStorage), so history revisits stay quiet. */}
+      <AppPromoModal orderId={orderId} />
     </main>
   );
 }

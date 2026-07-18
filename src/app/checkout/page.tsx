@@ -35,6 +35,7 @@ import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
+import { markJustPaidForAppPromo } from "@/components/checkout/AppPromoModal";
 import { OrderBlockedDialog } from "@/components/checkout/OrderBlockedDialog";
 import { classifyOrderBlock, type OrderBlock } from "@/lib/checkout/order-block";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
@@ -964,6 +965,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       // this one.
       clearOrderNonce();
       clear();
+      // Arm the one-shot App promo modal on the confirmation page.
+      markJustPaidForAppPromo(orderJson.orderId);
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
       const described = describeError(err);
