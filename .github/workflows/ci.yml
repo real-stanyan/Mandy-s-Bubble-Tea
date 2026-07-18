@@ -1,0 +1,40 @@
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The offline vitest suite includes wallet-signing tests that read Apple
+      # Pass / APNS crypto material from .env.test (gitignored). CI gets it from
+      # a single GitHub Actions secret holding the whole .env.test file body.
+      # Add it once: Settings → Secrets and variables → Actions → TEST_ENV_FILE
+      # (paste the contents of your local .env.test). Until then, ~13 wallet
+      # tests fail in CI. See docs/adr/0011.
+      - name: Write offline test env
+        env:
+          TEST_ENV_FILE: ${{ secrets.TEST_ENV_FILE }}
+        run: |
+          if [ -n "$TEST_ENV_FILE" ]; then
+            printf '%s' "$TEST_ENV_FILE" > .env.test
+            echo "Wrote .env.test from TEST_ENV_FILE secret."
+          else
+            echo "::warning::TEST_ENV_FILE secret not set — wallet-signing tests will fail. See docs/adr/0011."
+          fi
+
+      # IMPORTANT: keep these three identical to the Gate section in AGENTS.md.
+      # That sameness is the contract that lets CI enforce what agents promise.
+      - run: npm test
+      - run: npm run lint
+      - run: npx tsc --noEmit

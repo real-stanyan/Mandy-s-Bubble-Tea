@@ -1,5 +1,12 @@
 import { getSupabaseAdmin } from "@/lib/supabase-server";
-import { PrintsTable } from "./table";
+import { PrintsTable, type Job } from "./table";
+
+type Heartbeat = {
+  device_id: string;
+  last_seen_at: string;
+  printer_status: string;
+  pending_count: number;
+};
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +39,7 @@ export default async function AdminPrintsPage() {
       <div className="mb-6">
         <h2 className="text-lg font-semibold mb-2">Devices</h2>
         <ul className="space-y-1 text-sm">
-          {(heartbeatResult.data ?? []).map((h: any) => {
+          {((heartbeatResult.data ?? []) as Heartbeat[]).map((h) => {
             const ageSec = Math.round((Date.now() - new Date(h.last_seen_at).getTime()) / 1000);
             const healthy = ageSec < 120;
             return (
@@ -43,7 +50,7 @@ export default async function AdminPrintsPage() {
           })}
         </ul>
       </div>
-      <PrintsTable jobs={(jobsResult.data ?? []) as any} />
+      <PrintsTable jobs={(jobsResult.data ?? []) as unknown as Job[]} />
     </div>
   );
 }

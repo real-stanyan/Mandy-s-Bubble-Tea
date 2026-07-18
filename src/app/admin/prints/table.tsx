@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 
-type Job = {
+export type Job = {
   id: string;
   square_order_id: string;
   source: string;

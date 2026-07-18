@@ -72,7 +72,7 @@ describe("pickDuplicateOrder", () => {
   });
 
   it("returns the first match and tolerates missing fields", () => {
-    expect(pickDuplicateOrder([{}, mk({})], HASH, within, now)?.id).toBe("O1");
+    expect(pickDuplicateOrder([{} as ReturnType<typeof mk>, mk({})], HASH, within, now)?.id).toBe("O1");
     expect(pickDuplicateOrder([], HASH, within, now)).toBeNull();
   });
 });

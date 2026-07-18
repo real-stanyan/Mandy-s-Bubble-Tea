@@ -400,7 +400,7 @@ export async function enqueueCupLabelJobs({
       // the Mandy logo, then to the hash-seeded POOL.svg preset. Used
       // everywhere a primary source fails (user-doodle download error,
       // gallery sticker missing, AI image lost, …).
-      const useDefaultFallback = async (): Promise<void> => {
+      const applyDefaultFallback = async (): Promise<void> => {
         if (await drawLuckyCat()) return;
         if (drawLogo()) return;
         const pool = pickPool();
@@ -414,7 +414,7 @@ export async function enqueueCupLabelJobs({
       // POS mode short-circuits the whole doodle resolution chain —
       // there's no app, no user choice. Each cup gets a random lucky cat.
       if (mode === "pos") {
-        await useDefaultFallback();
+        await applyDefaultFallback();
       } else if (presetStickerHash) {
         // Gallery sticker — may be a committed PNG (builtin) or an admin-uploaded
         // image in the Supabase bucket. resolvePresetBuffer picks the right source.
@@ -427,7 +427,7 @@ export async function enqueueCupLabelJobs({
           keepsakeEligible = true;
         } catch (e) {
           console.error("[cup-label] preset sticker load failed, falling back", { hash: presetStickerHash, error: e instanceof Error ? e.message : e });
-          await useDefaultFallback();
+          await applyDefaultFallback();
         }
       } else if (aiDoodleId && userId) {
         try {
@@ -471,7 +471,7 @@ export async function enqueueCupLabelJobs({
           }
         } catch (e) {
           console.error("[cup-label] ai doodle load failed, falling back", e);
-          await useDefaultFallback();
+          await applyDefaultFallback();
         }
       } else if (userDoodleId && userId) {
         try {
@@ -482,12 +482,12 @@ export async function enqueueCupLabelJobs({
           keepsakeEligible = true;
         } catch (e) {
           console.error("[cup-label] user doodle load failed, falling back", e);
-          await useDefaultFallback();
+          await applyDefaultFallback();
         }
       } else {
         // No customer choice on this slot — auto-fill via a random lucky
         // cat (or logo / POOL.svg if the deck is unavailable). Mirrors POS.
-        await useDefaultFallback();
+        await applyDefaultFallback();
       }
 
       orderCupSeq++;

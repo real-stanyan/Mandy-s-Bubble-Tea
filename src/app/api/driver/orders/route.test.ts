@@ -5,8 +5,8 @@ vi.mock("@/lib/square", () => ({
   squareClient: { orders: { search: (...a: unknown[]) => mockSearch(...a) } },
   SQUARE_LOCATION_ID: "L1",
 }))
-const mockGetFixes = vi.fn()
-const mockGetAccepted = vi.fn(async () => new Set<string>())
+const mockGetFixes = vi.fn<(...a: unknown[]) => unknown>()
+const mockGetAccepted = vi.fn<(...a: unknown[]) => Promise<Set<string>>>(async () => new Set<string>())
 vi.mock("@/lib/driver-tokens", () => ({
   getDriverFixesForOrders: (...a: unknown[]) => mockGetFixes(...a),
   getAcceptedOrderIds: (...a: unknown[]) => mockGetAccepted(...a),

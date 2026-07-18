@@ -72,7 +72,7 @@ export type BinarizeOptions = {
 // tested v2 / v2.1 against v1 on three different photos and chose v1
 // as "most natural" for thermal output). v2 stays in tree as an opt-in
 // experiment via BINARIZE_PIPELINE=v2 for future tinkering.
-function useV2(): boolean {
+function isV2Enabled(): boolean {
   return process.env.BINARIZE_PIPELINE === "v2";
 }
 
@@ -212,6 +212,6 @@ export async function binarizeForThermal(
   rawImage: Buffer,
   opts: BinarizeOptions,
 ): Promise<Buffer> {
-  if (useV2()) return binarizeForThermalV2(rawImage, opts);
+  if (isV2Enabled()) return binarizeForThermalV2(rawImage, opts);
   return binarizeForThermalV1(rawImage, opts);
 }
