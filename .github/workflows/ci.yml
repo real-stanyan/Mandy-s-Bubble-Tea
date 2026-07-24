@@ -28,7 +28,7 @@ jobs:
       # a single GitHub Actions secret holding the whole .env.test file body.
       # Add it once: Settings → Secrets and variables → Actions → TEST_ENV_FILE
       # (paste the contents of your local .env.test). Until then, ~13 wallet
-      # tests fail in CI. See docs/adr/0011.
+      # tests fail in CI. See docs/adr/0001.
       - name: Write offline test env
         env:
           TEST_ENV_FILE: ${{ secrets.TEST_ENV_FILE }}
@@ -37,7 +37,7 @@ jobs:
             printf '%s' "$TEST_ENV_FILE" > .env.test
             echo "Wrote .env.test from TEST_ENV_FILE secret."
           else
-            echo "::warning::TEST_ENV_FILE secret not set — wallet-signing tests will fail. See docs/adr/0011."
+            echo "::warning::TEST_ENV_FILE secret not set — wallet-signing tests will fail. See docs/adr/0001."
           fi
 
       # IMPORTANT: keep these three identical to the Gate section in AGENTS.md.

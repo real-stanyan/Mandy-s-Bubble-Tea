@@ -1,4 +1,6 @@
-# ADR-0011: 本 repo 的 Gate = vitest + eslint + tsc；lint 作用域与 advisory 规则处置
+# ADR-0001: 本 repo 的 Gate = vitest + eslint + tsc；lint 作用域与 advisory 规则处置
+
+> 原编号 ADR-0011（协议 ADR 与项目 ADR 同目录时代）；ADR-0031 双目录拆分后，作为本项目首个自有决策重编号为 0001。
 
 - Date: 2026-07-18
 - Status: accepted
