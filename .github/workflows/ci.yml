@@ -16,6 +16,13 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # printer-client/ is its own npm package; `npx tsc --noEmit` type-checks
+      # it too (root tsconfig includes **/*.ts), so its deps must be present.
+      # --ignore-scripts skips the `usb` native build — type-checking only
+      # needs the type declarations, not a working libusb binding.
+      - run: npm ci --ignore-scripts
+        working-directory: printer-client
+
       # The offline vitest suite includes wallet-signing tests that read Apple
       # Pass / APNS crypto material from .env.test (gitignored). CI gets it from
       # a single GitHub Actions secret holding the whole .env.test file body.
