@@ -16,6 +16,7 @@ import {
 import { nextOnlineOrderNumber, getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { getFlashPromoStatus, flashPromoUid } from "@/lib/flash-promo";
+import { getAppDownloadDiscountStatus } from "@/lib/app-download-discount";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
@@ -715,11 +716,74 @@ export async function POST(request: Request) {
       }
     }
 
+    // ---- App-download promo (claim-gated per phone, one order, whole-order %).
+    // EXCLUSIVE + better-of, same lane as flash: replaces the entire discount
+    // set (bundle OR flash — whichever survived above) when it's worth more.
+    // Auto-applied server-side — the grant is keyed by the signed-in customer's
+    // phone (recipientPhone), verified here, so no trusted client flag is needed
+    // and old app binaries still get it. Priced off AUTHORITATIVE catalog money
+    // (drinksSubtotalCents), never client prices; skipped if the menu fetch
+    // failed (priceMaps null), same fail-safe as the promos above.
+    let appDownloadDiscounts:
+      | Array<{
+          uid: string;
+          name: string;
+          type: "FIXED_AMOUNT";
+          amountMoney: { amount: bigint; currency: Currency };
+          scope: "ORDER";
+        }>
+      | undefined;
+
+    if (priceMaps) {
+      try {
+        const appDl = await getAppDownloadDiscountStatus(recipientPhone);
+        if (appDl.available) {
+          const otherDiscountsCents = [
+            ...(welcomeDiscounts ?? []),
+            ...(igFollowDiscounts ?? []),
+            ...(tierDiscounts ?? []),
+            ...(flashDiscounts ?? []),
+          ].reduce((s, d) => s + d.amountMoney.amount, 0n);
+          let base = drinksSubtotalCents - rewardCupsSumCents;
+          if (base < 0n) base = 0n;
+          const amount = (base * BigInt(appDl.percentage || 20)) / 100n;
+          if (amount > 0n && amount > otherDiscountsCents) {
+            appDownloadDiscounts = [
+              {
+                uid: "app-download-discount",
+                name: `App Download ${appDl.percentage || 20}% Off`,
+                type: "FIXED_AMOUNT",
+                amountMoney: { amount, currency: BUSINESS.currency as Currency },
+                scope: "ORDER",
+              },
+            ];
+            // Exclusive: replace the whole bundle + flash. Zero the covered
+            // counts too so the order metadata never claims a discount that
+            // isn't attached (the burn paths gate on the discount uid, but the
+            // metadata must not lie).
+            welcomeDiscounts = undefined;
+            igFollowDiscounts = undefined;
+            tierDiscounts = undefined;
+            flashDiscounts = undefined;
+            welcomeDrinksCovered = 0;
+            igFollowDrinksCovered = 0;
+            tierToppingsCovered = 0;
+          }
+        }
+      } catch (appDlError) {
+        console.error(
+          "[orders] app-download promo skipped:",
+          appDlError instanceof Error ? appDlError.message : appDlError,
+        );
+      }
+    }
+
     const allDiscounts = [
       ...(welcomeDiscounts ?? []),
       ...(igFollowDiscounts ?? []),
       ...(tierDiscounts ?? []),
       ...(flashDiscounts ?? []),
+      ...(appDownloadDiscounts ?? []),
     ];
 
     // Note: loyalty rewards are NOT attached here. Square's order

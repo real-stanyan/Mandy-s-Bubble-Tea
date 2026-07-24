@@ -5,6 +5,10 @@ import {
   consumeFlashPromo,
   flashPromoKeyFromDiscounts,
 } from "@/lib/flash-promo";
+import {
+  consumeAppDownloadDiscount,
+  appDownloadPhoneFromOrder,
+} from "@/lib/app-download-discount";
 import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
 import { brisbaneMonthKey } from "@/lib/membership-tier";
 
@@ -45,5 +49,13 @@ export async function consumeOrderDiscounts(order: Square.Order): Promise<void> 
   const flashPromoKey = flashPromoKeyFromDiscounts(discounts);
   if (flashPromoKey) {
     await consumeFlashPromo(flashPromoKey, customerId, orderId);
+  }
+  // App-download promo is phone-keyed (claimed on the web before the customer
+  // existed), so it burns by the order's fulfillment recipient phone, not the
+  // customer id. Idempotent one-shot — safe if the payment route already burned
+  // it on a pickup order that later re-runs here.
+  if (discounts.some((d) => d.uid === "app-download-discount")) {
+    const phone = appDownloadPhoneFromOrder(order);
+    if (phone) await consumeAppDownloadDiscount(phone, orderId, customerId);
   }
 }
