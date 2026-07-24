@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BRAND, LOYALTY, FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { APP_DOWNLOAD_DISMISS_KEY } from "@/components/home/AppDownloadPopup";
 
 // Guest welcome popup (shown only to logged-out visitors). When the
 // fragrance blind-box campaign is live it leads with the activity as a
@@ -26,8 +27,22 @@ export function LoyaltyPopup() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!loading && !profile) setVisible(true);
-    else setVisible(false);
+    if (loading || profile) {
+      setVisible(false);
+      return;
+    }
+    // Yield to the app-download campaign popup: while it's still eligible
+    // (logged-out visitor who hasn't dismissed/claimed it), stay hidden so
+    // logged-out visitors never see two popups at once. Once it's dismissed,
+    // this falls back in on subsequent loads.
+    let appDownloadPending = true;
+    try {
+      appDownloadPending =
+        localStorage.getItem(APP_DOWNLOAD_DISMISS_KEY) !== "1";
+    } catch {
+      appDownloadPending = false;
+    }
+    setVisible(!appDownloadPending);
   }, [loading, profile]);
 
   if (!visible) return null;

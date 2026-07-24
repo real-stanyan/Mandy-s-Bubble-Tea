@@ -5,6 +5,7 @@ import { getMenu, type MenuItem } from "@/lib/catalog";
 import { FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
+import { AppDownloadPopup } from "@/components/home/AppDownloadPopup";
 import { OrderModePopup } from "@/components/home/OrderModePopup";
 import { HeroCup } from "@/components/home/HeroCup";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
@@ -96,6 +97,7 @@ export default async function Home() {
       <Featured items={featured} />
       <StoryTeaser />
       <AppPromo />
+      <AppDownloadPopup />
       <LoyaltyPopup />
       <OrderModePopup />
     </div>
