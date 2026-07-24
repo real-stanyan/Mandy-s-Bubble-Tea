@@ -11,6 +11,10 @@ import {
   consumeFlashPromo,
   flashPromoKeyFromDiscounts,
 } from "@/lib/flash-promo";
+import {
+  consumeAppDownloadDiscount,
+  appDownloadPhoneFromOrder,
+} from "@/lib/app-download-discount";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
@@ -203,6 +207,7 @@ export async function POST(request: Request) {
         igFollowDiscountConsumed: false,
         igFollowDrinksRemaining: null,
         flashPromoConsumed: false,
+        appDownloadConsumed: false,
         payment: null,
       });
     }
@@ -577,6 +582,25 @@ export async function POST(request: Request) {
       flashPromoConsumed = result.consumedCount > 0;
     }
 
+    // App-download promo: phone-keyed one-shot burn (claimed on the web before
+    // this customer existed), settled-only like the others. The phone comes off
+    // the order's fulfillment recipient, not the customer id.
+    let appDownloadConsumed = false;
+    const hadAppDownloadDiscount = (order.discounts ?? []).some(
+      (d) => d.uid === "app-download-discount",
+    );
+    if (paymentSettled && hadAppDownloadDiscount) {
+      const phone = appDownloadPhoneFromOrder(order);
+      if (phone) {
+        const result = await consumeAppDownloadDiscount(
+          phone,
+          body.orderId,
+          customerId,
+        );
+        appDownloadConsumed = result.consumedCount > 0;
+      }
+    }
+
     // Consume diamond free-topping quota only when payment settled — same
     // policy as welcome/IG: a failed charge must not burn the allowance.
     const hadTierToppingAllowance = (order.discounts ?? []).some(
@@ -610,6 +634,7 @@ export async function POST(request: Request) {
       igFollowDiscountConsumed: igFollowDiscountConsumedCount > 0,
       igFollowDrinksRemaining,
       flashPromoConsumed,
+      appDownloadConsumed,
       payment: paymentForResponse,
     });
   } catch (error) {
