@@ -25,8 +25,10 @@ describe("thumbUrlFor override", () => {
     expect(thumbUrlFor({ hash: "abc", source: "builtin", kind: "gallery", hasOverride: true }))
       .toBe("https://buck/abc/binarized.png");
   });
-  it("upload → bucket color.png (override ignored)", () => {
+  it("upload → bucket binarized.png (WYSIWYG print effect; override ignored)", () => {
+    // Upload thumbnails show the binarized print image (what prints on the cup),
+    // not the colour source — see feat(gallery) fa41785a.
     expect(thumbUrlFor({ hash: "up", source: "upload", hasOverride: true }))
-      .toBe("https://buck/up/color.png");
+      .toBe("https://buck/up/binarized.png");
   });
 });

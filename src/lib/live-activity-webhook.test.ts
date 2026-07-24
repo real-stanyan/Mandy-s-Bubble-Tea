@@ -12,6 +12,14 @@ vi.mock("@/lib/live-activity", () => ({
   sendLiveActivityStatusPush: (...a: unknown[]) => mockSendStatusPush(...a),
 }))
 
+// Android ongoing-card mirror is a separate concern (fires before the LA token
+// gate, fetches the order independently — Android devices have no LA token).
+// Stub it out so these tests isolate the Live Activity path. See order-card-push.
+const mockOrderCardPush = vi.fn()
+vi.mock("./order-card-push", () => ({
+  sendOrderCardPushForFulfillment: (...a: unknown[]) => mockOrderCardPush(...a),
+}))
+
 import {
   pickFulfillmentTransition,
   handleLiveActivityFulfillment,
