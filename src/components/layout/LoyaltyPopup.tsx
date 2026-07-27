@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BRAND, LOYALTY, FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { APP_DOWNLOAD_DISMISS_KEY } from "@/components/home/AppDownloadPopup";
+import { useAppDownloadPopupEligibility } from "@/hooks/use-app-download-popup-eligibility";
 
 // Guest welcome popup (shown only to logged-out visitors). When the
 // fragrance blind-box campaign is live it leads with the activity as a
@@ -24,6 +24,7 @@ const PEACH = "linear-gradient(120deg, #FFB380 0%, #FFCFA3 52%, #FFF3DE 100%)";
 
 export function LoyaltyPopup() {
   const { profile, loading } = useAuth();
+  const appDownload = useAppDownloadPopupEligibility();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -31,19 +32,12 @@ export function LoyaltyPopup() {
       setVisible(false);
       return;
     }
-    // Yield to the app-download campaign popup: while it's still eligible
-    // (logged-out visitor who hasn't dismissed/claimed it), stay hidden so
-    // logged-out visitors never see two popups at once. Once it's dismissed,
-    // this falls back in on subsequent loads.
-    let appDownloadPending = true;
-    try {
-      appDownloadPending =
-        localStorage.getItem(APP_DOWNLOAD_DISMISS_KEY) !== "1";
-    } catch {
-      appDownloadPending = false;
-    }
-    setVisible(!appDownloadPending);
-  }, [loading, profile]);
+    // Yield to the app-download campaign popup so a visitor never sees two at
+    // once. "pending" also yields — showing this one and then having the
+    // campaign popup land on top of it is worse than waiting. Once the
+    // campaign popup is dismissed this falls back in on subsequent loads.
+    setVisible(appDownload === "ineligible");
+  }, [loading, profile, appDownload]);
 
   if (!visible) return null;
 

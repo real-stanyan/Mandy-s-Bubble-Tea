@@ -4,20 +4,28 @@ import { useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/constants";
 import { isPhoneValid } from "@/lib/auth-format";
 import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  APP_DOWNLOAD_DISMISS_KEY,
+  useAppDownloadPopupEligibility,
+} from "@/hooks/use-app-download-popup-eligibility";
 
-// Campaign popup (logged-out visitors): "Download the app, get 20% off your
-// first order." Collects a phone number and POSTs to the app-download claim
-// route — the grant is minted against that phone, and resolves automatically
-// when the visitor later signs into the app with the same number (no install
-// attribution; see mandys_bubble_tea docs/adr/0002). Shown once per visitor
-// (localStorage), so returning visitors fall back to the loyalty popup.
+// Campaign popup: "Download the app, get 20% off your first order." Collects a
+// phone number and POSTs to the app-download claim route — the grant is minted
+// against that phone, and resolves automatically when the visitor later signs
+// into the app with the same number (no install attribution; see
+// mandys_bubble_tea docs/adr/0002). Shown once per visitor (localStorage), so
+// returning visitors fall back to the loyalty popup.
+//
+// Signed-in visitors get it too: having a website account says nothing about
+// whether you have the app, and the campaign is about the app. The only people
+// it skips are those who already hold or already spent a grant — re-offering
+// "20% off your first order" to them is noise. That check is only possible
+// when signed in (the grant resolves from the session's phone), so signed-out
+// visitors always see it once.
 
 const APP_STORE_URL =
   "https://apps.apple.com/au/app/mandys-bubble-tea/id6762111842";
 
-// Namespaced with the house `mbt:` prefix (cf. WelcomeDiscountBanner). Set on
-// dismiss OR successful claim so the popup never nags a visitor twice.
-export const APP_DOWNLOAD_DISMISS_KEY = "mbt:app-download:dismissed";
 const REVEAL_DELAY_MS = 900;
 
 function usePrefersReducedMotion(): boolean {
@@ -35,7 +43,8 @@ function usePrefersReducedMotion(): boolean {
 type ClaimState = "form" | "submitting" | "done";
 
 export function AppDownloadPopup() {
-  const { profile, loading } = useAuth();
+  const { profile } = useAuth();
+  const eligibility = useAppDownloadPopupEligibility();
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [phone, setPhone] = useState("");
@@ -44,23 +53,25 @@ export function AppDownloadPopup() {
   const reduce = usePrefersReducedMotion();
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Eligible = logged out, not previously dismissed/claimed. Reveal after a
-  // short delay so it doesn't slam the page on first paint.
+  // Prefill the number we already know, so a signed-in visitor doesn't type a
+  // different one by hand and mint the grant against a phone they'll never
+  // sign into the app with. `profile.phone_e164` is E.164; the field renders
+  // its own +61 prefix, so hand it the national part.
   useEffect(() => {
-    if (loading || profile) return;
-    let dismissed = false;
-    try {
-      dismissed = localStorage.getItem(APP_DOWNLOAD_DISMISS_KEY) === "1";
-    } catch {
-      // Private mode / storage blocked — treat as not dismissed; worst case
-      // the visitor sees the popup again next load.
-    }
-    if (dismissed) return;
+    const e164 = profile?.phone_e164;
+    if (!e164) return;
+    setPhone((current) => (current ? current : `0${e164.replace(/^\+61/, "")}`));
+  }, [profile]);
+
+  // Reveal after a short delay so it doesn't slam the page on first paint.
+  // "pending" waits rather than showing and retracting.
+  useEffect(() => {
+    if (eligibility !== "eligible") return;
     revealTimer.current = setTimeout(() => setVisible(true), REVEAL_DELAY_MS);
     return () => {
       if (revealTimer.current) clearTimeout(revealTimer.current);
     };
-  }, [loading, profile]);
+  }, [eligibility]);
 
   // Entrance: flip `mounted` a frame after the node is in the tree so the
   // opacity/scale transition actually runs.
