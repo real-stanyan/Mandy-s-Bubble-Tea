@@ -53,6 +53,26 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **本项目自己的**架构性决策写 `docs/adr/`（一个决策一个文件，独立编号——0001 = Gate 决策，下一个从 0002 起）；协议 ADR 在 `docs/gearbox-adr/`，由 gearbox 工具管理，禁手改（ADR-0031）
 - 业务术语的定义查 `CONTEXT.md`；新术语出现时补进去
 
+### Supabase migration 的 apply（本项目 ADR-0004）
+
+只有一个 Supabase 项目，dev 和 prod 共用，没有 staging。**禁用 `supabase db push`**——远端没有 `schema_migrations` 历史，push 会尝试全部 41 个文件，其中多数已手工执行过且并非都幂等。
+
+一次只 apply 一个文件，走 Management API，前后各核验一次：
+
+```bash
+supabase link --project-ref fsvtwivogyebugqhmjjy --yes
+supabase db query --linked "select to_regclass('public.<table>')"   # 之前
+supabase db query --linked -f supabase/migrations/<file>.sql        # 执行
+supabase db query --linked "select to_regclass('public.<table>')"   # 之后
+```
+
+前后核验不是可选项：没有远端历史表，这是「该 migration 确实需要跑」和「确实跑成了」的唯一证据。migration 文件必须幂等，且必须有个可查的对象名。
+
+agent 对生产库的权限，按**可逆性**分：
+
+- **可自主执行**：加性 DDL（`create table if not exists` / `create or replace function` / `add column` / `create index`），以及删除自己为测试而建的行（要在汇报里说明）
+- **需 Stan 明确同意**：`drop` / `alter column type` / `truncate`，以及对真实数据的 `update` / `delete`
+
 ### Issue & PR 的角色
 
 Issues 和 PR 是 agent 之间（以及 agent ↔ 人之间）带时间戳、append-only、不腐烂的会话载体。在本协议里有**三个不重叠的角色**——每个 issue/PR 都该能归入其中一类：
@@ -159,7 +179,7 @@ CI（`.github/workflows/ci.yml`）跑同一套命令，红了不许 merge。CI �
 
 - `CONTEXT.md` — 领域词汇表（loyalty stars / tier / cup-label / promo 等术语）
 - `docs/gearbox-adr/` — 协议 ADR（0001~0049，随 Gearbox 回填，工具管理，禁手改，ADR-0031）
-- `docs/adr/` — 本项目自己的决策（独立编号从 0001 起；0001 = Gate 决策）
+- `docs/adr/` — 本项目自己的决策（独立编号从 0001 起；0001 = Gate、0002 = app-download 折扣、0003 = 结账页客户端镜像、0004 = migration apply 流程）
 - `.gearbox-version` — 协议版本戳（工具读写，人不维护，ADR-0023）
 - `docs/agents/` — issue tracker（`issue-tracker.md`）、triage labels（`triage-labels.md`）、domain 文档消费约定（`domain.md`）
 - `.claude/*.md` — 模块深挖文档：`square-api.md`（Square client / BigInt / 错误处理）、`catalog.md`、`cart-checkout.md`、`payment.md`、`loyalty.md`（stars / 9 星换免单）、`account.md`、`deployment.md`
