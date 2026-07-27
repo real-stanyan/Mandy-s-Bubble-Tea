@@ -29,6 +29,7 @@ import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
+import { useAppDownloadStatus } from "@/hooks/use-app-download-status";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
@@ -140,6 +141,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     starsPerReward: authStarsPerReward,
     refresh,
   } = useAuth();
+  // Parent gates this component on a signed-in profile, so the fetch is
+  // always authenticated — no `enabled` flag needed here.
+  const appDownloadPromo = useAppDownloadStatus();
   if (!profile) {
     // Should never happen — parent gates this. But TS can't prove it.
     throw new Error("CheckoutSignedIn rendered without profile");
@@ -356,9 +360,27 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     ? (flashBase * BigInt(flashPromo.percentage)) / 100n
     : 0n;
   const flashWins = flashCandidate > otherPromoDiscount;
-  const flashPromoAmount = flashWins ? flashCandidate : 0n;
+
+  // App-download promo (per-phone claim, whole-order %) is EXCLUSIVE and sits
+  // one lane ABOVE flash: it replaces whichever discount survived — flash OR
+  // the welcome/IG/tier bundle — when it's worth more. Mirrors the server's
+  // pick in /api/orders, on the same base as flash. The grant is resolved
+  // server-side from the signed-in profile's phone, so nothing is sent from
+  // here; this is display only, and the charged amount still comes from the
+  // created order's own total.
+  const appDownloadCandidate = appDownloadPromo.available
+    ? (flashBase * BigInt(appDownloadPromo.percentage)) / 100n
+    : 0n;
+  const survivingPromo = flashWins ? flashCandidate : otherPromoDiscount;
+  const appDownloadWins =
+    appDownloadCandidate > 0n && appDownloadCandidate > survivingPromo;
+  const appDownloadAmount = appDownloadWins ? appDownloadCandidate : 0n;
+  // True when either exclusive promo replaced the welcome/IG/tier bundle.
+  const bundleReplaced = flashWins || appDownloadWins;
+
+  const flashPromoAmount = flashWins && !appDownloadWins ? flashCandidate : 0n;
   const totalDiscount =
-    rewardDiscount + (flashWins ? flashPromoAmount : otherPromoDiscount);
+    rewardDiscount + (appDownloadWins ? appDownloadCandidate : survivingPromo);
   const afterDiscount =
     subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
   // Drinks fully covered by a loyalty reward. Since the 2026-07-10 fee rule
@@ -1187,7 +1209,21 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       {formatPrice(subtotal)}
                     </span>
                   </div>
-                  {!flashWins && welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
+                  {appDownloadAmount > 0n && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: BRAND.primaryColor }}
+                        />
+                        App Download {appDownloadPromo.percentage}% Off
+                      </span>
+                      <span style={{ color: BRAND.primaryColor }}>
+                        −{formatPrice(appDownloadAmount)}
+                      </span>
+                    </div>
+                  )}
+                  {!bundleReplaced && welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1205,7 +1241,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {!flashWins && igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
+                  {!bundleReplaced && igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1248,7 +1284,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {!flashWins && tierPreview.toppingCoveredCents > 0n && (
+                  {!bundleReplaced && tierPreview.toppingCoveredCents > 0n && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
@@ -1262,7 +1298,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       </span>
                     </div>
                   )}
-                  {!flashWins && tierPreview.tierDiscountCents > 0n && (
+                  {!bundleReplaced && tierPreview.tierDiscountCents > 0n && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1.5">
                         <span
