@@ -10,6 +10,7 @@ import {
   wasPopupShown,
 } from "@/lib/order-mode";
 import type { FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { useAppDownloadPopupEligibility } from "@/hooks/use-app-download-popup-eligibility";
 
 const DELIVERY_ENV_MASTER = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
 
@@ -19,16 +20,23 @@ const DELIVERY_ENV_MASTER = process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
 // otherwise there is no choice to make. Delivery availability is the live boss
 // toggle (app_settings.delivery_enabled via /api/store-status) ANDed with the
 // build-time env master. Mutually exclusive with LoyaltyPopup, which targets
-// logged-out visitors.
+// logged-out visitors, and yields to the app-download campaign popup, which
+// (unlike LoyaltyPopup) also shows to signed-in visitors.
 
 export function OrderModePopup() {
   const { profile, loading } = useAuth();
+  const appDownload = useAppDownloadPopupEligibility();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (loading || !profile || !DELIVERY_ENV_MASTER || wasPopupShown()) {
       return;
     }
+    // Yield to the app-download campaign popup — it can now land on signed-in
+    // visitors too, and two stacked popups on the home page is worse than
+    // deferring the order-mode choice to the next load. "pending" yields for
+    // the same reason.
+    if (appDownload !== "ineligible") return;
     // Only confirm the popup once we know delivery is actually switched on, so
     // we never offer a "choose delivery" prompt for a disabled service.
     // `visible` starts false and is only ever flipped true here, so there's no
@@ -48,7 +56,7 @@ export function OrderModePopup() {
     return () => {
       cancelled = true;
     };
-  }, [loading, profile]);
+  }, [loading, profile, appDownload]);
 
   if (!visible) return null;
 
