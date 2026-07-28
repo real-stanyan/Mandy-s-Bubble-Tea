@@ -70,3 +70,32 @@ web 和 app 的结账页各自用 TypeScript 复刻了一遍服务端的定价�
 不改 `authoritativeUnitPrice` 的 0 语义。判据是**这个数字给谁看**：给折扣计算看，0 是安全的；给顾客看，就得先问一句能不能报。
 
 只挡 variation，不挡 modifier：退役的小料只影响几十分钱，为它整片空掉结账摘要不划算（见 `src/lib/order-pricing.test.ts` 对应用例）。
+
+## 补记二（2026-07-28，#89 / #90）——quote 多了一条纯展示通道，以及 409 必须被看见
+
+上面的 409 落地后，两个后续问题都指向同一件事：**quote 是唯一事实源，那它就得携带客户端渲染所需的全部信息 —— 包括不属于 Square 的那部分。**
+
+### `discountNotes`：不能进 Square 的那一半
+
+Diamond 免小料行改版前是 `Free toppings ×2 (5 left this month)`，改版后只剩 `Diamond Free Toppings (2)`。旧页面自己 fetch `/api/tier/toppings` 拼后缀；新页面只渲染 `discounts[].name`。
+
+直觉解法是把剩余次数拼进 name —— 不行。那个 name 挂在交给 Square 的 `OrderDiscount` 上，会印进顾客的收据，而「3 left this month」一周后就不成立了。
+
+**决定**：`OrderPricing` 增加 `discountNotes: Record<uid, string>`，与 `discounts` 平行，只进 quote，不进 Square。摘要行渲染成灰色小字。这条通道对以后任何「只在结账当下为真」的信息都适用。
+
+两个附带判断：
+
+- **数字改成本单消耗之后的剩余。** 旧镜像印的是消耗之前：`×2 free … 5 left` 读起来像「付完还剩 5」，实际是 3。照原样恢复等于恢复一个误导。
+- **note 从活下来的 discount 推导，不在计算它的分支里写。** flash 和 app-download 胜出时会替换整个 tier bundle；在计算点标注的话，note 会留下来宣传一个这单拿不到的权益。
+
+### 409 不能只有服务端知道
+
+`useOrderQuote` 当时是 `if (json?.ok) setQuote(...)` —— 409 静默落地，旧 quote 留在屏幕上，付款按钮照常可点，而 `/api/orders` 会以同样理由拒绝。拒答做对了，但没人告诉顾客。
+
+**决定**：客户端只区分**一种**失败 —— 409 且带 `unknownVariationIds`。其余（401 未登录、502 Square 挂、网络抖动）继续静默回落到裸 subtotal，因为它们都不阻止下单。
+
+判据同上一节的「这个数字给谁看」，换成时间维度：**这次失败会不会让顾客在后面撞墙？** 会 → 现在就说。不会 → 别打断。
+
+命中时旧 quote 一并丢弃：留着它等于在「别信这个数」的警告正下方摆一个可信的总价。
+
+`POST /api/orders` 补了对称的 guard。目录里没有的 variation **不等于** sold out —— sold-out 扫描查不到条目就放行，请求打到 Square 再失败。同一个 409、同一个 message 常量（`STALE_CART_MESSAGE`），在付款表单打开之前。
