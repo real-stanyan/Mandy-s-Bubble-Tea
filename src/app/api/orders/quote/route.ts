@@ -4,6 +4,7 @@ import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import {
   buildAuthoritativePriceMaps,
+  unknownVariationIds,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
@@ -73,6 +74,30 @@ export async function POST(request: Request) {
     priceMaps = buildAuthoritativePriceMaps(await getMenu());
   } catch {
     priceMaps = null;
+  }
+
+  // A cart line the catalog has never heard of prices at 0 (deliberately — see
+  // unknownVariationIds), which would total the whole order at A$0.00 and read
+  // as a free order. There is no honest number to send here, so send none: the
+  // checkout pages fall back to their own cart subtotal, which is too high
+  // rather than too low. Only meaningful when the menu actually loaded — a null
+  // priceMaps is the separate, documented client-price fallback below.
+  if (priceMaps) {
+    const unknown = unknownVariationIds(body.lines, priceMaps);
+    if (unknown.length > 0) {
+      console.error(
+        "[orders/quote] cart holds variations missing from the catalog:",
+        unknown.join(", "),
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Some items in your cart are no longer on the menu",
+          unknownVariationIds: unknown,
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const isDelivery = body.fulfillmentType === "DELIVERY";

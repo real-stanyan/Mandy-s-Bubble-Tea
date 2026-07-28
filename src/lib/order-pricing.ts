@@ -68,6 +68,34 @@ export function authoritativeUnitPrice(
   return base + mods;
 }
 
+/**
+ * Variation ids in `lines` that this catalog snapshot has never heard of.
+ *
+ * `authoritativeUnitPrice` prices those at 0 on purpose — see the module note:
+ * falling back to the client's number would let a forged `variationPriceCents`
+ * inflate a percentage discount. That is the right call when the answer is a
+ * DISCOUNT (0 only ever shrinks it), and the wrong one when the answer is a
+ * TOTAL the customer reads: a stale cart line then prices the whole order at
+ * A$0.00, which reads as "this is free".
+ *
+ * So the quote route asks this first and declines to answer rather than quoting
+ * a number it cannot stand behind. Reachable in production without any forgery:
+ * an item deleted and re-added in Square gets a new id, while the old one sits
+ * in a persisted cart indefinitely.
+ */
+export function unknownVariationIds(
+  lines: PricingLine[],
+  maps: AuthoritativePriceMaps,
+): string[] {
+  const unknown = new Set<string>();
+  for (const line of lines) {
+    if (!maps.variationPriceById.has(line.variationId)) {
+      unknown.add(line.variationId);
+    }
+  }
+  return [...unknown];
+}
+
 /** Per-cup authoritative prices, expanded by quantity (for promo-cup picking). */
 export function authoritativeUnitPrices(
   lines: PricingLine[],
