@@ -178,8 +178,8 @@ CI（`.github/workflows/ci.yml`）跑同一套命令，红了不许 merge。CI �
 ## Where to find things
 
 - `CONTEXT.md` — 领域词汇表（loyalty stars / tier / cup-label / promo 等术语）
-- `docs/gearbox-adr/` — 协议 ADR（0001~0049，随 Gearbox 回填，工具管理，禁手改，ADR-0031）
-- `docs/adr/` — 本项目自己的决策（独立编号从 0001 起；0001 = Gate、0002 = app-download 折扣、0003 = 结账页客户端镜像、0004 = migration apply 流程）
+- `docs/gearbox-adr/` — 协议 ADR（随 Gearbox 回填，工具管理，禁手改，ADR-0031）
+- `docs/adr/` — 本项目自己的决策（独立编号从 0001 起，编号与标题见目录内文件名——本索引不复述，理由见 ADR-0007）
 - `.gearbox-version` — 协议版本戳（工具读写，人不维护，ADR-0023）
 - `docs/agents/` — issue tracker（`issue-tracker.md`）、triage labels（`triage-labels.md`）、domain 文档消费约定（`domain.md`）
 - `.claude/*.md` — 模块深挖文档：`square-api.md`（Square client / BigInt / 错误处理）、`catalog.md`、`cart-checkout.md`、`payment.md`、`loyalty.md`（stars / 9 星换免单）、`account.md`、`deployment.md`
