@@ -4,10 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/constants";
 import { isPhoneValid } from "@/lib/auth-format";
 import { useAuth } from "@/components/auth/AuthProvider";
-import {
-  APP_DOWNLOAD_DISMISS_KEY,
-  useAppDownloadPopupEligibility,
-} from "@/hooks/use-app-download-popup-eligibility";
+import { useAppDownloadPopupEligibility } from "@/hooks/use-app-download-popup-eligibility";
 
 // Campaign popup: "Download the app, get 20% off your first order." Collects a
 // phone number and POSTs to the app-download claim route — the grant is minted
@@ -40,7 +37,11 @@ function usePrefersReducedMotion(): boolean {
   return reduce;
 }
 
-type ClaimState = "form" | "submitting" | "done";
+// "done" = the grant was minted by this submit. "already" / "used" = the phone
+// was already on file — unspent, or spent on a past order. Kept apart because
+// telling someone who already drank their 20% off that it's "waiting" is a lie
+// they'd only discover at checkout.
+type ClaimState = "form" | "submitting" | "done" | "already" | "used";
 
 export function AppDownloadPopup() {
   const { profile } = useAuth();
@@ -86,16 +87,9 @@ export function AppDownloadPopup() {
 
   if (!visible) return null;
 
-  function persistDismiss() {
-    try {
-      localStorage.setItem(APP_DOWNLOAD_DISMISS_KEY, "1");
-    } catch {
-      // Non-fatal — see the read above.
-    }
-  }
-
+  // Closing hides it for this page view only — nothing is persisted. The popup
+  // is meant to come back on the next visit; see the eligibility hook.
   function dismiss() {
-    persistDismiss();
     setVisible(false);
   }
 
@@ -120,10 +114,12 @@ export function AppDownloadPopup() {
         setState("form");
         return;
       }
-      // { ok: true, alreadyClaimed } — either way the discount is waiting on
-      // this number, so both land on the same success state.
-      persistDismiss();
-      setState("done");
+      // { ok: true, alreadyClaimed, redeemed } — three outcomes, three
+      // messages. A number already on file isn't an error: the grant is
+      // per-phone and idempotent, so re-entering it changed nothing.
+      setState(
+        !json.alreadyClaimed ? "done" : json.redeemed ? "used" : "already",
+      );
     } catch {
       setError("Something went wrong. Please try again.");
       setState("form");
@@ -182,18 +178,40 @@ export function AppDownloadPopup() {
           </p>
         </div>
 
-        {state === "done" ? (
-          /* ── Success ── */
+        {state === "done" || state === "already" || state === "used" ? (
+          /* ── Outcome: newly claimed / already on file / already spent ── */
           <div className="px-6 pb-6 pt-5">
             <div className="flex items-center gap-2">
-              <span className="text-[22px]">🎉</span>
+              <span className="text-[22px]">
+                {state === "used" ? "☕" : state === "already" ? "✅" : "🎉"}
+              </span>
               <h3 className="font-serif text-[20px] leading-tight text-[#2A1E14]">
-                You&apos;re locked in
+                {state === "used"
+                  ? "You've already used this one"
+                  : state === "already"
+                    ? "This number's already claimed"
+                    : "You're locked in"}
               </h3>
             </div>
             <p className="mt-2 text-[13px] leading-relaxed text-[#6B5440]">
-              Download the app and sign in with this number — your 20% off will
-              be applied automatically at checkout.
+              {state === "used" ? (
+                <>
+                  Your 20% off has already been applied to an order — it&apos;s
+                  one per number. Keep the app though: rewards, order tracking
+                  and a free drink every 9 cups.
+                </>
+              ) : state === "already" ? (
+                <>
+                  Good news — it&apos;s still unused. Download the app and sign
+                  in with this number, and your 20% off comes off automatically
+                  at checkout.
+                </>
+              ) : (
+                <>
+                  Download the app and sign in with this number — your 20% off
+                  will be applied automatically at checkout.
+                </>
+              )}
             </p>
             <a
               href={APP_STORE_URL}

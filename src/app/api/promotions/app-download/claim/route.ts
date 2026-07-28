@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { claimAppDownloadDiscount } from "@/lib/app-download-discount";
+import {
+  claimAppDownloadDiscount,
+  getAppDownloadDiscountStatus,
+} from "@/lib/app-download-discount";
 import { normalizeAuPhone } from "@/lib/phone";
 
 // Mint a one-order 20%-off ticket for a phone number entered in the web
@@ -44,5 +47,18 @@ export async function POST(request: Request) {
   }
 
   const result = await claimAppDownloadDiscount(phone);
-  return NextResponse.json({ ok: true, alreadyClaimed: result.alreadyClaimed });
+  // `alreadyClaimed` alone can't tell the popup what to say: a phone that
+  // claimed last week and already spent the discount needs "you've used this",
+  // not "your 20% is waiting". Read the grant back so the caller can tell the
+  // truth. Only costs a round trip on submit, and only when the row exists.
+  let redeemed = false;
+  if (result.alreadyClaimed) {
+    const status = await getAppDownloadDiscountStatus(phone);
+    redeemed = status.redeemedAt != null;
+  }
+  return NextResponse.json({
+    ok: true,
+    alreadyClaimed: result.alreadyClaimed,
+    redeemed,
+  });
 }
