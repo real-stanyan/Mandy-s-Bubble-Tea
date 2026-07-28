@@ -54,3 +54,19 @@ web 和 app 的结账页各自用 TypeScript 复刻了一遍服务端的定价�
 
 - Square 出了官方的「预览订单」端点能连 loyalty reward 一起算——那时 `rewardCupsSumCents` 这个 cheapest-N 估算也能删掉。
 - 报价往返成为结账页的性能瓶颈（当前无证据）——那就把百分比费改成本地算、只在下单前校一次 `calculate`。
+
+## 补记（2026-07-28，#83）——目录认不出的行，quote 拒答而不报价
+
+本 ADR 落地后的真机走查暴露了一个本 ADR 自身引入的失效模式。
+
+`authoritativeUnitPrice()` 对目录里不存在的 variationId 返回 `0n`，这是 create 路径上刻意的安全边界（模块头注释：绝不回落客户端价，否则伪造的 `variationPriceCents` 能把百分比折扣撑成免单）。当这个函数的答案是**折扣**时，0 只会让折扣变小，方向是安全的；当它的答案是**顾客要读的总价**时，0 意味着整单显示 A$0.00 —— 读起来就是"免单"。
+
+结账页改为渲染 quote 之后，后者第一次成立。旧的客户端镜像遇到同样一份陈旧购物车会显示 A$56.00（它用的是购物车自己的价）。
+
+生产上无需任何伪造即可到达：Square 里删掉再重建的商品会换 ID，而购物车持久化在 AsyncStorage / localStorage 里能存很久。
+
+**决定**：目录**已加载**却认不出某一行时，`POST /api/orders/quote` 返回 409，不返回数字。两端结账页已有的「还没有 quote」回落路径接管，显示裸购物车 subtotal —— 宁高勿低。目录整体不可用（`priceMaps` 为 null）时维持原有的客户端价降级不变，那是另一条已写明的路径。
+
+不改 `authoritativeUnitPrice` 的 0 语义。判据是**这个数字给谁看**：给折扣计算看，0 是安全的；给顾客看，就得先问一句能不能报。
+
+只挡 variation，不挡 modifier：退役的小料只影响几十分钱，为它整片空掉结账摘要不划算（见 `src/lib/order-pricing.test.ts` 对应用例）。

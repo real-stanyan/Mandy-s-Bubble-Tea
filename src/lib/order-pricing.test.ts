@@ -5,6 +5,7 @@ import {
   authoritativeUnitPrice,
   authoritativeUnitPrices,
   buildAuthoritativePriceMaps,
+  unknownVariationIds,
 } from "@/lib/order-pricing";
 
 /**
@@ -136,5 +137,60 @@ describe("authoritativeSubtotalCents", () => {
       maps,
     );
     expect(subtotal).toBe(600n);
+  });
+});
+
+describe("unknownVariationIds — the quote's guard against a stale cart", () => {
+  const maps = buildAuthoritativePriceMaps(
+    menuOf([variation("v1", 600n)], [{ id: "m1", priceCents: 80n }]),
+  );
+
+  it("is empty when every line resolves", () => {
+    expect(
+      unknownVariationIds(
+        [
+          { variationId: "v1", modifiers: [{ id: "m1" }], quantity: 2 },
+          { variationId: "v1", modifiers: [], quantity: 1 },
+        ],
+        maps,
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the variation the catalog has never heard of", () => {
+    // Exactly the production shape of #83: an id left over from a deleted
+    // catalog item, still sitting in a persisted cart. Priced at 0 it would
+    // total the order at A$0.00 and read as free.
+    expect(
+      unknownVariationIds(
+        [{ variationId: "DELETED_IN_SQUARE", modifiers: [], quantity: 8 }],
+        maps,
+      ),
+    ).toEqual(["DELETED_IN_SQUARE"]);
+  });
+
+  it("reports one entry per distinct id, not per line", () => {
+    expect(
+      unknownVariationIds(
+        [
+          { variationId: "gone", modifiers: [], quantity: 1 },
+          { variationId: "gone", modifiers: [], quantity: 2 },
+          { variationId: "v1", modifiers: [], quantity: 1 },
+        ],
+        maps,
+      ),
+    ).toEqual(["gone"]);
+  });
+
+  it("ignores unknown MODIFIER ids — a missing topping is a rounding error, not a free order", () => {
+    // Only the variation carries the bulk of the price, so an unrecognised
+    // modifier leaves the total honest enough to show. Declining the whole
+    // quote over one retired topping would blank the summary for no gain.
+    expect(
+      unknownVariationIds(
+        [{ variationId: "v1", modifiers: [{ id: "retired" }], quantity: 1 }],
+        maps,
+      ),
+    ).toEqual([]);
   });
 });
