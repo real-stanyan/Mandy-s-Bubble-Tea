@@ -99,6 +99,15 @@ export type OrderPricing = {
   /** Estimated money covered by loyalty-reward cups (cheapest N). */
   rewardCupsSumCents: bigint;
   discounts: OrderDiscount[];
+  /**
+   * Display-only annotations for a discount row, keyed by discount uid.
+   *
+   * Kept out of `discounts` on purpose: an OrderDiscount is the object we hand
+   * to Square, and its `name` ends up on the customer's receipt. "3 left this
+   * month" is true while they're choosing, and meaningless printed on a receipt
+   * a week later — so it rides alongside, and only the quote surfaces it.
+   */
+  discountNotes: Record<string, string>;
   serviceCharges: OrderServiceCharge[];
   welcomeDrinksCovered: number;
   igFollowDrinksCovered: number;
@@ -293,6 +302,11 @@ export async function computeOrderPricing(
   // never block the order — fail-safe to "no tier perks".
   let tierDiscounts: OrderDiscount[] | undefined;
   let tierToppingsCovered = 0;
+  // Allowance left AFTER this order, for the summary's "N left this month"
+  // note. Deliberately post-order: pre-order is what the old client-side mirror
+  // printed, and "×2 free … 5 left" reads as "5 left once I've paid" when it
+  // actually meant 3. Null = no free-topping row on this order.
+  let toppingsRemainingAfter: number | null = null;
 
   if (priceMaps) {
     try {
@@ -339,6 +353,10 @@ export async function computeOrderPricing(
             if (cover.amount > 0n) {
               toppingAmount = cover.amount;
               tierToppingsCovered = cover.coveredCount;
+              toppingsRemainingAfter = Math.max(
+                0,
+                status.remaining - cover.coveredCount,
+              );
             }
           }
         }
@@ -524,6 +542,19 @@ export async function computeOrderPricing(
     ...(appDownloadDiscounts ?? []),
   ];
 
+  // Annotate off the SURVIVING discounts, not off the branch that computed
+  // them: flash and app-download each replace the whole tier bundle when they
+  // win, and a note left over from a discount that lost would read as a perk
+  // the customer isn't getting.
+  const discountNotes: Record<string, string> = {};
+  if (
+    toppingsRemainingAfter != null &&
+    discounts.some((d) => d.uid === "tier-topping-allowance")
+  ) {
+    discountNotes["tier-topping-allowance"] =
+      `${toppingsRemainingAfter} left this month`;
+  }
+
   // Note: loyalty rewards are NOT attached here. Square's order create request
   // has no loyaltyRewards field — the discount is applied by calling
   // CreateLoyaltyReward with the orderId AFTER the order exists. The checkout
@@ -624,6 +655,7 @@ export async function computeOrderPricing(
     drinksSubtotalCents,
     rewardCupsSumCents,
     discounts,
+    discountNotes,
     serviceCharges,
     welcomeDrinksCovered,
     igFollowDrinksCovered,

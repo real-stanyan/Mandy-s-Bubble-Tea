@@ -65,6 +65,7 @@ export function OrderSummaryTotals({
               style={{ backgroundColor: BRAND.primaryColor }}
             />
             {d.name}
+            {d.note && <span className="text-ink3">({d.note})</span>}
           </span>
           <span style={{ color: BRAND.primaryColor }}>
             −{formatPrice(BigInt(d.amountCents))}
