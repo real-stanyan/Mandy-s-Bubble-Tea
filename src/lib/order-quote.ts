@@ -31,6 +31,7 @@ import {
   type CupRecord,
 } from "@/lib/tier-toppings";
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
+import { reportDegraded } from "@/lib/degraded";
 import {
   deliveryFeeCents,
   freeDeliverySubtotalCents,
@@ -384,10 +385,10 @@ export async function computeOrderPricing(
         if (built.length > 0) tierDiscounts = built;
       }
     } catch (tierError) {
-      console.error(
-        "[order-quote] tier perks skipped:",
-        tierError instanceof Error ? tierError.message : tierError,
-      );
+      // Fail-safe, and silent by design — but a Gold/Diamond member quietly
+      // losing their 5% and their free toppings is a wrong price, not a
+      // non-event. Same reporting rule as the quote route's fallbacks.
+      reportDegraded("order-quote.tier-perks-skipped", { customerId }, tierError);
       // Keep metadata consistent with the (now dropped) discounts: if the
       // topping count was already set before the failure, reset it.
       tierDiscounts = undefined;

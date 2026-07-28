@@ -8,6 +8,7 @@ import {
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import { reportDegraded } from "@/lib/degraded";
 import { computeOrderPricing } from "@/lib/order-quote";
 import { isValidQuoteBody } from "@/lib/order-request";
 import { summarizeQuote } from "@/lib/order-quote-summary";
@@ -69,11 +70,16 @@ export async function POST(request: Request) {
   // Same catalog money the create route prices against. A menu-cache outage
   // leaves priceMaps null, which makes computeOrderPricing skip every discount
   // — the quote then under-promises, which is the safe direction to be wrong.
+  //
+  // Safe, but not harmless: the customer sees no promo at all and a total above
+  // what they'd actually be charged, which reads as "my discount is gone" and
+  // is a good reason to abandon the order. Worth knowing about, hence the alert.
   let priceMaps: AuthoritativePriceMaps | null = null;
   try {
     priceMaps = buildAuthoritativePriceMaps(await getMenu());
-  } catch {
+  } catch (menuError) {
     priceMaps = null;
+    reportDegraded("quote.menu-unavailable", { lineCount: body.lines.length }, menuError);
   }
 
   // A cart line the catalog has never heard of prices at 0 (deliberately — see
@@ -146,9 +152,17 @@ export async function POST(request: Request) {
       });
       calculated = res.order ?? null;
     } catch (calcError) {
-      console.error(
-        "[orders/quote] Square calculate failed, falling back to local totals:",
-        calcError instanceof Error ? calcError.message : calcError,
+      // summarizeQuote will flag the answer `estimated`. The customer still
+      // gets a summary, so nothing here looks broken — which is exactly why it
+      // has to be reported rather than logged.
+      reportDegraded(
+        "quote.square-calculate-failed",
+        {
+          lineCount: body.lines.length,
+          discountCount: pricing.discounts.length,
+          serviceChargeCount: pricing.serviceCharges.length,
+        },
+        calcError,
       );
     }
 
