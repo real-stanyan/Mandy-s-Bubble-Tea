@@ -5,6 +5,7 @@ import { getMenu } from "@/lib/catalog";
 import {
   buildAuthoritativePriceMaps,
   unknownVariationIds,
+  STALE_CART_MESSAGE,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
@@ -91,14 +92,11 @@ export async function POST(request: Request) {
   if (priceMaps) {
     const unknown = unknownVariationIds(body.lines, priceMaps);
     if (unknown.length > 0) {
-      console.error(
-        "[orders/quote] cart holds variations missing from the catalog:",
-        unknown.join(", "),
-      );
+      reportDegraded("quote.stale-cart", { unknown });
       return NextResponse.json(
         {
           ok: false,
-          error: "Some items in your cart are no longer on the menu",
+          error: STALE_CART_MESSAGE,
           unknownVariationIds: unknown,
         },
         { status: 409 },

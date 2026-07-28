@@ -283,7 +283,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // the server's, and did — a customer holding the app-download 20% saw a
   // smaller Welcome discount instead (web #73, app#40). Now the server decides
   // and this page renders. See docs/adr/0005.
-  const { quote: orderQuote } = useOrderQuote(
+  const { quote: orderQuote, blocked: quoteBlocked } = useOrderQuote(
     quoteBody,
     lines.length > 0,
     phActive,
@@ -492,6 +492,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // reward, so there is nothing left to adjust here. Before the first quote
   // lands, fall back to the bare subtotal: too high, never too low.
   const displayTotal = orderQuote ? BigInt(orderQuote.netTotalCents) : subtotal;
+
+  // The server refused to price this cart, and /api/orders will refuse it for
+  // the same reason. Blocking the button is the honest move: letting it through
+  // spends the customer's attention on a payment sheet that ends in an error
+  // they can't act on.
+  const cartHasRetiredItems = quoteBlocked?.reason === "stale-cart";
   // Money the loyalty reward covers, as the server estimated it (cheapest N
   // cups). Shown next to the reward stepper; 0 until the first quote lands.
   const rewardCents = orderQuote ? BigInt(orderQuote.rewardCupsSumCents) : 0n;
@@ -662,6 +668,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     // but a stale render could still fire onSubmit. Server is authoritative.
     if (storeClosed) {
       setError(`Orders closed · ${orderingStatus?.nextLabel ?? ""}`);
+      return;
+    }
+
+    // Same reason, same shape: /api/orders returns its own 409 for this cart,
+    // but stopping here means no payment sheet is opened first.
+    if (cartHasRetiredItems) {
+      setError(quoteBlocked?.message ?? "Some items are no longer available");
       return;
     }
 
@@ -963,6 +976,30 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       >
         {/* ── Left column ── */}
         <div className="min-w-0 space-y-5 sm:space-y-6">
+          {/* Deliberately above everything, not inside the order summary: on
+              mobile that summary is a collapsed <details>, and this is the one
+              message the customer cannot afford to miss — nothing else on the
+              page hints that the order can't be placed. */}
+          {cartHasRetiredItems && (
+            <div
+              role="alert"
+              className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:p-5"
+            >
+              <p className="font-semibold">{quoteBlocked?.message}</p>
+              <p className="mt-1 text-red-700">
+                We can&apos;t work out the price, so this order can&apos;t be
+                placed. Remove the affected drinks from your cart and add them
+                again from the menu.
+              </p>
+              <Link
+                href="/cart"
+                className="mt-3 inline-block font-semibold underline"
+              >
+                Go to cart
+              </Link>
+            </div>
+          )}
+
           {/* Fulfillment + delivery quote */}
           <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
             <SectionLabel>Fulfillment</SectionLabel>
@@ -1307,7 +1344,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
-              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
+              cartHasRetiredItems
             }
             className="mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={
@@ -1388,7 +1426,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
-              (fulfillment === "DELIVERY" && quoteState.kind !== "ok")
+              (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
+              cartHasRetiredItems
             }
             className={`flex min-w-[148px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               storeClosed

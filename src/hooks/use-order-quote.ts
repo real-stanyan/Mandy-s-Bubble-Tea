@@ -34,6 +34,56 @@ export type OrderQuote = {
   estimated: boolean;
 };
 
+/**
+ * The one quote failure the customer has to be told about.
+ *
+ * Every other failure is safe to swallow — signed out, Square slow, network
+ * blip — because the page falls back to the cart's own subtotal, which is too
+ * high rather than too low, and the order still goes through. A stale cart is
+ * different: the server has refused to price it (409, see #84), and the create
+ * route will refuse it too. Falling back silently shows a plausible total for
+ * an order that cannot be placed, and the customer has no way to work out why.
+ */
+export type QuoteBlocked = {
+  reason: "stale-cart";
+  message: string;
+  variationIds: string[];
+};
+
+/**
+ * What a quote response means for what's on screen. Split out of the hook so
+ * the three-way decision is testable without rendering: it is the part with
+ * actual rules in it, and getting the "ignore" case wrong is invisible.
+ */
+export type QuoteOutcome =
+  | { kind: "quote"; quote: OrderQuote }
+  | { kind: "blocked"; blocked: QuoteBlocked }
+  | { kind: "ignore" };
+
+export function interpretQuoteResponse(
+  status: number,
+  json: unknown,
+): QuoteOutcome {
+  const body = (json ?? {}) as Record<string, unknown>;
+  if (body.ok) return { kind: "quote", quote: json as OrderQuote };
+  if (status === 409 && Array.isArray(body.unknownVariationIds)) {
+    return {
+      kind: "blocked",
+      blocked: {
+        reason: "stale-cart",
+        message:
+          typeof body.error === "string"
+            ? body.error
+            : "Some items in your cart are no longer on the menu.",
+        variationIds: body.unknownVariationIds as string[],
+      },
+    };
+  }
+  // Everything else — 401 signed out, 502 Square down, a network blip — keeps
+  // whatever is already on screen. Those all still let the order through.
+  return { kind: "ignore" };
+}
+
 const DEBOUNCE_MS = 250;
 
 export function useOrderQuote(
@@ -45,8 +95,9 @@ export function useOrderQuote(
    * surcharge but not the cart, so nothing in the body would move.
    */
   refreshKey: string | number | boolean = "",
-): { quote: OrderQuote | null; loading: boolean } {
+): { quote: OrderQuote | null; loading: boolean; blocked: QuoteBlocked | null } {
   const [quote, setQuote] = useState<OrderQuote | null>(null);
+  const [blocked, setBlocked] = useState<QuoteBlocked | null>(null);
   const [loading, setLoading] = useState(false);
   // The serialized body doubles as the effect key: a re-render that produces an
   // identical cart must not refetch. `null` means "nothing to price".
@@ -65,14 +116,25 @@ export function useOrderQuote(
         body: key,
         signal: controller.signal,
       })
-        .then((r) => r.json())
-        .then((json) => {
+        .then(async (r) => ({ status: r.status, json: await r.json() }))
+        .then(({ status, json }) => {
           if (controller.signal.aborted) return;
           // Only a successful quote replaces the visible one — that IS the
           // stale-while-revalidate behaviour, no extra bookkeeping. A failed
           // quote (signed out, Square down) leaves the previous one up; the
           // page falls back to the plain subtotal when there has never been one.
-          if (json?.ok) setQuote(json as OrderQuote);
+          const outcome = interpretQuoteResponse(status, json);
+          if (outcome.kind === "quote") {
+            setQuote(outcome.quote);
+            setBlocked(null);
+          } else if (outcome.kind === "blocked") {
+            // Drop the old quote as well as flagging it. It was priced for a
+            // cart that no longer exists, and leaving it up would keep a
+            // believable total on screen under the warning saying not to
+            // believe it.
+            setQuote(null);
+            setBlocked(outcome.blocked);
+          }
           setLoading(false);
         })
         .catch(() => {
@@ -90,5 +152,9 @@ export function useOrderQuote(
   }, [key, effectKey]);
 
   // An emptied cart drops the quote without a state write during render.
-  return { quote: key ? quote : null, loading: key ? loading : false };
+  return {
+    quote: key ? quote : null,
+    loading: key ? loading : false,
+    blocked: key ? blocked : null,
+  };
 }

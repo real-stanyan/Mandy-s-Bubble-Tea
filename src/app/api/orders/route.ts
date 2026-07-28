@@ -16,9 +16,12 @@ import { getAuthedUser } from "@/lib/auth";
 import { getMenu } from "@/lib/catalog";
 import {
   buildAuthoritativePriceMaps,
+  unknownVariationIds,
+  STALE_CART_MESSAGE,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import { reportDegraded } from "@/lib/degraded";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
@@ -164,6 +167,24 @@ export async function POST(request: Request) {
           ok: false,
           error: `Sold out: ${unique.join(", ")}. Please refresh the menu.`,
           soldOut: unique,
+        },
+        { status: 409 },
+      );
+    }
+    // A line the catalog has never heard of is NOT sold out — it has no entry
+    // at all, so the loop above waves it through and Square rejects the create
+    // with its own wording. Reject it here instead, in the same shape the quote
+    // uses (#84), so the customer is told what to do rather than shown a
+    // payment failure. Reachable without forgery: an item deleted and re-added
+    // in Square gets a new id, and the old one sits in a persisted cart.
+    const unknown = unknownVariationIds(body.lines, priceMaps);
+    if (unknown.length > 0) {
+      reportDegraded("orders.create-stale-cart", { unknown });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: STALE_CART_MESSAGE,
+          unknownVariationIds: unknown,
         },
         { status: 409 },
       );

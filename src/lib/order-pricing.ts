@@ -83,6 +83,15 @@ export function authoritativeUnitPrice(
  * an item deleted and re-added in Square gets a new id, while the old one sits
  * in a persisted cart indefinitely.
  */
+/**
+ * What both the quote and the create route tell a customer whose cart holds a
+ * line the catalog dropped. One string because they must not disagree: the
+ * quote's copy is what the summary shows, and the create route's is what a
+ * client too old to have that UI falls back to displaying.
+ */
+export const STALE_CART_MESSAGE =
+  "Some items in your cart are no longer on the menu. Remove them and add them again.";
+
 export function unknownVariationIds(
   lines: PricingLine[],
   maps: AuthoritativePriceMaps,

@@ -41,6 +41,7 @@ import {
   getEffectiveOrderingStatus,
   isDeliveryEnabled,
 } from "@/lib/store-status-server";
+import { getMenu } from "@/lib/catalog";
 
 function orderRequest(body: unknown): Request {
   return new Request("http://test/api/orders", {
@@ -239,5 +240,91 @@ describe("POST /api/orders — delivery fees on the POST-discount paid amount", 
     const charges = chargesOf();
     expect("delivery-fee" in charges).toBe(false);
     expect(charges["service-fee"]).toBe(175n); // 5% × $35
+  });
+});
+
+describe("POST /api/orders — a cart line the catalog dropped", () => {
+  // Same failure the quote declines to price (#84): an item deleted and
+  // re-added in Square gets a new id, and the old one sits in a persisted cart
+  // forever. Absent from the catalog is NOT the same as sold out — the sold-out
+  // scan finds no entry and waves it through, so without this guard the request
+  // reaches Square and comes back as a payment failure the customer can't act on.
+  const menuWith = (variationIds: string[]) => ({
+    itemsBySlug: new Map([
+      [
+        "milky",
+        [
+          {
+            name: "Taro Milk Tea",
+            variations: variationIds.map((id) => ({
+              id,
+              name: "",
+              priceCents: 600n,
+              soldOut: false,
+            })),
+          },
+        ],
+      ],
+    ]),
+    uncategorizedItems: [],
+    modifierLists: new Map(),
+  });
+
+  const pickupBody = (variationId: string) => ({
+    fulfillmentType: "PICKUP",
+    lines: [
+      {
+        itemName: "Taro Milk Tea",
+        variationId,
+        variationPriceCents: 600,
+        quantity: 1,
+        modifiers: [],
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    ordersCreate.mockReset();
+    ordersSearch.mockReset();
+    ordersSearch.mockResolvedValue({ orders: [] });
+    ordersCreate.mockResolvedValue({
+      order: { id: "ORD1", totalMoney: { amount: 600n } },
+    });
+    vi.mocked(getAuthedUser).mockResolvedValue({
+      profile: { square_customer_id: "C1", phone_e164: "+61400000000" },
+    } as Awaited<ReturnType<typeof getAuthedUser>>);
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+    vi.mocked(isDeliveryEnabled).mockResolvedValue(true);
+  });
+
+  it("rejects with 409 and names the id, without calling Square", async () => {
+    vi.mocked(getMenu).mockResolvedValue(
+      menuWith(["VAR_LIVE"]) as unknown as Awaited<ReturnType<typeof getMenu>>,
+    );
+    const res = await POST(orderRequest(pickupBody("VAR_DELETED")));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.unknownVariationIds).toEqual(["VAR_DELETED"]);
+    expect(ordersCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets a cart the catalog still recognises through", async () => {
+    vi.mocked(getMenu).mockResolvedValue(
+      menuWith(["VAR_LIVE"]) as unknown as Awaited<ReturnType<typeof getMenu>>,
+    );
+    const res = await POST(orderRequest(pickupBody("VAR_LIVE")));
+    expect((await res.json()).ok).toBe(true);
+  });
+
+  it("does not block the order when the menu fetch itself failed", async () => {
+    // priceMaps is null in that case — we can't tell a retired id from a live
+    // one, and refusing every order during a cache outage would be worse.
+    vi.mocked(getMenu).mockRejectedValue(new Error("catalog down"));
+    const res = await POST(orderRequest(pickupBody("VAR_ANYTHING")));
+    expect((await res.json()).ok).toBe(true);
   });
 });
