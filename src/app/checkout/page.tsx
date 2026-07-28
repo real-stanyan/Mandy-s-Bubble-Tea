@@ -9,15 +9,11 @@ import {
   useCart,
   cupKey,
   lineTotal,
-  lineUnitPrice,
   cartSubtotal,
-  cardSurcharge,
-  platformFee,
-  publicHolidaySurcharge,
   type CartLine,
 } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { BRAND, CARD_SURCHARGE, DELIVERY_FEE_NAME, LOYALTY, PH_SURCHARGE, PLATFORM_FEE, SERVICE_FEE } from "@/lib/constants";
+import { BRAND, LOYALTY } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
@@ -28,8 +24,6 @@ import { DeliveryQuoteCard, type QuoteState } from "@/components/checkout/Delive
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
-import { pickPromoCups } from "@/lib/promo-cup-pick";
-import { useAppDownloadStatus } from "@/hooks/use-app-download-status";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
@@ -38,15 +32,14 @@ import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
 import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { OrderBlockedDialog } from "@/components/checkout/OrderBlockedDialog";
 import { classifyOrderBlock, type OrderBlock } from "@/lib/checkout/order-block";
+import { useOrderQuote } from "@/hooks/use-order-quote";
+import { OrderSummaryTotals } from "@/components/checkout/OrderSummaryTotals";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
 import { SignInCard } from "@/components/auth/SignInCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoadingSpinner } from "@/components/layout/LoadingSpinner";
 import { reportClientError, describeError } from "@/lib/client-error-report";
-import { tierFor } from "@/lib/membership-tier";
-import { tierCheckoutPreview } from "@/lib/tier-checkout-preview";
-import type { CupRecord } from "@/lib/tier-toppings";
 
 // Checkout + payment. Uses the Square Web Payments SDK to collect a
 // card token on-page, then posts { order, payment } through our API
@@ -141,9 +134,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     starsPerReward: authStarsPerReward,
     refresh,
   } = useAuth();
-  // Parent gates this component on a signed-in profile, so the fetch is
-  // always authenticated — no `enabled` flag needed here.
-  const appDownloadPromo = useAppDownloadStatus();
   if (!profile) {
     // Should never happen — parent gates this. But TS can't prove it.
     throw new Error("CheckoutSignedIn rendered without profile");
@@ -219,174 +209,102 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     }
   }, [deliveryEnabled]);
 
-  // Expand all cup unit prices, sorted ascending — used for multi-reward discount.
-  const sortedUnitPrices = useMemo(() => {
-    const cups: bigint[] = [];
-    for (const line of lines) {
-      const unit = lineUnitPrice(line);
-      for (let i = 0; i < line.quantity; i++) cups.push(unit);
-    }
-    return cups.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  }, [lines]);
-
-  // Sum of the cheapest N cup prices — the reward discount for rewardCount cups.
-  const rewardDiscount = useMemo(
-    () =>
-      sortedUnitPrices
-        .slice(0, rewardCount)
-        .reduce((sum, p) => sum + p, 0n),
-    [sortedUnitPrices, rewardCount],
-  );
-
-  const promoCoverage = useMemo(() => {
-    if (sortedUnitPrices.length === 0) {
-      return {
-        welcomeCount: 0,
-        welcomeDiscountCents: 0n,
-        igFollowCount: 0,
-        igFollowDiscountCents: 0n,
-      };
-    }
-    const welcomeK =
-      welcomeDiscount.available && welcomeDiscountEligible(fulfillment)
-        ? welcomeDiscount.drinksRemaining
-        : 0;
-    const igK = igFollowDiscount.available
-      ? igFollowDiscount.drinksRemaining
-      : 0;
-    const { welcomeCups, igFollowCups } = pickPromoCups({
-      unitPrices: sortedUnitPrices,
-      welcomeK,
-      igFollowK: igK,
-      loyaltyRewardCount: rewardCount,
-    });
-    const welcomeDiscountCents =
-      welcomeCups.length > 0
-        ? (welcomeCups.reduce((s, p) => s + p, 0n) *
-            BigInt(welcomeDiscount.percentage || 30)) /
-          100n
-        : 0n;
-    const igFollowDiscountCents =
-      igFollowCups.length > 0
-        ? (igFollowCups.reduce((s, p) => s + p, 0n) *
-            BigInt(igFollowDiscount.percentage || 10)) /
-          100n
-        : 0n;
-    return {
-      welcomeCount: welcomeCups.length,
-      welcomeDiscountCents,
-      igFollowCount: igFollowCups.length,
-      igFollowDiscountCents,
-    };
-  }, [sortedUnitPrices, rewardCount, welcomeDiscount, igFollowDiscount, fulfillment]);
-  const welcomeDiscountAmount = promoCoverage.welcomeDiscountCents;
-  const igFollowDiscountAmount = promoCoverage.igFollowDiscountCents;
-
-  // Membership tier — derived from lifetime points, never stored.
-  const tier = tierFor(loyalty?.lifetimePoints ?? 0);
-
-  // Diamond only: how many free paid-topping units remain this month.
-  const [toppingsRemaining, setToppingsRemaining] = useState(0);
+  // Public-holiday boundary watcher. The surcharge itself is decided server-side
+  // in the quote; this only exists so a user sitting on checkout across the
+  // Christmas Eve 18:00 cutoff (or any midnight) gets a fresh quote — nothing in
+  // their cart changes, so nothing else would trigger one.
+  const [phActive, setPhActive] = useState(() => isPublicHolidayActive());
   useEffect(() => {
-    if (tier !== "diamond") return;
-    const controller = new AbortController();
-    fetch("/api/tier/toppings", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.ok && typeof j.remaining === "number") {
-          setToppingsRemaining(j.remaining);
-        }
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [tier]);
+    const id = setInterval(() => setPhActive(isPublicHolidayActive()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
-  // Build CupRecord[] from cart lines — mirrors server's per-cup expansion.
-  // unitPrice = variation + all modifiers (same as lineUnitPrice).
-  // toppingPrices = each modifier's priceCents (0n = included, filtered by
-  // collectPaidToppingUnits). Repeated once per quantity unit.
-  const cups = useMemo<CupRecord[]>(() => {
-    const result: CupRecord[] = [];
-    for (const line of lines) {
-      const unitPrice = lineUnitPrice(line);
-      const toppingPrices = line.modifiers.map((m) => m.priceCents);
-      for (let i = 0; i < line.quantity; i++) {
-        result.push({ unitPrice, toppingPrices });
-      }
-    }
-    return result;
-  }, [lines]);
-
-  // Preview the tier discount + diamond free-topping coverage, mirroring
-  // the server's math in /api/orders so the displayed total equals the charge.
-  const tierPreview = useMemo(
-    () =>
-      tierCheckoutPreview({
-        tier,
-        cups,
-        rewardCount,
-        toppingsRemaining,
-        subtotal,
-        rewardDiscount,
-        welcomeDiscount: welcomeDiscountAmount,
-        igFollowDiscount: igFollowDiscountAmount,
-      }),
-    [tier, cups, rewardCount, toppingsRemaining, subtotal, rewardDiscount, welcomeDiscountAmount, igFollowDiscountAmount],
+  // The exact body `/api/orders` will receive, minus the free-text note — the
+  // note changes on every keystroke and never moves the price. Both the quote
+  // below and the create call in handlePay are built from this, so the summary
+  // the customer reads is priced from the request that gets charged.
+  //
+  // Delivery details ride along as soon as the address resolves, without
+  // waiting for /api/delivery/quote: that endpoint's answer feeds the address
+  // card, and making the price wait on it would be circular (the quote is what
+  // tells us the post-discount amount the fee is sized on).
+  const quoteBody = useMemo(
+    () => ({
+      applyWelcomeDiscount:
+        welcomeDiscount.available && welcomeDiscountEligible(fulfillment),
+      applyIgFollowDiscount: igFollowDiscount.available,
+      applyFlashPromo: flashPromo.available,
+      applyLoyaltyReward: rewardCount > 0,
+      loyaltyRewardCount: rewardCount,
+      fulfillmentType: fulfillment,
+      delivery:
+        fulfillment === "DELIVERY" &&
+        deliveryAddress.address &&
+        deliveryAddress.lat &&
+        deliveryAddress.lng
+          ? {
+              address: deliveryAddress.address,
+              lat: deliveryAddress.lat,
+              lng: deliveryAddress.lng,
+              unit: deliveryAddress.unit || undefined,
+              driverNote: deliveryAddress.driverNote || undefined,
+              postcode: deliveryAddress.postcode,
+            }
+          : undefined,
+      lines: lines.map((l) => ({
+        itemName: l.itemName,
+        variationId: l.variationId,
+        variationName: l.variationName,
+        variationPriceCents: Number(l.variationPriceCents),
+        modifiers: l.modifiers.map((m) => ({
+          id: m.id,
+          name: m.name,
+          priceCents: Number(m.priceCents),
+        })),
+        quantity: l.quantity,
+      })),
+    }),
+    [
+      welcomeDiscount.available,
+      igFollowDiscount.available,
+      flashPromo.available,
+      rewardCount,
+      fulfillment,
+      deliveryAddress,
+      lines,
+    ],
   );
 
-  // Card surcharge mirrors the Square service charge attached in
-  // /api/orders: 1.9% of the pre-discount subtotal, SUBTOTAL_PHASE.
-  const surchargeAmount = useMemo(() => cardSurcharge(subtotal), [subtotal]);
+  // Server-priced summary — every discount, every surcharge, the total.
+  //
+  // This page used to work all of that out for itself: which promos apply, how
+  // many cups each covers, which one wins the exclusive better-of, and what the
+  // percentage surcharges come to. That copy of the rules could only ever lag
+  // the server's, and did — a customer holding the app-download 20% saw a
+  // smaller Welcome discount instead (web #73, app#40). Now the server decides
+  // and this page renders. See docs/adr/0005.
+  const { quote: orderQuote } = useOrderQuote(
+    quoteBody,
+    lines.length > 0,
+    phActive,
+  );
 
-  // Platform Fee mirrors the SUBTOTAL_PHASE service charge attached in
-  // /api/orders: 0.5% of the pre-discount subtotal.
-  const platformFeeAmount = useMemo(() => platformFee(subtotal), [subtotal]);
+  // What's still owed for drinks once every discount AND the loyalty reward are
+  // off. Only used to recognise a "free drink" order — the money on screen and
+  // the money charged both come from elsewhere.
+  const drinksStillDue = useMemo(() => {
+    if (!orderQuote) return subtotal;
+    const due =
+      BigInt(orderQuote.subtotalCents) -
+      BigInt(orderQuote.discountTotalCents) -
+      BigInt(orderQuote.rewardCupsSumCents);
+    return due > 0n ? due : 0n;
+  }, [orderQuote, subtotal]);
 
-  // What the customer actually pays for drinks after every discount
-  // (reward cups + welcome/IG + tier 5% + free toppings). The delivery fee,
-  // its free-delivery threshold and the 5% service fee are all computed on
-  // this (2026-07-10 rule) — it feeds the quote request below, mirroring
-  // the server's math in /api/orders.
-  // Flash promo (store-wide one-day %) is EXCLUSIVE: the order gets either
-  // the flash discount or the welcome/IG/tier bundle, whichever is worth
-  // more — mirroring the server's pick in /api/orders. Reward cups are not
-  // a discount; they only shrink the flash base.
-  const otherPromoDiscount =
-    welcomeDiscountAmount + igFollowDiscountAmount +
-    tierPreview.toppingCoveredCents + tierPreview.tierDiscountCents;
-  const flashBase =
-    subtotal - rewardDiscount > 0n ? subtotal - rewardDiscount : 0n;
-  const flashCandidate = flashPromo.available
-    ? (flashBase * BigInt(flashPromo.percentage)) / 100n
-    : 0n;
-  const flashWins = flashCandidate > otherPromoDiscount;
-
-  // App-download promo (per-phone claim, whole-order %) is EXCLUSIVE and sits
-  // one lane ABOVE flash: it replaces whichever discount survived — flash OR
-  // the welcome/IG/tier bundle — when it's worth more. Mirrors the server's
-  // pick in /api/orders, on the same base as flash. The grant is resolved
-  // server-side from the signed-in profile's phone, so nothing is sent from
-  // here; this is display only, and the charged amount still comes from the
-  // created order's own total.
-  const appDownloadCandidate = appDownloadPromo.available
-    ? (flashBase * BigInt(appDownloadPromo.percentage)) / 100n
-    : 0n;
-  const survivingPromo = flashWins ? flashCandidate : otherPromoDiscount;
-  const appDownloadWins =
-    appDownloadCandidate > 0n && appDownloadCandidate > survivingPromo;
-  const appDownloadAmount = appDownloadWins ? appDownloadCandidate : 0n;
-  // True when either exclusive promo replaced the welcome/IG/tier bundle.
-  const bundleReplaced = flashWins || appDownloadWins;
-
-  const flashPromoAmount = flashWins && !appDownloadWins ? flashCandidate : 0n;
-  const totalDiscount =
-    rewardDiscount + (appDownloadWins ? appDownloadCandidate : survivingPromo);
-  const afterDiscount =
-    subtotal - totalDiscount > 0n ? subtotal - totalDiscount : 0n;
   // Drinks fully covered by a loyalty reward. Since the 2026-07-10 fee rule
   // this no longer implies "$0 order": a DELIVERY redeem still pays its
   // delivery + service fees (see noPaymentDue below).
-  const isFreeRedeem = rewardCount > 0 && afterDiscount === 0n;
+  const isFreeRedeem = rewardCount > 0 && drinksStillDue === 0n;
 
   // Every cup must have a *resolved* label selection before the user
   // can pay. Two failure modes this guards against:
@@ -419,14 +337,6 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     return Boolean(presetStickerHashes || aiDoodleIds || doodleIds);
   }, [labelSelections]);
 
-  // PH surcharge — checked client-side only for display; server is authoritative.
-  // Re-check every 60s so a user sitting on the checkout page across the Christmas
-  // Eve 18:00 cutoff (or any midnight boundary) sees the correct total before submitting.
-  const [phActive, setPhActive] = useState(() => isPublicHolidayActive());
-  useEffect(() => {
-    const id = setInterval(() => setPhActive(isPublicHolidayActive()), 60_000);
-    return () => clearInterval(id);
-  }, []);
 
   // Re-check delivery hours every 60s so a session stays accurate across the
   // 11:00 / 21:30 boundaries.
@@ -474,7 +384,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         driverNote: deliveryAddress.driverNote,
         postcode: deliveryAddress.postcode,
         drinksSubtotalCents: Number(subtotal),
-        paidDrinksSubtotalCents: Number(afterDiscount),
+        paidDrinksSubtotalCents: Number(drinksStillDue),
       }),
     })
       .then((r) => r.json())
@@ -499,7 +409,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         setQuoteState({ kind: "error", message: "Couldn't reach delivery service" });
       });
     return () => { cancelled = true; };
-  }, [fulfillment, deliveryAddress, hoursOpen, subtotal, afterDiscount]);
+  }, [fulfillment, deliveryAddress, hoursOpen, subtotal, drinksStillDue]);
 
   // Ordering window — poll /api/store-status every 30s so the Place Order
   // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
@@ -534,29 +444,18 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // Pre-fetch: treat as open so we don't flash a "closed" state on first
   // paint. The server gate is still authoritative.
   const storeClosed = orderingKnown && !orderingOpen;
-  const phSurchargeAmount = useMemo(
-    () => (phActive ? publicHolidaySurcharge(subtotal) : 0n),
-    [phActive, subtotal],
-  );
-
-  // Delivery + service fees — only displayed (and added to total) when DELIVERY is chosen.
-  // The delivery fee is distance-based, so the client cannot recompute it (no distance
-  // here). We mirror the authoritative amounts the server returned in the quote; until a
-  // valid quote resolves there is no fee to show.
-  const deliveryFeeAmount = useMemo(
-    () =>
-      fulfillment === "DELIVERY" && quoteState.kind === "ok"
-        ? BigInt(quoteState.feeCents)
-        : 0n,
-    [fulfillment, quoteState],
-  );
-  const serviceFeeAmount = useMemo(
-    () =>
-      fulfillment === "DELIVERY" && quoteState.kind === "ok"
-        ? BigInt(quoteState.serviceFeeCents)
-        : 0n,
-    [fulfillment, quoteState],
-  );
+  // Delivery + service fees come off the order quote like every other charge.
+  // /api/delivery/quote still runs, but only to drive the address card's own
+  // eligibility messaging — the money on the summary has one source.
+  const chargeCents = (uid: string) =>
+    BigInt(
+      orderQuote?.serviceCharges.find((sc) => sc.uid === uid)?.amountCents ??
+        "0",
+    );
+  const deliveryFeeAmount =
+    fulfillment === "DELIVERY" ? chargeCents("delivery-fee") : 0n;
+  const serviceFeeAmount =
+    fulfillment === "DELIVERY" ? chargeCents("service-fee") : 0n;
 
   const starsPerReward = authStarsPerReward || LOYALTY.starsPerReward;
   const loyaltyBalance = loyalty?.balance ?? 0;
@@ -588,27 +487,22 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // (pickup redeem, or a genuinely $0 delivery quote).
   const noPaymentDue = isFreeRedeem && redeemDeliveryFeesDue === 0n;
 
-  const displayTotal = useMemo(() => {
-    if (isFreeRedeem) return redeemDeliveryFeesDue;
-    return afterDiscount + surchargeAmount + platformFeeAmount + phSurchargeAmount + deliveryFeeAmount + serviceFeeAmount;
-  }, [
-    isFreeRedeem,
-    redeemDeliveryFeesDue,
-    afterDiscount,
-    surchargeAmount,
-    platformFeeAmount,
-    phSurchargeAmount,
-    deliveryFeeAmount,
-    serviceFeeAmount,
-  ]);
-  // Hide the surcharge lines from the order summary when the reward
-  // will cover the drinks — the backend won't charge them. Delivery +
-  // service fees stay visible: they ARE charged, even on a redeem.
-  const effectiveSurcharge = isFreeRedeem ? 0n : surchargeAmount;
-  const effectivePlatformFee = isFreeRedeem ? 0n : platformFeeAmount;
-  const effectivePhSurcharge = isFreeRedeem ? 0n : phSurchargeAmount;
-  const effectiveDeliveryFee = deliveryFeeAmount;
-  const effectiveServiceFee = serviceFeeAmount;
+  // What the wallet sheet and the Total line show. Straight off the quote —
+  // the server already skipped the surcharges on a redeem and netted off the
+  // reward, so there is nothing left to adjust here. Before the first quote
+  // lands, fall back to the bare subtotal: too high, never too low.
+  const displayTotal = orderQuote ? BigInt(orderQuote.netTotalCents) : subtotal;
+  // Money the loyalty reward covers, as the server estimated it (cheapest N
+  // cups). Shown next to the reward stepper; 0 until the first quote lands.
+  const rewardCents = orderQuote ? BigInt(orderQuote.rewardCupsSumCents) : 0n;
+
+  // Sticky mobile bar: the pass-through fees, folded into one line. Delivery
+  // fees are excluded — they get their own row in the full summary and aren't
+  // "included" in the same sense.
+  const inclusiveFeesLabel = (orderQuote?.serviceCharges ?? [])
+    .filter((sc) => sc.uid !== "delivery-fee" && sc.uid !== "service-fee")
+    .map((sc) => `Incl. ${sc.name} ${formatPrice(BigInt(sc.amountCents))}`)
+    .join(" · ");
 
   // DELIVERY selected but no authoritative quote yet (address incomplete, out
   // of zone, outside hours, or signed out) → deliveryFee/serviceFee both fall
@@ -1147,7 +1041,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   </div>
                   {rewardCount > 0 && (
                     <div className="mt-0.5 text-xs text-neutral-600">
-                      −{formatPrice(rewardDiscount)} off {rewardCount} cheapest drink
+                      −{formatPrice(rewardCents)} off {rewardCount} cheapest drink
                       {rewardCount > 1 ? "s" : ""}
                     </div>
                   )}
@@ -1202,199 +1096,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   ))}
                 </ul>
 
-                <div className="mt-4 space-y-3 border-t border-line pt-4">
-                  <div className="flex justify-between text-sm text-ink2">
-                    <span>Subtotal</span>
-                    <span className="font-semibold text-ink">
-                      {formatPrice(subtotal)}
-                    </span>
-                  </div>
-                  {appDownloadAmount > 0n && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        App Download {appDownloadPromo.percentage}% Off
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(appDownloadAmount)}
-                      </span>
-                    </div>
-                  )}
-                  {!bundleReplaced && welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        Welcome {welcomeDiscount.percentage}% Off
-                        <span className="text-xs text-ink3">
-                          ({promoCoverage.welcomeCount} drink
-                          {promoCoverage.welcomeCount === 1 ? "" : "s"})
-                        </span>
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(welcomeDiscountAmount)}
-                      </span>
-                    </div>
-                  )}
-                  {!bundleReplaced && igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        IG Follow {igFollowDiscount.percentage || 10}% Off
-                        <span className="text-xs text-ink3">
-                          ({promoCoverage.igFollowCount} drink
-                          {promoCoverage.igFollowCount === 1 ? "" : "s"})
-                        </span>
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(igFollowDiscountAmount)}
-                      </span>
-                    </div>
-                  )}
-                  {flashPromoAmount > 0n && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        Flash Sale {flashPromo.percentage}% Off
-                        <span className="text-xs text-ink3">(today only)</span>
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(flashPromoAmount)}
-                      </span>
-                    </div>
-                  )}
-                  {rewardCount > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                        Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
-                      </span>
-                      <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(rewardDiscount)}
-                      </span>
-                    </div>
-                  )}
-                  {!bundleReplaced && tierPreview.toppingCoveredCents > 0n && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        Free toppings ×{tierPreview.toppingCoveredCount} ({toppingsRemaining} left this month)
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(tierPreview.toppingCoveredCents)}
-                      </span>
-                    </div>
-                  )}
-                  {!bundleReplaced && tierPreview.tierDiscountCents > 0n && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: BRAND.primaryColor }}
-                        />
-                        {tier === "diamond" ? "Diamond" : "Gold"} Member −5%
-                      </span>
-                      <span style={{ color: BRAND.primaryColor }}>
-                        −{formatPrice(tierPreview.tierDiscountCents)}
-                      </span>
-                    </div>
-                  )}
-                  {fulfillment === "DELIVERY" && (
-                    <>
-                      <div className="flex justify-between text-sm text-ink2">
-                        <span>{DELIVERY_FEE_NAME}</span>
-                        <span className="font-semibold text-ink">
-                          {deliveryFeesPending ? (
-                            <span className="text-ink4">—</span>
-                          ) : effectiveDeliveryFee === 0n ? (
-                            <span className="text-emerald-600">FREE</span>
-                          ) : (
-                            formatPrice(effectiveDeliveryFee)
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm text-ink2">
-                        <span>
-                          {SERVICE_FEE.name}{" "}
-                          <span className="text-xs text-ink4">
-                            ({SERVICE_FEE.percentage}%)
-                          </span>
-                        </span>
-                        <span className="font-semibold text-ink">
-                          {deliveryFeesPending ? (
-                            <span className="text-ink4">—</span>
-                          ) : (
-                            formatPrice(effectiveServiceFee)
-                          )}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  {effectivePhSurcharge > 0n && (
-                    <div className="flex justify-between text-sm text-ink2">
-                      <span>
-                        {PH_SURCHARGE.name}{" "}
-                        <span className="text-xs text-ink4">
-                          ({PH_SURCHARGE.percentage}%)
-                        </span>
-                      </span>
-                      <span className="font-semibold text-ink">
-                        {formatPrice(effectivePhSurcharge)}
-                      </span>
-                    </div>
-                  )}
-                  {effectivePlatformFee > 0n && (
-                    <div className="flex justify-between text-sm text-ink2">
-                      <span>
-                        {PLATFORM_FEE.name}{" "}
-                        <span className="text-xs text-ink4">
-                          ({PLATFORM_FEE.percentage}%)
-                        </span>
-                      </span>
-                      <span className="font-semibold text-ink">
-                        {formatPrice(effectivePlatformFee)}
-                      </span>
-                    </div>
-                  )}
-                  {effectiveSurcharge > 0n && (
-                    <div className="flex justify-between text-sm text-ink2">
-                      <span>
-                        {CARD_SURCHARGE.name}{" "}
-                        <span className="text-xs text-ink4">
-                          ({CARD_SURCHARGE.percentage}%)
-                        </span>
-                      </span>
-                      <span className="font-semibold text-ink">
-                        {formatPrice(effectiveSurcharge)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm text-ink2">
-                    <span>Tax</span>
-                    <span className="font-semibold text-ink">
-                      Calculated at payment
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between border-t border-line pt-3">
-                    <span className="text-base font-bold text-ink">Total</span>
-                    <span className="text-xl font-bold text-brand">
-                      {formatPrice(displayTotal)}
-                    </span>
-                  </div>
-                </div>
+                <OrderSummaryTotals
+                  subtotalCents={subtotal}
+                  quote={orderQuote}
+                  fulfillment={fulfillment}
+                  rewardCount={rewardCount}
+                  deliveryQuotePending={deliveryFeesPending}
+                  totalSizeClassName="text-xl"
+                />
               </div>
             </details>
           </section>
@@ -1577,169 +1286,15 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             ))}
           </ul>
 
-          <div className="mt-6 space-y-3 border-t border-line pt-5">
-            <div className="flex justify-between text-sm text-ink2">
-              <span>Subtotal</span>
-              <span className="font-semibold text-ink">
-                {formatPrice(subtotal)}
-              </span>
-            </div>
-            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: BRAND.primaryColor }}
-                  />
-                  Welcome {welcomeDiscount.percentage}% Off
-                  <span className="text-xs text-ink3">
-                    ({promoCoverage.welcomeCount} drink
-                    {promoCoverage.welcomeCount === 1 ? "" : "s"})
-                  </span>
-                </span>
-                <span style={{ color: BRAND.primaryColor }}>
-                  −{formatPrice(welcomeDiscountAmount)}
-                </span>
-              </div>
-            )}
-            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: BRAND.primaryColor }}
-                  />
-                  IG Follow {igFollowDiscount.percentage || 10}% Off
-                  <span className="text-xs text-ink3">
-                    ({promoCoverage.igFollowCount} drink
-                    {promoCoverage.igFollowCount === 1 ? "" : "s"})
-                  </span>
-                </span>
-                <span style={{ color: BRAND.primaryColor }}>
-                  −{formatPrice(igFollowDiscountAmount)}
-                </span>
-              </div>
-            )}
-            {rewardCount > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                  Loyalty reward{rewardCount > 1 ? ` ×${rewardCount}` : ""}
-                </span>
-                <span className="font-semibold" style={{ color: BRAND.primaryColor }}>
-                  −{formatPrice(rewardDiscount)}
-                </span>
-              </div>
-            )}
-            {tierPreview.toppingCoveredCents > 0n && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: BRAND.primaryColor }}
-                  />
-                  Free toppings ×{tierPreview.toppingCoveredCount} ({toppingsRemaining} left this month)
-                </span>
-                <span style={{ color: BRAND.primaryColor }}>
-                  −{formatPrice(tierPreview.toppingCoveredCents)}
-                </span>
-              </div>
-            )}
-            {tierPreview.tierDiscountCents > 0n && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: BRAND.primaryColor }}
-                  />
-                  {tier === "diamond" ? "Diamond" : "Gold"} Member −5%
-                </span>
-                <span style={{ color: BRAND.primaryColor }}>
-                  −{formatPrice(tierPreview.tierDiscountCents)}
-                </span>
-              </div>
-            )}
-            {fulfillment === "DELIVERY" && (
-              <>
-                <div className="flex justify-between text-sm text-ink2">
-                  <span>{DELIVERY_FEE_NAME}</span>
-                  <span className="font-semibold text-ink">
-                    {deliveryFeesPending ? (
-                      <span className="text-ink4">—</span>
-                    ) : effectiveDeliveryFee === 0n ? (
-                      <span className="text-emerald-600">FREE</span>
-                    ) : (
-                      formatPrice(effectiveDeliveryFee)
-                    )}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm text-ink2">
-                  <span>
-                    {SERVICE_FEE.name}{" "}
-                    <span className="text-xs text-ink4">
-                      ({SERVICE_FEE.percentage}%)
-                    </span>
-                  </span>
-                  <span className="font-semibold text-ink">
-                    {deliveryFeesPending ? (
-                      <span className="text-ink4">—</span>
-                    ) : (
-                      formatPrice(effectiveServiceFee)
-                    )}
-                  </span>
-                </div>
-              </>
-            )}
-            {effectivePhSurcharge > 0n && (
-              <div className="flex justify-between text-sm text-ink2">
-                <span>
-                  {PH_SURCHARGE.name}{" "}
-                  <span className="text-xs text-ink4">
-                    ({PH_SURCHARGE.percentage}%)
-                  </span>
-                </span>
-                <span className="font-semibold text-ink">
-                  {formatPrice(effectivePhSurcharge)}
-                </span>
-              </div>
-            )}
-            {effectivePlatformFee > 0n && (
-              <div className="flex justify-between text-sm text-ink2">
-                <span>
-                  {PLATFORM_FEE.name}{" "}
-                  <span className="text-xs text-ink4">
-                    ({PLATFORM_FEE.percentage}%)
-                  </span>
-                </span>
-                <span className="font-semibold text-ink">
-                  {formatPrice(effectivePlatformFee)}
-                </span>
-              </div>
-            )}
-            {effectiveSurcharge > 0n && (
-              <div className="flex justify-between text-sm text-ink2">
-                <span>
-                  {CARD_SURCHARGE.name}{" "}
-                  <span className="text-xs text-ink4">
-                    ({CARD_SURCHARGE.percentage}%)
-                  </span>
-                </span>
-                <span className="font-semibold text-ink">
-                  {formatPrice(effectiveSurcharge)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm text-ink2">
-              <span>Tax</span>
-              <span className="font-semibold text-ink">
-                Calculated at payment
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between border-t border-line pt-3">
-              <span className="text-base font-bold text-ink">Total</span>
-              <span className="text-2xl font-bold text-brand">
-                {formatPrice(displayTotal)}
-              </span>
-            </div>
+          <div className="mt-6 border-t border-line pt-5">
+            <OrderSummaryTotals
+              subtotalCents={subtotal}
+              quote={orderQuote}
+              fulfillment={fulfillment}
+              rewardCount={rewardCount}
+              deliveryQuotePending={deliveryFeesPending}
+              totalSizeClassName="text-2xl"
+            />
           </div>
 
           <button
@@ -1805,31 +1360,20 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             <p className="text-lg font-bold text-ink">
               {formatPrice(displayTotal)}
             </p>
-            {welcomeDiscount.available && promoCoverage.welcomeCount > 0 && (
-              <p className="truncate text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
-                Welcome {welcomeDiscount.percentage}% Off ·{" "}
-                {promoCoverage.welcomeCount} drink
-                {promoCoverage.welcomeCount === 1 ? "" : "s"} · −
-                {formatPrice(welcomeDiscountAmount)}
+            {/* Same quote, condensed: one line per discount the server applied,
+                then the pass-through fees folded into a single "Incl." line. */}
+            {(orderQuote?.discounts ?? []).map((d) => (
+              <p
+                key={d.uid}
+                className="truncate text-[11px] font-semibold"
+                style={{ color: BRAND.primaryColor }}
+              >
+                {d.name} · −{formatPrice(BigInt(d.amountCents))}
               </p>
-            )}
-            {igFollowDiscount.available && promoCoverage.igFollowCount > 0 && (
-              <p className="truncate text-[11px] font-semibold" style={{ color: BRAND.primaryColor }}>
-                IG Follow {igFollowDiscount.percentage || 10}% Off ·{" "}
-                {promoCoverage.igFollowCount} drink
-                {promoCoverage.igFollowCount === 1 ? "" : "s"} · −
-                {formatPrice(igFollowDiscountAmount)}
-              </p>
-            )}
-            {effectiveSurcharge > 0n && (
+            ))}
+            {inclusiveFeesLabel && (
               <p className="truncate text-[11px] text-ink3">
-                {effectivePhSurcharge > 0n && (
-                  <>Incl. {PH_SURCHARGE.name} {formatPrice(effectivePhSurcharge)} · </>
-                )}
-                {effectivePlatformFee > 0n && (
-                  <>Incl. {PLATFORM_FEE.name} {formatPrice(effectivePlatformFee)} · </>
-                )}
-                Incl. {CARD_SURCHARGE.name} {formatPrice(effectiveSurcharge)}
+                {inclusiveFeesLabel}
               </p>
             )}
           </div>

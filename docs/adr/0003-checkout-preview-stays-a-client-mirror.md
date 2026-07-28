@@ -1,8 +1,13 @@
 # ADR 0003 — Checkout preview stays a client mirror (for now)
 
-Status: accepted (2026-07-27)
+Status: **superseded by ADR 0005 (2026-07-28)** — accepted 2026-07-27
 Issue: #73, `real-stanyan/Mandy-s-Bubble-Tea-App#40`
 Supersedes nothing. Extends ADR 0002.
+
+> The follow-up this ADR named ("server quote endpoint, shared, both mirrors
+> deleted together") was done the next day. Both mirrors are gone; checkout
+> renders `POST /api/orders/quote`. See `docs/adr/0005-checkout-renders-a-server-quote.md`.
+> Kept for the reasoning that made the mirror the right call at the time.
 
 ## Context
 

@@ -299,6 +299,13 @@ export function cartItemCount(lines: CartLine[]): number {
   return lines.reduce((sum, l) => sum + l.quantity, 0);
 }
 
+// NOTE (2026-07-28): these three size the fee on whatever base they're handed,
+// and every caller passes the plain cart subtotal. That's right for the cart
+// drawer, where no discount exists yet — but Square computes SUBTOTAL_PHASE
+// percentages on the POST-discount amount, so handing them a pre-discount
+// subtotal at a discounted surface over-states the fee. Checkout used to do
+// exactly that; it now renders /api/orders/quote instead (docs/adr/0005).
+
 // Mirrors Square's SUBTOTAL_PHASE percentage service charge: 1.9% of
 // the pre-discount subtotal, truncated to whole cents. Square's
 // authoritative totalMoney (returned from orders.create) is the source
