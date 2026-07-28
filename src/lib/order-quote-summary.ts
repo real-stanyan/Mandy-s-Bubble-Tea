@@ -19,6 +19,11 @@ export type QuoteAmount = {
   uid: string;
   name: string;
   amountCents: string;
+  /**
+   * Display-only aside for this row, e.g. "3 left this month". Absent on most
+   * rows. Never sent to Square — see OrderPricing.discountNotes for why.
+   */
+  note?: string;
 };
 
 export type OrderQuoteSummary = {
@@ -73,11 +78,15 @@ export function summarizeQuote(
   // Discounts are FIXED_AMOUNT and server-computed, so our own numbers are
   // already exact — Square echoes them back unchanged. Names come from here
   // too, because they carry the drink counts the summary prints.
-  const discounts: QuoteAmount[] = pricing.discounts.map((d) => ({
-    uid: d.uid,
-    name: d.name,
-    amountCents: d.amountMoney.amount.toString(),
-  }));
+  const discounts: QuoteAmount[] = pricing.discounts.map((d) => {
+    const note = pricing.discountNotes?.[d.uid];
+    return {
+      uid: d.uid,
+      name: d.name,
+      amountCents: d.amountMoney.amount.toString(),
+      ...(note ? { note } : {}),
+    };
+  });
   const discountTotal = pricing.discounts.reduce(
     (s, d) => s + d.amountMoney.amount,
     0n,

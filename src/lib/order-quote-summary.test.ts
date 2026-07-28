@@ -10,6 +10,7 @@ function pricing(over: Partial<OrderPricing> = {}): OrderPricing {
     drinksSubtotalCents: 5600n,
     rewardCupsSumCents: 0n,
     discounts: [],
+    discountNotes: {},
     serviceCharges: [],
     welcomeDrinksCovered: 0,
     igFollowDrinksCovered: 0,
@@ -156,5 +157,34 @@ describe("summarizeQuote", () => {
       totalMoney: { amount: 700n, currency: AUD },
     } as unknown as Order);
     expect(summary.subtotalCents).toBe("700");
+  });
+});
+
+describe("summarizeQuote — display-only discount notes", () => {
+  const toppingRow = {
+    uid: "tier-topping-allowance",
+    name: "Diamond Free Toppings (2)",
+    type: "FIXED_AMOUNT" as const,
+    amountMoney: { amount: 160n, currency: AUD },
+    scope: "ORDER" as const,
+  };
+
+  it("carries the note onto the row the client renders", () => {
+    const summary = summarizeQuote(
+      pricing({
+        discounts: [toppingRow],
+        discountNotes: { "tier-topping-allowance": "3 left this month" },
+      }),
+      null,
+    );
+    expect(summary.discounts[0]).toMatchObject({
+      uid: "tier-topping-allowance",
+      note: "3 left this month",
+    });
+  });
+
+  it("omits the key entirely on rows that have no note", () => {
+    const summary = summarizeQuote(pricing({ discounts: [appDownload] }), null);
+    expect(summary.discounts[0]).not.toHaveProperty("note");
   });
 });

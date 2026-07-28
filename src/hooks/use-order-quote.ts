@@ -18,6 +18,8 @@ export type QuoteAmount = {
   uid: string;
   name: string;
   amountCents: string;
+  /** Display-only aside, e.g. the Diamond allowance's "3 left this month". */
+  note?: string;
 };
 
 export type OrderQuote = {

@@ -282,3 +282,79 @@ describe("computeOrderPricing — service charges", () => {
     expect(uidList).toContain("service-fee");
   });
 });
+
+describe("computeOrderPricing — Diamond free-topping note", () => {
+  const TOPPING = "MOD_PEARLS";
+  // Diamond, one cup, one paid topping.
+  const diamondBase = {
+    ...base,
+    lines: [
+      {
+        variationId: VARIATION,
+        variationPriceCents: 700,
+        modifiers: [{ id: TOPPING, priceCents: 80 }],
+        quantity: 2,
+      },
+    ] as QuoteLine[],
+    priceMaps: {
+      variationPriceById: new Map([[VARIATION, 780n]]),
+      modifierPriceById: new Map([[TOPPING, 80n]]),
+    },
+  };
+
+  function asDiamondWith(remaining: number) {
+    vi.mocked(findLoyaltyAccountByPhone).mockResolvedValue({
+      lifetimePoints: 100,
+    } as Awaited<ReturnType<typeof findLoyaltyAccountByPhone>>);
+    vi.mocked(getToppingAllowanceStatus).mockResolvedValue({
+      remaining,
+      usedCount: 0,
+      monthKey: "2026-07",
+    });
+  }
+
+  it("annotates the allowance row with what is left AFTER this order", async () => {
+    asDiamondWith(5);
+    const p = await computeOrderPricing(diamondBase);
+    // 2 paid toppings covered out of 5 remaining → 3 left, not 5. Pre-order
+    // was the old mirror's number and read as a promise it didn't make.
+    expect(p.discountNotes["tier-topping-allowance"]).toBe("3 left this month");
+  });
+
+  it("says 0 left when this order consumes the whole allowance", async () => {
+    asDiamondWith(2);
+    const p = await computeOrderPricing(diamondBase);
+    expect(p.discountNotes["tier-topping-allowance"]).toBe("0 left this month");
+  });
+
+  it("keeps the note out of the discount handed to Square", async () => {
+    asDiamondWith(5);
+    const p = await computeOrderPricing(diamondBase);
+    const row = p.discounts.find((d) => d.uid === "tier-topping-allowance");
+    // The name reaches the customer's receipt a week later, where "3 left this
+    // month" is no longer true.
+    expect(row?.name).toBe("Diamond Free Toppings (2)");
+    expect(Object.values(row ?? {}).join(" ")).not.toContain("left this month");
+  });
+
+  it("drops the note when a better promo replaces the tier bundle", async () => {
+    asDiamondWith(5);
+    vi.mocked(getAppDownloadDiscountStatus).mockResolvedValue({
+      available: true,
+      percentage: 20,
+      claimedAt: null,
+      redeemedAt: null,
+    });
+    const p = await computeOrderPricing(diamondBase);
+    // app-download is exclusive: no free-topping row survives, so a leftover
+    // note would advertise a perk this order isn't getting.
+    expect(uids(p.discounts)).toEqual(["app-download-discount"]);
+    expect(p.discountNotes["tier-topping-allowance"]).toBeUndefined();
+  });
+
+  it("has no note at all for a member with no free toppings applied", async () => {
+    asDiamondWith(0);
+    const p = await computeOrderPricing(diamondBase);
+    expect(p.discountNotes).toEqual({});
+  });
+});
