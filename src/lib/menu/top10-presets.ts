@@ -22,6 +22,10 @@ export type Top10Preset = {
 
 type ModifierListLike = { id: string; modifiers: { id: string; name: string }[] };
 
+type SoldOutModifierListLike = {
+  modifiers: { name: string; soldOut: boolean }[];
+};
+
 const TOP10_PRESETS: Record<string, Top10Preset> = {
   "brown sugar milk tea": {
     lockedToppings: ["Pearls"],
@@ -141,6 +145,36 @@ export function lockedModifierIds(
     for (const mod of ml.modifiers) {
       if (isLockedToppingName(mod.name, lockedToppings)) {
         out.push({ listId: ml.id, modifierId: mod.id });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Names of this drink's locked toppings that are currently sold out.
+ *
+ * A locked topping is pre-selected AND non-removable, so one selling out makes
+ * the whole drink unorderable — the customer can't take it off to get past it.
+ * Nothing on the listing showed that (the card reads `item.soldOut`, which is
+ * the drink's own state and knows nothing about toppings), so the drink looked
+ * available right up to a dead Add-to-Cart button with no explanation (#101).
+ *
+ * Empty outside TOP 10: there the same toppings are optional, and an optional
+ * sold-out topping is just an option the customer can't pick.
+ */
+export function soldOutLockedToppings(
+  categorySlug: string | undefined,
+  itemName: string,
+  modifierLists: SoldOutModifierListLike[],
+): string[] {
+  const locked = lockedToppingsFor(categorySlug, itemName);
+  if (locked.length === 0) return [];
+  const out: string[] = [];
+  for (const ml of modifierLists) {
+    for (const mod of ml.modifiers) {
+      if (mod.soldOut && isLockedToppingName(mod.name, locked)) {
+        out.push(mod.name);
       }
     }
   }

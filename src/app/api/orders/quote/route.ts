@@ -9,6 +9,12 @@ import {
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import {
+  buildSoldOutIndex,
+  scanSoldOut,
+  soldOutMessage,
+  type SoldOutIndex,
+} from "@/lib/sold-out";
 import { reportDegraded } from "@/lib/degraded";
 import { computeOrderPricing } from "@/lib/order-quote";
 import { isValidQuoteBody } from "@/lib/order-request";
@@ -76,11 +82,35 @@ export async function POST(request: Request) {
   // what they'd actually be charged, which reads as "my discount is gone" and
   // is a good reason to abandon the order. Worth knowing about, hence the alert.
   let priceMaps: AuthoritativePriceMaps | null = null;
+  let soldOutIndex: SoldOutIndex | null = null;
   try {
-    priceMaps = buildAuthoritativePriceMaps(await getMenu());
+    const menu = await getMenu();
+    priceMaps = buildAuthoritativePriceMaps(menu);
+    soldOutIndex = buildSoldOutIndex(menu);
   } catch (menuError) {
     priceMaps = null;
+    soldOutIndex = null;
     reportDegraded("quote.menu-unavailable", { lineCount: body.lines.length }, menuError);
+  }
+
+  // Sold out is knowable right here, and used not to be checked until
+  // /api/orders — i.e. until AFTER the wallet had been tokenized (#101). The
+  // customer got a total, a live pay button, and then a refusal at the last
+  // possible moment. Refuse to quote instead: the checkout page turns this into
+  // a banner naming the drink, with the pay button off.
+  if (soldOutIndex) {
+    const soldOut = scanSoldOut(body.lines, soldOutIndex);
+    if (soldOut.names.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: soldOutMessage(soldOut.names),
+          soldOut: soldOut.names,
+          soldOutLineIndexes: soldOut.lineIndexes,
+        },
+        { status: 409 },
+      );
+    }
   }
 
   // A cart line the catalog has never heard of prices at 0 (deliberately — see

@@ -5,7 +5,11 @@ import { notFound } from "next/navigation";
 import { getMenu, getCategoryBySlug, top10SurchargeCents, type MenuItem } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
-import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
+import {
+  displayNameFor,
+  imageUrlFor,
+  soldOutLockedToppings,
+} from "@/lib/menu/top10-presets";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -86,12 +90,31 @@ export default async function CategoryPage({ params }: PageProps) {
         </div>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-          {items.map((item) => (
+          {items.map((item) => {
+            // A TOP 10 drink whose locked topping is out can't be ordered — the
+            // topping is pre-selected and non-removable. `item.soldOut` knows
+            // nothing about toppings, so before #101 the card looked perfectly
+            // available and the dead end was only discovered on the detail page.
+            const outLocked = soldOutLockedToppings(
+              category.slug,
+              item.name,
+              item.modifierListRefs
+                .map((ref) => menu.modifierLists.get(ref.id))
+                .filter((ml) => ml != null),
+            );
+            const unavailable = item.soldOut || outLocked.length > 0;
+            return (
             <li key={item.id}>
-              {item.soldOut ? (
+              {unavailable ? (
                 <div aria-disabled="true" className="block cursor-not-allowed">
                   <ItemCard
                     item={item}
+                    unavailable
+                    unavailableNote={
+                      item.soldOut
+                        ? null
+                        : `${outLocked.join(" & ")} sold out`
+                    }
                     displayName={displayNameFor(category.slug, item.name)}
                     imageUrl={imageUrlFor(category.slug, item.name)}
                     priceCents={
@@ -119,7 +142,8 @@ export default async function CategoryPage({ params }: PageProps) {
                 </Link>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </CategoryFrame>
@@ -176,23 +200,30 @@ function ItemCard({
   displayName,
   imageUrl,
   priceCents,
+  unavailable = false,
+  unavailableNote = null,
 }: {
   item: MenuItem;
   displayName?: string;
   imageUrl?: string | null;
   priceCents?: bigint | null;
+  /** Can't be ordered right now — the drink itself, or a locked topping. */
+  unavailable?: boolean;
+  /** Why, when it isn't simply the drink being out. */
+  unavailableNote?: string | null;
 }) {
   const shownImage = imageUrl ?? item.imageUrl;
   const shownPrice = priceCents !== undefined ? priceCents : item.priceCents;
+  const dimmed = unavailable || item.soldOut;
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
-        item.soldOut ? "opacity-50" : ""
+        dimmed ? "opacity-50" : ""
       }`}
     >
-      {item.soldOut && (
+      {dimmed && (
         <span className="absolute right-2 top-2 z-10 rounded-full bg-zinc-900/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-          Sold out
+          {unavailableNote ?? "Sold out"}
         </span>
       )}
       {shownImage ? (
@@ -202,7 +233,7 @@ function ItemCard({
             alt={displayName ?? item.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
-            className={`object-cover ${item.soldOut ? "grayscale" : ""}`}
+            className={`object-cover `}
           />
         </div>
       ) : (

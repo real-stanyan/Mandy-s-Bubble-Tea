@@ -35,19 +35,30 @@ export type OrderQuote = {
 };
 
 /**
- * The one quote failure the customer has to be told about.
+ * The quote failures the customer has to be told about.
  *
  * Every other failure is safe to swallow — signed out, Square slow, network
  * blip — because the page falls back to the cart's own subtotal, which is too
- * high rather than too low, and the order still goes through. A stale cart is
- * different: the server has refused to price it (409, see #84), and the create
+ * high rather than too low, and the order still goes through. These two are
+ * different: the server has refused to price the cart (409), and the create
  * route will refuse it too. Falling back silently shows a plausible total for
  * an order that cannot be placed, and the customer has no way to work out why.
+ *
+ * "stale-cart" (#84) = the line has no catalog entry at all, usually an item
+ * deleted and re-added in Square while it sat in a persisted cart. Gone for
+ * good under that id.
+ *
+ * "sold-out" (#101) = the catalog knows it and says not today. Comes back on
+ * its own, which is why the server's wording differs and why we render the
+ * server's string rather than one of our own.
  */
 export type QuoteBlocked = {
-  reason: "stale-cart";
+  reason: "stale-cart" | "sold-out";
   message: string;
+  /** Stale-cart only: which variations the catalog no longer has. */
   variationIds: string[];
+  /** Sold-out only: names of the drinks/toppings that are out. */
+  soldOut: string[];
 };
 
 /**
@@ -76,6 +87,23 @@ export function interpretQuoteResponse(
             ? body.error
             : "Some items in your cart are no longer on the menu.",
         variationIds: body.unknownVariationIds as string[],
+        soldOut: [],
+      },
+    };
+  }
+  if (status === 409 && Array.isArray(body.soldOut)) {
+    return {
+      kind: "blocked",
+      blocked: {
+        reason: "sold-out",
+        // The server names the drink and says what to do about it; inventing a
+        // generic line here would throw that away.
+        message:
+          typeof body.error === "string"
+            ? body.error
+            : "Something in your cart just sold out.",
+        variationIds: [],
+        soldOut: body.soldOut as string[],
       },
     };
   }

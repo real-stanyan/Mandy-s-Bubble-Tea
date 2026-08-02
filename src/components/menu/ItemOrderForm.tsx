@@ -120,20 +120,39 @@ export function ItemOrderForm({
     return errors;
   }, [modifierLists, selectedByList]);
 
-  const hasSoldOutModifier = modifierLists.some((ml) => {
+  // Names, not a boolean: the button being dead is only useful to the customer
+  // if it says which topping did it. A TOP 10 locked topping can't be taken off
+  // (the stepper floors at 1), so without this the drink is a dead end with no
+  // stated cause — the whole of #101.
+  const soldOutSelections = modifierLists.flatMap((ml) => {
     const map = selectedByList[ml.id];
-    if (!map) return false;
-    return Object.entries(map).some(
-      ([modId, count]) =>
-        count > 0 && ml.modifiers.find((m) => m.id === modId)?.soldOut,
-    );
+    if (!map) return [];
+    return Object.entries(map)
+      .filter(([, count]) => count > 0)
+      .map(([modId]) => ml.modifiers.find((m) => m.id === modId))
+      .filter((mod): mod is ModifierOption => !!mod?.soldOut)
+      .map((mod) => mod.name);
   });
 
   const canAdd =
     selectedVariation != null &&
     !selectedVariation.soldOut &&
-    !hasSoldOutModifier &&
+    soldOutSelections.length === 0 &&
     Object.keys(validationErrors).length === 0;
+
+  // Why the button is dead, in the order the customer would hit them.
+  const blockedReason: string | null =
+    selectedVariation == null
+      ? null
+      : selectedVariation.soldOut
+        ? "This size is sold out today. Try another size."
+        : soldOutSelections.length > 0
+          ? `${soldOutSelections.join(" and ")} ${soldOutSelections.length === 1 ? "is" : "are"} sold out today${
+              soldOutSelections.some((name) => isLockedToppingName(name, lockedToppings))
+                ? ", and it's part of this drink — so this one's off the menu until it's back."
+                : ". Remove it to keep going."
+            }`
+          : null;
 
   const unitPriceCents = useMemo(() => {
     if (!selectedVariation?.priceCents) return 0n;
@@ -435,6 +454,15 @@ export function ItemOrderForm({
           </Section>
         );
       })}
+
+      {blockedReason && (
+        <p
+          role="status"
+          className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:mt-8"
+        >
+          {blockedReason}
+        </p>
+      )}
 
       <div className="mt-6 flex items-center gap-3 sm:mt-8">
         <QuantityStepper value={quantity} onChange={setQuantity} />

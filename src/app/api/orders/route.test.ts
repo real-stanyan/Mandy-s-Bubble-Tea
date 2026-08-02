@@ -328,3 +328,90 @@ describe("POST /api/orders — a cart line the catalog dropped", () => {
     expect((await res.json()).ok).toBe(true);
   });
 });
+
+describe("POST /api/orders — a cart line that just sold out", () => {
+  // The last line of defence. The quote refuses the same cart earlier (#101),
+  // so reaching here means the topping sold out between pricing and paying —
+  // still before any Square call, and still with wording that names it.
+  const menuWithSoldOutTopping = () => ({
+    itemsBySlug: new Map([
+      [
+        "milky",
+        [
+          {
+            name: "Taro Milk Tea",
+            variations: [
+              { id: "VAR_LIVE", name: "", priceCents: 600n, soldOut: false },
+            ],
+          },
+        ],
+      ],
+    ]),
+    uncategorizedItems: [],
+    modifierLists: new Map([
+      [
+        "ML1",
+        {
+          id: "ML1",
+          name: "Toppings",
+          modifiers: [
+            { id: "M_PUDDING", name: "Pudding", soldOut: true },
+            { id: "M_PEARLS", name: "Pearls", soldOut: false },
+          ],
+        },
+      ],
+    ]),
+  });
+
+  const pickupBody = (modifierIds: string[]) => ({
+    fulfillmentType: "PICKUP",
+    lines: [
+      {
+        itemName: "Taro Milk Tea",
+        variationId: "VAR_LIVE",
+        variationPriceCents: 600,
+        quantity: 1,
+        modifiers: modifierIds.map((id) => ({ id, name: id, priceCents: 100 })),
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    ordersCreate.mockReset();
+    ordersSearch.mockReset();
+    ordersSearch.mockResolvedValue({ orders: [] });
+    ordersCreate.mockResolvedValue({
+      order: { id: "ORD1", totalMoney: { amount: 600n } },
+    });
+    vi.mocked(getAuthedUser).mockResolvedValue({
+      profile: { square_customer_id: "C1", phone_e164: "+61400000000" },
+    } as Awaited<ReturnType<typeof getAuthedUser>>);
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+    vi.mocked(isDeliveryEnabled).mockResolvedValue(true);
+    vi.mocked(getMenu).mockResolvedValue(
+      menuWithSoldOutTopping() as unknown as Awaited<ReturnType<typeof getMenu>>,
+    );
+  });
+
+  it("refuses a drink whose topping is out, and says which one", async () => {
+    const res = await POST(orderRequest(pickupBody(["M_PUDDING"])));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.soldOut).toEqual(["Pudding"]);
+    expect(json.soldOutLineIndexes).toEqual([0]);
+    expect(json.error).toContain("Pudding");
+    // "Refresh the menu" was the old advice and fixes nothing — the cart is
+    // persisted, so the same dead line survives the refresh.
+    expect(json.error.toLowerCase()).not.toContain("refresh");
+    expect(ordersCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets the same drink through with a topping that is still available", async () => {
+    const res = await POST(orderRequest(pickupBody(["M_PEARLS"])));
+    expect(res.status).not.toBe(409);
+    expect(ordersCreate).toHaveBeenCalled();
+  });
+});

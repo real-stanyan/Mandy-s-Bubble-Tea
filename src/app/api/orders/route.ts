@@ -21,6 +21,7 @@ import {
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
+import { buildSoldOutIndex, scanSoldOut, soldOutMessage } from "@/lib/sold-out";
 import { reportDegraded } from "@/lib/degraded";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
@@ -126,47 +127,17 @@ export async function POST(request: Request) {
   try {
     const menu = await getMenu();
     priceMaps = buildAuthoritativePriceMaps(menu);
-    const variationSoldOut = new Map<string, { name: string; soldOut: boolean }>();
-    const modifierSoldOut = new Map<string, { name: string; soldOut: boolean }>();
-    for (const items of menu.itemsBySlug.values()) {
-      for (const item of items) {
-        for (const v of item.variations) {
-          variationSoldOut.set(v.id, {
-            name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
-            soldOut: v.soldOut,
-          });
-        }
-      }
-    }
-    for (const item of menu.uncategorizedItems) {
-      for (const v of item.variations) {
-        variationSoldOut.set(v.id, {
-          name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
-          soldOut: v.soldOut,
-        });
-      }
-    }
-    for (const ml of menu.modifierLists.values()) {
-      for (const mod of ml.modifiers) {
-        modifierSoldOut.set(mod.id, { name: mod.name, soldOut: mod.soldOut });
-      }
-    }
-    const soldOutNames: string[] = [];
-    for (const line of body.lines) {
-      const v = variationSoldOut.get(line.variationId);
-      if (v?.soldOut) soldOutNames.push(v.name);
-      for (const m of line.modifiers) {
-        const mod = modifierSoldOut.get(m.id);
-        if (mod?.soldOut) soldOutNames.push(mod.name);
-      }
-    }
-    if (soldOutNames.length > 0) {
-      const unique = Array.from(new Set(soldOutNames));
+    // Same scan the quote runs (#101), so a cart that priced fine a moment ago
+    // can only fail here if something sold out in between — not because the two
+    // routes disagreed about what "sold out" means.
+    const soldOut = scanSoldOut(body.lines, buildSoldOutIndex(menu));
+    if (soldOut.names.length > 0) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Sold out: ${unique.join(", ")}. Please refresh the menu.`,
-          soldOut: unique,
+          error: soldOutMessage(soldOut.names),
+          soldOut: soldOut.names,
+          soldOutLineIndexes: soldOut.lineIndexes,
         },
         { status: 409 },
       );

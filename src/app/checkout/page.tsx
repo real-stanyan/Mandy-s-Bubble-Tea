@@ -122,6 +122,10 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
+  // The banner used to link to /cart, which is not a route — the cart is a
+  // drawer mounted in the root layout. So the one escape hatch on a page the
+  // customer can't pay from was a 404.
+  const openCartDrawer = useCart((s) => s.openDrawer);
   const labelSelections = useCart((s) => s.labelSelections);
   const keepLabelCopy = useCart((s) => s.keepLabelCopy);
   const setKeepLabelCopy = useCart((s) => s.setKeepLabelCopy);
@@ -497,7 +501,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // the same reason. Blocking the button is the honest move: letting it through
   // spends the customer's attention on a payment sheet that ends in an error
   // they can't act on.
-  const cartHasRetiredItems = quoteBlocked?.reason === "stale-cart";
+  // Either refusal means the same thing to the pay button: the server won't
+  // price this cart, so it won't create the order either. The banner below
+  // still tells them apart, because "gone for good" and "back tomorrow" are
+  // different news.
+  const cartIsUnorderable = quoteBlocked != null;
   // Money the loyalty reward covers, as the server estimated it (cheapest N
   // cups). Shown next to the reward stepper; 0 until the first quote lands.
   const rewardCents = orderQuote ? BigInt(orderQuote.rewardCupsSumCents) : 0n;
@@ -673,7 +681,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
     // Same reason, same shape: /api/orders returns its own 409 for this cart,
     // but stopping here means no payment sheet is opened first.
-    if (cartHasRetiredItems) {
+    if (cartIsUnorderable) {
       setError(quoteBlocked?.message ?? "Some items are no longer available");
       return;
     }
@@ -980,23 +988,24 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               mobile that summary is a collapsed <details>, and this is the one
               message the customer cannot afford to miss — nothing else on the
               page hints that the order can't be placed. */}
-          {cartHasRetiredItems && (
+          {cartIsUnorderable && (
             <div
               role="alert"
               className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:p-5"
             >
               <p className="font-semibold">{quoteBlocked?.message}</p>
               <p className="mt-1 text-red-700">
-                We can&apos;t work out the price, so this order can&apos;t be
-                placed. Remove the affected drinks from your cart and add them
-                again from the menu.
+                {quoteBlocked?.reason === "sold-out"
+                  ? "We've stopped here rather than take a payment we'd have to refund. Everything else in your cart is fine."
+                  : "We can't work out the price, so this order can't be placed. Remove the affected drinks from your cart and add them again from the menu."}
               </p>
-              <Link
-                href="/cart"
+              <button
+                type="button"
+                onClick={openCartDrawer}
                 className="mt-3 inline-block font-semibold underline"
               >
-                Go to cart
-              </Link>
+                Open cart
+              </button>
             </div>
           )}
 
@@ -1345,7 +1354,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
-              cartHasRetiredItems
+              cartIsUnorderable
             }
             className="mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={
@@ -1427,7 +1436,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
-              cartHasRetiredItems
+              cartIsUnorderable
             }
             className={`flex min-w-[148px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               storeClosed

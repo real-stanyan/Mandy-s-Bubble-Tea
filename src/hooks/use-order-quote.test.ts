@@ -40,6 +40,7 @@ describe("interpretQuoteResponse", () => {
         message:
           "Some items in your cart are no longer on the menu. Remove them and add them again.",
         variationIds: ["DELETED_IN_SQUARE"],
+        soldOut: [],
       },
     });
   });
@@ -58,12 +59,16 @@ describe("interpretQuoteResponse", () => {
   });
 
   it("ignores a 409 that isn't about the cart", () => {
-    // The create route already returns 409 for sold-out lines and duplicate
-    // submits. Blocking checkout on the status code alone would misfire.
+    // The create route also returns 409 for a duplicate submit. Blocking
+    // checkout on the status code alone would misfire on that.
+    //
+    // This case used to use a sold-out body as its example of a 409 to ignore.
+    // #101 deliberately reverses that: the quote now refuses a sold-out cart
+    // so the customer hears about it before the wallet is tokenized, and the
+    // sold-out case has its own test below.
     const out = interpretQuoteResponse(409, {
       ok: false,
-      error: "Sold out: Taro Milk Tea",
-      soldOut: ["Taro Milk Tea"],
+      error: "Order already submitted",
     });
     expect(out.kind).toBe("ignore");
   });
@@ -79,5 +84,44 @@ describe("interpretQuoteResponse", () => {
       unknownVariationIds: ["X"],
     });
     expect(out.kind === "blocked" && out.blocked.message).toBeTruthy();
+  });
+});
+
+// #101: sold-out used to be checked only at create time — after the wallet had
+// been tokenized. The quote refuses now, so the page can say so beforehand.
+describe("interpretQuoteResponse — a sold-out cart", () => {
+  it("blocks on a 409 carrying soldOut names", () => {
+    const outcome = interpretQuoteResponse(409, {
+      ok: false,
+      error: "Pudding just sold out. Remove that drink from your cart and the rest of your order is fine.",
+      soldOut: ["Pudding"],
+      soldOutLineIndexes: [1],
+    });
+    expect(outcome).toEqual({
+      kind: "blocked",
+      blocked: {
+        reason: "sold-out",
+        message:
+          "Pudding just sold out. Remove that drink from your cart and the rest of your order is fine.",
+        variationIds: [],
+        soldOut: ["Pudding"],
+      },
+    });
+  });
+
+  it("keeps stale-cart and sold-out apart — they need different wording", () => {
+    const stale = interpretQuoteResponse(409, {
+      ok: false,
+      error: "gone",
+      unknownVariationIds: ["V1"],
+    });
+    expect(stale).toMatchObject({ blocked: { reason: "stale-cart" } });
+  });
+
+  it("still ignores a 409 that is neither", () => {
+    // /api/orders answers 409 for a duplicate submit too.
+    expect(
+      interpretQuoteResponse(409, { ok: false, error: "Order already submitted" }),
+    ).toEqual({ kind: "ignore" });
   });
 });

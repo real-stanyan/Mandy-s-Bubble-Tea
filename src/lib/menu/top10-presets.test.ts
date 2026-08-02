@@ -9,6 +9,7 @@ import {
   lockedToppingsPriceCents,
   lockedModifierIds,
   isLockedToppingName,
+  soldOutLockedToppings,
 } from "./top10-presets";
 
 describe("top10-presets", () => {
@@ -124,5 +125,51 @@ describe("top10-presets", () => {
     ]);
     expect(lockedModifierIds(lists, ["Mango Jelly"])).toEqual([]);
     expect(lockedModifierIds([], ["Pearls"])).toEqual([]);
+  });
+});
+
+describe("soldOutLockedToppings", () => {
+  const lists = (soldOut: string[]) => [
+    {
+      modifiers: [
+        { name: "Pearls", soldOut: soldOut.includes("Pearls") },
+        { name: "Pudding", soldOut: soldOut.includes("Pudding") },
+        { name: "Herbal Jelly", soldOut: soldOut.includes("Herbal Jelly") },
+        { name: "Aloe Vera", soldOut: soldOut.includes("Aloe Vera") },
+      ],
+    },
+  ];
+
+  it("names the locked topping that is out", () => {
+    expect(
+      soldOutLockedToppings("top-10", "Taro Milk Tea", lists(["Pudding"])),
+    ).toEqual(["Pudding"]);
+  });
+
+  it("ignores a sold-out topping this drink doesn't lock", () => {
+    // Taro's preset locks Pudding only — Aloe Vera being out is irrelevant,
+    // the customer simply can't add it.
+    expect(
+      soldOutLockedToppings("top-10", "Taro Milk Tea", lists(["Aloe Vera"])),
+    ).toEqual([]);
+  });
+
+  it("catches any one of a multi-topping preset", () => {
+    // Original Milk Tea locks three; any single one going out kills the drink.
+    expect(
+      soldOutLockedToppings("top-10", "Original Milk Tea", lists(["Herbal Jelly"])),
+    ).toEqual(["Herbal Jelly"]);
+  });
+
+  it("stays empty outside TOP 10 — there the topping is optional", () => {
+    expect(
+      soldOutLockedToppings("milky", "Taro Milk Tea", lists(["Pudding"])),
+    ).toEqual([]);
+  });
+
+  it("stays empty for a drink with no preset", () => {
+    expect(
+      soldOutLockedToppings("top-10", "Thai Milk Tea", lists(["Pudding"])),
+    ).toEqual([]);
   });
 });
