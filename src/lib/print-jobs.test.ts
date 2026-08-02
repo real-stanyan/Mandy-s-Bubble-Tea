@@ -18,12 +18,17 @@ vi.mock("./supabase-server", () => ({
 import type { Order } from "square";
 import { enqueuePrintJob } from "./print-jobs";
 
-function order(opts: { ticketName?: string; web?: boolean }): Order {
+function order(opts: {
+  ticketName?: string;
+  web?: boolean;
+  metadataSource?: string;
+}): Order {
+  const metadataSource = opts.metadataSource ?? (opts.web ? "web" : undefined);
   return {
     id: "ORDER_TEST",
     state: "COMPLETED", // settles the gate without needing a tender
     ticketName: opts.ticketName,
-    metadata: opts.web ? { source: "web" } : undefined,
+    metadata: metadataSource ? { source: metadataSource } : undefined,
     source: { name: opts.web ? "Mandy's Bubble Tea Online Shop" : "Point of Sale" },
     lineItems: [{ uid: "l1", name: "Thai Milk Tea", quantity: "1", modifiers: [] }],
     totalMoney: { amount: 600n, currency: "AUD" },
@@ -74,5 +79,48 @@ describe("enqueuePrintJob — sticker number guard (POS phone-ticketName inciden
     const res = await enqueuePrintJob({ order: order({ ticketName: "OL849", web: true }) });
     expect(res).toMatchObject({ queued: true, stickerNumber: "OL849" });
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+// #87: the column predates the app, so "not web" was written as "pos" — an
+// app order was indistinguishable from a walk-in at the counter. That broke
+// channel analysis, and left app orders out of the admin table's "线上"
+// highlight, which keys off exactly this value.
+describe("enqueuePrintJob — which channel the order came from", () => {
+  beforeEach(() => {
+    rpcMock.mockReset();
+    insertMock.mockReset();
+    rpcMock.mockResolvedValue({ data: 42, error: null });
+    insertMock.mockResolvedValue({ error: null });
+  });
+
+  const insertedSource = () =>
+    (insertMock.mock.calls[0][0] as { source: string }).source;
+
+  it("records an app order as app, not pos", async () => {
+    await enqueuePrintJob({
+      order: order({ ticketName: "OL850", metadataSource: "app" }),
+    });
+    expect(insertedSource()).toBe("app");
+  });
+
+  it("still records a web order as web", async () => {
+    await enqueuePrintJob({ order: order({ ticketName: "OL849", web: true }) });
+    expect(insertedSource()).toBe("web");
+  });
+
+  it("records an order with no metadata.source as pos", async () => {
+    // Never went through our API — that's the in-store register.
+    await enqueuePrintJob({ order: order({ ticketName: "8" }) });
+    expect(insertedSource()).toBe("pos");
+  });
+
+  it("records an unrecognised metadata.source as pos rather than passing it through", async () => {
+    // The column's CHECK only accepts the three known values; forwarding an
+    // unknown one would fail the INSERT and silently drop the cup sticker.
+    await enqueuePrintJob({
+      order: order({ ticketName: "8", metadataSource: "kiosk" }),
+    });
+    expect(insertedSource()).toBe("pos");
   });
 });

@@ -59,8 +59,11 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
       </thead>
       <tbody>
         {jobs.map((j) => {
-          // Online (web/app) orders are the ones staff can miss — highlight them.
-          const online = j.source === "web";
+          // Online (web/app) orders are the ones staff can miss — highlight
+          // them. Keyed on "not pos" so a channel added later is highlighted
+          // by default: the cost of missing an online order is a customer
+          // waiting at the counter, the cost of a stray highlight is nothing.
+          const online = j.source !== "pos";
           return (
           <tr
             key={j.id}

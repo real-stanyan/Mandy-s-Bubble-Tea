@@ -23,7 +23,10 @@ function playOnlineOrderAlert(): void {
 type PrintJobRow = {
   id: string;
   square_order_id: string;
-  source: "web" | "pos";
+  // "app" joined the set in #87. Nothing here branches on it — the audible
+  // online-order cue keys on the "OL" sticker prefix, which app orders already
+  // carry — but the type has to accept what the column now stores.
+  source: "web" | "app" | "pos";
   sticker_number: string;
   order_total_cents: number;
   cups: Array<{

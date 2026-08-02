@@ -58,7 +58,20 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
     return { queued: false, reason: "no_line_items" };
   }
 
-  const source: "web" | "pos" = order.metadata?.source === "web" ? "web" : "pos";
+  // Three channels, not two. metadata.source is "web" | "app" (set from
+  // clientPlatformFrom on every order we create); an order carrying neither
+  // never went through our API at all, which means the in-store POS.
+  //
+  // This used to fold "app" into "pos" — the column predates the app — so an
+  // app order was indistinguishable from a walk-in at the counter: channel
+  // analysis was impossible (#87) and the admin prints table, which keys its
+  // "线上" highlight off this value, didn't flag app orders as online.
+  const source: "web" | "app" | "pos" =
+    order.metadata?.source === "web"
+      ? "web"
+      : order.metadata?.source === "app"
+        ? "app"
+        : "pos";
 
   // Sticker number.
   //
