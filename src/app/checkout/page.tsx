@@ -493,11 +493,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // lands, fall back to the bare subtotal: too high, never too low.
   const displayTotal = orderQuote ? BigInt(orderQuote.netTotalCents) : subtotal;
 
-  // The server refused to price this cart, and /api/orders will refuse it for
-  // the same reason. Blocking the button is the honest move: letting it through
-  // spends the customer's attention on a payment sheet that ends in an error
-  // they can't act on.
-  const cartHasRetiredItems = quoteBlocked?.reason === "stale-cart";
+  // The server refused to price this cart (a retired catalog item, or
+  // something that's sold out), and /api/orders will refuse it for the same
+  // reason. Blocking the button is the honest move: letting it through spends
+  // the customer's attention on a payment sheet that ends in an error they
+  // can't act on.
+  const cartHasBlockedItems = quoteBlocked != null;
   // Money the loyalty reward covers, as the server estimated it (cheapest N
   // cups). Shown next to the reward stepper; 0 until the first quote lands.
   const rewardCents = orderQuote ? BigInt(orderQuote.rewardCupsSumCents) : 0n;
@@ -673,7 +674,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
     // Same reason, same shape: /api/orders returns its own 409 for this cart,
     // but stopping here means no payment sheet is opened first.
-    if (cartHasRetiredItems) {
+    if (cartHasBlockedItems) {
       setError(quoteBlocked?.message ?? "Some items are no longer available");
       return;
     }
@@ -980,16 +981,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               mobile that summary is a collapsed <details>, and this is the one
               message the customer cannot afford to miss — nothing else on the
               page hints that the order can't be placed. */}
-          {cartHasRetiredItems && (
+          {cartHasBlockedItems && (
             <div
               role="alert"
               className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:p-5"
             >
               <p className="font-semibold">{quoteBlocked?.message}</p>
               <p className="mt-1 text-red-700">
-                We can&apos;t work out the price, so this order can&apos;t be
-                placed. Remove the affected drinks from your cart and add them
-                again from the menu.
+                {quoteBlocked?.reason === "sold-out"
+                  ? "This order can't be placed until it's back in stock. Remove the sold-out item from your cart, or swap it for something else."
+                  : "We can't work out the price, so this order can't be placed. Remove the affected drinks from your cart and add them again from the menu."}
               </p>
               <Link
                 href="/cart"
@@ -1345,7 +1346,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
-              cartHasRetiredItems
+              cartHasBlockedItems
             }
             className="mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={
@@ -1427,7 +1428,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   : payMethod === "apple" ? !applePayAvailable
                   : !googlePayAvailable)) ||
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
-              cartHasRetiredItems
+              cartHasBlockedItems
             }
             className={`flex min-w-[148px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
               storeClosed

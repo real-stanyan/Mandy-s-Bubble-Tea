@@ -35,19 +35,21 @@ export type OrderQuote = {
 };
 
 /**
- * The one quote failure the customer has to be told about.
+ * The quote failures the customer has to be told about.
  *
  * Every other failure is safe to swallow — signed out, Square slow, network
  * blip — because the page falls back to the cart's own subtotal, which is too
- * high rather than too low, and the order still goes through. A stale cart is
- * different: the server has refused to price it (409, see #84), and the create
- * route will refuse it too. Falling back silently shows a plausible total for
- * an order that cannot be placed, and the customer has no way to work out why.
+ * high rather than too low, and the order still goes through. A stale cart or
+ * a sold-out item are different: the server has refused to price it (409),
+ * and the create route will refuse it too. Falling back silently shows a
+ * plausible total (and a working Pay button) for an order that cannot be
+ * placed, and the customer has no way to work out why.
  */
 export type QuoteBlocked = {
-  reason: "stale-cart";
+  reason: "stale-cart" | "sold-out";
   message: string;
-  variationIds: string[];
+  /** stale-cart: the unresolvable variation ids. sold-out: the sold-out item/modifier names. */
+  items: string[];
 };
 
 /**
@@ -75,7 +77,20 @@ export function interpretQuoteResponse(
           typeof body.error === "string"
             ? body.error
             : "Some items in your cart are no longer on the menu.",
-        variationIds: body.unknownVariationIds as string[],
+        items: body.unknownVariationIds as string[],
+      },
+    };
+  }
+  if (status === 409 && Array.isArray(body.soldOut)) {
+    return {
+      kind: "blocked",
+      blocked: {
+        reason: "sold-out",
+        message:
+          typeof body.error === "string"
+            ? body.error
+            : "Something in your cart just sold out.",
+        items: body.soldOut as string[],
       },
     };
   }

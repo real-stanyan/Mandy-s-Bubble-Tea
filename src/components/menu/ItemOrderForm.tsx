@@ -120,19 +120,28 @@ export function ItemOrderForm({
     return errors;
   }, [modifierLists, selectedByList]);
 
-  const hasSoldOutModifier = modifierLists.some((ml) => {
-    const map = selectedByList[ml.id];
-    if (!map) return false;
-    return Object.entries(map).some(
-      ([modId, count]) =>
-        count > 0 && ml.modifiers.find((m) => m.id === modId)?.soldOut,
-    );
-  });
+  // Names of every currently-selected modifier that's sold out — includes
+  // TOP 10 locked toppings, which are auto-selected by buildDefaults() and
+  // can't be removed by the customer. Surfaced below so a disabled Add to
+  // Cart button always comes with an explanation instead of just going dead.
+  const soldOutSelectedNames = useMemo(() => {
+    const names: string[] = [];
+    for (const ml of modifierLists) {
+      const map = selectedByList[ml.id];
+      if (!map) continue;
+      for (const [modId, count] of Object.entries(map)) {
+        if (count <= 0) continue;
+        const mod = ml.modifiers.find((m) => m.id === modId);
+        if (mod?.soldOut) names.push(mod.name);
+      }
+    }
+    return Array.from(new Set(names));
+  }, [modifierLists, selectedByList]);
 
   const canAdd =
     selectedVariation != null &&
     !selectedVariation.soldOut &&
-    !hasSoldOutModifier &&
+    soldOutSelectedNames.length === 0 &&
     Object.keys(validationErrors).length === 0;
 
   const unitPriceCents = useMemo(() => {
@@ -354,6 +363,7 @@ export function ItemOrderForm({
                       count={count}
                       priceText={priceLabel(mod)}
                       locked={locked}
+                      soldOut={mod.soldOut}
                       canIncrement={canIncrement(ml, mod.id)}
                       canDecrement={!(locked && count <= 1)}
                       onIncrement={() => incrementModifier(ml, mod.id)}
@@ -436,6 +446,18 @@ export function ItemOrderForm({
         );
       })}
 
+      {soldOutSelectedNames.length > 0 && (
+        <p
+          role="alert"
+          className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700"
+        >
+          {soldOutSelectedNames.join(", ")}{" "}
+          {soldOutSelectedNames.length === 1 ? "is" : "are"} sold out right
+          now, so this item can&apos;t be added as configured. Check back
+          later, or pick it from its regular category to customize toppings.
+        </p>
+      )}
+
       <div className="mt-6 flex items-center gap-3 sm:mt-8">
         <QuantityStepper value={quantity} onChange={setQuantity} />
 
@@ -474,6 +496,7 @@ function ModifierStepper({
   count,
   priceText,
   locked = false,
+  soldOut = false,
   canIncrement,
   canDecrement = true,
   onIncrement,
@@ -483,6 +506,7 @@ function ModifierStepper({
   count: number;
   priceText: string;
   locked?: boolean;
+  soldOut?: boolean;
   canIncrement: boolean;
   canDecrement?: boolean;
   onIncrement: () => void;
@@ -491,7 +515,7 @@ function ModifierStepper({
   return (
     <div
       className="inline-flex items-center gap-1 rounded-full border border-transparent pl-1 pr-3 py-1 text-sm font-medium text-white"
-      style={{ backgroundColor: BRAND.primaryColor }}
+      style={{ backgroundColor: soldOut ? "#b91c1c" : BRAND.primaryColor }}
     >
       <button
         type="button"
@@ -510,6 +534,7 @@ function ModifierStepper({
             Included
           </span>
         )}
+        {soldOut && <span className="ml-1 text-xs font-normal">(Sold out)</span>}
       </span>
       <button
         type="button"
