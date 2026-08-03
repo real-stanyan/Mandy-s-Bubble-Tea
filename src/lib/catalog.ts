@@ -191,6 +191,17 @@ function isBruleeModifier(name: string): boolean {
   return /brul[eé]+/i.test(name);
 }
 
+// Oreo Brulee Milk Tea already comes torched with its own brulee top — the
+// "Cheese Cream" topping is redundant/conflicting on this one item, so it's
+// hidden here rather than removed from Square's shared TOPPING modifier list
+// (which every other item still needs it on).
+export function isCheeseCreamModifier(name: string): boolean {
+  return name.trim().toUpperCase() === "CHEESE CREAM";
+}
+export function isOreoBruleeMilkTea(item: MenuItem): boolean {
+  return item.name.trim().toUpperCase() === "OREO BRULEE MILK TEA";
+}
+
 export function isCheeseCreamItem(item: MenuItem, menu: Menu): boolean {
   const ccCat = menu.categories.find(
     (c) => c.squareName.toUpperCase() === "CHEESE CREAM",
@@ -550,6 +561,7 @@ export function getItemDetail(
   if (!item) return null;
 
   const banBrulee = isCheeseCreamItem(item, menu);
+  const banCheeseCream = isOreoBruleeMilkTea(item);
 
   const modifierLists: ModifierList[] = [];
   for (const ref of item.modifierListRefs) {
@@ -562,6 +574,7 @@ export function getItemDetail(
     );
     const modifiers = base.modifiers
       .filter((mod) => !(banBrulee && isBruleeModifier(mod.name)))
+      .filter((mod) => !(banCheeseCream && isCheeseCreamModifier(mod.name)))
       .map((mod) => {
         const override = overrideMap.get(mod.id);
         if (override == null) return mod;
