@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import {
   getMenu,
   isCheeseCreamItem,
+  isCheeseCreamModifier,
+  isOreoBruleeMilkTea,
   sortModifierLists,
 } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
@@ -40,6 +42,7 @@ export async function GET(
 
     // Resolve modifier lists with per-item overrides
     const banBrulee = isCheeseCreamItem(foundItem, menu);
+    const banCheeseCream = isOreoBruleeMilkTea(foundItem);
     const modifierLists = foundItem.modifierListRefs
       .map((ref) => {
         const base = menu.modifierLists.get(ref.id);
@@ -50,6 +53,7 @@ export async function GET(
         );
         const modifiers = base.modifiers
           .filter((mod) => !(banBrulee && /brul[eé]+/i.test(mod.name)))
+          .filter((mod) => !(banCheeseCream && isCheeseCreamModifier(mod.name)))
           .map((mod) => {
             const override = overrideMap.get(mod.id);
             if (override == null) return mod;
