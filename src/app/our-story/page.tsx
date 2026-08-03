@@ -11,30 +11,29 @@ import {
 } from "lucide-react";
 import { getMenu, type MenuItem } from "@/lib/catalog";
 
-// Our Story, recreated from the design (web-story.jsx): a warm brand story
-// about craft, consistency and ritual — no ingredient-origin claims. Dark
-// hero with a floating cup, manifesto, the ordering ritual, the seven
-// families (live from Square), values + stats, an assurance split, and a
-// closing CTA. Server-rendered to stay lint-clean; visuals come from the
-// live menu so there are no missing asset references.
+// Our Story: a warm brand story about craft, consistency and ritual — no
+// ingredient-origin claims. Dark hero, manifesto, the ordering ritual,
+// values + stats, an assurance split, and a closing CTA. Server-rendered
+// to stay lint-clean; visuals come from the live menu so there are no
+// missing asset references.
 
 export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: "Our Story — Mandy's Bubble Tea",
   description:
-    "A better bubble tea, one perfect cup at a time. The story behind Mandy's — made to order in Southport since 2019.",
+    "A better bubble tea, one perfect cup at a time. The story behind Mandy's — made to order in Southport since 2016.",
 };
 
-const KICKER = "Our Story · Southport, est. 2019";
+const KICKER = "Our Story · Southport, est. 2016";
 const HEADLINE = ["A better bubble tea,", "one perfect cup at a time."];
 const TAGLINE = "Made to order, every single time.";
 const INTRO =
-  "Mandy's began as a small window on a busy Southport corner — one counter, a handful of recipes, and a simple goal: make the kind of bubble tea you'd happily queue for. A few years on, that's still the whole plan.";
+  "Mandy's began as a small window on a busy Southport corner — one counter, a handful of recipes, and one goal: bubble tea worth queuing for. That's still the whole plan.";
 
 const MANIFESTO = [
-  "We're a little obsessed with consistency. The cup you love today should taste exactly that good next week, next month, and a year from now — so we dial in every recipe until it's right, then make it the same way every single time.",
-  "And everything is built to order. You choose the base, the sweetness, the ice and the toppings; we shake it fresh and hand it over — no shortcuts, no sitting on the shelf, just your drink, the way you like it.",
+  "We're obsessed with consistency — the cup you love today should taste just as good next year. So we dial in every recipe, then make it the same way, every time.",
+  "Everything's made to order. Pick your base, sweetness, ice and toppings — we shake it fresh and hand it over. No shortcuts, no sitting on a shelf.",
 ];
 
 const PROCESS = [
@@ -94,7 +93,7 @@ const VALUES = [
 const STATS = [
   { v: "7", l: "Drink families" },
   { v: "30+", l: "Signature drinks" },
-  { v: "2019", l: "Serving Southport" },
+  { v: "2016", l: "Serving Southport" },
   { v: "4.9★", l: "Customer rating" },
 ];
 
@@ -103,34 +102,8 @@ const ASSURANCE = {
   body: "Whether it's your morning ritual or an afternoon treat, every Mandy's cup is made the same careful way — balanced, endlessly customizable, and ready in minutes.",
 };
 
-const CATEGORY_BLURBS: Record<string, string> = {
-  MILKY: "Silky milk teas with chewy pearls — the classics.",
-  FRUITY: "Bright, juicy fruit teas — refreshing every sip.",
-  "SPECIAL MIX": "House blends you won't find anywhere else.",
-  "FRESH BREW": "Pure brewed teas, clean and aromatic.",
-  "FRUITY BLACK TEA": "Black tea meets fresh fruit — bold and zesty.",
-  FROZEN: "Spoonable frozen slushies for hot days.",
-  "CHEESE CREAM": "Crowned with velvety salted cheese foam.",
-};
-
-function categoryBlurb(squareName: string, itemCount: number): string {
-  return (
-    CATEGORY_BLURBS[squareName.toUpperCase()] ??
-    `${itemCount} drink${itemCount !== 1 ? "s" : ""} to explore.`
-  );
-}
-
-type FamilyCard = {
-  slug: string;
-  name: string;
-  imageUrl: string | null;
-  itemCount: number;
-};
-
 type StoryData = {
-  heroItem: MenuItem | null;
   assuranceItem: MenuItem | null;
-  families: FamilyCard[];
 };
 
 async function loadStoryData(): Promise<StoryData> {
@@ -142,26 +115,14 @@ async function loadStoryData(): Promise<StoryData> {
         if (item.imageUrl) withImage.push(item);
       }
     }
-    const families: FamilyCard[] = menu.categories
-      .filter((c) => c.itemCount > 0)
-      .map((c) => ({
-        slug: c.slug,
-        name: c.squareName,
-        imageUrl: c.imageUrl,
-        itemCount: c.itemCount,
-      }));
-    return {
-      heroItem: withImage[0] ?? null,
-      assuranceItem: withImage[1] ?? withImage[0] ?? null,
-      families,
-    };
+    return { assuranceItem: withImage[0] ?? null };
   } catch {
-    return { heroItem: null, assuranceItem: null, families: [] };
+    return { assuranceItem: null };
   }
 }
 
 export default async function OurStoryPage() {
-  const { heroItem, assuranceItem, families } = await loadStoryData();
+  const { assuranceItem } = await loadStoryData();
 
   return (
     <div className="flex flex-1 flex-col">
@@ -177,57 +138,27 @@ export default async function OurStoryPage() {
               "radial-gradient(circle, rgba(255,179,128,.22), transparent 66%)",
           }}
         />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-16 pt-16 sm:px-8 sm:pt-24 md:grid-cols-[1.1fr_0.9fr]">
-          <div>
-            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-peach">
-              {KICKER}
-            </p>
-            <h1 className="mt-4 font-serif text-[clamp(40px,4.8vw,64px)] font-semibold leading-[1.0] tracking-[-0.03em]">
-              <span className="block">{HEADLINE[0]}</span>
-              <span className="block italic text-peach">{HEADLINE[1]}</span>
-            </h1>
-            <p className="mt-5 max-w-[540px] text-[18px] leading-relaxed text-white/75">
-              {INTRO}
-            </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <Link
-                href="/menu"
-                className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
-              >
-                Browse the menu <ArrowRight size={17} />
-              </Link>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 px-5 py-3 text-[14.5px] font-semibold text-white/80">
-                <Check size={16} className="text-peach" /> {TAGLINE}
-              </span>
-            </div>
-          </div>
-          <div className="relative grid place-items-center">
-            <div
-              className="absolute aspect-square w-[78%] rounded-full blur-md"
-              style={{
-                background:
-                  "radial-gradient(circle at 40% 34%, rgba(255,179,128,.5), rgba(141,85,36,.2) 70%, transparent 78%)",
-              }}
-            />
-            {heroItem?.imageUrl ? (
-              <div className="home-float relative z-[2] w-[68%]">
-                <Image
-                  src={heroItem.imageUrl}
-                  alt={heroItem.name}
-                  width={520}
-                  height={520}
-                  priority
-                  className="h-auto w-full object-contain"
-                  style={{
-                    filter: "drop-shadow(0 28px 40px rgba(0,0,0,.5))",
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="home-float relative z-[2] grid aspect-square w-[58%] place-items-center text-[120px]">
-                🧋
-              </div>
-            )}
+        <div className="relative mx-auto max-w-3xl px-5 pb-16 pt-16 sm:px-8 sm:pt-24">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-peach">
+            {KICKER}
+          </p>
+          <h1 className="mt-4 font-serif text-[clamp(40px,4.8vw,64px)] font-semibold leading-[1.0] tracking-[-0.03em]">
+            <span className="block">{HEADLINE[0]}</span>
+            <span className="block italic text-peach">{HEADLINE[1]}</span>
+          </h1>
+          <p className="mt-5 max-w-[540px] text-[18px] leading-relaxed text-white/75">
+            {INTRO}
+          </p>
+          <div className="mt-7 flex flex-wrap items-center gap-3">
+            <Link
+              href="/menu"
+              className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
+            >
+              Browse the menu <ArrowRight size={17} />
+            </Link>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 px-5 py-3 text-[14.5px] font-semibold text-white/80">
+              <Check size={16} className="text-peach" /> {TAGLINE}
+            </span>
           </div>
         </div>
       </section>
@@ -281,60 +212,6 @@ export default async function OurStoryPage() {
           ))}
         </div>
       </section>
-
-      {/* ===================== FAMILIES ===================== */}
-      {families.length > 0 && (
-        <section className="mx-auto w-full max-w-6xl px-5 pt-[72px] sm:px-8">
-          <SectionHead
-            center
-            kicker="The full range"
-            title="Seven ways to sip"
-            sub="From silky milk teas to spoonable frozen slushies — there's a Mandy's cup for every mood."
-          />
-          <div className="mt-10 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {families.map((cat) => (
-              <Link
-                key={cat.slug}
-                href={`/menu/${cat.slug}`}
-                className="group flex flex-col overflow-hidden rounded-card border border-line bg-card text-left shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)]"
-              >
-                <div className="relative aspect-[16/10] overflow-hidden bg-bg2">
-                  {cat.imageUrl && (
-                    <Image
-                      src={cat.imageUrl}
-                      alt={cat.name}
-                      fill
-                      sizes="(max-width:1024px) 50vw, 25vw"
-                      className="object-cover transition group-hover:scale-105"
-                    />
-                  )}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-serif text-[18px] font-semibold tracking-[-0.3px] text-ink">
-                    {cat.name}
-                  </h3>
-                  <p className="mt-1 line-clamp-2 text-[12.5px] leading-snug text-ink3">
-                    {categoryBlurb(cat.name, cat.itemCount)}
-                  </p>
-                </div>
-              </Link>
-            ))}
-            <Link
-              href="/menu"
-              className="flex min-h-[140px] flex-col items-start justify-center gap-2.5 rounded-card bg-brand p-6 text-white transition hover:-translate-y-1"
-            >
-              <span className="grid h-[42px] w-[42px] place-items-center rounded-full bg-white/20">
-                <ArrowRight size={20} />
-              </span>
-              <span className="font-serif text-[20px] font-semibold leading-tight">
-                See the
-                <br />
-                whole menu
-              </span>
-            </Link>
-          </div>
-        </section>
-      )}
 
       {/* ===================== VALUES + STATS ===================== */}
       <section className="mx-auto w-full max-w-6xl px-5 pt-[72px] sm:px-8">
