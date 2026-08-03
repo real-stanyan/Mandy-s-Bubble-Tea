@@ -85,8 +85,19 @@ export function ProductCard({ item }: { item: ProductRowData }) {
         )}
         <div className="mt-auto flex items-end justify-between pt-2">
           {item.priceCents != null ? (
-            <p className="text-ink2" style={{ fontSize: 14, fontWeight: 600 }}>
-              {formatPrice(item.priceCents)}
+            <p className="flex flex-wrap items-baseline gap-1.5">
+              {item.originalPriceCents != null &&
+                item.originalPriceCents > item.priceCents && (
+                  <span className="text-ink4 line-through" style={{ fontSize: 12 }}>
+                    {formatPrice(item.originalPriceCents)}
+                  </span>
+                )}
+              <span
+                className={item.originalPriceCents != null ? "text-red-600" : "text-ink2"}
+                style={{ fontSize: 14, fontWeight: 600 }}
+              >
+                {formatPrice(item.priceCents)}
+              </span>
             </p>
           ) : (
             <span />

@@ -6,6 +6,7 @@ import { getMenu, getCategoryBySlug, top10SurchargeCents, type MenuItem } from "
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
+import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -184,6 +185,11 @@ function ItemCard({
 }) {
   const shownImage = imageUrl ?? item.imageUrl;
   const shownPrice = priceCents !== undefined ? priceCents : item.priceCents;
+  const originalPriceCents = originalPriceCentsFor(item.name);
+  const isOnSpecial =
+    originalPriceCents != null &&
+    shownPrice != null &&
+    BigInt(originalPriceCents) > shownPrice;
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
@@ -219,11 +225,18 @@ function ItemCard({
             {item.variationLabel}
           </p>
         )}
-        <p
-          className="mt-1 text-base font-semibold sm:mt-2 sm:text-xl"
-          style={{ color: BRAND.primaryColor }}
-        >
-          {shownPrice != null ? formatPrice(shownPrice) : "—"}
+        <p className="mt-1 flex flex-wrap items-baseline gap-1.5 sm:mt-2">
+          {isOnSpecial && (
+            <span className="text-xs text-zinc-400 line-through sm:text-sm">
+              {formatPrice(originalPriceCents)}
+            </span>
+          )}
+          <span
+            className="text-base font-semibold sm:text-xl"
+            style={{ color: isOnSpecial ? "#dc2626" : BRAND.primaryColor }}
+          >
+            {shownPrice != null ? formatPrice(shownPrice) : "—"}
+          </span>
         </p>
       </div>
     </div>

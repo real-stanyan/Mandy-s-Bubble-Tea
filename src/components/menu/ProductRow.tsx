@@ -10,6 +10,8 @@ export type ProductRowData = {
   name: string;
   imageUrl: string | null;
   priceCents: number | null;
+  /** This week's pre-discount price, or null if not currently a special. */
+  originalPriceCents: number | null;
   variationLabel: string | null;
   soldOut: boolean;
   categorySlug: string;
@@ -95,8 +97,19 @@ export function ProductRow({ item }: { item: ProductRowData }) {
           </p>
         )}
         {item.priceCents != null && (
-          <p className="text-ink2 mt-0.5" style={{ fontSize: 14, fontWeight: 600 }}>
-            {formatPrice(item.priceCents)}
+          <p className="mt-0.5 flex items-baseline gap-1.5">
+            {item.originalPriceCents != null &&
+              item.originalPriceCents > item.priceCents && (
+                <span className="text-ink4 line-through" style={{ fontSize: 12 }}>
+                  {formatPrice(item.originalPriceCents)}
+                </span>
+              )}
+            <span
+              className={item.originalPriceCents != null ? "text-red-600" : "text-ink2"}
+              style={{ fontSize: 14, fontWeight: 600 }}
+            >
+              {formatPrice(item.priceCents)}
+            </span>
           </p>
         )}
       </div>

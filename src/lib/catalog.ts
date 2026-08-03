@@ -3,6 +3,11 @@ import type { Square } from "square";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { slugify } from "@/lib/slugs";
 import { lockedToppingsFor, lockedToppingsPriceCents } from "@/lib/menu/top10-presets";
+import {
+  WEEKLY_SPECIALS_CATEGORY_SLUG,
+  WEEKLY_SPECIALS_CATEGORY_NAME,
+  orderedWeeklySpecialNames,
+} from "@/lib/menu/weekly-specials";
 
 // Catalog data layer. Fetches raw Square objects once, then builds
 // view-model types that the UI can consume directly. All price amounts
@@ -467,7 +472,49 @@ async function _getMenuImpl(): Promise<Menu> {
     return a.squareName.localeCompare(b.squareName);
   });
 
+  // Weekly Specials — a virtual shelf pinned first, not a real Square
+  // category. Built after everything else so it can pull items from
+  // wherever they actually live (they stay in their real category too).
+  // Silently contributes nothing if none of this week's names match the
+  // current catalog (a rename, or the promo isn't live) — never a broken
+  // empty section.
+  const specialItems = collectWeeklySpecialItems(itemsBySlug, uncategorizedItems);
+  if (specialItems.length > 0) {
+    categories.unshift({
+      id: WEEKLY_SPECIALS_CATEGORY_SLUG,
+      squareName: WEEKLY_SPECIALS_CATEGORY_NAME,
+      slug: WEEKLY_SPECIALS_CATEGORY_SLUG,
+      imageUrl: null,
+      itemCount: specialItems.length,
+    });
+    itemsBySlug.set(WEEKLY_SPECIALS_CATEGORY_SLUG, specialItems);
+  }
+
   return { categories, itemsBySlug, uncategorizedItems, modifierLists };
+}
+
+function collectWeeklySpecialItems(
+  itemsBySlug: Map<string, MenuItem[]>,
+  uncategorizedItems: MenuItem[],
+): MenuItem[] {
+  const byName = new Map<string, MenuItem>();
+  for (const bucket of itemsBySlug.values()) {
+    for (const item of bucket) {
+      const key = item.name.trim().toLowerCase();
+      if (!byName.has(key)) byName.set(key, item);
+    }
+  }
+  for (const item of uncategorizedItems) {
+    const key = item.name.trim().toLowerCase();
+    if (!byName.has(key)) byName.set(key, item);
+  }
+
+  const out: MenuItem[] = [];
+  for (const name of orderedWeeklySpecialNames()) {
+    const item = byName.get(name);
+    if (item) out.push(item);
+  }
+  return out;
 }
 
 // --- Lookups ----------------------------------------------------------------
