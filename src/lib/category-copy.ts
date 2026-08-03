@@ -4,6 +4,7 @@
 // Square category name; unknown families fall back to an item count.
 
 const CATEGORY_BLURBS: Record<string, string> = {
+  "WEEKLY SPECIALS": "This week only, at a lower price — while it lasts.",
   MILKY: "Silky milk teas with chewy pearls — the classics.",
   FRUITY: "Bright, juicy fruit teas — refreshing every sip.",
   "SPECIAL MIX": "House blends you won't find anywhere else.",

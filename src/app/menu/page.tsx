@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getMenu, top10SurchargeCents, type Menu } from "@/lib/catalog";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
+import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 import {
   MenuBrowser,
   type MenuBrowserSection,
@@ -40,6 +41,7 @@ function toSections(menu: Menu): MenuBrowserSection[] {
         name: displayNameFor(cat.slug, item.name),
         imageUrl: imageUrlFor(cat.slug, item.name) ?? item.imageUrl,
         priceCents: item.priceCents == null ? null : Number(item.priceCents + surcharge),
+        originalPriceCents: originalPriceCentsFor(item.name),
         variationLabel: item.variationLabel,
         soldOut: item.soldOut,
         categorySlug: cat.slug,

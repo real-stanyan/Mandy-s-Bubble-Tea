@@ -8,6 +8,7 @@ import {
   displayNameFor,
   imageUrlFor,
 } from "@/lib/menu/top10-presets";
+import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 
 // Shared item-detail body, used by both the full route page
 // (menu/[category]/[item]) and the intercepting modal (@modal/(.)…). Loads
@@ -60,6 +61,11 @@ export async function ItemDetailContent({
     item.priceCents == null
       ? null
       : item.priceCents + top10SurchargeCents(menu, category.slug, item);
+  const originalPriceCents = originalPriceCentsFor(item.name);
+  const isOnSpecial =
+    originalPriceCents != null &&
+    displayPriceCents != null &&
+    originalPriceCents > displayPriceCents;
 
   return (
     <div
@@ -117,9 +123,20 @@ export async function ItemDetailContent({
         )}
 
         {displayPriceCents != null && (
-          <p className="mt-3 text-[22px] font-bold text-brand">
-            {formatPrice(displayPriceCents)}
-          </p>
+          <div className="mt-3 flex items-baseline gap-2.5">
+            {isOnSpecial && (
+              <span className="text-[16px] font-semibold text-ink4 line-through">
+                {formatPrice(originalPriceCents)}
+              </span>
+            )}
+            <p
+              className={
+                "text-[22px] font-bold " + (isOnSpecial ? "text-red-600" : "text-brand")
+              }
+            >
+              {formatPrice(displayPriceCents)}
+            </p>
+          </div>
         )}
 
         <div className="mt-6">
