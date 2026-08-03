@@ -55,6 +55,21 @@
 // Rollback / opt-in: default is v1; set `BINARIZE_PIPELINE=v2` to try
 // the experimental v2 path. The switch is checked per-call so flipping
 // env + redeploy is the entire rollover path either direction.
+//
+// Auto-dark-source routing (2026-08-03): customer night-time photo
+// uploads (dim ambient light, subject lit mostly by phone flash) were
+// printing as near-solid-black cups. v1's contrast recipe is a single
+// global `normalize() + linear(0.85, 25)` stretch — for a night photo
+// whose histogram is a big spike of near-black pixels plus a few bright
+// highlights, that global stretch has nowhere to go (the highlights
+// already anchor the top of the range) and the shadow-heavy midtones
+// stay under the dither threshold. v2's CLAHE step fixes exactly this
+// (per-tile local contrast instead of one global curve) but was kept
+// opt-in because Stan judged it "too crispy" on ordinarily-lit photos.
+// Rather than flip the global default, we cheaply estimate source
+// brightness (grayscale mean of a 64x64 thumbnail — a few ms, no full-res
+// decode) and only route genuinely dark sources through the v2 path;
+// normally-lit photos are unaffected and keep going through v1.
 
 import sharp from "sharp";
 import { binarizeForThermalV1 } from "./binarize.v1";
@@ -67,6 +82,28 @@ export type BinarizeOptions = {
   mode: BinarizeMode;
   threshold?: number;
 };
+
+// Grayscale mean (0-255) below which a source is treated as underexposed.
+// Tuned heuristic, not measured from a labeled dataset — revisit if real
+// night-order prints still come out too dark/too crispy.
+const DARK_MEAN_THRESHOLD = 70;
+
+// Cheap brightness probe: shrink-on-load to a tiny thumbnail so this
+// stays fast even for large phone photos, then read the mean channel
+// value. Unreadable/corrupt input falls through to the normal v1 path,
+// which will surface the same decode error upload-image/route.ts already
+// handles.
+export async function isDarkSource(rawImage: Buffer): Promise<boolean> {
+  try {
+    const stats = await sharp(rawImage)
+      .resize(64, 64, { fit: "inside" })
+      .grayscale()
+      .stats();
+    return stats.channels[0].mean < DARK_MEAN_THRESHOLD;
+  } catch {
+    return false;
+  }
+}
 
 // v1 is the production default (validated on real ZD410 prints — Stan
 // tested v2 / v2.1 against v1 on three different photos and chose v1
@@ -213,5 +250,6 @@ export async function binarizeForThermal(
   opts: BinarizeOptions,
 ): Promise<Buffer> {
   if (isV2Enabled()) return binarizeForThermalV2(rawImage, opts);
+  if (await isDarkSource(rawImage)) return binarizeForThermalV2(rawImage, opts);
   return binarizeForThermalV1(rawImage, opts);
 }
