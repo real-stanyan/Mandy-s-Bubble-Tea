@@ -368,7 +368,7 @@ function StoryTeaser() {
               {[
                 ["30+", "Signature drinks"],
                 ["7", "Drink families"],
-                ["2019", "Est. Southport"],
+                ["2016", "Est. Southport"],
               ].map(([v, l]) => (
                 <div key={l}>
                   <div className="font-serif text-[30px] font-semibold">{v}</div>
