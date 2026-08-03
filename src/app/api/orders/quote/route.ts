@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { getAuthedUser } from "@/lib/auth";
-import { getMenu } from "@/lib/catalog";
+import { getMenu, type Menu } from "@/lib/catalog";
 import {
   buildAuthoritativePriceMaps,
   unknownVariationIds,
   STALE_CART_MESSAGE,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
+import { findSoldOutLineNames } from "@/lib/menu/sold-out";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { reportDegraded } from "@/lib/degraded";
 import { computeOrderPricing } from "@/lib/order-quote";
@@ -76,20 +77,43 @@ export async function POST(request: Request) {
   // what they'd actually be charged, which reads as "my discount is gone" and
   // is a good reason to abandon the order. Worth knowing about, hence the alert.
   let priceMaps: AuthoritativePriceMaps | null = null;
+  let menu: Menu | null = null;
   try {
-    priceMaps = buildAuthoritativePriceMaps(await getMenu());
+    menu = await getMenu();
+    priceMaps = buildAuthoritativePriceMaps(menu);
   } catch (menuError) {
+    menu = null;
     priceMaps = null;
     reportDegraded("quote.menu-unavailable", { lineCount: body.lines.length }, menuError);
   }
 
-  // A cart line the catalog has never heard of prices at 0 (deliberately — see
-  // unknownVariationIds), which would total the whole order at A$0.00 and read
-  // as a free order. There is no honest number to send here, so send none: the
-  // checkout pages fall back to their own cart subtotal, which is too high
-  // rather than too low. Only meaningful when the menu actually loaded — a null
-  // priceMaps is the separate, documented client-price fallback below.
-  if (priceMaps) {
+  // Only meaningful when the menu actually loaded — a null menu/priceMaps is
+  // the separate, documented client-price fallback below.
+  if (menu && priceMaps) {
+    // A sold-out variation/modifier used to only be caught by /api/orders at
+    // create time — the quote priced it normally, so checkout showed a
+    // believable total with a working Pay button right up until the create
+    // call rejected it with a message the UI didn't know how to explain.
+    // Catch it here too, same shape, so the customer is told before they
+    // reach payment.
+    const soldOutNames = findSoldOutLineNames(menu, body.lines);
+    if (soldOutNames.length > 0) {
+      reportDegraded("quote.sold-out", { soldOutNames });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Sold out: ${soldOutNames.join(", ")}. Please refresh the menu.`,
+          soldOut: soldOutNames,
+        },
+        { status: 409 },
+      );
+    }
+
+    // A cart line the catalog has never heard of prices at 0 (deliberately —
+    // see unknownVariationIds), which would total the whole order at
+    // A$0.00 and read as a free order. There is no honest number to send
+    // here, so send none: the checkout pages fall back to their own cart
+    // subtotal, which is too high rather than too low.
     const unknown = unknownVariationIds(body.lines, priceMaps);
     if (unknown.length > 0) {
       reportDegraded("quote.stale-cart", { unknown });

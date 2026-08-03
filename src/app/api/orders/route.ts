@@ -20,6 +20,7 @@ import {
   STALE_CART_MESSAGE,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
+import { findSoldOutLineNames } from "@/lib/menu/sold-out";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { reportDegraded } from "@/lib/degraded";
 import { isDeliveryEligible } from "@/lib/delivery-fee";
@@ -126,47 +127,14 @@ export async function POST(request: Request) {
   try {
     const menu = await getMenu();
     priceMaps = buildAuthoritativePriceMaps(menu);
-    const variationSoldOut = new Map<string, { name: string; soldOut: boolean }>();
-    const modifierSoldOut = new Map<string, { name: string; soldOut: boolean }>();
-    for (const items of menu.itemsBySlug.values()) {
-      for (const item of items) {
-        for (const v of item.variations) {
-          variationSoldOut.set(v.id, {
-            name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
-            soldOut: v.soldOut,
-          });
-        }
-      }
-    }
-    for (const item of menu.uncategorizedItems) {
-      for (const v of item.variations) {
-        variationSoldOut.set(v.id, {
-          name: `${item.name}${v.name ? ` (${v.name})` : ""}`,
-          soldOut: v.soldOut,
-        });
-      }
-    }
-    for (const ml of menu.modifierLists.values()) {
-      for (const mod of ml.modifiers) {
-        modifierSoldOut.set(mod.id, { name: mod.name, soldOut: mod.soldOut });
-      }
-    }
-    const soldOutNames: string[] = [];
-    for (const line of body.lines) {
-      const v = variationSoldOut.get(line.variationId);
-      if (v?.soldOut) soldOutNames.push(v.name);
-      for (const m of line.modifiers) {
-        const mod = modifierSoldOut.get(m.id);
-        if (mod?.soldOut) soldOutNames.push(mod.name);
-      }
-    }
+
+    const soldOutNames = findSoldOutLineNames(menu, body.lines);
     if (soldOutNames.length > 0) {
-      const unique = Array.from(new Set(soldOutNames));
       return NextResponse.json(
         {
           ok: false,
-          error: `Sold out: ${unique.join(", ")}. Please refresh the menu.`,
-          soldOut: unique,
+          error: `Sold out: ${soldOutNames.join(", ")}. Please refresh the menu.`,
+          soldOut: soldOutNames,
         },
         { status: 409 },
       );

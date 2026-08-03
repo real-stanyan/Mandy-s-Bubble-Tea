@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { interpretQuoteResponse } from "./use-order-quote";
 
 /**
- * The rule this pins: exactly one quote failure is worth interrupting the
- * customer over. Widening that set would blank the summary on every network
- * blip; narrowing it back to nothing is the #90 bug — a cart the server has
- * refused to price, shown with a plausible total and a working Pay button.
+ * The rule this pins: exactly two quote failures are worth interrupting the
+ * customer over — a stale cart (#90) and a sold-out item/modifier. Widening
+ * that set would blank the summary on every network blip; narrowing it back
+ * to nothing shows a plausible total and a working Pay button for a cart the
+ * create route is guaranteed to refuse.
  */
 
 const okQuote = {
@@ -39,7 +40,27 @@ describe("interpretQuoteResponse", () => {
         reason: "stale-cart",
         message:
           "Some items in your cart are no longer on the menu. Remove them and add them again.",
-        variationIds: ["DELETED_IN_SQUARE"],
+        items: ["DELETED_IN_SQUARE"],
+      },
+    });
+  });
+
+  it("blocks on the sold-out 409 and keeps the server's wording", () => {
+    // A sold-out topping/variation used to fall through to "ignore" here,
+    // which left checkout showing a believable total and a working Pay
+    // button right up until /api/orders rejected the order at the last step
+    // with a "Payment Failed" dialog that had nothing to do with payment.
+    const out = interpretQuoteResponse(409, {
+      ok: false,
+      error: "Sold out: Pearls. Please refresh the menu.",
+      soldOut: ["Pearls"],
+    });
+    expect(out).toEqual({
+      kind: "blocked",
+      blocked: {
+        reason: "sold-out",
+        message: "Sold out: Pearls. Please refresh the menu.",
+        items: ["Pearls"],
       },
     });
   });
@@ -57,13 +78,13 @@ describe("interpretQuoteResponse", () => {
     expect(out.kind).toBe("ignore");
   });
 
-  it("ignores a 409 that isn't about the cart", () => {
-    // The create route already returns 409 for sold-out lines and duplicate
-    // submits. Blocking checkout on the status code alone would misfire.
+  it("ignores a 409 that isn't about the cart (e.g. duplicate submit)", () => {
+    // Not every 409 is worth interrupting checkout for — only the two shapes
+    // the quote route actually returns (unknownVariationIds / soldOut).
+    // Blocking on the status code alone would misfire on unrelated gates.
     const out = interpretQuoteResponse(409, {
       ok: false,
-      error: "Sold out: Taro Milk Tea",
-      soldOut: ["Taro Milk Tea"],
+      error: "Duplicate order",
     });
     expect(out.kind).toBe("ignore");
   });
