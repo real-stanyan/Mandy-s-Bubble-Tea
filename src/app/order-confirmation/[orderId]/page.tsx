@@ -278,7 +278,6 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
               const imgUrl = li.catalogObjectId
                 ? imageMap.get(li.catalogObjectId)
                 : undefined;
-              const qty = parseInt(li.quantity ?? "1", 10);
 
               return (
                 <div
@@ -299,9 +298,6 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
                         🧋
                       </div>
                     )}
-                    <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-card bg-ink px-1 text-[11px] font-bold text-white">
-                      {qty}
-                    </span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold text-ink">
