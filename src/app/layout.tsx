@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-import { CartDrawer } from "@/components/cart/CartDrawer";
+import { CartDrawerGate } from "@/components/cart/CartDrawerGate";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
 import { SiteTabBarGate } from "@/components/layout/SiteTabBarGate";
@@ -100,7 +100,7 @@ export default function RootLayout({
           {modal}
           <SiteFooterGate />
           <SiteTabBarGate />
-          <CartDrawer />
+          <CartDrawerGate />
         </AuthProvider>
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
