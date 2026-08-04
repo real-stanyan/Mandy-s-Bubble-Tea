@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   COMFORTABLE_DAYS,
   SHIFT_LABEL,
@@ -23,6 +24,7 @@ import {
 import { findViolations, type Violation } from "@/lib/staff/roster/rules";
 import { autoSchedule } from "@/lib/staff/roster/schedule";
 import { isCurrentWeek, shiftWeek, weekLabel } from "@/lib/staff/roster/week";
+import type { StoredWeek } from "@/lib/staff/roster/store";
 
 // The roster board: a week grid, a staff palette, and per-week availability.
 //
@@ -33,78 +35,124 @@ import { isCurrentWeek, shiftWeek, weekLabel } from "@/lib/staff/roster/week";
 
 const KINDS: ShiftKind[] = ["open", "mid", "close"];
 
-type Stored = { roster: Roster; week: WeekAvailability; pinned?: string[] };
-
-function storageKey(weekKey: string) {
-  return `mandys-roster-${weekKey}`;
-}
-
-function load(weekKey: string): Required<Stored> {
+async function save(
+  weekKey: string,
+  roster: Roster,
+  availability: WeekAvailability,
+  pinned: Set<string>,
+  setSaveState: (s: SaveState) => void,
+  setSaveError: (e: string | null) => void,
+) {
   try {
-    const raw = window.localStorage.getItem(storageKey(weekKey));
-    const parsed: Stored | null = raw ? JSON.parse(raw) : null;
-    return {
-      roster: parsed?.roster ?? {},
-      week: parsed?.week ?? {},
-      pinned: parsed?.pinned ?? [],
-    };
-  } catch {
-    return { roster: {}, week: {}, pinned: [] };
+    const r = await fetch("/api/staff/roster", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        week: weekKey,
+        roster,
+        availability,
+        pinned: [...pinned],
+      }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      setSaveError(
+        j.needsMigration
+          ? "The roster table doesn't exist yet — run migration 006."
+          : (j.error ?? "Save failed"),
+      );
+      setSaveState("error");
+      return;
+    }
+    setSaveError(null);
+    setSaveState("saved");
+  } catch (e) {
+    setSaveError(e instanceof Error ? e.message : String(e));
+    setSaveState("error");
   }
 }
 
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+/** Wait this long after the last edit before writing. */
+const SAVE_DEBOUNCE_MS = 700;
+
 /**
- * Week navigation lives here; everything else is remounted per week via the
- * `key` below. Loading the stored roster in an effect and pushing it into
- * state would mean every week change renders the previous week's roster for a
- * frame — remounting reads the right week straight into the initial state.
+ * The week arrives from the server as props and is remounted per week via the
+ * `key` below, so switching weeks can never render the previous week's roster
+ * for a frame.
  */
-export function RosterBoard({ initialWeekKey }: { initialWeekKey: string }) {
-  const [weekKey, setWeekKey] = useState(initialWeekKey);
-  return <WeekEditor key={weekKey} weekKey={weekKey} onWeekChange={setWeekKey} />;
+export function RosterBoard({
+  weekKey,
+  initial,
+  loadError,
+}: {
+  weekKey: string;
+  initial: StoredWeek;
+  loadError: string | null;
+}) {
+  return (
+    <WeekEditor key={weekKey} weekKey={weekKey} initial={initial} loadError={loadError} />
+  );
 }
 
 function WeekEditor({
   weekKey,
-  onWeekChange,
+  initial,
+  loadError,
 }: {
   weekKey: string;
-  onWeekChange: (next: string) => void;
+  initial: StoredWeek;
+  loadError: string | null;
 }) {
-  const [roster, setRoster] = useState<Roster>(() => load(weekKey).roster);
+  const router = useRouter();
+  const [roster, setRoster] = useState<Roster>(initial.roster);
   const [availability, setAvailability] = useState<WeekAvailability>(
-    () => load(weekKey).week,
+    initial.availability,
   );
   // Slots placed by hand. Auto-fill rebuilds around them instead of over them
   // — without this, spending five minutes placing people and then pressing
   // "Auto-fill week" silently threw that work away.
-  const [pinned, setPinned] = useState<Set<string>>(
-    () => new Set(load(weekKey).pinned),
-  );
+  const [pinned, setPinned] = useState<Set<string>>(new Set(initial.pinned));
   const [picked, setPicked] = useState<string | null>(null);
   const [showAvailability, setShowAvailability] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const setWeekKey = onWeekChange;
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  function setWeekKey(next: string) {
+    // The week lives in the URL, so moving weeks is a navigation and the
+    // server loads the new one. Anything pending is flushed first — otherwise
+    // the last edit before clicking "next week" would be dropped.
+    flushSave();
+    router.push(`/staff/roster?week=${next}`);
+  }
+
+  /**
+   * Debounced write. Placing eight people is eight state updates in a few
+   * seconds, and a request each would be pointless traffic and a chance to
+   * apply them out of order.
+   */
   const persist = useCallback(
     (nextRoster: Roster, nextWeek: WeekAvailability, nextPinned: Set<string>) => {
-      try {
-        window.localStorage.setItem(
-          storageKey(weekKey),
-          JSON.stringify({
-            roster: nextRoster,
-            week: nextWeek,
-            pinned: [...nextPinned],
-          } satisfies Stored),
-        );
-      } catch {
-        // Storage full or blocked — the board still works for this session.
-      }
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setSaveState("saving");
+      saveTimer.current = setTimeout(() => {
+        void save(weekKey, nextRoster, nextWeek, nextPinned, setSaveState, setSaveError);
+      }, SAVE_DEBOUNCE_MS);
     },
     [weekKey],
   );
+
+  function flushSave() {
+    if (!saveTimer.current) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    void save(weekKey, roster, availability, pinned, setSaveState, setSaveError);
+  }
 
   const ctx = useMemo(() => ({ week: availability }), [availability]);
   const violations = useMemo(() => findViolations(roster, ctx), [roster, ctx]);
@@ -284,6 +332,27 @@ function WeekEditor({
         </button>
       </div>
 
+      {/* Saving is silent and remote now, so its state has to be visible —
+          otherwise a failed write looks exactly like a successful one until
+          somebody reloads and finds the week empty. */}
+      {(saveState !== "idle" || loadError) && (
+        <p
+          className={`mt-3 text-xs ${
+            saveState === "error" || loadError
+              ? "font-semibold text-red-600"
+              : "text-zinc-500"
+          }`}
+        >
+          {loadError
+            ? `Couldn't load this week: ${loadError}`
+            : saveState === "saving"
+              ? "Saving…"
+              : saveState === "saved"
+                ? "Saved"
+                : `Not saved — ${saveError}`}
+        </p>
+      )}
+
       {note && (
         <p className="mt-3 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100">
           {note}
@@ -393,9 +462,9 @@ function Grid({
               </th>
             ))}
             <th className="border p-2 text-left text-xs font-normal text-zinc-500">
-              2nd closer
+              Twinkle
               <br />
-              (Fri/Sat)
+              (Fri/Sat/Sun)
             </th>
           </tr>
         </thead>
