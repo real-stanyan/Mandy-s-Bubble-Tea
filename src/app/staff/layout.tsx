@@ -15,5 +15,10 @@ export default function StaffLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <div className="min-h-screen bg-white dark:bg-black">{children}</div>;
+  // staff-surface (globals.css) supplies the foreground and border colour this
+  // subtree needs. Without it the page keeps the customer site's ink-brown
+  // text, which is invisible against dark:bg-black.
+  return (
+    <div className="staff-surface min-h-screen bg-white dark:bg-black">{children}</div>
+  );
 }

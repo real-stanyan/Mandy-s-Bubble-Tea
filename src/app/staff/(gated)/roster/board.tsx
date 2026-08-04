@@ -21,6 +21,7 @@ import {
   type Weekday,
   type WeekAvailability,
 } from "@/lib/staff/roster/model";
+import { readableInk } from "@/lib/staff/roster/ink";
 import { findViolations, type Violation } from "@/lib/staff/roster/rules";
 import { autoSchedule } from "@/lib/staff/roster/schedule";
 import { isCurrentWeek, shiftWeek, weekLabel } from "@/lib/staff/roster/week";
@@ -547,9 +548,15 @@ function Cell({
           .filter(Boolean)
           .join("\n")}
         className={`flex h-11 w-full items-center gap-1 px-2 text-left font-medium ${
-          staff ? "text-zinc-900" : "text-zinc-400"
+          staff ? "" : "text-zinc-400"
         } ${picked && !staff ? "ring-1 ring-inset ring-blue-400" : ""}`}
-        style={staff ? { backgroundColor: staff.color } : undefined}
+        // The palette runs from a pale yellow to a mid blue, so the name's
+        // colour has to follow its own cell rather than being fixed dark.
+        style={
+          staff
+            ? { backgroundColor: staff.color, color: readableInk(staff.color) }
+            : undefined
+        }
       >
         {isPinned && staff && (
           <span aria-label="pinned" className="text-xs leading-none">

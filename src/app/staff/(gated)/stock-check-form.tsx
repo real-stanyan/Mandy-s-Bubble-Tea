@@ -1,10 +1,12 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { StockCategory, StockItem } from "@/lib/staff/stocklist";
+import { NumberWheelSheet } from "./number-wheel";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
-// the other opens a fridge: big tap targets, numeric keypad, and a running
-// count of what's left so nobody has to scroll back to find the gap.
+// the other opens a fridge: big tap targets, a thumb-sized drum instead of the
+// keyboard, and a running count of what's left so nobody has to scroll back to
+// find the gap.
 
 type ResultReport = {
   isOrderDay: boolean;
@@ -42,6 +44,9 @@ export function StockCheckForm({
     }
   });
   const [countedBy, setCountedBy] = useState("");
+  // The item whose drum is open, if any. One sheet for the whole list rather
+  // than one per row: only one thing is ever being counted.
+  const [picking, setPicking] = useState<StockItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +150,7 @@ export function StockCheckForm({
                 key={item.id}
                 item={item}
                 value={counts[item.id] ?? ""}
-                onChange={(v) => set(item.id, v)}
+                onOpen={() => setPicking(item)}
                 isOrderDay={isOrderDay}
               />
             ))}
@@ -180,6 +185,21 @@ export function StockCheckForm({
           </button>
         </div>
       </div>
+
+      {picking && (
+        <NumberWheelSheet
+          key={picking.id}
+          title={picking.name}
+          hint={
+            picking.rule.kind === "threshold"
+              ? `reorder at ${picking.rule.value}`
+              : "weekly — reported Tuesdays"
+          }
+          value={counts[picking.id] ?? ""}
+          onCommit={(next) => set(picking.id, next)}
+          onClose={() => setPicking(null)}
+        />
+      )}
     </div>
   );
 }
@@ -187,12 +207,12 @@ export function StockCheckForm({
 function Row({
   item,
   value,
-  onChange,
+  onOpen,
   isOrderDay,
 }: {
   item: StockItem;
   value: string;
-  onChange: (v: string) => void;
+  onOpen: () => void;
   isOrderDay: boolean;
 }) {
   const parsed = value.trim() === "" ? null : Number(value);
@@ -221,18 +241,18 @@ function Row({
           ORDER
         </span>
       )}
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        inputMode="decimal"
-        placeholder="—"
-        aria-label={item.name}
-        className={`w-20 shrink-0 rounded-lg border px-3 py-2 text-right text-lg tabular-nums ${
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${item.name}${value ? `, ${value}` : ", not counted"}`}
+        className={`w-20 shrink-0 rounded-lg border px-3 py-2 text-right text-lg tabular-nums transition-transform duration-150 ease-out active:scale-[0.97] ${
           low
             ? "border-red-400 bg-red-50 dark:bg-red-950"
             : "border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900"
-        }`}
-      />
+        } ${value.trim() === "" ? "text-zinc-400" : ""}`}
+      >
+        {value.trim() === "" ? "—" : value}
+      </button>
     </li>
   );
 }
