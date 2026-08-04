@@ -70,6 +70,29 @@
 // brightness (grayscale mean of a 64x64 thumbnail — a few ms, no full-res
 // decode) and only route genuinely dark sources through the v2 path;
 // normally-lit photos are unaffected and keep going through v1.
+//
+// Shadow recovery (2026-08-04): Stan reported prints where "the bright areas
+// are fine now, the dark areas are still mud". Two separate causes:
+//
+//   1. The mean-only routing rule missed the failure class. A photo with a
+//      bright subject against a black background (cinema seats, night street,
+//      dark clothing) averages well above 70, so it went down v1 — which has
+//      no local-contrast step whatsoever. Sampling 84 real uploads: the mean
+//      rule caught 8; another 35 had >=25% of the frame in deep shadow and
+//      were being sent to v1. Routing now ORs in that shadow-mass metric.
+//
+//   2. Even on the v2 path, shadows still clipped. Atkinson only propagates
+//      6/8 of the quantisation error (2/8 is discarded — that discard is what
+//      gives it its punch), so in a dark region the running error never
+//      accumulates enough to flip a pixel white and the whole area collapses
+//      to solid black. A shadow-only tone curve (see SHADOW_LUT) now runs
+//      after CLAHE and lifts that band above the dither threshold while
+//      leaving everything above the knee bit-identical.
+//
+// Rejected: switching the photo path to Floyd-Steinberg. It diffuses the full
+// error so shadows do keep their gradation, but rendered side by side on the
+// real failure cases it turns the whole image into a flat grey wash and throws
+// away the contrast Stan chose Atkinson for.
 
 import sharp from "sharp";
 import { binarizeForThermalV1 } from "./binarize.v1";
@@ -88,21 +111,114 @@ export type BinarizeOptions = {
 // night-order prints still come out too dark/too crispy.
 const DARK_MEAN_THRESHOLD = 70;
 
-// Cheap brightness probe: shrink-on-load to a tiny thumbnail so this
-// stays fast even for large phone photos, then read the mean channel
-// value. Unreadable/corrupt input falls through to the normal v1 path,
-// which will surface the same decode error upload-image/route.ts already
-// handles.
-export async function isDarkSource(rawImage: Buffer): Promise<boolean> {
+// A pixel at or below this level is "deep shadow" — the zone that clips to a
+// solid black slab once Atkinson has thrown away its 2/8 of the error.
+const SHADOW_LEVEL = 64;
+
+// Fraction of the frame that has to sit in deep shadow before we treat the
+// photo as needing shadow recovery even though its overall mean looks fine.
+// Measured on 84 real customer uploads (2026-08-04): the mean-only rule caught
+// 8, while another 35 had >=25% of the frame in deep shadow yet a mean well
+// above 70 — bright subject, black background. Those are exactly the prints
+// that come back as "highlights fine, dark areas a mud slab", because a high
+// mean sent them down v1, which has no local-contrast step at all.
+const SHADOW_FRACTION_THRESHOLD = 0.25;
+
+type SourceProbe = { mean: number; shadowFraction: number };
+
+// Cheap tone probe: shrink-on-load to a tiny thumbnail so this stays fast even
+// for large phone photos, then walk the pixels once for both metrics. Reading
+// raw (rather than .stats()) costs the same decode but also gives us the
+// shadow histogram mass, which the mean alone hides.
+async function probeSource(rawImage: Buffer): Promise<SourceProbe | null> {
   try {
-    const stats = await sharp(rawImage)
+    const px = await sharp(rawImage)
       .resize(64, 64, { fit: "inside" })
       .grayscale()
-      .stats();
-    return stats.channels[0].mean < DARK_MEAN_THRESHOLD;
+      .raw()
+      .toBuffer();
+    let sum = 0;
+    let shadow = 0;
+    for (const v of px) {
+      sum += v;
+      if (v < SHADOW_LEVEL) shadow++;
+    }
+    return { mean: sum / px.length, shadowFraction: shadow / px.length };
   } catch {
-    return false;
+    return null;
   }
+}
+
+// Kept as its own export because it names a distinct property of the source
+// (globally underexposed, e.g. a night photo) that the tests assert directly.
+// Unreadable/corrupt input falls through to the normal v1 path, which will
+// surface the same decode error upload-image/route.ts already handles.
+export async function isDarkSource(rawImage: Buffer): Promise<boolean> {
+  const probe = await probeSource(rawImage);
+  return probe ? probe.mean < DARK_MEAN_THRESHOLD : false;
+}
+
+// Either failure shape wants the same treatment (local contrast + a shadow
+// curve): the whole frame is underexposed, OR a big slice of it is crushed
+// while the rest is correctly exposed.
+export async function needsShadowRecovery(rawImage: Buffer): Promise<boolean> {
+  const probe = await probeSource(rawImage);
+  if (!probe) return false;
+  return (
+    probe.mean < DARK_MEAN_THRESHOLD ||
+    probe.shadowFraction >= SHADOW_FRACTION_THRESHOLD
+  );
+}
+
+// Shadow-recovery tone curve, applied after CLAHE and before dithering.
+//
+// Two jobs, one LUT:
+//
+//   * Everything at or above SHADOW_KNEE passes through untouched. Stan signed
+//     off on the current highlight/midtone rendition, so the curve is built so
+//     it *cannot* move them — the fix is confined to the tones that are broken.
+//
+//   * Below the knee the range is re-expanded into [SHADOW_FLOOR, knee] with
+//     gamma < 1. Deep-shadow detail that CLAHE surfaced but that still sat
+//     under the dither threshold gets pulled across it, so a black region
+//     resolves into shapes instead of one slab.
+//
+// SHADOW_FLOOR doubles as an ink limit: with a floor of 30 the darkest pixel
+// prints at ~88% dot coverage instead of 100%, so solid black keeps a sprinkle
+// of white dots. That matters more on thermal than on screen — adjacent black
+// dots bleed into each other on the paper, and a region printed at a true 100%
+// has no white left to bleed into, which is what turns it into an
+// undifferentiated burn.
+//
+// knee=80 / floor=30 / gamma=0.70 was picked by rendering a sweep over real
+// customer uploads (dark cinema selfie + mid-key regression case). Lower knees
+// left the shadows still closed; knee=96+ started washing midtones grey and
+// losing the punch that made Stan pick Atkinson over Floyd-Steinberg in the
+// first place. It errs slightly open on screen on purpose: thermal dot gain
+// prints darker than the preview.
+const SHADOW_KNEE = 80;
+const SHADOW_FLOOR = 30;
+const SHADOW_GAMMA = 0.7;
+
+const SHADOW_LUT = (() => {
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v++) {
+    lut[v] =
+      v >= SHADOW_KNEE
+        ? v
+        : Math.round(
+            SHADOW_FLOOR +
+              Math.pow(v / SHADOW_KNEE, SHADOW_GAMMA) *
+                (SHADOW_KNEE - SHADOW_FLOOR),
+          );
+  }
+  return lut;
+})();
+
+function applyShadowCurve(gray: Buffer): Uint8Array {
+  const out = new Uint8Array(gray.length);
+  for (let i = 0; i < gray.length; i++) out[i] = SHADOW_LUT[gray[i]];
+  return out;
 }
 
 // v1 is the production default (validated on real ZD410 prints — Stan
@@ -125,7 +241,11 @@ function jitter(x: number, y: number): number {
   return ((h >>> 0) / 0xffffffff) * 2 - 1;
 }
 
-function serpentineAtkinson(gray: Buffer, w: number, h: number): Uint8Array {
+function serpentineAtkinson(
+  gray: Uint8Array,
+  w: number,
+  h: number,
+): Uint8Array {
   // Atkinson kernel (1/8 each, six neighbours; 2/8 of error discarded):
   //
   //     . *  1  1
@@ -174,7 +294,7 @@ function serpentineAtkinson(gray: Buffer, w: number, h: number): Uint8Array {
   return out;
 }
 
-function floydSteinberg(gray: Buffer, w: number, h: number): Uint8Array {
+function floydSteinberg(gray: Uint8Array, w: number, h: number): Uint8Array {
   const buf = new Float32Array(gray);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -220,8 +340,8 @@ async function binarizeForThermalV2(
       .toBuffer();
   }
 
-  // Photo path v2.1 — CLAHE (gentler) + light unsharp + post-blur +
-  // serpentine atkinson + small threshold jitter. See header for the
+  // Photo path v2.1 — CLAHE (gentler) + light unsharp + post-blur + shadow
+  // curve + serpentine atkinson + small threshold jitter. See header for the
   // per-step rationale (v2.1 dial-back vs v2 first cut).
   const gray = await sharp(rawImage)
     .resize(DOODLE_SIZE, DOODLE_SIZE, { fit: "cover" })
@@ -233,10 +353,16 @@ async function binarizeForThermalV2(
     .raw()
     .toBuffer();
 
+  // Last step before dithering: CLAHE has already surfaced whatever local
+  // structure the shadows hold, but much of it still sits below the dither
+  // threshold. The curve lifts that band across it (and holds a white floor
+  // so black regions keep texture) without touching anything above the knee.
+  const toned = applyShadowCurve(gray);
+
   const dithered =
     opts.mode === "atkinson"
-      ? serpentineAtkinson(gray, DOODLE_SIZE, DOODLE_SIZE)
-      : floydSteinberg(gray, DOODLE_SIZE, DOODLE_SIZE);
+      ? serpentineAtkinson(toned, DOODLE_SIZE, DOODLE_SIZE)
+      : floydSteinberg(toned, DOODLE_SIZE, DOODLE_SIZE);
 
   return sharp(Buffer.from(dithered), {
     raw: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 1 },
@@ -250,6 +376,8 @@ export async function binarizeForThermal(
   opts: BinarizeOptions,
 ): Promise<Buffer> {
   if (isV2Enabled()) return binarizeForThermalV2(rawImage, opts);
-  if (await isDarkSource(rawImage)) return binarizeForThermalV2(rawImage, opts);
+  if (await needsShadowRecovery(rawImage)) {
+    return binarizeForThermalV2(rawImage, opts);
+  }
   return binarizeForThermalV1(rawImage, opts);
 }
