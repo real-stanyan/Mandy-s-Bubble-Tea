@@ -3,6 +3,7 @@ import { getAdminUserId } from "@/lib/admin-auth";
 import { CAMPAIGNS, type CampaignCopy, type CampaignId } from "@/lib/loyalty-campaigns";
 import {
   buildAudience,
+  campaignTablesReady,
   recordRun,
   sendCampaign,
 } from "@/lib/loyalty-campaigns.server";
@@ -60,6 +61,20 @@ export async function POST(request: Request) {
       : CAMPAIGNS[campaignId].defaultCooldownDays;
 
   try {
+    // No recipients table means no cooldown record, which means a second
+    // click re-notifies everyone. Refuse before anything is sent — the admin
+    // page's setup banner is a hint, this is the gate.
+    if (!(await campaignTablesReady())) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Loyalty push tables are missing. Run scripts/migrations/005_loyalty_push_campaigns.sql in the Supabase SQL editor first — without them there is no cooldown record.",
+        },
+        { status: 503 },
+      );
+    }
+
     // Rebuild rather than trusting a client-supplied recipient list: the
     // browser must never be able to name who gets pushed.
     const audience = await buildAudience(campaignId, cooldownDays);
