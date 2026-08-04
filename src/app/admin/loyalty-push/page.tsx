@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { isMissingTableError } from "@/lib/postgrest-errors";
 import { CAMPAIGNS } from "@/lib/loyalty-campaigns";
 import { LoyaltyPushPanel, type Run } from "./panel";
 
@@ -17,7 +18,7 @@ export default async function AdminLoyaltyPushPage() {
   // Migrations are applied by hand in the Supabase dashboard (see
   // scripts/migrations/README.md), so the deploy can land before the table
   // exists. Say so instead of 500-ing on a missing relation.
-  const needsMigration = error?.code === "42P01";
+  const needsMigration = isMissingTableError(error);
 
   const campaigns = Object.values(CAMPAIGNS).map((c) => ({
     id: c.id,
