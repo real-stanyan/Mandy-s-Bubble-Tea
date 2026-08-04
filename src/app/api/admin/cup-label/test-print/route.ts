@@ -1,26 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin, getSupabaseRoute } from "@/lib/supabase-server";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { getAdminUserId } from "@/lib/admin-auth";
 import { renderCupLabel } from "@/lib/cup-label/render-zebra-cup";
 import { POOL } from "@/lib/doodle/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function assertOwner(): Promise<string | null> {
-  const ssr = await getSupabaseRoute();
-  const { data: { user } } = await ssr.auth.getUser();
-  if (!user) return null;
-  const admin = getSupabaseAdmin();
-  const { data } = await admin
-    .from("admin_users")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  return data ? user.id : null;
-}
-
 export async function POST(req: NextRequest) {
-  const userId = await assertOwner();
+  const userId = await getAdminUserId();
   if (!userId) return NextResponse.json({ ok: false }, { status: 401 });
 
   const { drinkName = "TEST DRINK", modifiersText = "TEST · M", poolKey = "bunny" } =

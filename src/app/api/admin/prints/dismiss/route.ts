@@ -1,27 +1,15 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin, getSupabaseRoute } from "@/lib/supabase-server";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { getAdminUserId } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
-
-async function assertOwner(): Promise<string | null> {
-  const ssr = await getSupabaseRoute();
-  const { data: { user } } = await ssr.auth.getUser();
-  if (!user) return null;
-  const admin = getSupabaseAdmin();
-  const { data } = await admin
-    .from("admin_users")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  return data ? user.id : null;
-}
 
 // Moves a failed/stale job out of the actionable list by marking it
 // 'printed'. Owner-gated. Used when the sticker has been handled
 // manually (written by hand, printed from a different device, etc.)
 // and the row is just clutter in /admin/prints.
 export async function POST(request: Request) {
-  const userId = await assertOwner();
+  const userId = await getAdminUserId();
   if (!userId) return NextResponse.json({ ok: false }, { status: 401 });
 
   const body = (await request.json().catch(() => ({}))) as { id?: string };
