@@ -2,6 +2,7 @@ import "server-only";
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 import { squareClient } from "@/lib/square";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
+import { isMissingTableError } from "@/lib/postgrest-errors";
 import { getActiveProgram } from "@/lib/loyalty";
 import {
   CAMPAIGNS,
@@ -89,6 +90,24 @@ async function suppressedPhones(
     .gte("sent_at", since);
   if (error) throw new Error(`cooldown lookup: ${error.message}`);
   return new Set((data ?? []).map((r) => (r as { phone_e164: string }).phone_e164));
+}
+
+/**
+ * Whether migration 005 has been applied.
+ *
+ * The send path has to ask this explicitly rather than lean on the cooldown
+ * query failing: with `cooldownDays = 0` the cooldown never touches the table,
+ * so the pushes go out and only the bookkeeping afterwards discovers the table
+ * is missing — the exact double-notify this feature exists to prevent.
+ */
+export async function campaignTablesReady(): Promise<boolean> {
+  const admin = getSupabaseAdmin();
+  const { error } = await admin.from("loyalty_push_recipients").select("id").limit(1);
+  if (!error) return true;
+  if (isMissingTableError(error)) return false;
+  // Anything else (network, auth, RLS) is a real failure and must not be
+  // reported to the caller as "just run the migration".
+  throw new Error(`loyalty_push_recipients probe: ${error.message}`);
 }
 
 export async function buildAudience(
