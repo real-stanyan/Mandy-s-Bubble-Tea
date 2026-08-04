@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getActivePublicHoliday } from "@/lib/holiday";
 import { PH_SURCHARGE } from "@/lib/constants";
 
@@ -10,12 +11,16 @@ import { PH_SURCHARGE } from "@/lib/constants";
 // the Christmas Eve 18:00 cutoff sees the banner appear without a hard
 // refresh. Hidden (null) on regular days.
 export function PublicHolidayBanner() {
+  const pathname = usePathname() ?? "";
   const [ph, setPh] = useState(() => getActivePublicHoliday());
   useEffect(() => {
     const id = setInterval(() => setPh(getActivePublicHoliday()), 60_000);
     return () => clearInterval(id);
   }, []);
   if (!ph) return null;
+  // The surcharge notice is aimed at customers about to order; on the internal
+  // /staff tools it is just a red bar in the way.
+  if (pathname === "/staff" || pathname.startsWith("/staff/")) return null;
   return (
     <div className="bg-[#C43A10] px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
       Today is {ph.name} — a {PH_SURCHARGE.percentage}% public holiday surcharge applies to all online orders.

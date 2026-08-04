@@ -5,7 +5,7 @@ import { SiteTabBar } from "@/components/layout/SiteTabBar";
 
 // Mirrors the phone prototype: the bottom tab bar shows everywhere on mobile
 // except the focused checkout and order-confirmation flows.
-const HIDE_PREFIXES = ["/checkout", "/order-confirmation"];
+const HIDE_PREFIXES = ["/checkout", "/order-confirmation", "/staff"];
 
 export function SiteTabBarGate() {
   const pathname = usePathname() ?? "";
