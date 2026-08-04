@@ -186,7 +186,9 @@ export const STAFF: Staff[] = [
   {
     id: "elle",
     name: "Elle",
-    color: "#A855F7",
+    // A shade lighter than the violet this started as: at #A855F7 the name on
+    // top came to 4.48:1, just under AA, whichever text colour it used.
+    color: "#C084FC",
     days: ["sat"],
     // Cannot open; mid and close are both fine.
     kinds: ["mid", "close"],
