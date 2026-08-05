@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { StockCategory, StockItem } from "@/lib/staff/stocklist";
-import { NumberWheelSheet } from "./number-wheel";
+import { CountKeypadSheet } from "./count-keypad";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
 // the other opens a fridge: big tap targets, a thumb-sized drum instead of the
@@ -187,7 +187,7 @@ export function StockCheckForm({
       </div>
 
       {picking && (
-        <NumberWheelSheet
+        <CountKeypadSheet
           key={picking.id}
           title={picking.name}
           hint={
