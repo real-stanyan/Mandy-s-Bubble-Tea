@@ -15,7 +15,7 @@ export function StaffNav({ role }: { role: StaffRole }) {
   ];
 
   return (
-    <nav className="border-b border-zinc-200 dark:border-zinc-800">
+    <nav className="border-b border-zinc-200">
       <ul className="mx-auto flex max-w-6xl items-center gap-1 px-4">
         {links.map((l) => {
           const active =
@@ -27,7 +27,7 @@ export function StaffNav({ role }: { role: StaffRole }) {
                 className={`inline-block border-b-2 px-3 py-3 text-sm font-medium ${
                   active
                     ? "border-[#3B82C4] text-[#3B82C4]"
-                    : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    : "border-transparent text-zinc-600 hover:text-zinc-900"
                 }`}
               >
                 {l.label}
@@ -40,7 +40,7 @@ export function StaffNav({ role }: { role: StaffRole }) {
           {/* A form, not a link: signing out clears a cookie, and a GET that
               mutates would let a prefetch or a crawler log people out. */}
           <form action="/staff/logout" method="post">
-            <button type="submit" className="underline hover:text-zinc-900 dark:hover:text-zinc-100">
+            <button type="submit" className="underline hover:text-zinc-900">
               sign out
             </button>
           </form>

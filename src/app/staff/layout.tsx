@@ -15,5 +15,14 @@ export default function StaffLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <div className="min-h-screen bg-white dark:bg-black">{children}</div>;
+  // Colours are pinned rather than inherited. The customer site deliberately
+  // stays light even when the device asks for dark, and its body text is a
+  // dark brown tuned for a cream background — inheriting that into a white
+  // tool UI, or leaving the `dark:` variants these components arrived with,
+  // produced dark text on a black panel and nothing legible.
+  return (
+    <div className="min-h-screen bg-white text-zinc-900 [color-scheme:light]">
+      {children}
+    </div>
+  );
 }

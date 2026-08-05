@@ -110,14 +110,14 @@ export function StockCheckForm({
   return (
     <div className="mx-auto max-w-2xl px-4 pb-32 pt-6">
       <h1 className="text-2xl font-bold">Stock check</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-sm text-zinc-600">
         Count what&apos;s left and enter the number. Leave blank only if you
         genuinely didn&apos;t check it —{" "}
         <b>blank is reported as &ldquo;not counted&rdquo;, not as zero.</b>
       </p>
 
       {isOrderDay && (
-        <div className="mt-4 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100">
+        <div className="mt-4 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
           <b>It&apos;s Tuesday.</b> The weekly items (marked{" "}
           <span className="font-semibold">weekly</span>) get reported today, so
           please count those too.
@@ -125,21 +125,21 @@ export function StockCheckForm({
       )}
 
       <label className="mt-4 block text-sm">
-        <span className="text-zinc-700 dark:text-zinc-300">Your name (optional)</span>
+        <span className="text-zinc-700">Your name (optional)</span>
         <input
           value={countedBy}
           onChange={(e) => setCountedBy(e.target.value)}
           placeholder="who counted"
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
         />
       </label>
 
       {categories.map((cat) => (
         <section key={cat.id} className="mt-8">
-          <h2 className="sticky top-0 z-10 -mx-4 bg-white/90 px-4 py-2 text-lg font-semibold backdrop-blur dark:bg-black/90">
+          <h2 className="sticky top-0 z-10 -mx-4 bg-white/90 px-4 py-2 text-lg font-semibold backdrop-blur">
             {cat.name}
           </h2>
-          <ul className="mt-1 divide-y divide-zinc-200 dark:divide-zinc-800">
+          <ul className="mt-1 divide-y divide-zinc-200">
             {cat.items.map((item) => (
               <Row
                 key={item.id}
@@ -159,14 +159,14 @@ export function StockCheckForm({
         </div>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
+      <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+          <div className="text-sm tabular-nums text-zinc-600">
             <span>
               {filled}/{allItems.length} counted
             </span>
             {remaining > 0 && (
-              <span className="ml-2 text-amber-700 dark:text-amber-500">
+              <span className="ml-2 text-amber-700">
                 {remaining} blank
               </span>
             )}
@@ -217,7 +217,7 @@ function Row({
         </div>
       </div>
       {low && (
-        <span className="shrink-0 rounded bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950 dark:text-red-300">
+        <span className="shrink-0 rounded bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
           ORDER
         </span>
       )}
@@ -229,8 +229,8 @@ function Row({
         aria-label={item.name}
         className={`w-20 shrink-0 rounded-lg border px-3 py-2 text-right text-lg tabular-nums ${
           low
-            ? "border-red-400 bg-red-50 dark:bg-red-950"
-            : "border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900"
+            ? "border-red-400 bg-red-50"
+            : "border-zinc-300"
         }`}
       />
     </li>

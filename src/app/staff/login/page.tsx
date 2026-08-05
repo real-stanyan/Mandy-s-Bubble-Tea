@@ -32,7 +32,7 @@ export default async function StaffLogin({
   return (
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
       <h1 className="text-2xl font-bold">Staff</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-sm text-zinc-600">
         Enter the shop passcode.
       </p>
 
@@ -51,7 +51,7 @@ export default async function StaffLogin({
           type="password"
           autoFocus
           autoComplete="current-password"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          className="w-full rounded-lg border border-zinc-300 px-3 py-2"
           placeholder="passcode"
         />
         {error && (

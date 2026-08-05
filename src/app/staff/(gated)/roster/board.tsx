@@ -272,7 +272,7 @@ function WeekEditor({
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => setWeekKey(shiftWeek(weekKey, -1))}
-            className="rounded border px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className="rounded border px-3 py-1.5 hover:bg-zinc-50"
             aria-label="previous week"
           >
             ←
@@ -285,7 +285,7 @@ function WeekEditor({
           </span>
           <button
             onClick={() => setWeekKey(shiftWeek(weekKey, 1))}
-            className="rounded border px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            className="rounded border px-3 py-1.5 hover:bg-zinc-50"
             aria-label="next week"
           >
             →
@@ -304,14 +304,14 @@ function WeekEditor({
         <button
           onClick={fillGaps}
           disabled={busy}
-          className="rounded-lg border px-4 py-2 hover:bg-zinc-50 disabled:opacity-50 dark:hover:bg-zinc-900"
+          className="rounded-lg border px-4 py-2 hover:bg-zinc-50 disabled:opacity-50"
         >
           Fill gaps only
         </button>
         <button
           onClick={() => update({}, new Set())}
           disabled={busy}
-          className="rounded-lg border px-4 py-2 hover:bg-zinc-50 disabled:opacity-50 dark:hover:bg-zinc-900"
+          className="rounded-lg border px-4 py-2 hover:bg-zinc-50 disabled:opacity-50"
         >
           Clear
         </button>
@@ -319,14 +319,14 @@ function WeekEditor({
           <button
             onClick={() => update(roster, new Set())}
             disabled={busy}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:hover:bg-zinc-900"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
           >
             Unpin all ({pinned.size})
           </button>
         )}
         <button
           onClick={() => setShowAvailability((v) => !v)}
-          className="rounded-lg border px-4 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+          className="rounded-lg border px-4 py-2 hover:bg-zinc-50"
         >
           {showAvailability ? "Hide" : "Availability"}
         </button>
@@ -354,7 +354,7 @@ function WeekEditor({
       )}
 
       {note && (
-        <p className="mt-3 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100">
+        <p className="mt-3 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
           {note}
         </p>
       )}
@@ -383,11 +383,11 @@ function WeekEditor({
       {(hard.length > 0 || soft.length > 0) && (
         <div className="mt-6 space-y-3">
           {hard.length > 0 && (
-            <div className="rounded-lg border border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
-              <h3 className="text-sm font-bold text-red-800 dark:text-red-200">
+            <div className="rounded-lg border border-red-300 bg-red-50 p-3">
+              <h3 className="text-sm font-bold text-red-800">
                 Breaks a rule ({hard.length})
               </h3>
-              <ul className="mt-1 list-disc pl-5 text-sm text-red-800 dark:text-red-200">
+              <ul className="mt-1 list-disc pl-5 text-sm text-red-800">
                 {hard.map((v, i) => (
                   <li key={i}>{v.message}</li>
                 ))}
@@ -395,11 +395,11 @@ function WeekEditor({
             </div>
           )}
           {soft.length > 0 && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-              <h3 className="text-sm font-bold text-amber-800 dark:text-amber-200">
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <h3 className="text-sm font-bold text-amber-800">
                 Worth a look ({soft.length})
               </h3>
-              <ul className="mt-1 list-disc pl-5 text-sm text-amber-800 dark:text-amber-200">
+              <ul className="mt-1 list-disc pl-5 text-sm text-amber-800">
                 {soft.map((v, i) => (
                   <li key={i}>{v.message}</li>
                 ))}
@@ -408,7 +408,7 @@ function WeekEditor({
                 // Without this the six-day warning reads as something the
                 // scheduler could have avoided, and the obvious next move is
                 // to hand-shuffle the grid looking for a fix that isn't there.
-                <p className="mt-2 border-t border-amber-300 pt-2 text-xs text-amber-800 dark:border-amber-800 dark:text-amber-200">
+                <p className="mt-2 border-t border-amber-300 pt-2 text-xs text-amber-800">
                   Every shift is one person-day. Covering all {slotTotal} needs{" "}
                   {slotTotal}; this week the team can comfortably give {capacity} — so{" "}
                   <b>
@@ -495,7 +495,7 @@ function Grid({
                   onDropStaff={onDropStaff}
                 />
               ) : (
-                <td className="border bg-zinc-50 dark:bg-zinc-900" />
+                <td className="border bg-zinc-50" />
               )}
             </tr>
           ))}
@@ -613,7 +613,7 @@ function Palette({
         );
       })}
       <div className="rounded-lg border p-2 text-xs text-zinc-500">
-        <div className="flex justify-between font-semibold text-zinc-700 dark:text-zinc-300">
+        <div className="flex justify-between font-semibold text-zinc-700">
           <span></span>
           <span>days · opens/closes</span>
         </div>
@@ -712,7 +712,7 @@ function AvailabilityPanel({
                               : "border-red-500 bg-red-100 font-bold text-red-700"
                             : partial
                               ? "border-amber-500 bg-amber-50 text-amber-800"
-                              : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                              : "hover:bg-zinc-50"
                       }`}
                     >
                       {d}
@@ -729,7 +729,7 @@ function AvailabilityPanel({
                       return next;
                     })
                   }
-                  className="ml-1 rounded border px-2 py-1 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  className="ml-1 rounded border px-2 py-1 text-xs hover:bg-zinc-50"
                 >
                   {open ? "hide" : "by shift"}
                 </button>
@@ -752,7 +752,7 @@ function AvailabilityPanel({
                       .filter((k) => s.kinds.includes(k))
                       .map((kind) => (
                         <tr key={kind}>
-                          <td className="py-0.5 text-zinc-600 dark:text-zinc-400">
+                          <td className="py-0.5 text-zinc-600">
                             {SHIFT_LABEL[kind]}
                           </td>
                           {WEEKDAYS.map((d) => {
@@ -772,8 +772,8 @@ function AvailabilityPanel({
                                           ? "border-green-600 bg-green-100 text-green-800"
                                           : "border-red-500 bg-red-100 text-red-700"
                                         : dayLevel
-                                          ? "border-zinc-300 bg-zinc-200 opacity-60 dark:bg-zinc-700"
-                                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                                          ? "border-zinc-300 bg-zinc-200 opacity-60"
+                                          : "hover:bg-zinc-50"
                                   }`}
                                 >
                                   {set ? (optIn ? "✓" : "✕") : dayLevel ? "–" : ""}
