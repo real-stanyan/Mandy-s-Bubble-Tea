@@ -392,10 +392,19 @@ function solveOnce(ctx: RuleContext, seed: Roster, attempt: number): ScheduleRes
   let bestFilled = Object.keys(best).length;
   let steps = 0;
 
+  // Slots this branch has given up on. A week can be genuinely short — one
+  // person off on a day only three people can work leaves a shift nobody can
+  // take — and the rest of the week still has to be rostered. Without this the
+  // search treated a single impossible slot as total failure and returned
+  // whatever prefix it had reached, so one day of leave emptied the whole grid.
+  const skipped = new Set<string>();
+
   function solve(): boolean {
     if (steps++ > MAX_STEPS) return false;
 
-    const remaining = SLOTS.filter((s) => !state.roster[slotId(s)]);
+    const remaining = SLOTS.filter(
+      (s) => !state.roster[slotId(s)] && !skipped.has(slotId(s)),
+    );
     if (remaining.length === 0) return true;
 
     // Most-constrained slot first. This is what stops the scheduler spending
@@ -412,15 +421,6 @@ function solveOnce(ctx: RuleContext, seed: Roster, attempt: number): ScheduleRes
       }
     }
 
-    if (candidates.length === 0) {
-      const filled = Object.keys(state.roster).length;
-      if (filled > bestFilled) {
-        bestFilled = filled;
-        best = { ...state.roster };
-      }
-      return false;
-    }
-
     for (const staff of rank(candidates, target, state, attempt === 0 ? null : rand)) {
       place(state, target, staff.id);
       const filled = Object.keys(state.roster).length;
@@ -431,6 +431,20 @@ function solveOnce(ctx: RuleContext, seed: Roster, attempt: number): ScheduleRes
       if (solve()) return true;
       unplace(state, target, staff.id);
     }
+
+    // Every candidate failed, or there were none. Leaving it empty is tried
+    // last so a fillable slot is never abandoned while an option remains.
+    const id = slotId(target);
+    skipped.add(id);
+    if (solve()) {
+      const filled = Object.keys(state.roster).length;
+      if (filled > bestFilled) {
+        bestFilled = filled;
+        best = { ...state.roster };
+      }
+      return true;
+    }
+    skipped.delete(id);
     return false;
   }
 

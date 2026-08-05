@@ -72,3 +72,38 @@ describe("open/close fairness", () => {
     }
   });
 });
+
+describe("short weeks still get rostered", () => {
+  // The bug this pins: one person off for one day emptied the entire grid.
+  // Tuesday is only workable by Hanna, Emily and Karen — Eugenia is Wed-Sat,
+  // Elle is Saturday, Celina is opt-in — so Karen taking Tuesday off leaves a
+  // Tuesday shift nobody can take. The search treated that single impossible
+  // slot as total failure and returned the deepest prefix it had reached: two
+  // shifts out of twenty-one.
+
+  it("leaves only the shift that can't be filled, and fills the rest", () => {
+    const week: WeekAvailability = { karen: { off: ["tue"] } };
+    const { roster, unfilled } = autoSchedule({ week });
+    expect(unfilled).toHaveLength(1);
+    expect(unfilled[0].day).toBe("tue");
+    expect(Object.keys(roster)).toHaveLength(20);
+    expect(findViolations(roster, { week }).filter((v) => v.severity === "hard")).toEqual([]);
+  });
+
+  it("still fills what it can when somebody is away all week", () => {
+    const week: WeekAvailability = { emily: { off: [...WEEKDAYS] } };
+    const { roster, unfilled } = autoSchedule({ week });
+    // Short, but nowhere near empty — and never at the cost of a hard rule.
+    expect(Object.keys(roster).length).toBeGreaterThanOrEqual(15);
+    expect(unfilled.length).toBeGreaterThan(0);
+    expect(Object.values(roster)).not.toContain("emily");
+    expect(findViolations(roster, { week }).filter((v) => v.severity === "hard")).toEqual([]);
+  });
+
+  it("does not leave a slot empty when someone could still take it", () => {
+    // Skipping is tried only after every candidate has failed, so a fully
+    // staffable week must come back complete.
+    const { unfilled } = autoSchedule({ week: { celina: { on: ["tue"] } } });
+    expect(unfilled).toHaveLength(0);
+  });
+});
