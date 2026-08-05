@@ -1,6 +1,7 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
-import type { Roster, WeekAvailability } from "./model";
+import { allSlots, slotId, type Roster, type WeekAvailability } from "./model";
+import { shiftWeek } from "./week";
 
 // Server-side read for the roster page. The page is a Server Component, so it
 // loads the week directly rather than having the browser fetch after mount —
@@ -39,6 +40,34 @@ export const EMPTY_WEEK: StoredWeek = {
   updatedAt: null,
   updatedBy: null,
 };
+
+/**
+ * Who closed on the Sunday before this week.
+ *
+ * The "no opening the morning after closing" rule is the whole reason this
+ * exists. Inside one week it can be checked from the grid, but Monday's
+ * previous night lives in the week before, which a per-week grid never sees —
+ * so the one turnaround most likely to be missed was the only one nobody
+ * checked. Both Sunday closing slots count, including Twinkle's.
+ *
+ * A missing previous week is not an error: the first week ever rostered has no
+ * predecessor, and neither does a week whose predecessor was never saved.
+ */
+export async function loadPreviousSundayClosers(weekKey: string): Promise<string[]> {
+  const previous = shiftWeek(weekKey, -1);
+  const { data, error } = await getSupabaseAdmin()
+    .from("staff_rosters")
+    .select("roster")
+    .eq("week_key", previous)
+    .maybeSingle();
+
+  if (error || !data) return [];
+  const roster = (data as { roster?: Roster }).roster ?? {};
+  return allSlots()
+    .filter((s) => s.day === "sun" && s.kind === "close")
+    .map((s) => roster[slotId(s)])
+    .filter((id): id is string => Boolean(id));
+}
 
 export async function loadWeek(weekKey: string): Promise<LoadResult> {
   const { data, error } = await getSupabaseAdmin()
