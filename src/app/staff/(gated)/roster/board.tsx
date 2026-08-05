@@ -87,13 +87,21 @@ export function RosterBoard({
   weekKey,
   initial,
   loadError,
+  previousSundayClosers,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
+  previousSundayClosers: string[];
 }) {
   return (
-    <WeekEditor key={weekKey} weekKey={weekKey} initial={initial} loadError={loadError} />
+    <WeekEditor
+      key={weekKey}
+      weekKey={weekKey}
+      initial={initial}
+      loadError={loadError}
+      previousSundayClosers={previousSundayClosers}
+    />
   );
 }
 
@@ -101,10 +109,12 @@ function WeekEditor({
   weekKey,
   initial,
   loadError,
+  previousSundayClosers,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
+  previousSundayClosers: string[];
 }) {
   const router = useRouter();
   const [roster, setRoster] = useState<Roster>(initial.roster);
@@ -155,7 +165,12 @@ function WeekEditor({
     void save(weekKey, roster, availability, pinned, setSaveState, setSaveError);
   }
 
-  const ctx = useMemo(() => ({ week: availability }), [availability]);
+  // Carries last Sunday's closers so Monday's opening is checked against the
+  // night before, which lives in the previous week and no per-week grid sees.
+  const ctx = useMemo(
+    () => ({ week: availability, previousWeekSundayCloserIds: previousSundayClosers }),
+    [availability, previousSundayClosers],
+  );
   const violations = useMemo(() => findViolations(roster, ctx), [roster, ctx]);
   const violationBySlot = useMemo(() => {
     const map = new Map<string, Violation[]>();

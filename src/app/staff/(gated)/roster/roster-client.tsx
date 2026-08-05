@@ -19,10 +19,19 @@ export function RosterClient({
   weekKey,
   initial,
   loadError,
+  previousSundayClosers,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
+  previousSundayClosers: string[];
 }) {
-  return <RosterBoard weekKey={weekKey} initial={initial} loadError={loadError} />;
+  return (
+    <RosterBoard
+      weekKey={weekKey}
+      initial={initial}
+      loadError={loadError}
+      previousSundayClosers={previousSundayClosers}
+    />
+  );
 }
