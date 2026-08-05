@@ -46,7 +46,9 @@ export function StockCheckForm({
   const [countedBy, setCountedBy] = useState("");
   // The item whose drum is open, if any. One sheet for the whole list rather
   // than one per row: only one thing is ever being counted.
-  const [picking, setPicking] = useState<StockItem | null>(null);
+  // Tracked as a position, not an item: the sheet walks the list rather than
+  // closing after each one, so it has to know where it is and what comes next.
+  const [pickIndex, setPickIndex] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +56,16 @@ export function StockCheckForm({
   const allItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
   const filled = allItems.filter((i) => (counts[i.id] ?? "").trim() !== "").length;
   const remaining = allItems.length - filled;
+  const picking = pickIndex === null ? null : (allItems[pickIndex] ?? null);
+
+  /**
+   * Open at the first item still blank, so picking the count back up after a
+   * break doesn't mean scrolling to find where you stopped.
+   */
+  function startCounting() {
+    const firstBlank = allItems.findIndex((i) => (counts[i.id] ?? "").trim() === "");
+    setPickIndex(firstBlank === -1 ? 0 : firstBlank);
+  }
 
   function set(id: string, value: string) {
     setCounts((prev) => {
@@ -150,7 +162,7 @@ export function StockCheckForm({
                 key={item.id}
                 item={item}
                 value={counts[item.id] ?? ""}
-                onOpen={() => setPicking(item)}
+                onOpen={() => setPickIndex(allItems.indexOf(item))}
                 isOrderDay={isOrderDay}
               />
             ))}
@@ -176,18 +188,33 @@ export function StockCheckForm({
               </span>
             )}
           </div>
+          {/* The main way in. Tapping individual rows still works, but the
+              whole count is meant to be one pass: open here, then number-Next
+              all the way down without touching the list again. */}
+          {remaining > 0 && (
+            <button
+              onClick={startCounting}
+              className="ml-auto rounded-lg border px-4 py-3 font-semibold"
+            >
+              {filled === 0 ? "Start counting" : "Continue"}
+            </button>
+          )}
           <button
             onClick={submit}
             disabled={busy}
-            className="ml-auto rounded-lg bg-[#3B82C4] px-6 py-3 font-semibold text-white disabled:opacity-50"
+            className={`rounded-lg bg-[#3B82C4] px-6 py-3 font-semibold text-white disabled:opacity-50 ${
+              remaining > 0 ? "" : "ml-auto"
+            }`}
           >
             {busy ? "Sending…" : "Submit & email"}
           </button>
         </div>
       </div>
 
-      {picking && (
+      {picking && pickIndex !== null && (
         <CountKeypadSheet
+          // Remounting per item is what resets the entry and the "first digit
+          // replaces" flag, and it is instant — the sheet never leaves.
           key={picking.id}
           title={picking.name}
           hint={
@@ -196,8 +223,20 @@ export function StockCheckForm({
               : "weekly — reported Tuesdays"
           }
           value={counts[picking.id] ?? ""}
+          index={pickIndex}
+          total={allItems.length}
           onCommit={(next) => set(picking.id, next)}
-          onClose={() => setPicking(null)}
+          onMove={(delta) =>
+            setPickIndex((i) => {
+              if (i === null) return null;
+              const next = i + delta;
+              // Running off either end closes rather than wrapping: wrapping
+              // back to Mango after the last item would read as "nothing
+              // happened" and quietly restart the count.
+              return next < 0 || next >= allItems.length ? null : next;
+            })
+          }
+          onClose={() => setPickIndex(null)}
         />
       )}
     </div>

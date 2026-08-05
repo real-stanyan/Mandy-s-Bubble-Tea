@@ -76,3 +76,23 @@ export function normalise(value: string): string {
 export function displayValue(value: string): string {
   return value === "" ? "—" : value;
 }
+
+/**
+ * The entry as the sheet holds it: what's been tapped, plus whether the next
+ * digit replaces it.
+ *
+ * `fresh` is true on a newly-shown item so the first tap overwrites the
+ * existing count — walking back to fix a 3 and tapping 5 should give 5, not
+ * 35. It has to travel with the entry: when the two were separate pieces of
+ * React state, two taps in one batch both read fresh=true and "24" collapsed
+ * to "4".
+ */
+export type Entry = { entry: string; fresh: boolean };
+
+export function applyDigit(state: Entry, digit: string): Entry {
+  return { entry: pressDigit(state.fresh ? "" : state.entry, digit), fresh: false };
+}
+
+export function applyEdit(state: Entry, fn: (v: string) => string): Entry {
+  return { entry: fn(state.entry), fresh: false };
+}
