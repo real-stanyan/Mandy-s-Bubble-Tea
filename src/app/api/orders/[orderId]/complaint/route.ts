@@ -11,8 +11,8 @@ import {
 import {
   COMPLAINT_FROM_EMAIL,
   COMPLAINT_TO_EMAIL,
-  getResendClient,
 } from "@/lib/email/resend";
+import { sendTransactionalEmail } from "@/lib/email/send";
 import {
   PHOTO_ALLOWED_MIME,
   PHOTO_MAX_BYTES,
@@ -214,27 +214,17 @@ export async function POST(
   });
 
   // 9. Resend send — must happen BEFORE INSERT so failed sends leave no dedup row (retry possible)
-  let sendError: { message: string } | null = null;
-  try {
-    const resend = getResendClient();
-    const result = await resend.emails.send({
-      to: COMPLAINT_TO_EMAIL,
-      from: COMPLAINT_FROM_EMAIL,
-      replyTo: mail.replyTo,
-      subject: mail.subject,
-      text: mail.text,
-      html: mail.html,
-      attachments: mail.attachments,
-    });
-    if (result.error) sendError = { message: result.error.message };
-  } catch (err) {
-    sendError = {
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
+  const outcome = await sendTransactionalEmail("complaint", {
+    to: COMPLAINT_TO_EMAIL,
+    from: COMPLAINT_FROM_EMAIL,
+    replyTo: mail.replyTo,
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
+    attachments: mail.attachments,
+  });
 
-  if (sendError) {
-    console.error("[complaint] Resend send failed", sendError);
+  if (!outcome.sent) {
     return NextResponse.json(
       { ok: false, error: "EMAIL_FAILED" },
       { status: 502 },
