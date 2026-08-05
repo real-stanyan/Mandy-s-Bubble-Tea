@@ -768,7 +768,7 @@ function StaffSetupPanel({
   return (
     <div className="mt-4 rounded-lg border p-3">
       <h2 className="text-sm font-bold">Staff setup</h2>
-      <p className="mt-1 text-xs text-zinc-500">
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         Days, shifts and weekly shift count. Saving applies{" "}
         <b>from {weekLabel(weekKey)} onwards</b> — earlier weeks keep what they
         had. Counts are in shift-units: a 12-22 counts as two.
@@ -812,7 +812,7 @@ function StaffSetupPanel({
                         className={`w-11 rounded border px-1 py-1 text-xs capitalize ${
                           on
                             ? "border-green-600 bg-green-100 font-bold text-green-800"
-                            : "text-zinc-400 hover:bg-zinc-50"
+                            : "text-zinc-500 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900"
                         }`}
                       >
                         {d}
@@ -837,7 +837,7 @@ function StaffSetupPanel({
                         className={`rounded border px-2 py-1 text-xs ${
                           on
                             ? "border-blue-600 bg-blue-100 font-semibold text-blue-800"
-                            : "text-zinc-400 hover:bg-zinc-50"
+                            : "text-zinc-500 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900"
                         }`}
                       >
                         {SHIFT_LABEL[k]}
@@ -845,7 +845,7 @@ function StaffSetupPanel({
                     );
                   })}
 
-                  <label className="ml-2 text-xs text-zinc-600">
+                  <label className="ml-2 text-xs text-zinc-600 dark:text-zinc-400">
                     shifts/week{" "}
                     <input
                       type="number"
