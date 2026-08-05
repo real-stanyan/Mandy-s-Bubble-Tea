@@ -49,6 +49,7 @@ export function StockCheckForm({
   // Tracked as a position, not an item: the sheet walks the list rather than
   // closing after each one, so it has to know where it is and what comes next.
   const [pickIndex, setPickIndex] = useState<number | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +121,23 @@ export function StockCheckForm({
     setCountedBy("");
   }
 
+  /**
+   * Wipe every number and start the count again.
+   *
+   * The draft goes with it — leaving it behind would put the old numbers
+   * straight back on the next page load.
+   */
+  function clearAll() {
+    setCounts({});
+    setPickIndex(null);
+    setConfirmingClear(false);
+    try {
+      window.localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* see set() */
+    }
+  }
+
   if (result) {
     return <ResultView result={result} onStartOver={startOver} />;
   }
@@ -169,6 +187,53 @@ export function StockCheckForm({
           </ul>
         </section>
       ))}
+
+      {/* Down here rather than in the sticky bar on purpose: clearing throws
+          away a whole walk around the shop, so it should take scrolling past
+          everything to reach, and it must never sit next to Submit.
+
+          Two steps. The first button stays put and goes inert rather than
+          being replaced, so a double-tap — or a thumb that bounces — lands on
+          a dead control instead of on the confirmation that has just appeared
+          underneath it. Relying on the confirm button merely being drawn
+          somewhere else would make the safety a matter of pixels.
+
+          A page dialog rather than confirm() so the wording, the count, and
+          the button positions are ours. */}
+      {filled > 0 && (
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <button
+            onClick={() => setConfirmingClear(true)}
+            disabled={confirmingClear}
+            className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 active:scale-[0.98] disabled:opacity-40 dark:border-red-900 dark:text-red-400"
+          >
+            Clear all numbers
+          </button>
+
+          {confirmingClear && (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-red-300 p-4 dark:border-red-900">
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                Clear all {filled} number{filled === 1 ? "" : "s"}? This
+                can&apos;t be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmingClear(false)}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium active:scale-[0.98] dark:border-zinc-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={clearAll}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white active:scale-[0.98]"
+                >
+                  Yes, clear
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
