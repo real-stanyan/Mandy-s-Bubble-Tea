@@ -19,7 +19,7 @@ import {
   type WeekAvailability,
   type Weekday,
 } from "./model";
-import { findViolations, unfilledSlots, type RuleContext } from "./rules";
+import { findViolations, staffOf, unfilledSlots, type RuleContext } from "./rules";
 
 // Auto-scheduler.
 //
@@ -199,9 +199,13 @@ function pseudoRandom(seedValue: number): () => number {
  * than rounding. Wednesday and under-minimum hours are weighted below it —
  * they matter, but not at the price of giving somebody a week of only closes.
  */
-function softCost(roster: Roster, week: WeekAvailability = {}): number {
+function softCost(
+  roster: Roster,
+  week: WeekAvailability = {},
+  people: Staff[] = STAFF,
+): number {
   let cost = 0;
-  for (const staff of STAFF) {
+  for (const staff of people) {
     if (!staff.auto) continue;
     // Somebody unavailable all week isn't short of hours, they're away.
     if (maxComfortableDays(staff, week) === 0) continue;
@@ -226,6 +230,10 @@ function softCost(roster: Roster, week: WeekAvailability = {}): number {
     // above it, so the fix never comes at the cost of somebody's fair split.
     cost += Math.max(0, daysWorked(roster, staff.id) - COMFORTABLE_DAYS) * 7;
   }
+  // One opening for Elle is fine; a second is the thing to flag.
+  const elleOpens = countKind(roster, "elle", "open");
+  if (elleOpens > 1) cost += (elleOpens - 1) * 5;
+
   for (const key of ["wed-open-0", "wed-mid-0"]) {
     const id = roster[key];
     if (id && id !== "hanna" && id !== "karen") cost += 3;
@@ -246,7 +254,7 @@ function softCost(roster: Roster, week: WeekAvailability = {}): number {
  */
 function improve(roster: Roster, ctx: RuleContext, locked: Set<string>): Roster {
   const current = { ...roster };
-  let cost = softCost(current, ctx.week);
+  let cost = softCost(current, ctx.week, staffOf(ctx));
   const ids = SLOTS.map(slotId);
 
   for (let pass = 0; pass < 6; pass++) {
@@ -263,7 +271,7 @@ function improve(roster: Roster, ctx: RuleContext, locked: Set<string>): Roster 
         current[a] = pb;
         current[b] = pa;
         const hard = findViolations(current, ctx).some((v) => v.severity === "hard");
-        const next = hard ? Infinity : softCost(current, ctx.week);
+        const next = hard ? Infinity : softCost(current, ctx.week, staffOf(ctx));
         if (next < cost) {
           cost = next;
           improved = true;
@@ -300,7 +308,7 @@ function ruinAndRecreate(
   round: number,
 ): Roster {
   const rand = pseudoRandom(round * 7919 + 13);
-  const worst = [...STAFF]
+  const worst = [...staffOf(ctx)]
     .filter((s) => s.auto)
     .map((s) => ({
       id: s.id,
@@ -350,7 +358,7 @@ export function autoSchedule(ctx: RuleContext, seed: Roster = {}): ScheduleResul
     // Filling the week dominates; fairness breaks ties among equally full
     // rosters. Weighting unfilled far above softCost keeps a fuller roster
     // ahead of a fairer-but-emptier one.
-    const score = result.unfilled.length * 10_000 + softCost(result.roster, ctx.week);
+    const score = result.unfilled.length * 10_000 + softCost(result.roster, ctx.week, staffOf(ctx));
     if (score < bestScore) {
       bestScore = score;
       best = result;
@@ -365,7 +373,7 @@ export function autoSchedule(ctx: RuleContext, seed: Roster = {}): ScheduleResul
     const rebuilt = solveOnce(ctx, partial, round + 100);
     const roster = improve(rebuilt.roster, ctx, locked);
     const unfilled = unfilledSlots(roster);
-    const score = unfilled.length * 10_000 + softCost(roster, ctx.week);
+    const score = unfilled.length * 10_000 + softCost(roster, ctx.week, staffOf(ctx));
     if (score < bestScore) {
       bestScore = score;
       best = { roster, unfilled, complete: unfilled.length === 0 };
@@ -376,7 +384,7 @@ export function autoSchedule(ctx: RuleContext, seed: Roster = {}): ScheduleResul
 }
 
 function solveOnce(ctx: RuleContext, seed: Roster, attempt: number): ScheduleResult {
-  const pool = STAFF.filter((s) => s.auto);
+  const pool = staffOf(ctx).filter((s) => s.auto);
   const rand = pseudoRandom(attempt + 1);
   const state = emptyState();
 
@@ -515,7 +523,17 @@ function score(staff: Staff, slot: Slot, state: State): number {
         : 0
       : 0;
 
-  return -shortfall * 6 + load * 10 + balance * 7 + sixthDay + wed;
+  // Elle can open now, but the shop wants that used sparingly — roughly one
+  // opening a week. Soft, not a kind restriction: barring her from `open`
+  // outright would throw away cover the week sometimes needs.
+  const elleExtraOpen =
+    slot.kind === "open" && staff.id === "elle"
+      ? daysOf(state.opens, staff.id).size * 14
+      : 0;
+
+  return (
+    -shortfall * 6 + load * 10 + balance * 7 + sixthDay + wed + elleExtraOpen
+  );
 }
 
 export type StaffLoad = {
@@ -526,8 +544,11 @@ export type StaffLoad = {
   closes: number;
 };
 
-export function staffLoads(roster: Roster): StaffLoad[] {
-  return STAFF.map((staff) => ({
+export function staffLoads(
+  roster: Roster,
+  people: Staff[] = STAFF,
+): StaffLoad[] {
+  return people.map((staff) => ({
     staff,
     units: assignedUnits(roster, staff.id),
     opens: countKind(roster, staff.id, "open"),

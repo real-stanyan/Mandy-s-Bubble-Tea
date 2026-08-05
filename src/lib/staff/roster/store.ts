@@ -1,6 +1,14 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
-import { allSlots, slotId, type Roster, type WeekAvailability } from "./model";
+import {
+  allSlots,
+  slotId,
+  type ProfileOverrides,
+  type Roster,
+  type ShiftKind,
+  type WeekAvailability,
+  type Weekday,
+} from "./model";
 import { shiftWeek } from "./week";
 
 // Server-side read for the roster page. The page is a Server Component, so it
@@ -67,6 +75,47 @@ export async function loadPreviousSundayClosers(weekKey: string): Promise<string
     .filter((s) => s.day === "sun" && s.kind === "close")
     .map((s) => roster[slotId(s)])
     .filter((id): id is string => Boolean(id));
+}
+
+/**
+ * The staff profiles in force for a given week.
+ *
+ * Overrides are effective-from, not per-week: "Elle can do more from the 17th"
+ * is one row and every week after inherits it. Resolving means taking, per
+ * person, the newest row at or before this week — so weeks before a change
+ * keep the shape they actually had, and a roster from back then doesn't light
+ * up with violations because someone's hours changed later.
+ *
+ * No rows, or a missing table, means the code defaults. Nothing here is worth
+ * failing a page render over.
+ */
+export async function loadStaffProfiles(weekKey: string): Promise<ProfileOverrides> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("staff_profile_overrides")
+    .select("staff_id,effective_from,days,kinds,min_units,max_units")
+    .lte("effective_from", weekKey)
+    .order("effective_from", { ascending: true });
+
+  if (error || !data) return {};
+
+  // Ascending order means a later row simply overwrites an earlier one, which
+  // leaves the newest effective row per person.
+  const out: ProfileOverrides = {};
+  for (const row of data as Array<{
+    staff_id: string;
+    days: Weekday[];
+    kinds: ShiftKind[];
+    min_units: number;
+    max_units: number;
+  }>) {
+    out[row.staff_id] = {
+      days: row.days,
+      kinds: row.kinds,
+      minUnits: row.min_units,
+      maxUnits: row.max_units,
+    };
+  }
+  return out;
 }
 
 export async function loadWeek(weekKey: string): Promise<LoadResult> {
