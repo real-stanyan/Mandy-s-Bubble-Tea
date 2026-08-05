@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getResendClient, COMPLAINT_TO_EMAIL } from "@/lib/email/resend";
+import { COMPLAINT_TO_EMAIL } from "@/lib/email/resend";
+import { sendTransactionalEmail } from "@/lib/email/send";
 import { hasAtLeast } from "@/lib/staff/auth";
 import { ALL_ITEMS, buildReport, type Counted } from "@/lib/staff/stocklist";
 import {
@@ -44,28 +45,23 @@ export async function POST(request: Request) {
   const report = buildReport(counts, now);
   const countedBy = body.countedBy?.trim() || null;
 
-  try {
-    const { error } = await getResendClient().emails.send({
-      from: FROM,
-      to: [TO],
-      subject: subjectFor(report, now),
-      html: renderReportHtml(report, now, countedBy),
-      text: renderReportText(report, now, countedBy),
-    });
-    if (error) throw new Error(error.message);
-    return NextResponse.json({ ok: true, emailed: true, report: serialise(report) });
-  } catch (err) {
-    // Hand the report back regardless so the count isn't lost, but say plainly
-    // that nothing was emailed. A success screen for a report nobody received
-    // is the one outcome that quietly causes a missed order.
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({
-      ok: true,
-      emailed: false,
-      emailError: message,
-      report: serialise(report),
-    });
-  }
+  const outcome = await sendTransactionalEmail("stock-check", {
+    from: FROM,
+    to: [TO],
+    subject: subjectFor(report, now),
+    html: renderReportHtml(report, now, countedBy),
+    text: renderReportText(report, now, countedBy),
+  });
+
+  // Hand the report back either way so the count isn't lost, but say plainly
+  // when nothing was emailed. A success screen for a report nobody received is
+  // the one outcome that quietly causes a missed order.
+  return NextResponse.json({
+    ok: true,
+    emailed: outcome.sent,
+    ...(outcome.sent ? {} : { emailError: outcome.reason }),
+    report: serialise(report),
+  });
 }
 
 function serialise(report: ReturnType<typeof buildReport>) {
