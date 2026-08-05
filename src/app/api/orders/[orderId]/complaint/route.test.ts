@@ -51,7 +51,13 @@ function makeRequest(form: FormData, orderId = "ord_abc") {
   };
 }
 
-function setupHappyPathMocks(opts: { existingComplaint?: boolean } = {}) {
+function setupHappyPathMocks(
+  opts: {
+    existingComplaint?: boolean;
+    existingStatus?: "pending" | "sent" | "failed";
+    saveError?: { message: string } | null;
+  } = {},
+) {
   (getAuthedUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
     userId: "u1",
     email: "stan@example.com",
@@ -78,15 +84,19 @@ function setupHappyPathMocks(opts: { existingComplaint?: boolean } = {}) {
     }),
   );
 
-  const existing = opts.existingComplaint ? { id: "row1" } : null;
+  const existing = opts.existingComplaint
+    ? { id: "row1", status: opts.existingStatus ?? "sent" }
+    : null;
 
   const maybeSingle = vi.fn().mockResolvedValue({ data: existing, error: null });
-  const eq = vi.fn().mockReturnValue({ maybeSingle });
-  const select = vi.fn().mockReturnValue({ eq });
-  const insert = vi.fn().mockResolvedValue({ error: null });
+  const selectEq = vi.fn().mockReturnValue({ maybeSingle });
+  const select = vi.fn().mockReturnValue({ eq: selectEq });
+  const upsert = vi.fn().mockResolvedValue({ error: opts.saveError ?? null });
+  const updateEq = vi.fn().mockResolvedValue({ error: null });
+  const update = vi.fn().mockReturnValue({ eq: updateEq });
 
   (getSupabaseAdmin as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-    from: vi.fn().mockReturnValue({ select, insert }),
+    from: vi.fn().mockReturnValue({ select, upsert, update }),
   });
 
   const send = vi.fn().mockResolvedValue({ data: { id: "msg_123" }, error: null });
@@ -94,7 +104,7 @@ function setupHappyPathMocks(opts: { existingComplaint?: boolean } = {}) {
     emails: { send },
   });
 
-  return { send, insert };
+  return { send, upsert, update };
 }
 
 beforeEach(() => {
@@ -206,7 +216,10 @@ describe("POST complaint", () => {
     expect(res.status).toBe(422);
   });
 
-  it("502 when Resend fails (no row inserted)", async () => {
+  it("502 when Resend fails — but the complaint is kept, marked failed", async () => {
+    // The whole point of #132: the customer still gets an error, and the shop
+    // still ends up with a record of what they said. Previously a failed send
+    // left nothing at all.
     const mocks = setupHappyPathMocks();
     mocks.send.mockResolvedValueOnce({ data: null, error: { message: "Service unavailable" } });
     const fd = new FormData();
@@ -214,10 +227,80 @@ describe("POST complaint", () => {
     const { request, context } = makeRequest(fd);
     const res = await POST(request, context);
     expect(res.status).toBe(502);
-    expect(mocks.insert).not.toHaveBeenCalled();
+
+    expect(mocks.upsert).toHaveBeenCalledTimes(1);
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({
+      order_id: "ord_abc",
+      description: "Pearls were hard, drink off.",
+      status: "pending",
+    });
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+    expect(mocks.update.mock.calls[0][0]).toMatchObject({ status: "failed" });
   });
 
-  it("happy path: 200, Resend called, row inserted", async () => {
+  it("records the complaint before attempting the send", async () => {
+    // Ordering is the fix. Written after the send, a provider outage erases
+    // the complaint; written before, it survives one.
+    const order: string[] = [];
+    const mocks = setupHappyPathMocks();
+    mocks.upsert.mockImplementation(async () => {
+      order.push("save");
+      return { error: null };
+    });
+    mocks.send.mockImplementation(async () => {
+      order.push("send");
+      return { data: { id: "m" }, error: null };
+    });
+    const fd = new FormData();
+    fd.set("description", "Pearls were hard, drink off.");
+    const { request, context } = makeRequest(fd);
+    await POST(request, context);
+    expect(order).toEqual(["save", "send"]);
+  });
+
+  it("still sends when the complaint could not be recorded", async () => {
+    // Refusing here would swap "only in the email" for "cannot complain at
+    // all" — delivery is the point.
+    const mocks = setupHappyPathMocks({ saveError: { message: "db down" } });
+    const fd = new FormData();
+    fd.set("description", "Pearls were hard, drink off.");
+    const { request, context } = makeRequest(fd);
+    const res = await POST(request, context);
+    expect(res.status).toBe(200);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the customer retry after a failed send", async () => {
+    // Their own failed attempt must not answer every retry with
+    // ALREADY_REPORTED.
+    const mocks = setupHappyPathMocks({
+      existingComplaint: true,
+      existingStatus: "failed",
+    });
+    const fd = new FormData();
+    fd.set("description", "Pearls were hard, drink off.");
+    const { request, context } = makeRequest(fd);
+    const res = await POST(request, context);
+    expect(res.status).toBe(200);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the customer retry when a previous attempt is stuck pending", async () => {
+    // A function that timed out mid-send leaves the row pending forever.
+    // Treating that as "already reported" would lock them out permanently.
+    const mocks = setupHappyPathMocks({
+      existingComplaint: true,
+      existingStatus: "pending",
+    });
+    const fd = new FormData();
+    fd.set("description", "Pearls were hard, drink off.");
+    const { request, context } = makeRequest(fd);
+    const res = await POST(request, context);
+    expect(res.status).toBe(200);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("happy path: 200, Resend called, complaint recorded and marked sent", async () => {
     const mocks = setupHappyPathMocks();
     const fd = new FormData();
     fd.set("description", "Pearls were hard, drink off.");
@@ -226,7 +309,8 @@ describe("POST complaint", () => {
     const res = await POST(request, context);
     expect(res.status).toBe(200);
     expect(mocks.send).toHaveBeenCalledTimes(1);
-    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    expect(mocks.upsert).toHaveBeenCalledTimes(1);
+    expect(mocks.update.mock.calls[0][0]).toMatchObject({ status: "sent" });
     const sendArg = mocks.send.mock.calls[0][0];
     expect(sendArg.to).toBe("hello@mandybubbletea.com");
     expect(sendArg.replyTo).toBe("stan@example.com");

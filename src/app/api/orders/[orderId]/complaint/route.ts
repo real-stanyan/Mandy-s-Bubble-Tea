@@ -83,17 +83,27 @@ export async function POST(
     );
   }
 
-  // 5. Dedup. Note: there's a small race window between this SELECT and the
-  // post-send INSERT below. Two near-simultaneous submissions can both pass
-  // here, both send emails, and the second INSERT will fail on the UNIQUE
-  // constraint — Mandy gets a duplicate email. Acceptable for low-volume use.
+  // 5. Dedup — on a *delivered* complaint, not on the mere existence of a row.
+  //
+  // The row is now written before the send, so an unsent one is evidence the
+  // customer tried and something went wrong. Blocking on that would trap them:
+  // their own failed attempt would answer every retry with ALREADY_REPORTED
+  // and the complaint could never get through.
+  //
+  // `pending` doesn't block either, and that is deliberate. It means the send
+  // was in flight — but a function that timed out mid-send leaves the row
+  // pending forever, and treating that as "already reported" locks the
+  // customer out permanently. A duplicate email to Mandy is a far smaller
+  // problem than a customer who cannot report a bad drink. The pre-existing
+  // race between this SELECT and the write below already allowed duplicates
+  // anyway.
   const admin = getSupabaseAdmin();
   const { data: existing } = await admin
     .from("order_complaints")
-    .select("id")
+    .select("id,status")
     .eq("order_id", orderId)
     .maybeSingle();
-  if (existing) {
+  if (existing && (existing as { status?: string }).status === "sent") {
     return NextResponse.json(
       { ok: false, error: "ALREADY_REPORTED" },
       { status: 409 },
@@ -213,7 +223,44 @@ export async function POST(
     attachments,
   });
 
-  // 9. Resend send — must happen BEFORE INSERT so failed sends leave no dedup row (retry possible)
+  // 9. Record the complaint BEFORE trying to send it.
+  //
+  // This used to be the other way round — send, then write the row on success
+  // — so that a failed send left no dedup row and the customer could retry.
+  // The retry part was right; keeping the text only in the email was not. When
+  // the mail provider was broken for 69 days (issue #130) every complaint in
+  // that window vanished: no row, no text, no way to know one had even been
+  // attempted. Writing first means the customer's words survive regardless of
+  // what the mail provider does.
+  const nowIso = new Date().toISOString();
+  const { error: saveError } = await admin.from("order_complaints").upsert(
+    {
+      order_id: orderId,
+      customer_id: order.customerId,
+      user_id: auth.userId,
+      description: description.trim(),
+      // Photos still travel by email only. The count and names are kept so a
+      // report backed by evidence is distinguishable from a bare one.
+      photo_count: attachments.length,
+      photo_filenames: attachments.map((a) => a.filename),
+      status: "pending",
+      failure_reason: null,
+      sent_at: null,
+      updated_at: nowIso,
+    },
+    { onConflict: "order_id" },
+  );
+  if (saveError) {
+    // Log loudly but still try to send. Refusing here would trade "the
+    // complaint is only in the email" for "the customer cannot complain at
+    // all", which is worse — delivery is the point.
+    console.error("[complaint] could not record complaint before sending", {
+      orderId,
+      message: saveError.message,
+    });
+  }
+
+  // 10. Send
   const outcome = await sendTransactionalEmail("complaint", {
     to: COMPLAINT_TO_EMAIL,
     from: COMPLAINT_FROM_EMAIL,
@@ -224,22 +271,32 @@ export async function POST(
     attachments: mail.attachments,
   });
 
+  // 11. Record the outcome. A `failed` row is the thing that was missing
+  // before: it says a real customer complained, here is what they said, and
+  // nobody has seen it.
+  const { error: statusError } = await admin
+    .from("order_complaints")
+    .update(
+      outcome.sent
+        ? { status: "sent", sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        : { status: "failed", failure_reason: outcome.reason, updated_at: new Date().toISOString() },
+    )
+    .eq("order_id", orderId);
+  if (statusError) {
+    console.error("[complaint] could not record send outcome", {
+      orderId,
+      sent: outcome.sent,
+      message: statusError.message,
+    });
+  }
+
   if (!outcome.sent) {
+    // The customer still gets an error — they should know it didn't reach
+    // anyone — but the complaint is on record now either way.
     return NextResponse.json(
       { ok: false, error: "EMAIL_FAILED" },
       { status: 502 },
     );
-  }
-
-  // 10. Dedup row (after successful send)
-  const { error: insertError } = await admin.from("order_complaints").insert({
-    order_id: orderId,
-    customer_id: order.customerId,
-    user_id: auth.userId,
-  });
-  if (insertError) {
-    // Email already sent. Log + still return 200; worst case a retry sends a duplicate.
-    console.error("[complaint] dedup row insert failed (email was sent)", insertError);
   }
 
   return NextResponse.json({ ok: true });
