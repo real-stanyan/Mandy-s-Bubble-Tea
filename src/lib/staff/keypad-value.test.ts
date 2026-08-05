@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyDigit,
+  applyEdit,
   displayValue,
   normalise,
   pressBackspace,
@@ -94,6 +96,37 @@ describe("normalise", () => {
 
   it("clamps rather than rejecting", () => {
     expect(normalise("99.9")).toBe("99.9");
+  });
+});
+
+describe("entry state", () => {
+  const shown = (value: string) => ({ entry: value, fresh: true });
+
+  it("replaces the shown count on the first tap, then appends", () => {
+    // The sheet arrives on an item that already reads 3; tapping 5 then 0
+    // means fifty, not three-five-zero.
+    let s = shown("3");
+    s = applyDigit(s, "5");
+    expect(s.entry).toBe("5");
+    s = applyDigit(s, "0");
+    expect(s.entry).toBe("50");
+  });
+
+  it("keeps building when taps land faster than a re-render", () => {
+    // Regression: fresh used to be separate React state, so both taps of a
+    // two-digit number read the pre-tap flag and 24 came out as 4. Threading
+    // the flag through the value makes the sequence independent of timing.
+    const s = applyDigit(applyDigit(shown(""), "2"), "4");
+    expect(s.entry).toBe("24");
+  });
+
+  it("clears the replace flag on a correction, not just on a digit", () => {
+    // Backspacing into an existing count then typing must extend what's left,
+    // otherwise a fix silently discards the untouched digits.
+    let s = applyEdit(shown("24"), pressBackspace);
+    expect(s.entry).toBe("2");
+    s = applyDigit(s, "1");
+    expect(s.entry).toBe("21");
   });
 });
 
