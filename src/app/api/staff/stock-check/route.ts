@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { COMPLAINT_TO_EMAIL } from "@/lib/email/resend";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { hasAtLeast } from "@/lib/staff/auth";
+import { writeLastCount } from "@/lib/staff/stock-history-store";
 import { ALL_ITEMS, buildReport, type Counted } from "@/lib/staff/stocklist";
 import {
   renderReportHtml,
@@ -44,6 +45,13 @@ export async function POST(request: Request) {
   const now = new Date();
   const report = buildReport(counts, now);
   const countedBy = body.countedBy?.trim() || null;
+
+  // Recorded before the send, and independently of it: the numbers staff
+  // counted are worth keeping whatever the mail provider does — that is the
+  // lesson of the 69-day Resend outage (#130/#132), where every complaint in
+  // the window was lost because the text only ever lived in an email. A failed
+  // write is logged inside and never blocks the report.
+  await writeLastCount(raw, now);
 
   const outcome = await sendTransactionalEmail("stock-check", {
     from: FROM,

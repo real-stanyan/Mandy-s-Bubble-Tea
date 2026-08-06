@@ -1,12 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { StockCategory, StockItem } from "@/lib/staff/stocklist";
-import {
-  describeAge,
-  readSnapshot,
-  writeSnapshot,
-  type StockSnapshot,
-} from "@/lib/staff/stock-history";
+import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
@@ -33,9 +28,12 @@ const DRAFT_KEY = "mandys-stock-draft";
 export function StockCheckForm({
   categories,
   isOrderDay,
+  previous,
 }: {
   categories: StockCategory[];
   isOrderDay: boolean;
+  /** Last submitted count, from the server. Null before the first one. */
+  previous: StockSnapshot | null;
 }) {
   const [counts, setCounts] = useState<Record<string, string>>(() => {
     // A count takes a few minutes across a fridge, a storeroom and a shelf.
@@ -52,35 +50,49 @@ export function StockCheckForm({
   const [countedBy, setCountedBy] = useState("");
   // The item whose drum is open, if any. One sheet for the whole list rather
   // than one per row: only one thing is ever being counted.
-  // Tracked as a position, not an item: the sheet walks the list rather than
-  // closing after each one, so it has to know where it is and what comes next.
-  const [pickIndex, setPickIndex] = useState<number | null>(null);
+  // Tracked by id, not by position: most items are walked in order, but a
+  // weekly one opened on a Wednesday is not in the walk at all, and a position
+  // could not name it.
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Read once on mount: the snapshot is written at submit time, so it cannot
-  // change while a count is in progress, and re-reading per row would mean 63
-  // localStorage hits per render.
-  const [snapshot] = useState<StockSnapshot | null>(() =>
-    typeof window === "undefined" ? null : readSnapshot(),
-  );
-  const previousLabel = snapshot ? describeAge(snapshot.date, new Date()) : null;
+  const previousLabel = previous ? describeAge(previous.date, new Date()) : null;
 
-  // Weekly items are only due on Tuesdays. Off order day they stay visible and
+  // Weekly items are pulled out of their categories into one section of their
+  // own. Mixed in, a Tuesday-only item sat between two everyday ones with only
+  // a caption to tell them apart — easy to count out of habit on a Wednesday,
+  // easy to skip on a Tuesday. Separated, "what do I have to count today" is
+  // answered by where you are on the page.
+  const daily = useMemo(
+    () =>
+      categories
+        .map((c) => ({ ...c, items: c.items.filter((i) => i.rule.kind !== "weekly") }))
+        .filter((c) => c.items.length > 0),
+    [categories],
+  );
+  const weekly = useMemo(
+    () => categories.flatMap((c) => c.items.filter((i) => i.rule.kind === "weekly")),
+    [categories],
+  );
+
+  // Only due on Tuesdays. Off order day the weekly items stay visible and
   // editable — someone noticing an empty box should still be able to say so —
   // but they are out of the required flow: not in the progress count, not in
   // the keypad walk, and never counted as "blank".
   const dueItems = useMemo(
-    () =>
-      categories.flatMap((c) => c.items.filter((i) => i.rule.kind !== "weekly" || isOrderDay)),
-    [categories, isOrderDay],
+    () => (isOrderDay ? [...daily.flatMap((c) => c.items), ...weekly] : daily.flatMap((c) => c.items)),
+    [daily, weekly, isOrderDay],
   );
   const filled = dueItems.filter((i) => (counts[i.id] ?? "").trim() !== "").length;
   const remaining = dueItems.length - filled;
-  const picking = pickIndex === null ? null : (dueItems[pickIndex] ?? null);
-  const previousOf = (id: string) => snapshot?.counts[id] ?? null;
+  const allItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
+  const picking = pickedId === null ? null : (allItems.find((i) => i.id === pickedId) ?? null);
+  // -1 means "open, but not part of today's walk" — edit it and close.
+  const walkIndex = pickedId === null ? -1 : dueItems.findIndex((i) => i.id === pickedId);
+  const previousOf = (id: string) => previous?.counts[id] ?? null;
 
   /**
    * Open at the first item still blank, so picking the count back up after a
@@ -88,7 +100,7 @@ export function StockCheckForm({
    */
   function startCounting() {
     const firstBlank = dueItems.findIndex((i) => (counts[i.id] ?? "").trim() === "");
-    setPickIndex(firstBlank === -1 ? 0 : firstBlank);
+    setPickedId(dueItems[firstBlank === -1 ? 0 : firstBlank]?.id ?? null);
   }
 
   function set(id: string, value: string) {
@@ -125,9 +137,6 @@ export function StockCheckForm({
         return;
       }
       setResult(j);
-      // Only after the report is accepted: an abandoned or failed count must
-      // not become the "was N" that the next count is judged against.
-      writeSnapshot(counts, new Date());
       try {
         window.localStorage.removeItem(DRAFT_KEY);
       } catch {
@@ -155,7 +164,7 @@ export function StockCheckForm({
    */
   function clearAll() {
     setCounts({});
-    setPickIndex(null);
+    setPickedId(null);
     setConfirmingClear(false);
     try {
       window.localStorage.removeItem(DRAFT_KEY);
@@ -195,7 +204,7 @@ export function StockCheckForm({
         />
       </label>
 
-      {categories.map((cat) => (
+      {daily.map((cat) => (
         <section key={cat.id} className="mt-8">
           <h2 className="sticky top-0 z-10 -mx-4 bg-white/90 px-4 py-2 text-lg font-semibold backdrop-blur dark:bg-black/90">
             {cat.name}
@@ -208,13 +217,52 @@ export function StockCheckForm({
                 value={counts[item.id] ?? ""}
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
-                onOpen={() => setPickIndex(dueItems.indexOf(item))}
+                onOpen={() => setPickedId(item.id)}
                 isOrderDay={isOrderDay}
               />
             ))}
           </ul>
         </section>
       ))}
+
+      {/* The slow movers, in one block at the end rather than scattered
+          through the categories above. On a Tuesday this is a short list to
+          work through; the rest of the week it is the part you scroll past. */}
+      {weekly.length > 0 && (
+        <section className="mt-10">
+          <h2
+            className={`sticky top-0 z-10 -mx-4 px-4 py-2 text-lg font-semibold backdrop-blur ${
+              isOrderDay
+                ? "bg-blue-50/90 text-blue-800 dark:bg-blue-950/90 dark:text-blue-200"
+                : "bg-white/90 text-zinc-400 dark:bg-black/90"
+            }`}
+          >
+            Weekly items{" "}
+            <span className="text-sm font-normal">
+              {isOrderDay
+                ? `— due today, all ${weekly.length}`
+                : "— Tuesdays only, skip today"}
+            </span>
+          </h2>
+          <ul
+            className={`mt-1 divide-y divide-zinc-200 dark:divide-zinc-800 ${
+              isOrderDay ? "" : "opacity-60"
+            }`}
+          >
+            {weekly.map((item) => (
+              <Row
+                key={item.id}
+                item={item}
+                value={counts[item.id] ?? ""}
+                previous={previousOf(item.id)}
+                previousLabel={previousLabel}
+                onOpen={() => setPickedId(item.id)}
+                isOrderDay={isOrderDay}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Down here rather than in the sticky bar on purpose: clearing throws
           away a whole walk around the shop, so it should take scrolling past
@@ -304,7 +352,7 @@ export function StockCheckForm({
         </div>
       </div>
 
-      {picking && pickIndex !== null && (
+      {picking && (
         <CountKeypadSheet
           // Remounting per item is what resets the entry and the "first digit
           // replaces" flag, and it is instant — the sheet never leaves.
@@ -313,25 +361,28 @@ export function StockCheckForm({
           hint={
             picking.rule.kind === "threshold"
               ? `reorder at ${picking.rule.value}`
-              : "weekly — reported Tuesdays"
+              : isOrderDay
+                ? "weekly — due today"
+                : "weekly — Tuesdays only"
           }
           value={counts[picking.id] ?? ""}
-          index={pickIndex}
-          total={dueItems.length}
+          // Both undefined for an item outside today's walk: the sheet then
+          // edits this one and closes instead of claiming a position.
+          index={walkIndex >= 0 ? walkIndex : undefined}
+          total={walkIndex >= 0 ? dueItems.length : undefined}
           previous={previousOf(picking.id)}
           previousLabel={previousLabel}
           onCommit={(next) => set(picking.id, next)}
-          onMove={(delta) =>
-            setPickIndex((i) => {
-              if (i === null) return null;
-              const next = i + delta;
-              // Running off either end closes rather than wrapping: wrapping
-              // back to Mango after the last item would read as "nothing
-              // happened" and quietly restart the count.
-              return next < 0 || next >= dueItems.length ? null : next;
-            })
-          }
-          onClose={() => setPickIndex(null)}
+          onMove={(delta) => {
+            const next = walkIndex + delta;
+            // Running off either end closes rather than wrapping: wrapping
+            // back to Mango after the last item would read as "nothing
+            // happened" and quietly restart the count.
+            setPickedId(
+              next < 0 || next >= dueItems.length ? null : (dueItems[next]?.id ?? null),
+            );
+          }}
+          onClose={() => setPickedId(null)}
         />
       )}
     </div>

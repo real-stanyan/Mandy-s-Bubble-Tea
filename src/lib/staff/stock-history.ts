@@ -1,19 +1,15 @@
-// Last submitted count, kept so the next count can show what was on the shelf
-// before.
+// Shape and dating of the last submitted count, kept so the next count can
+// show what was on the shelf before.
 //
 // Why it matters: "3" means nothing on its own, but "3, was 12 yesterday"
 // means someone either had a big day or miscounted, and it is the only signal
 // that catches a fat-fingered entry before it reaches the order. Staff used to
 // get this by remembering.
 //
-// It lives on the device, not the server. The shop counts on one till, and a
-// table for this would need a migration that cannot be applied from here (see
-// the stock-check history issue). Per-device is not the right long-term home —
-// counting from a phone would show nothing — but it is honest about what it
-// has: every reading is stamped with the date it was taken, so a stale or
-// absent snapshot is visible rather than silently misleading.
-
-const KEY = "mandys-stock-last";
+// Reading and writing live in stock-history-store.ts (server, Supabase). This
+// file is the parts both sides need: the type, and how a date is turned into
+// something a person reads. It stays free of storage so it can be tested and
+// used from a client component.
 
 export type StockSnapshot = {
   /** ISO date (Brisbane calendar day) the count was submitted. */
@@ -21,45 +17,6 @@ export type StockSnapshot = {
   /** item id -> the normalised count string. Blank entries are not stored. */
   counts: Record<string, string>;
 };
-
-export function readSnapshot(): StockSnapshot | null {
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      typeof (parsed as StockSnapshot).date !== "string" ||
-      typeof (parsed as StockSnapshot).counts !== "object"
-    ) {
-      // Written by an older build, or hand-edited. A wrong "was N" is worse
-      // than no "was N", so discard rather than guess.
-      return null;
-    }
-    return parsed as StockSnapshot;
-  } catch {
-    return null;
-  }
-}
-
-export function writeSnapshot(counts: Record<string, string>, now: Date): void {
-  // Blanks are dropped: an item nobody counted has no previous reading to
-  // offer, and storing "" would overwrite a usable older one with nothing.
-  const kept: Record<string, string> = {};
-  for (const [id, value] of Object.entries(counts)) {
-    if (value.trim() !== "") kept[id] = value.trim();
-  }
-  try {
-    window.localStorage.setItem(
-      KEY,
-      JSON.stringify({ date: brisbaneDate(now), counts: kept } satisfies StockSnapshot),
-    );
-  } catch {
-    // Storage full / private mode. The previous-count hint is a convenience;
-    // losing it must never block submitting a count.
-  }
-}
 
 /** `2026-08-06` in the shop's timezone — the day staff would call "today". */
 export function brisbaneDate(now: Date): string {
