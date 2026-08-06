@@ -1,6 +1,12 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { StockCategory, StockItem } from "@/lib/staff/stocklist";
+import {
+  describeAge,
+  readSnapshot,
+  writeSnapshot,
+  type StockSnapshot,
+} from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
@@ -54,17 +60,34 @@ export function StockCheckForm({
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const allItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
-  const filled = allItems.filter((i) => (counts[i.id] ?? "").trim() !== "").length;
-  const remaining = allItems.length - filled;
-  const picking = pickIndex === null ? null : (allItems[pickIndex] ?? null);
+  // Read once on mount: the snapshot is written at submit time, so it cannot
+  // change while a count is in progress, and re-reading per row would mean 63
+  // localStorage hits per render.
+  const [snapshot] = useState<StockSnapshot | null>(() =>
+    typeof window === "undefined" ? null : readSnapshot(),
+  );
+  const previousLabel = snapshot ? describeAge(snapshot.date, new Date()) : null;
+
+  // Weekly items are only due on Tuesdays. Off order day they stay visible and
+  // editable — someone noticing an empty box should still be able to say so —
+  // but they are out of the required flow: not in the progress count, not in
+  // the keypad walk, and never counted as "blank".
+  const dueItems = useMemo(
+    () =>
+      categories.flatMap((c) => c.items.filter((i) => i.rule.kind !== "weekly" || isOrderDay)),
+    [categories, isOrderDay],
+  );
+  const filled = dueItems.filter((i) => (counts[i.id] ?? "").trim() !== "").length;
+  const remaining = dueItems.length - filled;
+  const picking = pickIndex === null ? null : (dueItems[pickIndex] ?? null);
+  const previousOf = (id: string) => snapshot?.counts[id] ?? null;
 
   /**
    * Open at the first item still blank, so picking the count back up after a
    * break doesn't mean scrolling to find where you stopped.
    */
   function startCounting() {
-    const firstBlank = allItems.findIndex((i) => (counts[i.id] ?? "").trim() === "");
+    const firstBlank = dueItems.findIndex((i) => (counts[i.id] ?? "").trim() === "");
     setPickIndex(firstBlank === -1 ? 0 : firstBlank);
   }
 
@@ -102,6 +125,9 @@ export function StockCheckForm({
         return;
       }
       setResult(j);
+      // Only after the report is accepted: an abandoned or failed count must
+      // not become the "was N" that the next count is judged against.
+      writeSnapshot(counts, new Date());
       try {
         window.localStorage.removeItem(DRAFT_KEY);
       } catch {
@@ -180,7 +206,9 @@ export function StockCheckForm({
                 key={item.id}
                 item={item}
                 value={counts[item.id] ?? ""}
-                onOpen={() => setPickIndex(allItems.indexOf(item))}
+                previous={previousOf(item.id)}
+                previousLabel={previousLabel}
+                onOpen={() => setPickIndex(dueItems.indexOf(item))}
                 isOrderDay={isOrderDay}
               />
             ))}
@@ -245,7 +273,7 @@ export function StockCheckForm({
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
             <span>
-              {filled}/{allItems.length} counted
+              {filled}/{dueItems.length} counted
             </span>
             {remaining > 0 && (
               <span className="ml-2 text-amber-700 dark:text-amber-500">
@@ -289,7 +317,9 @@ export function StockCheckForm({
           }
           value={counts[picking.id] ?? ""}
           index={pickIndex}
-          total={allItems.length}
+          total={dueItems.length}
+          previous={previousOf(picking.id)}
+          previousLabel={previousLabel}
           onCommit={(next) => set(picking.id, next)}
           onMove={(delta) =>
             setPickIndex((i) => {
@@ -298,7 +328,7 @@ export function StockCheckForm({
               // Running off either end closes rather than wrapping: wrapping
               // back to Mango after the last item would read as "nothing
               // happened" and quietly restart the count.
-              return next < 0 || next >= allItems.length ? null : next;
+              return next < 0 || next >= dueItems.length ? null : next;
             })
           }
           onClose={() => setPickIndex(null)}
@@ -311,11 +341,16 @@ export function StockCheckForm({
 function Row({
   item,
   value,
+  previous,
+  previousLabel,
   onOpen,
   isOrderDay,
 }: {
   item: StockItem;
   value: string;
+  /** What this item counted last time, or null if there is no reading. */
+  previous: string | null;
+  previousLabel: string | null;
   onOpen: () => void;
   isOrderDay: boolean;
 }) {
@@ -333,9 +368,18 @@ function Row({
         <div className="text-xs text-zinc-500">
           {item.rule.kind === "threshold" ? (
             <>reorder at {item.rule.value}</>
+          ) : isOrderDay ? (
+            <span className="font-semibold text-blue-600">weekly — due today</span>
           ) : (
-            <span className={isOrderDay ? "font-semibold text-blue-600" : undefined}>
-              weekly — report Tuesdays
+            <span className="text-zinc-400">weekly — Tuesdays only</span>
+          )}
+          {/* The previous reading, next to the rule rather than in the box:
+              it is context for the number being entered, never a default. A
+              blank box must stay visibly blank. */}
+          {previous != null && (
+            <span className="ml-2 tabular-nums text-zinc-400">
+              was {previous}
+              {previousLabel ? ` ${previousLabel}` : ""}
             </span>
           )}
         </div>

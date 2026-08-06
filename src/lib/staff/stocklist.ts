@@ -156,6 +156,23 @@ export function isOrderDay(now: Date = new Date()): boolean {
   return weekday === "Tue";
 }
 
+/**
+ * Is this item due to be counted today?
+ *
+ * Weekly items are the shop's slow movers, and counting them daily was work
+ * with no reader: their numbers were collected every day and only ever acted
+ * on once a week. So they are now due on Tuesdays only — mandatory then,
+ * genuinely optional the rest of the week.
+ *
+ * This is what separates "nobody counted it" from "nobody had to". Before, a
+ * Wednesday report listed every weekly item under NOT COUNTED, which trained
+ * staff to read that section as noise — and that is the section that exists to
+ * catch a shelf someone actually skipped.
+ */
+export function isDueToday(item: StockItem, now: Date = new Date()): boolean {
+  return item.rule.kind !== "weekly" || isOrderDay(now);
+}
+
 export type Counted = { item: StockItem; qty: number | null };
 
 export type StockReport = {
@@ -167,6 +184,12 @@ export type StockReport = {
   ok: Array<{ item: StockItem; qty: number }>;
   /** Left blank by staff. Surfaced rather than silently treated as zero. */
   missing: StockItem[];
+  /**
+   * Weekly items left blank on a non-Tuesday — not due, so not a gap. Kept as
+   * its own bucket rather than dropped so the report can still say what was
+   * skipped by design, and so `missing` stays a list of real omissions.
+   */
+  notDue: StockItem[];
   isOrderDay: boolean;
 };
 
@@ -185,12 +208,16 @@ export function buildReport(counts: Counted[], now: Date = new Date()): StockRep
     weekly: [],
     ok: [],
     missing: [],
+    notDue: [],
     isOrderDay: orderDay,
   };
 
   for (const { item, qty } of counts) {
     if (qty == null || Number.isNaN(qty)) {
-      report.missing.push(item);
+      // A weekly item blank on a non-Tuesday was never asked for, so calling
+      // it "not counted" would be reporting an omission that did not happen.
+      if (!isDueToday(item, now)) report.notDue.push(item);
+      else report.missing.push(item);
       continue;
     }
     if (item.rule.kind === "weekly") {

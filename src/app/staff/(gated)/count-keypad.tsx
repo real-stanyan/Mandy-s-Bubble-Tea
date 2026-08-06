@@ -28,6 +28,8 @@ export function CountKeypadSheet({
   title,
   hint,
   value,
+  previous,
+  previousLabel,
   index,
   total,
   onCommit,
@@ -37,6 +39,9 @@ export function CountKeypadSheet({
   title: string;
   hint?: string;
   value: string;
+  /** Last count for this item, shown beside the entry as a sanity check. */
+  previous?: string | null;
+  previousLabel?: string | null;
   /** 0-based position in the full item list, for the progress line. */
   index: number;
   total: number;
@@ -153,8 +158,17 @@ export function CountKeypadSheet({
 
         {/* What's been tapped so far, big enough to read at arm's length while
             holding a bottle in the other hand. */}
-        <div className="px-4 py-3 text-center text-4xl font-semibold tabular-nums">
+        <div className="px-4 pt-3 text-center text-4xl font-semibold tabular-nums">
           {displayValue(entry)}
+        </div>
+        {/* The last count, small and underneath — a sanity check on the number
+            being typed, deliberately not pre-filled into the entry. Seeing
+            "was 12" while tapping 1 is what catches a dropped digit; starting
+            at 12 would just get submitted unchanged. */}
+        <div className="h-5 px-4 pb-1 text-center text-xs tabular-nums text-zinc-400">
+          {previous != null
+            ? `was ${previous}${previousLabel ? ` ${previousLabel}` : ""}`
+            : ""}
         </div>
 
         <div className="mx-auto grid max-w-xs grid-cols-3 gap-2 px-4">
