@@ -42,9 +42,14 @@ export function CountKeypadSheet({
   /** Last count for this item, shown beside the entry as a sanity check. */
   previous?: string | null;
   previousLabel?: string | null;
-  /** 0-based position in the full item list, for the progress line. */
-  index: number;
-  total: number;
+  /**
+   * 0-based position in the walk, and its length. Both absent means this item
+   * is not part of today's walk — a weekly item being filled in on a Wednesday
+   * — so the sheet edits just this one and closes, rather than pretending to
+   * be at a position in a list it is not in.
+   */
+  index?: number;
+  total?: number;
   onCommit: (next: string) => void;
   /** Move by ±1. The parent decides what happens at either end. */
   onMove: (delta: 1 | -1) => void;
@@ -95,7 +100,9 @@ export function CountKeypadSheet({
     }, 180);
   }, [onCommit, onClose]);
 
-  const isLast = index >= total - 1;
+  // Off-walk items behave like the last one: commit and close, no Next.
+  const inWalk = index != null && total != null;
+  const isLast = !inWalk || index >= total - 1;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -139,8 +146,8 @@ export function CountKeypadSheet({
           <div className="min-w-0 px-2 text-center">
             <div className="truncate text-sm font-semibold">{title}</div>
             <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-              {hint ? `${hint} · ` : ""}
-              {index + 1}/{total}
+              {hint ?? ""}
+              {inWalk ? `${hint ? " · " : ""}${index + 1}/${total}` : ""}
             </div>
           </div>
           <button
@@ -196,19 +203,21 @@ export function CountKeypadSheet({
             the thumb position. Back exists but stays small — going back is the
             rare case. */}
         <div className="mx-auto flex max-w-xs items-stretch gap-2 px-4 py-4">
-          <button
-            onClick={() => move(-1)}
-            disabled={index === 0}
-            aria-label="Previous item"
-            className="flex h-14 w-14 items-center justify-center rounded-xl border text-xl active:scale-[0.97] disabled:opacity-30"
-          >
-            ←
-          </button>
+          {inWalk && (
+            <button
+              onClick={() => move(-1)}
+              disabled={index === 0}
+              aria-label="Previous item"
+              className="flex h-14 w-14 items-center justify-center rounded-xl border text-xl active:scale-[0.97] disabled:opacity-30"
+            >
+              ←
+            </button>
+          )}
           <button
             onClick={() => (isLast ? dismiss() : move(1))}
             className="h-14 flex-1 rounded-xl bg-[#3B82C4] text-lg font-semibold text-white active:scale-[0.98]"
           >
-            {isLast ? "Finish" : "Next"}
+            {!inWalk ? "Done" : isLast ? "Finish" : "Next"}
           </button>
         </div>
       </div>
