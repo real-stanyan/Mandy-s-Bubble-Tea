@@ -89,6 +89,7 @@ Issues 和 PR 是 agent 之间（以及 agent ↔ 人之间）带时间戳、app
 - **Memory 类 comment 的最小格式**（ADR-0004）：① 做到哪 ② 卡在哪 ③ 下一步是什么 ④ 任务完成则关 issue ⑤ **判断依据 / 权衡**——本棒做了非既定决策时必填（选了什么、为什么、什么前提失效时该推翻）；没做决策就写「无」，不许省略。少一项都不算合格交接。五项通用：已沉淀在耐久载体（ADR / issue / PR / commit / diff）里的内容用编号或路径**引用**，不复述——副本会腐烂，引用不会（ADR-0045）；inline 只写载体之外的东西。
 - **交接 = issue 关闭 / PR 合并的那一刻**，不是"我觉得讲清楚了"。没关 issue 就换人 = 任务中途换手，违反上一节。
 - **PR 是 Task 的实施载体，不是独立角色**：PR 引用它实现的 Task issue，merge 时关 issue。PR review 中发现的新问题另开 issue，不在 PR 评论里堆。
+- **只有「agent 做不了、或 agent 做了不算数」的事才能 assign 给 Stan（ADR-0008）。** 三类：**A 凭证与外部账号**（Vercel env / Apple / Square / Supabase Dashboard / repo 删除权 / 真机 passcode 验证）、**B 授权**（L1 明确同意、ADR-0004 里需明确同意的破坏性 DB 操作）、**C 商业决策**（定价、补偿、做不做、优先级）。加性 migration、merge 自己 CI 绿的 PR、找 review、修 bug / 写测试 / 重构**不属于**这三类。四条细则：一个 issue 只装一件需要 Stan 的事（不捆绑）；用 `--assignee real-stanyan` 而非只 cc；body 第一句写明属 A/B/C 哪一类**并附探测证据**；先做完自己那一半。**能力属于环境不属于任务**——assign 前先探一次（一条失败命令的输出才是判据，「我觉得」不是）；卡在凭证时 assign 的是**凭证**（一次性）而不是任务（每次重来）。
 
 **Task 排序（blocking edges，ADR-0044）**：Task 之间有依赖时，被阻塞的 issue body 用字面 `Blocked by: #N` 行声明（一行一个 blocker）。认领只认 **frontier** 任务——没有 open blocker 的 open 任务；blocker 关闭，其依赖者进入 frontier。纯文本、可 grep，不需要 Projects/label。这是 hygiene 约定，不是硬规则——edge 过期只在认领时多花一次判断。
 
