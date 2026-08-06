@@ -3,6 +3,7 @@ import {
   ALL_ITEMS,
   STOCK_LIST,
   buildReport,
+  isDueToday,
   isOrderDay,
   type Counted,
   type StockItem,
@@ -86,6 +87,54 @@ describe("weekly rule", () => {
       const r = buildReport([{ item: honey, qty: 0 }], now);
       expect(r.reorder).toHaveLength(0);
     }
+  });
+});
+
+describe("weekly items are only due on Tuesdays", () => {
+  const honey = item("syrup-honey");
+  const mango = item("syrup-mango");
+
+  it("blank on a non-Tuesday is not due, not missing", () => {
+    // Nobody was asked to count it, so calling it "not counted" reports an
+    // omission that did not happen — and trains staff to skim the one section
+    // that exists to catch a real one.
+    const r = buildReport([{ item: honey, qty: null }], WEDNESDAY);
+    expect(r.notDue.map((i) => i.id)).toEqual(["syrup-honey"]);
+    expect(r.missing).toHaveLength(0);
+  });
+
+  it("blank on Tuesday IS missing — that is the day it is mandatory", () => {
+    const r = buildReport([{ item: honey, qty: null }], TUESDAY);
+    expect(r.missing.map((i) => i.id)).toEqual(["syrup-honey"]);
+    expect(r.notDue).toHaveLength(0);
+  });
+
+  it("does not excuse a blank everyday item on the same day", () => {
+    // The exemption is per-rule, not per-day: a threshold item left blank on a
+    // Wednesday is still a gap someone has to answer for.
+    const r = buildReport(
+      [
+        { item: honey, qty: null },
+        { item: mango, qty: null },
+      ],
+      WEDNESDAY,
+    );
+    expect(r.missing.map((i) => i.id)).toEqual(["syrup-mango"]);
+    expect(r.notDue.map((i) => i.id)).toEqual(["syrup-honey"]);
+  });
+
+  it("counting one anyway on a non-Tuesday is still recorded", () => {
+    // Not due does not mean not wanted: someone who spots an empty box should
+    // be able to say so, and the number must survive to the report.
+    const r = buildReport([{ item: honey, qty: 2 }], WEDNESDAY);
+    expect(r.ok).toEqual([{ item: honey, qty: 2 }]);
+    expect(r.notDue).toHaveLength(0);
+  });
+
+  it("isDueToday follows the same rule", () => {
+    expect(isDueToday(honey, TUESDAY)).toBe(true);
+    expect(isDueToday(honey, WEDNESDAY)).toBe(false);
+    expect(isDueToday(mango, WEDNESDAY)).toBe(true);
   });
 });
 

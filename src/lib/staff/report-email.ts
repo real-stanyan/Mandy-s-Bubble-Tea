@@ -97,8 +97,14 @@ Mandy's Bubble Tea · stock check · ${date}${countedBy ? ` · counted by ${esca
     report.ok.map((r) => row(escapeHtml(r.item.name), qty(r.qty))),
   );
 
+  // See the text version: a count, not a list.
+  const notDue =
+    report.notDue.length > 0
+      ? `<p style="margin:16px 0 0;color:#71717a;font-size:12px">${report.notDue.length} weekly items not due today — counted Tuesdays.</p>`
+      : "";
+
   return `<div style="max-width:640px;margin:0 auto;padding:16px">
-${header}${headline}${reorder}${weekly}${missing}${ok}
+${header}${headline}${reorder}${weekly}${missing}${ok}${notDue}
 </div>`;
 }
 
@@ -130,6 +136,16 @@ export function renderReportText(
   if (report.missing.length > 0) {
     lines.push("", `NOT COUNTED (${report.missing.length}):`);
     for (const i of report.missing) lines.push(`  - ${i.name}`);
+  }
+
+  // One line, not a list: these were not asked for today, so naming all of
+  // them would recreate the noise that moving them off the daily count
+  // removed. It exists so the absence reads as by-design, not as a gap.
+  if (report.notDue.length > 0) {
+    lines.push(
+      "",
+      `(${report.notDue.length} weekly items not due today — counted Tuesdays.)`,
+    );
   }
 
   if (report.ok.length > 0) {
