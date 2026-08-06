@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { hasAtLeast } from "@/lib/staff/auth";
 import { weekKeyFor } from "@/lib/staff/roster/week";
+import { resolveStaff } from "@/lib/staff/roster/model";
 import {
   EMPTY_WEEK,
   loadPreviousSundayClosers,
+  loadStaffProfiles,
   loadWeek,
 } from "@/lib/staff/roster/store";
 import { RosterClient } from "./roster-client";
@@ -30,9 +32,10 @@ export default async function StaffRosterPage({
 
   // Monday's "did they close last night?" answer lives in the previous week,
   // which a per-week grid can't see — so it's loaded alongside.
-  const [result, previousSundayClosers] = await Promise.all([
+  const [result, previousSundayClosers, profiles] = await Promise.all([
     loadWeek(weekKey),
     loadPreviousSundayClosers(weekKey),
+    loadStaffProfiles(weekKey),
   ]);
 
   if (result.status === "needs-migration") {
@@ -55,6 +58,7 @@ export default async function StaffRosterPage({
       initial={result.status === "ok" ? result.week : EMPTY_WEEK}
       loadError={result.status === "error" ? result.message : null}
       previousSundayClosers={previousSundayClosers}
+      staff={resolveStaff(profiles)}
     />
   );
 }

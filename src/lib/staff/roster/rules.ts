@@ -1,5 +1,6 @@
 import {
   COMFORTABLE_DAYS,
+  STAFF,
   SHIFT_UNITS,
   WEEKDAYS,
   allSlots,
@@ -55,7 +56,19 @@ export type Violation = {
 export type RuleContext = {
   week: WeekAvailability;
   previousWeekSundayCloserIds?: string[];
+  /**
+   * The staff list as it stood for this week. Days, shift kinds and weekly
+   * allowances are editable now, so a week has to be judged against the shape
+   * that actually applied to it — a roster from before someone's availability
+   * changed shouldn't light up with violations afterwards. Defaults to the
+   * code list.
+   */
+  staff?: Staff[];
 };
+
+export function staffOf(ctx: RuleContext): Staff[] {
+  return ctx.staff ?? STAFF;
+}
 
 export function canWorkSlot(
   staff: Staff,
@@ -178,7 +191,7 @@ export function findViolations(roster: Roster, ctx: RuleContext): Violation[] {
   for (const slot of slots) {
     const id = roster[slotId(slot)];
     if (!id) continue;
-    const staff = staffById(id);
+    const staff = staffById(id, staffOf(ctx));
     if (!staff) continue;
 
     if (!staff.kinds.includes(slot.kind)) {
@@ -229,7 +242,7 @@ export function findViolations(roster: Roster, ctx: RuleContext): Violation[] {
           severity: "hard",
           slotIds: ids,
           staffId: id,
-          message: `${staffById(id)?.name ?? id} is on two shifts on ${day}`,
+          message: `${staffById(id, staffOf(ctx))?.name ?? id} is on two shifts on ${day}`,
         });
       }
     }
@@ -237,7 +250,7 @@ export function findViolations(roster: Roster, ctx: RuleContext): Violation[] {
 
   // Three days in a row opening, or three late nights in a row.
   for (const staff of new Set(
-    Object.values(roster).filter(Boolean).map((id) => staffById(id!)),
+    Object.values(roster).filter(Boolean).map((id) => staffById(id!, staffOf(ctx))),
   )) {
     if (!staff) continue;
     for (const run of runsOfThree(daysWorking(staff.id, roster, "open"))) {
@@ -273,7 +286,7 @@ export function findViolations(roster: Roster, ctx: RuleContext): Violation[] {
             severity: "hard",
             slotIds: [`${a}-mid-0`, `${b}-mid-0`],
             staffId: id,
-            message: `${staffById(id)?.name ?? id} works 12-22 on consecutive days (${a}, ${b})`,
+            message: `${staffById(id, staffOf(ctx))?.name ?? id} works 12-22 on consecutive days (${a}, ${b})`,
           });
         }
       }
@@ -282,7 +295,7 @@ export function findViolations(roster: Roster, ctx: RuleContext): Violation[] {
 
   // Weekly allowances.
   for (const staff of new Set(
-    Object.values(roster).filter(Boolean).map((id) => staffById(id!)),
+    Object.values(roster).filter(Boolean).map((id) => staffById(id!, staffOf(ctx))),
   )) {
     if (!staff) continue;
     const units = assignedUnits(roster, staff.id);

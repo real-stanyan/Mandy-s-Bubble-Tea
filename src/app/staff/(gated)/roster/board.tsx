@@ -12,11 +12,14 @@ import {
   comfortableDayCapacity,
   countKind,
   daysWorked,
+  profileOf,
   shiftKey,
   slotCount,
   slotId,
   staffById,
   type Roster,
+  type Staff,
+  type StaffProfile,
   type ShiftKind,
   type Weekday,
   type WeekAvailability,
@@ -88,11 +91,13 @@ export function RosterBoard({
   initial,
   loadError,
   previousSundayClosers,
+  staff,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
   previousSundayClosers: string[];
+  staff: Staff[];
 }) {
   return (
     <WeekEditor
@@ -101,6 +106,7 @@ export function RosterBoard({
       initial={initial}
       loadError={loadError}
       previousSundayClosers={previousSundayClosers}
+      staff={staff}
     />
   );
 }
@@ -110,11 +116,14 @@ function WeekEditor({
   initial,
   loadError,
   previousSundayClosers,
+  staff,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
   previousSundayClosers: string[];
+  /** Resolved for this week — code defaults with any overrides applied. */
+  staff: Staff[];
 }) {
   const router = useRouter();
   const [roster, setRoster] = useState<Roster>(initial.roster);
@@ -127,6 +136,7 @@ function WeekEditor({
   const [pinned, setPinned] = useState<Set<string>>(new Set(initial.pinned));
   const [picked, setPicked] = useState<string | null>(null);
   const [showAvailability, setShowAvailability] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -168,8 +178,15 @@ function WeekEditor({
   // Carries last Sunday's closers so Monday's opening is checked against the
   // night before, which lives in the previous week and no per-week grid sees.
   const ctx = useMemo(
-    () => ({ week: availability, previousWeekSundayCloserIds: previousSundayClosers }),
-    [availability, previousSundayClosers],
+    () => ({
+      week: availability,
+      previousWeekSundayCloserIds: previousSundayClosers,
+      // Without this the scheduler and the rule checks fall back to the code
+      // defaults, and every edit in Staff setup would look saved but change
+      // nothing.
+      staff,
+    }),
+    [availability, previousSundayClosers, staff],
   );
   const violations = useMemo(() => findViolations(roster, ctx), [roster, ctx]);
   const violationBySlot = useMemo(() => {
@@ -278,7 +295,7 @@ function WeekEditor({
   // evening slots aren't staff demand, and counting them would report a
   // shortfall that doesn't exist.
   const slotTotal = autoSlots().length;
-  const capacity = comfortableDayCapacity(availability);
+  const capacity = comfortableDayCapacity(availability, staff);
   const shortfall = slotTotal - capacity;
 
   return (
@@ -346,6 +363,12 @@ function WeekEditor({
         >
           {showAvailability ? "Hide" : "Availability"}
         </button>
+        <button
+          onClick={() => setShowSetup((v) => !v)}
+          className="rounded-lg border px-4 py-2 hover:bg-zinc-50"
+        >
+          {showSetup ? "Hide setup" : "Staff setup"}
+        </button>
       </div>
 
       {/* Saving is silent and remote now, so its state has to be visible —
@@ -376,12 +399,21 @@ function WeekEditor({
       )}
 
       {showAvailability && (
-        <AvailabilityPanel value={availability} onChange={updateAvailability} />
+        <AvailabilityPanel people={staff} value={availability} onChange={updateAvailability} />
+      )}
+
+      {showSetup && (
+        <StaffSetupPanel
+          people={staff}
+          weekKey={weekKey}
+          onSaved={() => router.refresh()}
+        />
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_260px]">
         <Grid
           weekKey={weekKey}
+          people={staff}
           roster={roster}
           pinned={pinned}
           picked={picked}
@@ -390,6 +422,7 @@ function WeekEditor({
           onDropStaff={(slot, staffId) => assign(slot, staffId)}
         />
         <Palette
+          people={staff}
           roster={roster}
           picked={picked}
           onPick={(id) => setPicked((p) => (p === id ? null : id))}
@@ -446,6 +479,7 @@ function WeekEditor({
 
 function Grid({
   weekKey,
+  people,
   roster,
   pinned,
   picked,
@@ -454,6 +488,7 @@ function Grid({
   onDropStaff,
 }: {
   weekKey: string;
+  people: Staff[];
   roster: Roster;
   pinned: Set<string>;
   picked: string | null;
@@ -492,6 +527,7 @@ function Grid({
                 <Cell
                   key={kind}
                   slot={slotId({ day, kind, index: 0 })}
+                  people={people}
                   roster={roster}
                   pinned={pinned}
                   picked={picked}
@@ -503,6 +539,7 @@ function Grid({
               {slotCount(day, "close") > 1 ? (
                 <Cell
                   slot={slotId({ day, kind: "close", index: 1 })}
+                  people={people}
                   roster={roster}
                   pinned={pinned}
                   picked={picked}
@@ -523,6 +560,7 @@ function Grid({
 
 function Cell({
   slot,
+  people,
   roster,
   pinned,
   picked,
@@ -531,6 +569,7 @@ function Cell({
   onDropStaff,
 }: {
   slot: string;
+  people: Staff[];
   roster: Roster;
   pinned: Set<string>;
   picked: string | null;
@@ -539,7 +578,7 @@ function Cell({
   onDropStaff: (slot: string, staffId: string) => void;
 }) {
   const id = roster[slot];
-  const staff = id ? staffById(id) : undefined;
+  const staff = id ? staffById(id, people) : undefined;
   const isPinned = pinned.has(slot);
   const hard = violations?.some((v) => v.severity === "hard");
   const soft = violations?.some((v) => v.severity === "soft");
@@ -585,10 +624,12 @@ function Cell({
 }
 
 function Palette({
+  people,
   roster,
   picked,
   onPick,
 }: {
+  people: Staff[];
   roster: Roster;
   picked: string | null;
   onPick: (id: string) => void;
@@ -605,7 +646,7 @@ function Palette({
         <b>Auto-fill week keeps it</b> — place the shifts you care about first,
         then let auto do the rest.
       </p>
-      {STAFF.map((s) => {
+      {people.map((s) => {
         const units = assignedUnits(roster, s.id);
         const over = units > s.maxUnits;
         const under = units < s.minUnits;
@@ -639,7 +680,7 @@ function Palette({
           <span></span>
           <span>days · opens/closes</span>
         </div>
-        {STAFF.filter((s) => assignedUnits(roster, s.id) > 0).map((s) => {
+        {people.filter((s) => assignedUnits(roster, s.id) > 0).map((s) => {
           const days = daysWorked(roster, s.id);
           return (
             <div key={s.id} className="flex justify-between tabular-nums">
@@ -658,10 +699,203 @@ function Palette({
   );
 }
 
+/**
+ * Editing who can work what, from this week onwards.
+ *
+ * Distinct from the availability panel above, which is one week only. This is
+ * the lasting shape — Elle going from Saturday-only to more days is a change
+ * that should carry forward, not something to retype every Monday. Saving
+ * writes an effective-from row, so past weeks keep the shape they had.
+ */
+function StaffSetupPanel({
+  people,
+  weekKey,
+  onSaved,
+}: {
+  people: Staff[];
+  weekKey: string;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, StaffProfile>>(() =>
+    Object.fromEntries(people.map((s) => [s.id, profileOf(s)])),
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+
+  function edit(id: string, patch: Partial<StaffProfile>) {
+    setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+    setSavedId(null);
+  }
+
+  async function save(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const p = draft[id];
+      const r = await fetch("/api/staff/roster-profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staffId: id,
+          effectiveFrom: weekKey,
+          days: p.days,
+          kinds: p.kinds,
+          minUnits: p.minUnits,
+          maxUnits: p.maxUnits,
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setError(
+          j.needsMigration
+            ? "The staff settings table doesn't exist yet — run migration 008."
+            : (j.error ?? "Save failed"),
+        );
+        return;
+      }
+      setSavedId(id);
+      // Re-render the page so the grid, capacity note and scheduler all pick
+      // up the new shape — they read it from the server, not from this draft.
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border p-3">
+      <h2 className="text-sm font-bold">Staff setup</h2>
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        Days, shifts and weekly shift count. Saving applies{" "}
+        <b>from {weekLabel(weekKey)} onwards</b> — earlier weeks keep what they
+        had. Counts are in shift-units: a 12-22 counts as two.
+      </p>
+
+      {error && (
+        <p className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-xs text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {people
+          .filter((s) => s.auto)
+          .map((s) => {
+            const p = draft[s.id];
+            if (!p) return null;
+            const dirty =
+              JSON.stringify(p) !== JSON.stringify(profileOf(s));
+            return (
+              <div key={s.id} className="rounded border p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="h-4 w-4 shrink-0 rounded"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  <span className="w-16 text-sm font-medium">{s.name}</span>
+
+                  {WEEKDAYS.map((d) => {
+                    const on = p.days.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        onClick={() =>
+                          edit(s.id, {
+                            days: on
+                              ? p.days.filter((x) => x !== d)
+                              : [...p.days, d],
+                          })
+                        }
+                        className={`w-11 rounded border px-1 py-1 text-xs capitalize ${
+                          on
+                            ? "border-green-600 bg-green-100 font-bold text-green-800"
+                            : "text-zinc-500 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                  {(["open", "mid", "close"] as ShiftKind[]).map((k) => {
+                    const on = p.kinds.includes(k);
+                    return (
+                      <button
+                        key={k}
+                        onClick={() =>
+                          edit(s.id, {
+                            kinds: on
+                              ? p.kinds.filter((x) => x !== k)
+                              : [...p.kinds, k],
+                          })
+                        }
+                        className={`rounded border px-2 py-1 text-xs ${
+                          on
+                            ? "border-blue-600 bg-blue-100 font-semibold text-blue-800"
+                            : "text-zinc-500 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                        }`}
+                      >
+                        {SHIFT_LABEL[k]}
+                      </button>
+                    );
+                  })}
+
+                  <label className="ml-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    shifts/week{" "}
+                    <input
+                      type="number"
+                      min={0}
+                      max={21}
+                      value={p.minUnits}
+                      onChange={(e) =>
+                        edit(s.id, { minUnits: Number(e.target.value) || 0 })
+                      }
+                      className="w-14 rounded border px-1 py-0.5 text-right tabular-nums"
+                    />
+                    {" – "}
+                    <input
+                      type="number"
+                      min={0}
+                      max={21}
+                      value={p.maxUnits}
+                      onChange={(e) =>
+                        edit(s.id, { maxUnits: Number(e.target.value) || 0 })
+                      }
+                      className="w-14 rounded border px-1 py-0.5 text-right tabular-nums"
+                    />
+                  </label>
+
+                  <button
+                    onClick={() => save(s.id)}
+                    disabled={busyId === s.id || !dirty}
+                    className="ml-auto rounded bg-[#3B82C4] px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    {busyId === s.id
+                      ? "Saving…"
+                      : savedId === s.id
+                        ? "Saved"
+                        : "Save"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
 function AvailabilityPanel({
+  people,
   value,
   onChange,
 }: {
+  people: Staff[];
   value: WeekAvailability;
   onChange: (next: WeekAvailability) => void;
 }) {
@@ -691,6 +925,10 @@ function AvailabilityPanel({
     <div className="mt-4 rounded-lg border p-3">
       <h2 className="text-sm font-bold">This week&apos;s availability</h2>
       <p className="mt-1 text-xs text-zinc-500">
+        This is for <b>one week</b> — holidays, sick days. To change what
+        someone can do from now on, use <b>Staff setup</b>.
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
         Everyone works their usual days unless you mark them off. Use{" "}
         <b>by shift</b> when someone is only away part of a day — marking the
         whole day off gives away shifts they could still cover. Celina is the
@@ -698,7 +936,7 @@ function AvailabilityPanel({
         you tick.
       </p>
       <div className="mt-3 space-y-2">
-        {STAFF.filter((s) => s.auto).map((s) => {
+        {people.filter((s) => s.auto).map((s) => {
           const optIn = s.availability === "opt-in";
           const mode = optIn ? "on" : "off";
           const selected = value[s.id]?.[mode] ?? [];

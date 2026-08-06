@@ -1,6 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import type { StoredWeek } from "@/lib/staff/roster/store";
+import type { Staff } from "@/lib/staff/roster/model";
 
 // The board is heavy — the scheduler ships with it — and entirely interactive,
 // so it loads on the client. Unlike the old localStorage version this is only
@@ -20,11 +21,13 @@ export function RosterClient({
   initial,
   loadError,
   previousSundayClosers,
+  staff,
 }: {
   weekKey: string;
   initial: StoredWeek;
   loadError: string | null;
   previousSundayClosers: string[];
+  staff: Staff[];
 }) {
   return (
     <RosterBoard
@@ -32,6 +35,7 @@ export function RosterClient({
       initial={initial}
       loadError={loadError}
       previousSundayClosers={previousSundayClosers}
+      staff={staff}
     />
   );
 }

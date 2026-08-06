@@ -210,8 +210,44 @@ export const STAFF: Staff[] = [
   },
 ];
 
-export function staffById(id: string): Staff | undefined {
-  return STAFF.find((s) => s.id === id);
+/**
+ * One person's working shape as of some week. Days, shifts and the weekly
+ * allowance are the parts that change in real life; name, colour and whether
+ * auto may roster them are not, so they stay in code.
+ */
+export type StaffProfile = {
+  days: Weekday[];
+  kinds: ShiftKind[];
+  minUnits: number;
+  maxUnits: number;
+};
+
+export type ProfileOverrides = Record<string, StaffProfile>;
+
+/**
+ * The staff list as it stands for a given week: code defaults with any
+ * overrides applied. Callers pass the result around rather than reading the
+ * module constant, so a week rendered in the past keeps the shape it actually
+ * had.
+ */
+export function resolveStaff(overrides: ProfileOverrides = {}): Staff[] {
+  return STAFF.map((s) => {
+    const o = overrides[s.id];
+    return o ? { ...s, ...o } : s;
+  });
+}
+
+export function profileOf(staff: Staff): StaffProfile {
+  return {
+    days: staff.days,
+    kinds: staff.kinds,
+    minUnits: staff.minUnits,
+    maxUnits: staff.maxUnits,
+  };
+}
+
+export function staffById(id: string, staff: Staff[] = STAFF): Staff | undefined {
+  return staff.find((s) => s.id === id);
 }
 
 /** Identifies one shift on one day, e.g. `tue-open`. */
@@ -337,11 +373,13 @@ export function maxComfortableDays(
  * shape, not a scheduling failure, and it is why the board explains a six-day
  * week rather than just flagging it.
  */
-export function comfortableDayCapacity(week: WeekAvailability = {}): number {
-  return STAFF.filter((s) => s.auto).reduce(
-    (n, s) => n + maxComfortableDays(s, week),
-    0,
-  );
+export function comfortableDayCapacity(
+  week: WeekAvailability = {},
+  staff: Staff[] = STAFF,
+): number {
+  return staff
+    .filter((s) => s.auto)
+    .reduce((n, s) => n + maxComfortableDays(s, week), 0);
 }
 
 /** Slots the auto-scheduler is responsible for — everything but Twinkle's. */
@@ -355,8 +393,11 @@ export function autoSlots(): Slot[] {
  * slots are hers, so counting them here would report a staffing gap that isn't
  * one.
  */
-export function comfortableDayShortfall(week: WeekAvailability = {}): number {
-  return autoSlots().length - comfortableDayCapacity(week);
+export function comfortableDayShortfall(
+  week: WeekAvailability = {},
+  staff: Staff[] = STAFF,
+): number {
+  return autoSlots().length - comfortableDayCapacity(week, staff);
 }
 
 export function countKind(roster: Roster, staffId: string, kind: ShiftKind): number {
