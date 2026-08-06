@@ -54,3 +54,8 @@ test-results-contract.json
 # fortune seed scratch files
 scripts/.tmp/
 scripts/.flash-promo-sms-sent.log
+
+# supabase CLI local state (created by `supabase link`; holds the linked
+# project ref and a pooler URL, not migrations — those are in git)
+supabase/.branches/
+supabase/.temp/
