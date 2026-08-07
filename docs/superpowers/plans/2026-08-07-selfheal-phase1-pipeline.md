@@ -1618,7 +1618,12 @@ export function parseVercelDrain(body: unknown): RawLogEvent[] {
   if (!Array.isArray(body)) return [];
   const out: RawLogEvent[] = [];
 
-  for (const line of body as DrainLine[]) {
+  for (const raw of body) {
+    // 同 agent.ts：`[null]` 是合法 JSON，在 null 上取属性会抛，一个畸形
+    // 元素就能把整批变成 Worker 500。
+    if (typeof raw !== "object" || raw === null) continue;
+    const line = raw as DrainLine;
+
     const service = PROJECT_TO_SERVICE[String(line.projectName ?? "")];
     if (!service) continue;
 
@@ -1819,6 +1824,22 @@ describe("POST /ingest/agent", () => {
     const res = await post({ nope: true });
     expect(res.status).toBe(400);
   });
+
+  it("JSON 语法错 → 400，不是 500", async () => {
+    const body = "{not json";
+    const res = await SELF.fetch("https://x/ingest/agent", {
+      method: "POST",
+      headers: { "x-selfheal-signature": await sign(body) },
+      body,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("批里混一个 null 元素：跳过它，同批的好事件照常入库", async () => {
+    const res = await post([null, printerEvent]);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, ingested: 1 });
+  });
 });
 ```
 
@@ -1888,7 +1909,13 @@ interface Incoming {
 export function parseAgentEvents(body: unknown[]): RawLogEvent[] {
   const out: RawLogEvent[] = [];
 
-  for (const item of body as Incoming[]) {
+  for (const raw of body) {
+    // `[null]` 是合法 JSON，但 null 上取属性会抛——不拦的话一个畸形元素
+    // 就把整批（含同批次里所有正常事件）变成 Worker 500。跳过坏元素，
+    // 好元素照常入库。
+    if (typeof raw !== "object" || raw === null) continue;
+    const item = raw as Incoming;
+
     const service = String(item.service ?? "") as Service;
     if (!ALL_SERVICES.includes(service)) continue;
 
