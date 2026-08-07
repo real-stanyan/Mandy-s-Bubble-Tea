@@ -1503,7 +1503,12 @@ describe("POST /ingest/vercel", () => {
   });
 
   it("paused 时接收但不写库", async () => {
-    await SELF.fetch("https://x/pause", { method: "POST" });
+    // Task 5 起 /pause 需要 AGENT_SECRET，这里必须带凭据，否则拿到 401、
+    // 根本没暂停，这条用例会退化成「未暂停时照常入库」的重复覆盖。
+    await SELF.fetch("https://x/pause", {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.AGENT_SECRET}` },
+    });
     const body = JSON.stringify([
       { projectName: "mandy-s-bubble-tea", level: "error", message: "boom", timestamp: 1 },
     ]);
@@ -1638,13 +1643,13 @@ export function parseVercelDrain(body: unknown): RawLogEvent[] {
 
 - [ ] **Step 5: 接进路由**
 
-`packages/collector/src/index.ts` 改为：
+`packages/collector/src/index.ts` 改为——注意 Task 5 的 `/pause` `/resume` 鉴权原样保留，本任务只在其后追加 ingest 分支：
 
 ```ts
 import { recordEvent } from "./incidents.js";
 import { type Env, isPaused, setPaused } from "./switch.js";
 import { parseVercelDrain } from "./vercel.js";
-import { verifyVercelSignature } from "./verify.js";
+import { isAuthorized, verifyVercelSignature } from "./verify.js";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -1653,13 +1658,12 @@ export default {
     if (request.method === "GET" && pathname === "/health") {
       return Response.json({ ok: true, paused: await isPaused(env) });
     }
-    if (request.method === "POST" && pathname === "/pause") {
-      await setPaused(env, true);
-      return Response.json({ ok: true, paused: true });
-    }
-    if (request.method === "POST" && pathname === "/resume") {
-      await setPaused(env, false);
-      return Response.json({ ok: true, paused: false });
+
+    if (request.method === "POST" && (pathname === "/pause" || pathname === "/resume")) {
+      if (!isAuthorized(request, env)) return new Response("unauthorized", { status: 401 });
+      const paused = pathname === "/pause";
+      await setPaused(env, paused);
+      return Response.json({ ok: true, paused });
     }
 
     if (request.method === "POST" && pathname === "/ingest/vercel") {
