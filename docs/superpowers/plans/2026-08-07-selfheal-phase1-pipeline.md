@@ -797,15 +797,18 @@ hardcoded rather than inferred."
 
 **Files:**
 - Create: `packages/collector/package.json`, `packages/collector/tsconfig.json`, `packages/collector/wrangler.jsonc`, `packages/collector/vitest.config.ts`
-- Create: `packages/collector/src/index.ts`, `packages/collector/src/switch.ts`
+- Create: `packages/collector/src/index.ts`, `packages/collector/src/switch.ts`, `packages/collector/src/verify.ts`
 - Create: `packages/collector/test/switch.test.ts`, `packages/collector/test/env.d.ts`
+- Modify: `eslint.config.mjs`（`.d.ts` 作用域覆盖，见 Step 4b）
 
 **Interfaces:**
 - Consumes: 无（本任务不用 core）
 - Produces:
   - `interface Env { INCIDENTS: D1Database; SWITCH: KVNamespace; AGENT_SECRET: string; VERCEL_DRAIN_SECRET: string; TELEGRAM_BOT_TOKEN: string; TELEGRAM_CHAT_ID: string }`
   - `function isPaused(env: Env): Promise<boolean>` / `setPaused(env: Env, paused: boolean): Promise<void>`
-  - 路由：`GET /health`、`POST /pause`、`POST /resume`
+  - `function timingSafeEqual(a: string, b: string): boolean`（`src/verify.ts`，Task 7 会往同一文件加 HMAC 校验）
+  - `function isAuthorized(request: Request, env: Env): boolean`
+  - 路由：`GET /health`（公开）、`POST /pause`、`POST /resume`（需 `AGENT_SECRET`）
 
 - [ ] **Step 1: 建包与依赖**
 
@@ -930,7 +933,38 @@ describe("kill switch", () => {
     const res = await SELF.fetch("https://x/nope");
     expect(res.status).toBe(404);
   });
+
+  it("无凭据的 /pause 返回 401 且不改状态", async () => {
+    const res = await SELF.fetch("https://x/pause", { method: "POST" });
+    expect(res.status).toBe(401);
+    const health = await SELF.fetch("https://x/health");
+    expect(await health.json()).toEqual({ ok: true, paused: false });
+  });
+
+  it("凭据错误的 /resume 返回 401", async () => {
+    const res = await SELF.fetch("https://x/resume", {
+      method: "POST",
+      headers: { authorization: "Bearer wrong-secret" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("/health 不需要凭据", async () => {
+    const res = await SELF.fetch("https://x/health");
+    expect(res.status).toBe(200);
+  });
 });
+```
+
+上面前三个用例里的 `/pause` `/resume` 调用要带上凭据才能跑通，把它们改成走这个辅助函数：
+
+```ts
+function authed(path: string): Promise<Response> {
+  return SELF.fetch(`https://x${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.AGENT_SECRET}` },
+  });
+}
 ```
 
 - [ ] **Step 4b: 写 test/env.d.ts**
@@ -942,18 +976,27 @@ describe("kill switch", () => {
 import type { Env } from "../src/switch.js";
 
 declare module "cloudflare:test" {
-  // 空接口体是这个声明合并模式的固有形状——它的作用就是靠继承把
-  // ProvidedEnv 拓宽成 Env，本来就不该有成员。no-empty-object-type
-  // 分辨不出「空且多余」和「空且在合并」，这是该规则在此模式上的已知
-  // 误报，不是可以换个写法绕开的。豁免只作用于这一行。
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  // 空接口体是这个声明合并模式的固有形状——它靠继承把 ProvidedEnv
+  // 拓宽成 Env，本来就不该有成员。
   interface ProvidedEnv extends Env {}
 }
 ```
 
 写成 `extends Env` 而不是逐个列绑定：Task 6-9 会往 `Env` 里加东西，继承式声明自动跟上，不用每加一个绑定就回来改一次。
 
-**为什么用逐行豁免而不是在 `eslint.config.mjs` 里给 `**/*.d.ts` 开全局例外：** 本 repo 只有这一个 ambient 合并文件，且它因为 `extends Env` 永远不需要再改，全局例外的复用价值兑现不了；代价却是此后任何 `.d.ts` 里真正多余的空接口都没人拦。逐行豁免还能把「为什么这里必须是空的」写在读者困惑的那一行上。
+这个空接口体会触发 `@typescript-eslint/no-empty-object-type`。**用规则自带的选项处理，不要写 `eslint-disable`**——该规则有个专为此场景准备的开关，在 `eslint.config.mjs` 末尾追加一段作用域覆盖：
+
+```js
+  {
+    files: ["**/*.d.ts"],
+    rules: {
+      // `interface X extends Y {}` 是声明合并的固有形状。with-single-extends
+      // 只放行「零成员 + 恰好一个 extends」这一种，零成员且不继承的真·冗余
+      // 接口照样报错。比 eslint-disable 精确：豁免的是模式，不是某一行。
+      "@typescript-eslint/no-empty-object-type": ["error", { allowInterfaces: "with-single-extends" }],
+    },
+  },
+```
 
 - [ ] **Step 5: 跑测试确认失败**
 
@@ -992,10 +1035,39 @@ export async function setPaused(env: Env, paused: boolean): Promise<void> {
 }
 ```
 
+`packages/collector/src/verify.ts`：
+
+```ts
+import type { Env } from "./switch.js";
+
+/** 恒定时间比较，避免凭据校验退化成计时预言机。 */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * kill switch 的凭据校验。
+ *
+ * 这两个端点暴露在公网 Worker 上：没有它，任何陌生人都能一个 POST
+ * 关掉整条错误收集管线，或者把你故意按下的暂停再打开——而管线正是
+ * 用来告诉你「东西坏了」的东西，被静默关掉不会有任何征兆。
+ * `/health` 保持公开：它只回 ok 与 paused 两个布尔，是探针要用的。
+ */
+export function isAuthorized(request: Request, env: Env): boolean {
+  const header = request.headers.get("authorization");
+  if (!header?.startsWith("Bearer ")) return false;
+  return timingSafeEqual(header.slice("Bearer ".length), env.AGENT_SECRET);
+}
+```
+
 `packages/collector/src/index.ts`：
 
 ```ts
 import { type Env, isPaused, setPaused } from "./switch.js";
+import { isAuthorized } from "./verify.js";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -1004,17 +1076,26 @@ export default {
     if (request.method === "GET" && pathname === "/health") {
       return Response.json({ ok: true, paused: await isPaused(env) });
     }
-    if (request.method === "POST" && pathname === "/pause") {
-      await setPaused(env, true);
-      return Response.json({ ok: true, paused: true });
+
+    if (request.method === "POST" && (pathname === "/pause" || pathname === "/resume")) {
+      if (!isAuthorized(request, env)) return new Response("unauthorized", { status: 401 });
+      const paused = pathname === "/pause";
+      await setPaused(env, paused);
+      return Response.json({ ok: true, paused });
     }
-    if (request.method === "POST" && pathname === "/resume") {
-      await setPaused(env, false);
-      return Response.json({ ok: true, paused: false });
-    }
+
     return new Response("not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
+```
+
+测试环境的 `AGENT_SECRET` 由 `vitest.config.ts` 的 `miniflare.bindings` 提供（Task 7 会在同一处补齐其余几个），本任务先加这一个：
+
+```ts
+        miniflare: {
+          compatibilityDate: "2026-08-01",
+          bindings: { AGENT_SECRET: "test-agent-secret" },
+        },
 ```
 
 - [ ] **Step 7: 跑测试确认通过**
@@ -1295,7 +1376,7 @@ express. D1 serialises writes, so the race window does not matter here."
 ### Task 7: collector — `/ingest/vercel`
 
 **Files:**
-- Create: `packages/collector/src/verify.ts`
+- Modify: `packages/collector/src/verify.ts`（Task 5 已建，含 `timingSafeEqual` 与 `isAuthorized`；本任务往里加 HMAC 校验，**不要重写已有的两个函数**）
 - Create: `packages/collector/src/vercel.ts`
 - Create: `packages/collector/test/vercel.test.ts`
 - Modify: `packages/collector/src/index.ts`
@@ -1438,12 +1519,12 @@ describe("POST /ingest/vercel", () => {
 });
 ```
 
-在 `vitest.config.ts` 的 `miniflare` 段加测试用 secret：
+把 `vitest.config.ts` 的 `miniflare.bindings` 补齐（Task 5 已放了 `AGENT_SECRET`，保留它，加上其余三个）：
 
 ```ts
           bindings: {
-            VERCEL_DRAIN_SECRET: "test-drain-secret",
             AGENT_SECRET: "test-agent-secret",
+            VERCEL_DRAIN_SECRET: "test-drain-secret",
             TELEGRAM_BOT_TOKEN: "test-bot",
             TELEGRAM_CHAT_ID: "test-chat",
           },
@@ -1457,19 +1538,13 @@ cd ~/Github/mandys-selfheal/packages/collector && npx vitest run test/vercel.tes
 
 预期：FAIL，模块不存在
 
-- [ ] **Step 3: 写 verify.ts**
+- [ ] **Step 3: 往 verify.ts 追加 HMAC 校验**
+
+`timingSafeEqual` 与 `isAuthorized` 已在 Task 5 建好，**保持原样不动**，在同一文件末尾追加下面这些：
 
 ```ts
 function toHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** 恒定时间比较，避免签名校验退化成计时预言机。 */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 async function hmacHex(
