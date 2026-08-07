@@ -595,7 +595,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         });
         applePayRequestRef.current = paymentRequest;
         const ap = await payments.applePay(paymentRequest);
-        if (cancelled) return;
+        if (cancelled) {
+          // The teardown that set `cancelled` already ran, and it clears a ref
+          // this instance was never written to — so nothing else will ever
+          // destroy it. Google Pay closes the same window after its attach().
+          ap.destroy?.().catch(() => undefined);
+          return;
+        }
         applePayRef.current = ap;
         setApplePayAvailable(true);
       } catch (err) {
@@ -686,7 +692,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     // — which is exactly what a redeem-then-Pay inside the debounce window did
     // (2026-08-07). The button is already disabled for this; this is the
     // stale-render backstop, same shape as the two checks above.
-    if (quoteStale) return;
+    //
+    // It says so out loud for the same reason those two do. The button carries
+    // its own "Updating total…", but the retry in PaymentErrorDialog calls this
+    // directly and never sees a disabled attribute — a bare `return` there
+    // closes the dialog and does nothing, with no way to tell that from a Pay
+    // that silently failed.
+    if (quoteStale) {
+      setError("Still updating your total — try again in a second.");
+      return;
+    }
 
     const expectFreeOrder = noPaymentDue;
     if (!expectFreeOrder) {
