@@ -2017,11 +2017,14 @@ describe("notifyIncident", () => {
     expect(sent).toContain("src/app/api/payment/route.ts");
   });
 
-  it("Telegram 挂了不抛异常（告警失败不能拖垮 ingest）", async () => {
+  it("Telegram 网络故障不抛异常（告警失败不能拖垮 ingest）", async () => {
+    // 必须用 replyWithError 而不是 .reply(500)：fetch 只在传输层失败时
+    // reject，HTTP 500 会正常 resolve。用 500 的话这条用例把 try/catch
+    // 整个删掉也照样绿——它验证不了自己声称验证的东西。
     fetchMock
       .get("https://api.telegram.org")
       .intercept({ path: `/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, method: "POST" })
-      .reply(500, "boom");
+      .replyWithError(new Error("network down"));
 
     await expect(
       notifyIncident(env, event, {
@@ -2053,7 +2056,13 @@ import type { Env } from "./switch.js";
 /**
  * 告警是尽力而为。Telegram 挂掉不能反过来让 ingest 失败——
  * 那会让 Vercel 重试、日志堆积，把一次通知故障放大成一次数据故障。
+ *
+ * 超时和 try/catch 缺一不可：catch 只在抛异常时救场，而「连上了但一直
+ * 不回」不抛异常，它只是挂着——没有 AbortSignal 的话 await 会跟着一起
+ * 挂，把 ingest 拖死，正好是这段注释声称要避免的那件事。
  */
+const TELEGRAM_TIMEOUT_MS = 4000;
+
 export async function notifyIncident(
   env: Env,
   event: RawLogEvent,
@@ -2070,6 +2079,9 @@ export async function notifyIncident(
     .join("\n");
 
   try {
+    // 不设 parse_mode：text 里含生产日志与顾客可控自由文本，按纯文本发
+    // 最安全。日后若要加 MarkdownV2 / HTML，必须先转义保留字符，否则
+    // 一条含 `_` 或 `<` 的日志会让 Telegram 400 掉整条告警。
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -2078,6 +2090,7 @@ export async function notifyIncident(
         text,
         disable_notification: false,
       }),
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
     });
   } catch {
     // 吞掉：见上方注释。Worker 的 observability 会记下这次 fetch 失败。
