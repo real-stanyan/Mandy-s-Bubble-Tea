@@ -26,6 +26,7 @@ function variation(id: string, priceCents: bigint | null): ItemVariation {
 function menuOf(
   variations: ItemVariation[],
   modifiers: Array<{ id: string; priceCents: bigint | null }>,
+  itemName = "Milk Tea",
 ) {
   const ml: ModifierList = {
     id: "ml1",
@@ -39,8 +40,8 @@ function menuOf(
     })) as ModifierList["modifiers"],
   } as ModifierList;
   return {
-    itemsBySlug: new Map([["milky", [{ variations }]]]),
-    uncategorizedItems: [] as Array<{ variations: ItemVariation[] }>,
+    itemsBySlug: new Map([["milky", [{ name: itemName, variations }]]]),
+    uncategorizedItems: [] as Array<{ name: string; variations: ItemVariation[] }>,
     modifierLists: new Map([["ml1", ml]]),
   };
 }
@@ -64,7 +65,10 @@ describe("buildAuthoritativePriceMaps", () => {
 
   it("indexes uncategorized items too", () => {
     const base = menuOf([], []);
-    base.uncategorizedItems.push({ variations: [variation("vU", 550n)] });
+    base.uncategorizedItems.push({
+      name: "Uncategorized Tea",
+      variations: [variation("vU", 550n)],
+    });
     const maps = buildAuthoritativePriceMaps(base);
     expect(maps.variationPriceById.get("vU")).toBe(550n);
   });

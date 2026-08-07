@@ -13,6 +13,7 @@
 | loyalty accrual | 下单后给顾客加星/积分的过程 | 有 backfill 脚本处理漏记 |
 | welcome discount | 新用户入会首单折扣（曾做过 2 杯版） | promo 的一种 |
 | flash promo | 单日限时促销（如全单 20% off），与其它折扣**互斥**取最优单一折扣 | uid 不能带冒号，否则 Square 400 |
+| tasting promo（尝新券） | 新品在时间窗内按固定"尝新价"卖（如 $5），**仅 App**，每单限 1 杯，配料另计 | `tasting_promos` 表；与其它折扣互斥取最优（ADR-0009） |
 | promo 互斥 | 多个可用折扣时只取最优的一个，不叠加 | |
 | cup-label / doodle | 杯贴：顾客涂鸦 / gallery 贴纸 / AI 图 / 默认兜底，热敏打印到杯子 | `src/lib/cup-label/`、`src/lib/doodle/` |
 | binarize | 把彩色图转成热敏打印用的黑白点阵（"打印效果"） | `binarize.ts`，`BINARIZE_PIPELINE=v2` 可选实验管线 |

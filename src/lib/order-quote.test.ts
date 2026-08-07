@@ -16,6 +16,15 @@ vi.mock("@/lib/flash-promo", () => ({
 vi.mock("@/lib/app-download-discount", () => ({
   getAppDownloadDiscountStatus: vi.fn(),
 }));
+// Only the DB lookup is mocked — the tasting money math itself is the real
+// implementation, so these tests pin how it lands in the discount ladder.
+vi.mock("@/lib/tasting-promo", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/tasting-promo")>(
+      "@/lib/tasting-promo",
+    );
+  return { ...actual, getActiveTastingPromo: vi.fn() };
+});
 vi.mock("@/lib/loyalty", () => ({ findLoyaltyAccountByPhone: vi.fn() }));
 vi.mock("@/lib/tier-toppings-store", () => ({
   getToppingAllowanceStatus: vi.fn(),
@@ -26,6 +35,7 @@ import { getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { getFlashPromoStatus } from "@/lib/flash-promo";
 import { getAppDownloadDiscountStatus } from "@/lib/app-download-discount";
+import { getActiveTastingPromo } from "@/lib/tasting-promo";
 import { findLoyaltyAccountByPhone } from "@/lib/loyalty";
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { getActivePublicHoliday } from "@/lib/holiday";
@@ -42,6 +52,7 @@ const lines: QuoteLine[] = [
 const priceMaps: AuthoritativePriceMaps = {
   variationPriceById: new Map([[VARIATION, 700n]]),
   modifierPriceById: new Map(),
+  itemNameByVariationId: new Map([[VARIATION, "Classic Milk Tea"]]),
 };
 
 const base = {
@@ -82,6 +93,13 @@ beforeEach(() => {
     percentage: 0,
     claimedAt: null,
     redeemedAt: null,
+  });
+  vi.mocked(getActiveTastingPromo).mockResolvedValue({
+    available: false,
+    key: null,
+    productName: null,
+    tastingPriceCents: 0,
+    endsAt: null,
   });
   vi.mocked(findLoyaltyAccountByPhone).mockResolvedValue(null);
   vi.mocked(getToppingAllowanceStatus).mockResolvedValue({
@@ -299,6 +317,7 @@ describe("computeOrderPricing — Diamond free-topping note", () => {
     priceMaps: {
       variationPriceById: new Map([[VARIATION, 780n]]),
       modifierPriceById: new Map([[TOPPING, 80n]]),
+      itemNameByVariationId: new Map([[VARIATION, "Classic Milk Tea"]]),
     },
   };
 
@@ -356,5 +375,141 @@ describe("computeOrderPricing — Diamond free-topping note", () => {
     asDiamondWith(0);
     const p = await computeOrderPricing(diamondBase);
     expect(p.discountNotes).toEqual({});
+  });
+});
+
+describe("computeOrderPricing — tasting promo", () => {
+  const TASTING_VAR = "VAR_STRAWBERRY_MATCHA";
+  const PRODUCT = "Strawberry Matcha Milk Tea";
+
+  // One $8.50 promo drink + one $7.00 other drink.
+  const tastingBase = {
+    lines: [
+      { variationId: TASTING_VAR, variationPriceCents: 850, modifiers: [], quantity: 1 },
+      { variationId: VARIATION, variationPriceCents: 700, modifiers: [], quantity: 1 },
+    ] as QuoteLine[],
+    isDelivery: false,
+    customerId: "CUST_1",
+    recipientPhone: "+61400000001",
+    priceMaps: {
+      variationPriceById: new Map([
+        [TASTING_VAR, 850n],
+        [VARIATION, 700n],
+      ]),
+      modifierPriceById: new Map<string, bigint>(),
+      itemNameByVariationId: new Map([
+        [TASTING_VAR, PRODUCT],
+        [VARIATION, "Classic Milk Tea"],
+      ]),
+    },
+    clientPlatform: "app" as const,
+  };
+
+  function promoIsLive() {
+    vi.mocked(getActiveTastingPromo).mockResolvedValue({
+      available: true,
+      key: "strawberry-matcha-2026-08",
+      productName: PRODUCT,
+      tastingPriceCents: 500,
+      endsAt: "2026-08-12T05:00:00Z",
+    });
+  }
+
+  it("brings the promo drink down to the tasting price, and nothing else", async () => {
+    promoIsLive();
+    const p = await computeOrderPricing(tastingBase);
+    expect(uids(p.discounts)).toEqual([
+      "tasting-promo.strawberry-matcha-2026-08",
+    ]);
+    // 850 - 500 on the promo cup; the $7.00 cup is untouched.
+    expect(amountOf(p.discounts, "tasting-promo.strawberry-matcha-2026-08")).toBe(
+      350n,
+    );
+  });
+
+  it("is app-only — the same cart on the web gets no tasting price", async () => {
+    promoIsLive();
+    const p = await computeOrderPricing({
+      ...tastingBase,
+      clientPlatform: "web",
+    });
+    expect(p.discounts).toEqual([]);
+    // Not even asked for: web must not pay for the lookup either.
+    expect(getActiveTastingPromo).not.toHaveBeenCalled();
+  });
+
+  it("defaults to web when the caller says nothing", async () => {
+    promoIsLive();
+    const { clientPlatform: _omitted, ...noPlatform } = tastingBase;
+    const p = await computeOrderPricing(noPlatform);
+    expect(p.discounts).toEqual([]);
+  });
+
+  it("stays out of the way when a bigger discount already applies", async () => {
+    promoIsLive();
+    // Welcome 30% on both cups = 465c > the 350c tasting saving.
+    vi.mocked(getWelcomeDiscountStatus).mockResolvedValue({
+      available: true,
+      percentage: 30,
+      drinksRemaining: 2,
+    });
+    const p = await computeOrderPricing({
+      ...tastingBase,
+      applyWelcomeDiscount: true,
+    });
+    expect(uids(p.discounts)).toEqual(["welcome-discount"]);
+    expect(p.welcomeDrinksCovered).toBe(2);
+  });
+
+  it("replaces the whole bundle when it is the better deal", async () => {
+    promoIsLive();
+    // Welcome on one cup only = 210c < the 350c tasting saving.
+    vi.mocked(getWelcomeDiscountStatus).mockResolvedValue({
+      available: true,
+      percentage: 30,
+      drinksRemaining: 1,
+    });
+    const p = await computeOrderPricing({
+      ...tastingBase,
+      applyWelcomeDiscount: true,
+    });
+    expect(uids(p.discounts)).toEqual([
+      "tasting-promo.strawberry-matcha-2026-08",
+    ]);
+    // The metadata must not claim a welcome drink the order didn't get.
+    expect(p.welcomeDrinksCovered).toBe(0);
+  });
+
+  it("never discounts a cup a loyalty star already made free", async () => {
+    promoIsLive();
+    // One reward cup takes the cheapest ($7.00); the promo cup survives.
+    const p = await computeOrderPricing({
+      ...tastingBase,
+      loyaltyRewardCount: 1,
+    });
+    expect(amountOf(p.discounts, "tasting-promo.strawberry-matcha-2026-08")).toBe(
+      350n,
+    );
+    // Two reward cups swallow the promo cup too — nothing left to discount.
+    const both = await computeOrderPricing({
+      ...tastingBase,
+      loyaltyRewardCount: 2,
+    });
+    expect(both.discounts).toEqual([]);
+  });
+
+  it("prices without the promo when the menu cache is down", async () => {
+    promoIsLive();
+    const p = await computeOrderPricing({ ...tastingBase, priceMaps: null });
+    expect(p.discounts).toEqual([]);
+  });
+
+  it("survives a promo lookup failure", async () => {
+    vi.mocked(getActiveTastingPromo).mockRejectedValue(new Error("supabase down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const p = await computeOrderPricing(tastingBase);
+    expect(p.discounts).toEqual([]);
+    expect(p.drinksSubtotalCents).toBe(1550n);
+    spy.mockRestore();
   });
 });
