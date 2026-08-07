@@ -942,11 +942,18 @@ describe("kill switch", () => {
 import type { Env } from "../src/switch.js";
 
 declare module "cloudflare:test" {
+  // 空接口体是这个声明合并模式的固有形状——它的作用就是靠继承把
+  // ProvidedEnv 拓宽成 Env，本来就不该有成员。no-empty-object-type
+  // 分辨不出「空且多余」和「空且在合并」，这是该规则在此模式上的已知
+  // 误报，不是可以换个写法绕开的。豁免只作用于这一行。
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface ProvidedEnv extends Env {}
 }
 ```
 
 写成 `extends Env` 而不是逐个列绑定：Task 6-9 会往 `Env` 里加东西，继承式声明自动跟上，不用每加一个绑定就回来改一次。
+
+**为什么用逐行豁免而不是在 `eslint.config.mjs` 里给 `**/*.d.ts` 开全局例外：** 本 repo 只有这一个 ambient 合并文件，且它因为 `extends Env` 永远不需要再改，全局例外的复用价值兑现不了；代价却是此后任何 `.d.ts` 里真正多余的空接口都没人拦。逐行豁免还能把「为什么这里必须是空的」写在读者困惑的那一行上。
 
 - [ ] **Step 5: 跑测试确认失败**
 
