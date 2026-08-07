@@ -2458,6 +2458,34 @@ describe("Tailer", () => {
     appendFileSync(file, "-done\n");
     expect(await t.read()).toEqual(["half-done"]);
   });
+
+  it("单次读取超过 1MiB 上限时封顶，续读补齐且不丢行不重行", async () => {
+    // 每行 98 字节（97 + \n），15000 行 = 1,470,000 字节：超过
+    // MAX_READ_BYTES(1,048,576) 但不到两倍，所以第二次 read() 应当把剩余
+    // 一次读完——正好覆盖「封顶一次、续读一次」这个边界。上限落在第
+    // 10699 行中间，是真的半行切断，不是碰巧对齐。
+    const BODY = "x".repeat(90);
+    const TOTAL_LINES = 15000;
+    const expected = Array.from(
+      { length: TOTAL_LINES },
+      (_, i) => `${String(i).padStart(6, "0")}-${BODY}`,
+    );
+
+    writeFileSync(file, "");
+    const t = new Tailer(file);
+    await t.read(); // 建立起点，偏移量为 0
+    writeFileSync(file, expected.join("\n") + "\n");
+
+    const first = await t.read();
+    expect(first.length).toBeLessThan(TOTAL_LINES);
+
+    const second = await t.read();
+    // 拼接后整体相等：丢行和重行都会让这个断言失败，只数条数则漏得掉重行
+    expect([...first, ...second]).toEqual(expected);
+
+    // 追上之后应恢复静默，不重复吐出任何一行
+    expect(await t.read()).toEqual([]);
+  });
 });
 ```
 
