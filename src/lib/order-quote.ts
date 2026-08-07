@@ -12,8 +12,14 @@ import { getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { getFlashPromoStatus, flashPromoUid } from "@/lib/flash-promo";
 import { getAppDownloadDiscountStatus } from "@/lib/app-download-discount";
+import {
+  getActiveTastingPromo,
+  tastingDiscountFor,
+  tastingPromoUid,
+} from "@/lib/tasting-promo";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
 import {
+  authoritativeCups,
   authoritativeSubtotalCents,
   authoritativeUnitPrice,
   authoritativeUnitPrices,
@@ -89,6 +95,13 @@ export type OrderPricingInput = {
   recipientPhone: string;
   /** Authoritative catalog prices, or null when the menu fetch failed. */
   priceMaps: AuthoritativePriceMaps | null;
+  /**
+   * Which client is asking — the tasting promo is app-only, so this decides
+   * whether it is even considered. Derived server-side from the request
+   * headers (see client-platform.ts), never from the body. Omitted means
+   * "web", which is the direction that under-promises.
+   */
+  clientPlatform?: "web" | "app";
   /** Injected so tests (and a quote) can pin the public-holiday check. */
   now?: Date;
 };
@@ -534,12 +547,81 @@ export async function computeOrderPricing(
     }
   }
 
+  // ---- Tasting promo (one named drink at a flat price, app-only, date window).
+  // ITEM-level, unlike everything above it: the amount is "what this cup costs
+  // today minus the tasting price", computed from the AUTHORITATIVE variation
+  // price (toppings excluded — the drink is $5, the pearls are not free).
+  //
+  // Same EXCLUSIVE + better-of lane as flash and app-download: the customer
+  // gets the single largest discount, never two. That means a brand-new
+  // customer's 30% welcome (or an unburned app-download ticket) can beat the
+  // tasting price and win — they pay less than $5-off would have given them,
+  // which is why the app copy promises "the best price", not "always $5".
+  // See docs/adr/0009-tasting-promo.md.
+  //
+  // Web is excluded on purpose: the promo is the app's to give. Platform is
+  // resolved from request headers server-side, so the body can't claim it.
+  let tastingDiscounts: OrderDiscount[] | undefined;
+
+  if (priceMaps && input.clientPlatform === "app") {
+    try {
+      const tasting = await getActiveTastingPromo(now);
+      if (tasting.available && tasting.key && tasting.productName) {
+        const otherDiscountsCents = [
+          ...(welcomeDiscounts ?? []),
+          ...(igFollowDiscounts ?? []),
+          ...(tierDiscounts ?? []),
+          ...(flashDiscounts ?? []),
+          ...(appDownloadDiscounts ?? []),
+        ].reduce((s, d) => s + d.amountMoney.amount, 0n);
+        const { amountCents } = tastingDiscountFor({
+          cups: authoritativeCups(lines, priceMaps),
+          productName: tasting.productName,
+          tastingPriceCents: tasting.tastingPriceCents,
+          rewardCupCount: loyaltyRewardCount,
+        });
+        if (amountCents > 0n && amountCents > otherDiscountsCents) {
+          tastingDiscounts = [
+            {
+              uid: tastingPromoUid(tasting.key),
+              name: `${tasting.productName} Tasting Price`,
+              type: "FIXED_AMOUNT",
+              amountMoney: {
+                amount: amountCents,
+                currency: BUSINESS.currency as Currency,
+              },
+              scope: "ORDER",
+            },
+          ];
+          // Exclusive: replace the whole bundle + flash + app-download. Zero
+          // the covered counts too so the order metadata never claims a
+          // discount that isn't attached (the burn paths gate on the discount
+          // uid, but the metadata must not lie).
+          welcomeDiscounts = undefined;
+          igFollowDiscounts = undefined;
+          tierDiscounts = undefined;
+          flashDiscounts = undefined;
+          appDownloadDiscounts = undefined;
+          welcomeDrinksCovered = 0;
+          igFollowDrinksCovered = 0;
+          tierToppingsCovered = 0;
+        }
+      }
+    } catch (tastingError) {
+      console.error(
+        "[order-quote] tasting promo skipped:",
+        tastingError instanceof Error ? tastingError.message : tastingError,
+      );
+    }
+  }
+
   const discounts = [
     ...(welcomeDiscounts ?? []),
     ...(igFollowDiscounts ?? []),
     ...(tierDiscounts ?? []),
     ...(flashDiscounts ?? []),
     ...(appDownloadDiscounts ?? []),
+    ...(tastingDiscounts ?? []),
   ];
 
   // Annotate off the SURVIVING discounts, not off the branch that computed

@@ -16,12 +16,23 @@ import type { ItemVariation, ModifierList } from "@/lib/catalog";
 export type AuthoritativePriceMaps = {
   variationPriceById: Map<string, bigint>;
   modifierPriceById: Map<string, bigint>;
+  /**
+   * Catalog item name each variation belongs to.
+   *
+   * Prices alone can't answer "is this cup the promo drink?" — the tasting
+   * promo is authored against a product NAME (see tasting-promo.ts), and the
+   * cart only ever carries variation ids. Same authoritative-catalog rule as
+   * the prices: the client's idea of what it ordered is never consulted.
+   */
+  itemNameByVariationId: Map<string, string>;
 };
 
 /** Minimal shape this module reads off a fetched menu. */
+type PricedItem = { name: string; variations: ItemVariation[] };
+
 type PricedMenu = {
-  itemsBySlug: Map<string, Array<{ variations: ItemVariation[] }>>;
-  uncategorizedItems: Array<{ variations: ItemVariation[] }>;
+  itemsBySlug: Map<string, PricedItem[]>;
+  uncategorizedItems: PricedItem[];
   modifierLists: Map<string, ModifierList>;
 };
 
@@ -37,10 +48,12 @@ export function buildAuthoritativePriceMaps(
 ): AuthoritativePriceMaps {
   const variationPriceById = new Map<string, bigint>();
   const modifierPriceById = new Map<string, bigint>();
+  const itemNameByVariationId = new Map<string, string>();
 
-  const indexItem = (item: { variations: ItemVariation[] }) => {
+  const indexItem = (item: PricedItem) => {
     for (const v of item.variations) {
       variationPriceById.set(v.id, v.priceCents ?? 0n);
+      itemNameByVariationId.set(v.id, item.name);
     }
   };
   for (const items of menu.itemsBySlug.values()) {
@@ -52,7 +65,7 @@ export function buildAuthoritativePriceMaps(
       modifierPriceById.set(m.id, m.priceCents ?? 0n);
     }
   }
-  return { variationPriceById, modifierPriceById };
+  return { variationPriceById, modifierPriceById, itemNameByVariationId };
 }
 
 /** Authoritative price (cents) for one cup = variation + its modifiers. */
@@ -115,6 +128,37 @@ export function authoritativeUnitPrices(
     const unit = authoritativeUnitPrice(line, maps);
     const qty = Math.max(1, Math.floor(line.quantity));
     for (let i = 0; i < qty; i++) out.push(unit);
+  }
+  return out;
+}
+
+/**
+ * Per-cup authoritative record, expanded by quantity: what the cup costs with
+ * its toppings, what the drink alone costs, and which catalog item it is.
+ *
+ * The item-level promos need all three at once — the name to know whether the
+ * cup qualifies, the base price to size a per-drink discount, and the full
+ * unit price to rank cups against the loyalty-reward picks. A cup whose
+ * variation the catalog has never heard of gets an empty name and prices at 0,
+ * the same deliberately-shrinking fallback as authoritativeUnitPrice.
+ */
+export function authoritativeCups(
+  lines: PricingLine[],
+  maps: AuthoritativePriceMaps,
+): Array<{ unitPriceCents: bigint; basePriceCents: bigint; itemName: string }> {
+  const out: Array<{
+    unitPriceCents: bigint;
+    basePriceCents: bigint;
+    itemName: string;
+  }> = [];
+  for (const line of lines) {
+    const cup = {
+      unitPriceCents: authoritativeUnitPrice(line, maps),
+      basePriceCents: maps.variationPriceById.get(line.variationId) ?? 0n,
+      itemName: maps.itemNameByVariationId.get(line.variationId) ?? "",
+    };
+    const qty = Math.max(1, Math.floor(line.quantity));
+    for (let i = 0; i < qty; i++) out.push({ ...cup });
   }
   return out;
 }

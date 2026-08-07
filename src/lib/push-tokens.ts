@@ -81,6 +81,32 @@ export async function getDevicePushTokensForUser(
   return (data ?? []) as DevicePushToken[];
 }
 
+/**
+ * Every registered push token, for a store-wide announcement.
+ *
+ * Paged explicitly: PostgREST silently caps a bare select at db-max-rows
+ * (1000), and a truncated broadcast is invisible — it looks like a successful
+ * send to a smaller audience. `.range()` alone does not lift the cap, so the
+ * loop keeps asking until a short page comes back.
+ */
+export async function getAllDevicePushTokens(): Promise<string[]> {
+  const admin = getSupabaseAdmin();
+  const tokens: string[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from("device_push_tokens")
+      .select("token")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`getAllDevicePushTokens: ${error.message}`);
+    const rows = (data ?? []) as Array<{ token: string }>;
+    tokens.push(...rows.map((r) => r.token));
+    if (rows.length < PAGE) break;
+  }
+  return [...new Set(tokens)];
+}
+
 /** Live Activity status-transition kinds (see src/lib/live-activity.ts). */
 export type LiveActivityPushKind =
   | "la_preparing"

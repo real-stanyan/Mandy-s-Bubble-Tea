@@ -8,6 +8,7 @@ import {
   STALE_CART_MESSAGE,
   type AuthoritativePriceMaps,
 } from "@/lib/order-pricing";
+import { clientPlatformFrom } from "@/lib/client-platform";
 import { findSoldOutLineNames } from "@/lib/menu/sold-out";
 import { dedupeLineModifiers } from "@/lib/order-modifiers";
 import { reportDegraded } from "@/lib/degraded";
@@ -149,6 +150,12 @@ export async function POST(request: Request) {
       customerId,
       recipientPhone,
       priceMaps,
+      // App-only promos have to be decided the same way here as at create
+      // time, or the summary the customer reads is not the price they pay.
+      clientPlatform: clientPlatformFrom(
+        request.headers.get("x-client-platform"),
+        request.headers.get("user-agent"),
+      ),
     });
 
     // Ask Square to total it, exactly as it will at create time. A failure

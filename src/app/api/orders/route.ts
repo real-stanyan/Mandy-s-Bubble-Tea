@@ -268,6 +268,7 @@ export async function POST(request: Request) {
       customerId,
       recipientPhone,
       priceMaps,
+      clientPlatform,
     });
     const allDiscounts = pricing.discounts;
     const orderServiceCharges = pricing.serviceCharges;
