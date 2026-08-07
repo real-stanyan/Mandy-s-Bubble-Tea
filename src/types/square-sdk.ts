@@ -16,6 +16,11 @@ export type CardInstance = {
 export type ApplePayInstance = {
   // Apple Pay has no attach() — it uses the native payment sheet.
   tokenize(): Promise<TokenizeResult>;
+  // Optional: present on the Web Payments SDK's ApplePay class, but typed as
+  // optional so the teardown call is a no-op rather than a throw if a future
+  // SDK version drops it. Google Pay's is required because that path has
+  // always called it.
+  destroy?(): Promise<unknown>;
 };
 
 export type GooglePayInstance = {

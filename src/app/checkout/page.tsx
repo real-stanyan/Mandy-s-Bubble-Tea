@@ -283,11 +283,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // the server's, and did — a customer holding the app-download 20% saw a
   // smaller Welcome discount instead (web #73, app#40). Now the server decides
   // and this page renders. See docs/adr/0005.
-  const { quote: orderQuote, blocked: quoteBlocked } = useOrderQuote(
-    quoteBody,
-    lines.length > 0,
-    phActive,
-  );
+  const { quote: orderQuote, blocked: quoteBlocked, stale: quoteStale } =
+    useOrderQuote(quoteBody, lines.length > 0, phActive);
 
   // What's still owed for drinks once every discount AND the loyalty reward are
   // off. Only used to recognise a "free drink" order — the money on screen and
@@ -608,6 +605,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
     return () => {
       cancelled = true;
+      // Google Pay's teardown has always destroyed its instance; Apple Pay's
+      // only dropped the ref, leaving a live SDK instance behind on every
+      // needsCard flip. Optional-called because destroy() is typed optional.
+      applePayRef.current?.destroy?.().catch(() => undefined);
       applePayRef.current = null;
       applePayRequestRef.current = null;
       setApplePayAvailable(false);
@@ -678,6 +679,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       setError(quoteBlocked?.message ?? "Some items are no longer available");
       return;
     }
+
+    // The quote on hand was priced for a previous cart, so `noPaymentDue` is
+    // answering the wrong question. Bailing costs the customer a re-tap; going
+    // ahead costs them an Apple Pay sheet for an order the server prices at $0
+    // — which is exactly what a redeem-then-Pay inside the debounce window did
+    // (2026-08-07). The button is already disabled for this; this is the
+    // stale-render backstop, same shape as the two checks above.
+    if (quoteStale) return;
 
     const expectFreeOrder = noPaymentDue;
     if (!expectFreeOrder) {
@@ -1341,6 +1350,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               submitting ||
               storeClosed ||
               !allCupsLabeled ||
+              // Quote not yet caught up with the cart: every branch below reads
+              // noPaymentDue, which is still answering for the previous cart.
+              quoteStale ||
               (!noPaymentDue &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1369,6 +1381,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       : cupLabelGate === "draw-pending"
                         ? "Saving your drawing…"
                         : "Preparing labels…")
+                  : quoteStale
+                    ? "Updating total…"
                   : noPaymentDue
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
@@ -1423,6 +1437,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               submitting ||
               storeClosed ||
               !allCupsLabeled ||
+              // Quote not yet caught up with the cart: every branch below reads
+              // noPaymentDue, which is still answering for the previous cart.
+              quoteStale ||
               (!noPaymentDue &&
                 (payMethod === "card" ? !cardReady
                   : payMethod === "apple" ? !applePayAvailable
@@ -1457,6 +1474,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       : cupLabelGate === "draw-pending"
                         ? "Saving your drawing…"
                         : "Preparing labels…")
+                  : quoteStale
+                    ? "Updating total…"
                   : noPaymentDue
                     ? "Redeem Free Drink"
                     : payMethod === "apple"
