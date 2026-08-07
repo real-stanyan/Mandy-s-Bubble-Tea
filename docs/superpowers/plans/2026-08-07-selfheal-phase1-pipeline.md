@@ -847,6 +847,11 @@ cd ~/Github/mandys-selfheal && npm install
   "name": "mandys-selfheal-collector",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
+  // nodejs_compat 是 @cloudflare/vitest-pool-workers 的硬性前置——没有它
+  // 测试池根本起不来（报错发生在加载 Worker 之前，跟业务代码无关）。
+  // 它只是打开 Workers 运行时的 Node API polyfill，不改变「core 包禁 import
+  // node:*」这条约束：那条约束管的是我们自己写的代码。
+  "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "d1_databases": [
     { "binding": "INCIDENTS", "database_name": "selfheal-incidents", "database_id": "PLACEHOLDER" }
