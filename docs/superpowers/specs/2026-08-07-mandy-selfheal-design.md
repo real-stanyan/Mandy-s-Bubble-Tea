@@ -24,9 +24,8 @@
 
 | 端点 | 用途 |
 |---|---|
-| `POST /ingest/vercel` | Vercel Log Drain 推送 |
+| `POST /ingest/vercel` | Vercel Log Drain 推送（主站 + admin 两个项目共用） |
 | `POST /ingest/agent` | Mac mini agent 与 poller 推送（HMAC 签名校验） |
-| `POST /ingest/sentry` | Sentry webhook（iOS App / admin 后台） |
 | `POST /pause` `POST /resume` | 全局 kill switch，写 KV flag |
 | `GET /health` | 存活探针 |
 
@@ -53,11 +52,17 @@ Supabase 不提供 push 型 log drain，只能主动拉 Logs API。拉到的错�
 | 源 | 接入方式 |
 |---|---|
 | Vercel 主站 `mandy-s-bubble-tea` | Log Drain → collector |
+| Vercel admin 后台 `mandys-bubble-tea-admin` | Log Drain → collector（同上，第二个 drain） |
 | Mac mini printer-client（小票 + 杯贴两个 launchd 进程） | 本地 agent tail → collector |
 | Supabase | poller 拉 Logs API → collector |
-| iOS App / admin 后台 | Sentry webhook → collector |
 
-**前置缺口**：iOS App 与 admin 后台需先接入 Sentry（或等价崩溃上报）才有日志可读。若上线时未接入，该路推迟至 v1.5，不影响其余三路。
+**v1 不接 iOS App，不引入 Sentry。** 理由：
+
+1. **自愈系统修不了 iOS。** 修复要么重新 build 走 App Store 审核（数天），要么走 EAS OTA——后者等于把 LLM 生成的代码直接推到用户手机、绕过 Apple 审核，风险显著高于自动改 Vercel，不纳入自动回路。故 iOS 这一路无论仪表化到什么程度，终点只能是告警。
+2. 为一条只能告警的路引入第三方 SDK，徒增 PII 出境面与合规披露义务，性价比不成立。
+3. App 的多数故障根源在服务端，本已以 Vercel error 形式被捕获；iOS 端上报很大程度是同一病症的重复计数。
+
+日后确需 iOS 错误时，自研约 30 行即可，不引第三方：`ErrorUtils.setGlobalHandler` + `unhandledrejection` 监听 → POST 到 collector 新增的 `/ingest/app`。覆盖 JS 异常与未捕获 Promise（Expo 应用故障的绝大多数）；原生 crash 收不到，但罕见，Xcode Organizer 手查即可。此路定位为**纯告警，永不进自动修复回路**。
 
 ## 去重与状态机
 
@@ -181,7 +186,7 @@ Shadow mode 期间此步停在「PR 已开」，不 merge。
 - DeepSeek API key（**旧 key 已在对话中明文暴露，上线前必须 revoke 并重新签发**）
 - Cloudflare 账号（Workers + D1 + KV）
 - GitHub PAT 或 GitHub App：`contents:write` + `pull_requests:write`
-- Vercel token（自动 rollback 与 Log Drain 配置）
+- Vercel token（两个项目的 Log Drain 配置与自动 rollback）
 - Supabase service key（拉 Logs API）
 - Telegram bot token + chat id（可复用 `mandys-ai-manager` / `mandys-shop-log` 现有配置）
 - collector HMAC 共享密钥（agent 与 poller 上报签名用）
@@ -199,5 +204,6 @@ Shadow mode 期间此步停在「PR 已开」，不 merge。
 
 ## 待办前置
 
-- iOS App / admin 后台的 Sentry 接入状态待确认（session 中 sentry MCP 未授权，需在交互式 `claude` 中 `/mcp` 授权后核实）
-- 澳洲 Privacy Act 下的 PII 出境披露，需确认隐私政策是否需更新
+- 澳洲 Privacy Act 下的 PII 出境披露，需确认隐私政策是否需更新（日志经脱敏后仍持续发往 DeepSeek）
+
+v1 无阻塞性技术前置：四路日志全部走已有基建（两个 Vercel 项目的 Log Drain、Mac mini 现有 launchd、Supabase Logs API），不依赖任何待接入的第三方服务。
