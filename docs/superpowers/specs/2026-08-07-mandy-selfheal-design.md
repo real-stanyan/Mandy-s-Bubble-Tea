@@ -81,8 +81,10 @@ new → fixing → pr_open → fixed
 
 **触发门槛**：
 
-- 钱路径（payment / orders / loyalty）：**第一次出现即触发**
+- 钱路径：**第一次出现即触发**
 - 其余：5 分钟内累计 3 次再触发，滤掉偶发抖动
+
+「钱路径」按文件路径前缀判定，写死在配置里：`src/app/api/payment/`、`src/app/api/orders/`、`src/app/api/loyalty/`、`src/lib/square.ts`、`src/store/cart.ts`。Mac mini 与 Supabase 来源无此前缀，一律走累计 3 次档。
 
 ## 修复循环（healer 六步）
 
@@ -137,7 +139,7 @@ Shadow mode 期间此步停在「PR 已开」，不 merge。
 部署完成后监控 10 分钟：
 
 - 同指纹再现 → 立即 `vercel rollback` + revert PR + 状态置 `regressed`
-- 整体 error rate 较修复前高 20% → 同样回滚
+- 整体 error rate 劣化 → 同样回滚。判据：部署后 10 分钟窗口内的全服务 error 总数，比部署前同长度 10 分钟窗口高 20% 以上。两窗口均以 collector 收到的 ingest 条数计，不含被去重压掉的重复。
 
 回滚是恢复已知良好状态，代价可控，故全自动执行。
 
@@ -161,10 +163,18 @@ Shadow mode 期间此步停在「PR 已开」，不 merge。
 
 ## 上线顺序
 
-1. 部署 collector + agent + poller，只收集不修复，验证四路日志接入与去重准确性
-2. 开启 healer 的 shadow mode（PR 照开不 merge），运行两周
-3. 复盘两周命中率：PR 中有多少是正确修复、多少是误修、多少过不了复现测试闸
-4. 关闭 shadow mode，进入全自动终态
+本 spec 覆盖四个可独立部署的部件，规模超出单份实施计划。按下列阶段拆分，**每阶段一份独立实施计划**：
+
+**阶段 1 — 管线（collector + agent + poller）**
+只收集不修复。验证四路日志接入、脱敏、指纹归一化、去重准确性。此阶段独立可用：即便后续阶段不做，也已得到一套全服务告警聚合。
+
+**阶段 2 — healer shadow mode**
+接入 DeepSeek、复现测试闸、机器校验、开 PR，但不 merge。运行两周。
+
+**阶段 3 — 全自动**
+复盘两周命中率（PR 中正确修复 / 误修 / 被复现测试闸拦下各占多少），据此校准阈值，然后打开 auto-merge 与部署后自动回滚，进入终态。
+
+阶段 1 完成前不启动阶段 2——没有可信的去重，healer 会被重复 error 淹掉。
 
 ## 所需凭据（全部经环境变量注入，禁入 git）
 
