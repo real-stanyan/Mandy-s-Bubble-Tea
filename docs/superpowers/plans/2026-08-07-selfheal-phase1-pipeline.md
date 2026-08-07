@@ -520,7 +520,13 @@ const NORMALIZERS: readonly [RegExp, string][] = [
   [/<redacted:[a-z]+>/g, "<redacted>"],
   // 混合字母数字的 id（dpl_9aF3bC7e、ord_x8K2）：只抹 id 段，保留前缀
   [/\b([a-z]{2,5}_)[A-Za-z0-9]{6,}\b/g, "$1<id>"],
+  // 无前缀的字母+数字 id（abc123、def456）。必须排在 hex 规则之前：
+  // abc12345 同时满足两条，先跑这条才不会二义。
+  [/\b[a-z]{3,}\d{3,}\b/gi, "<id>"],
   [/\b[0-9a-f]{8,}\b/gi, "<id>"],
+  // `\b` 两侧锚点不可去。去掉后 `\d+` 会匹配 alphanumeric token 内部的
+  // 数字段（http2/http3、sha256sum、v2beta1），把两个不同故障归成同一
+  // 指纹——第二个故障从此被第一个静默掩盖，且测试覆盖不到。
   [/\b\d+\b/g, "<n>"],
 ];
 
@@ -557,7 +563,9 @@ export async function fingerprint(
 cd ~/Github/mandys-selfheal && npx vitest run packages/core/test/fingerprint.test.ts
 ```
 
-预期：11 passed。若 `deployment dpl_9aF3bC7e1D2x` 用例失败，检查 `[a-z]{2,5}_` 规则是否排在 `[0-9a-f]{8,}` 之前。
+预期：11 passed。
+
+两个排错锚点：`deployment dpl_9aF3bC7e1D2x` 用例失败 → 检查 `[a-z]{2,5}_` 规则是否排在 `[0-9a-f]{8,}` 之前。「不同订单号同一指纹」用例失败 → 检查 `[a-z]{3,}\d{3,}` 规则在不在。少了这条，`abc123` 六条规则一条都不匹配（不含 `_`、不足 8 位 hex、字母数字之间没有词边界所以 `\b\d+\b` 也不命中），两个订单号会算出不同指纹。
 
 - [ ] **Step 5: 导出并跑全门禁**
 
