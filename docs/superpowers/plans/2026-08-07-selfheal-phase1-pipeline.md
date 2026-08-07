@@ -798,7 +798,7 @@ hardcoded rather than inferred."
 **Files:**
 - Create: `packages/collector/package.json`, `packages/collector/tsconfig.json`, `packages/collector/wrangler.jsonc`, `packages/collector/vitest.config.ts`
 - Create: `packages/collector/src/index.ts`, `packages/collector/src/switch.ts`
-- Create: `packages/collector/test/switch.test.ts`
+- Create: `packages/collector/test/switch.test.ts`, `packages/collector/test/env.d.ts`
 
 **Interfaces:**
 - Consumes: 无（本任务不用 core）
@@ -932,6 +932,21 @@ describe("kill switch", () => {
   });
 });
 ```
+
+- [ ] **Step 4b: 写 test/env.d.ts**
+
+`cloudflare:test` 导出的 `env` 类型是 `ProvidedEnv`，而 `@cloudflare/vitest-pool-workers` 把它声明成**空接口**，要求消费方自己 augment——这是该包的官方约定，没有任何 tsconfig 开关能替代。不写这个文件，`env.SWITCH` 在 `tsc` 下必然报 `Property 'SWITCH' does not exist on type 'ProvidedEnv'`（测试本身照常跑绿，vitest 不做类型检查，所以只有门禁第三条会红）。
+
+```ts
+// packages/collector/test/env.d.ts
+import type { Env } from "../src/switch.js";
+
+declare module "cloudflare:test" {
+  interface ProvidedEnv extends Env {}
+}
+```
+
+写成 `extends Env` 而不是逐个列绑定：Task 6-9 会往 `Env` 里加东西，继承式声明自动跟上，不用每加一个绑定就回来改一次。
 
 - [ ] **Step 5: 跑测试确认失败**
 
