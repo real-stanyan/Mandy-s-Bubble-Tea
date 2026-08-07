@@ -2310,13 +2310,18 @@ describe("parseLine", () => {
     expect(e?.level).toBe("warn");
   });
 
-  it("普通 info 行返回 null", () => {
-    expect(parseLine("[queue] claimed job 42", "printer", NOW)).toBeNull();
+  it("白名单一个词都不匹配的真实 console.error 仍算 error（不静默丢弃）", () => {
+    // printer-client/src/alert.ts:31 与 cup-label/printer.ts:130 的真实措辞。
+    expect(parseLine("[alert] endpoint returned 500", "printer", NOW)?.level).toBe("error");
+    expect(
+      parseLine("[zd410] iface.release threw, closing anyway: EBUSY", "printer", NOW)?.level,
+    ).toBe("error");
   });
 
-  it("空行与无前缀行返回 null", () => {
+  it("空行、无前缀行、栈帧续行返回 null", () => {
     expect(parseLine("", "printer", NOW)).toBeNull();
     expect(parseLine("just some text", "printer", NOW)).toBeNull();
+    expect(parseLine("    at handler (/app/dist/queue.js:60:11)", "printer", NOW)).toBeNull();
   });
 
   it("上报前脱敏", () => {
@@ -2345,9 +2350,19 @@ cd ~/Github/mandys-selfheal/packages/agent && npx vitest run test/parse.test.ts
 import { type RawLogEvent, type Service, redact } from "@selfheal/core";
 
 /**
- * printer-client 用 console.error / console.warn 打日志，行首固定是
- * `[module]`。launchd 把两者都写进同一个 .out.log，所以级别只能从
- * 文本本身推断——这些关键词就是 printer-client 里实际用的措辞。
+ * 解析 printer-client 的 **stderr** 日志行。
+ *
+ * 关键的结构化信号：Node 的 console.error 与 console.warn 都写 stderr，
+ * console.log 写 stdout，而 launchd 把两条流分别落到 .err.log 与
+ * .out.log。所以「这一行是不是问题」不需要猜——它出现在 .err.log 里
+ * 就是。我们只 tail .err.log。
+ *
+ * 于是级别推断只剩「error 还是 warn」这一个小问题，且**默认 error，
+ * 只在命中 warn 词且不含 error 词时降级**。反过来做（默认丢弃、只认
+ * 白名单）会静默丢掉真错误——printer-client 里 `[alert] endpoint
+ * returned 500` 和 `[zd410] iface.release threw, closing anyway` 这两条
+ * 真实的 console.error 就一个白名单词都不匹配。漏报让系统「看起来健康
+ * 但不是」，正是 Tailer 那三条防线在防的东西；误报只是多看一眼。
  */
 const ERROR_MARKERS = [
   "failed",
@@ -2357,21 +2372,22 @@ const ERROR_MARKERS = [
   "error",
   "refused",
   "timeout",
+  "threw",
 ];
-const WARN_MARKERS = ["could not", "skipping", "retrying", "stale"];
+const WARN_MARKERS = ["could not", "skipping", "retrying", "stale", "continuing"];
 
 const PREFIXED = /^\[[\w./-]+\]/;
 
 export function parseLine(line: string, service: Service, now: number): RawLogEvent | null {
   const trimmed = line.trim();
+  // 只收 `[module]` 前缀行：栈帧续行（`    at h (...)`）与 Node 自身的
+  // 告警没有这个前缀，收进来只会把同一个故障切成多个指纹。
   if (trimmed.length === 0 || !PREFIXED.test(trimmed)) return null;
 
   const lower = trimmed.toLowerCase();
-  // warn 先判：`could not enforce ... (continuing)` 里也含 "could not"，
-  // 但同一行若出现 error 关键词应升级为 error，故 error 判定放在后面覆盖。
-  let level: "error" | "warn" | null = WARN_MARKERS.some((m) => lower.includes(m)) ? "warn" : null;
-  if (ERROR_MARKERS.some((m) => lower.includes(m))) level = "error";
-  if (level === null) return null;
+  const hasError = ERROR_MARKERS.some((m) => lower.includes(m.toLowerCase()));
+  const hasWarn = WARN_MARKERS.some((m) => lower.includes(m));
+  const level: "error" | "warn" = hasWarn && !hasError ? "warn" : "error";
 
   return { service, message: redact(trimmed), level, timestamp: now };
 }
@@ -2468,6 +2484,8 @@ import { open, stat } from "node:fs/promises";
  *  - 半行（写到一半的 console.error）不能上报，否则同一条错误会被
  *    切成两个不同指纹
  */
+const MAX_READ_BYTES = 1024 * 1024;
+
 export class Tailer {
   private offset: number | null = null;
   private carry = "";
@@ -2495,10 +2513,14 @@ export class Tailer {
 
     const handle = await open(this.path, "r");
     try {
-      const length = size - this.offset;
+      // 单次读取封顶。printer-client 陷入崩溃循环时，两次 tick 之间可能
+      // 写进几百 MB；不封顶就是一个巨大 Buffer 加一个巨大批次，既可能
+      // 打爆 Mac mini 的内存，也会超出 Worker 的 body 上限。读不完的留到
+      // 下一 tick——积压会追上，而进程挂掉追不回来。
+      const length = Math.min(size - this.offset, MAX_READ_BYTES);
       const buf = Buffer.alloc(length);
       await handle.read(buf, 0, length, this.offset);
-      this.offset = size;
+      this.offset += length;
 
       const text = this.carry + buf.toString("utf8");
       const lines = text.split("\n");
@@ -2748,11 +2770,14 @@ export const config = {
   spoolPath: process.env.SELFHEAL_SPOOL ?? join(homedir(), ".selfheal-spool.ndjson"),
   logs: [
     {
-      path: join(homedir(), "Library/Logs/mandy-printer-client.out.log"),
+      // .err.log 而非 .out.log：Node 的 console.error / console.warn 都写
+      // stderr，launchd 把它单独落在这里。只 tail 这个文件，「是不是问题」
+      // 就成了结构事实而不是猜词的结果。
+      path: join(homedir(), "Library/Logs/mandy-printer-client.err.log"),
       service: "printer" as const,
     },
     {
-      path: join(homedir(), "Library/Logs/mandy-printer-client-cup-label.out.log"),
+      path: join(homedir(), "Library/Logs/mandy-printer-client-cup-label.err.log"),
       service: "printer-cup-label" as const,
     },
   ],
@@ -2905,7 +2930,7 @@ npx tsx src/index.ts
 预期：打印 `watching 2 logs every 5000ms`。另开一个终端造一条假错误：
 
 ```bash
-echo "[queue] poll select failed (test): synthetic" >> ~/Library/Logs/mandy-printer-client.out.log
+echo "[queue] poll select failed (test): synthetic" >> ~/Library/Logs/mandy-printer-client.err.log
 ```
 
 然后查 collector：
