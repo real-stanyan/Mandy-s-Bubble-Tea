@@ -2633,11 +2633,16 @@ describe("Shipper", () => {
   });
 
   it("带 HMAC-SHA256 签名头", async () => {
-    const spy = vi.fn(async () => new Response("{}", { status: 200 }));
+    // 形参必须显式写出来（哪怕用不到）：零参 lambda 会让 TS 把 mock 的
+    // 入参元组推成 []，于是 calls[0][1] 在 strict + noUncheckedIndexedAccess
+    // 下直接是类型错误，测试跑得过但门禁第三条过不了。
+    const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response("{}", { status: 200 }),
+    );
     vi.stubGlobal("fetch", spy);
     await shipper().ship([event]);
-    const init = spy.mock.calls[0]?.[1] as RequestInit;
-    const headers = init.headers as Record<string, string>;
+    const init = spy.mock.calls[0]?.[1];
+    const headers = init?.headers as Record<string, string>;
     expect(headers["x-selfheal-signature"]).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -2657,17 +2662,21 @@ describe("Shipper", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ENETDOWN"); }));
     await shipper().ship([event]);
 
-    const spy = vi.fn(async () => new Response("{}", { status: 200 }));
+    const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response("{}", { status: 200 }),
+    );
     vi.stubGlobal("fetch", spy);
     await shipper().ship([{ ...event, message: "[queue] second" }]);
 
-    const body = JSON.parse(String((spy.mock.calls[0]?.[1] as RequestInit).body));
+    const body = JSON.parse(String(spy.mock.calls[0]?.[1]?.body));
     expect(body).toHaveLength(2);
     expect(existsSync(spool)).toBe(false);
   });
 
   it("空事件且无积压时不发请求", async () => {
-    const spy = vi.fn(async () => new Response("{}", { status: 200 }));
+    const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response("{}", { status: 200 }),
+    );
     vi.stubGlobal("fetch", spy);
     await shipper().ship([]);
     expect(spy).not.toHaveBeenCalled();
