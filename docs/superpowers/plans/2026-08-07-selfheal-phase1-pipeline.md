@@ -2595,7 +2595,7 @@ from a healthy shop."
 `packages/agent/test/ship.test.ts`：
 
 ```ts
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -2682,6 +2682,47 @@ describe("Shipper", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("spool 里混一行半截 JSON：跳过它，好行照常读出", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ENETDOWN"); }));
+    await shipper().ship([event]);
+    // 模拟断电写了一半
+    appendFileSync(spool, '{"service":"printer","mess');
+
+    const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response("{}", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", spy);
+    await shipper().ship([{ ...event, message: "[queue] fresh" }]);
+
+    const body = JSON.parse(String(spy.mock.calls[0]?.[1]?.body));
+    expect(body).toHaveLength(2); // 好的积压行 + 新事件；半截行被跳过
+    expect(existsSync(spool)).toBe(false);
+  });
+
+  it("并发 ship() 不会互相抹掉对方的落盘", async () => {
+    // 慢的那次成功、快的那次失败：串行化之前，慢的 clearSpool() 会抹掉
+    // 快的刚写进去的事件，于是它既没发出去也没留下。
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        if (call === 1) {
+          await new Promise((r) => setTimeout(r, 30));
+          return new Response("{}", { status: 200 });
+        }
+        throw new Error("ENETDOWN");
+      }),
+    );
+
+    const s = shipper();
+    await Promise.all([s.ship([event]), s.ship([{ ...event, message: "[queue] second" }])]);
+
+    const spooled = readFileSync(spool, "utf8").trim().split("\n");
+    expect(spooled).toHaveLength(1);
+    expect(spooled[0]).toContain("second");
+  });
+
   it("积压超上限时丢最旧的，防止断网一夜撑爆磁盘", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ENETDOWN"); }));
     const s = shipper();
@@ -2704,7 +2745,7 @@ cd ~/Github/mandys-selfheal/packages/agent && npx vitest run test/ship.test.ts
 - [ ] **Step 3: 写 ship.ts**
 
 ```ts
-import { readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, rmSync, existsSync } from "node:fs";
 import type { RawLogEvent } from "@selfheal/core";
 
 const MAX_SPOOL_LINES = 1000;
@@ -2735,9 +2776,24 @@ export interface ShipperOptions {
  * 丢旧留新是因为最近的错误对判断当前状态更有用。
  */
 export class Shipper {
+  private inFlight: Promise<void> = Promise.resolve();
+
   constructor(private readonly opts: ShipperOptions) {}
 
-  async ship(events: RawLogEvent[]): Promise<void> {
+  /**
+   * 串行化每个实例上的上报。spool 是「读-改-写」：两个并发的 ship()
+   * 会各读一次、各写一次，慢的那个成功后 clearSpool() 会把快的那个
+   * 刚落盘的事件一起抹掉——事件既没发出去也没留下，且两边各自看都
+   * 「正常」。
+   */
+  ship(events: RawLogEvent[]): Promise<void> {
+    const next = this.inFlight.then(() => this.shipOnce(events));
+    // 记住的这条链要吞掉失败，否则一次失败会让后续所有 ship() 连锁 reject
+    this.inFlight = next.catch(() => {});
+    return next;
+  }
+
+  private async shipOnce(events: RawLogEvent[]): Promise<void> {
     const backlog = this.readSpool();
     const all = [...backlog, ...events];
     if (all.length === 0) return;
@@ -2761,15 +2817,31 @@ export class Shipper {
 
   private readSpool(): RawLogEvent[] {
     if (!existsSync(this.opts.spoolPath)) return [];
-    return readFileSync(this.opts.spoolPath, "utf8")
-      .split("\n")
-      .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as RawLogEvent);
+    const out: RawLogEvent[] = [];
+    for (const line of readFileSync(this.opts.spoolPath, "utf8").split("\n")) {
+      if (line.length === 0) continue;
+      try {
+        out.push(JSON.parse(line) as RawLogEvent);
+      } catch {
+        // 半截行：上次写盘时断电或进程被杀。跳过它继续读。
+        //
+        // 让这里抛异常是致命的：readSpool 在 try 外面被调用，抛出去之后
+        // 每一个 tick 都会在同一点抛，新事件连落盘的机会都没有。进程还
+        // 活着、日志还在转，但从此再也发不出任何东西——一个需要人工介入
+        // 才能解开的静默黑洞。门店那台 Mac mini 没有 UPS，断电是常态。
+      }
+    }
+    return out;
   }
 
   private writeSpool(events: RawLogEvent[]): void {
     const kept = events.slice(-MAX_SPOOL_LINES);
-    writeFileSync(this.opts.spoolPath, kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    // 先写临时文件再 rename：同一文件系统上的 rename 是原子的，断电要么
+    // 留下旧文件、要么留下完整新文件，不会留下写到一半的行。直接
+    // writeFileSync 到目标路径正是上面那个半截行的来源。
+    const tmp = `${this.opts.spoolPath}.tmp`;
+    writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    renameSync(tmp, this.opts.spoolPath);
   }
 
   private clearSpool(): void {
@@ -2852,8 +2924,17 @@ async function tick(): Promise<void> {
 
 // tick 自身抛异常会让 launchd 重启进程，而重启会丢掉 Tailer 的偏移、
 // 回放行为回到「跳到末尾」——这正是我们要的，但不该因一次瞬时错误发生。
+// 上一 tick 没跑完就跳过这一次。Shipper 内部已经串行化，不加这个也不会
+// 丢数据，但网络长时间慢的时候 tick 会无上限地排队堆在内存里。
+let running = false;
 setInterval(() => {
-  void tick().catch((err) => console.error("[selfheal-agent] tick failed:", err));
+  if (running) return;
+  running = true;
+  void tick()
+    .catch((err) => console.error("[selfheal-agent] tick failed:", err))
+    .finally(() => {
+      running = false;
+    });
 }, config.pollMs);
 
 console.log(`[selfheal-agent] watching ${tailers.length} logs every ${config.pollMs}ms`);
