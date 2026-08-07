@@ -138,9 +138,16 @@ cd ~/Github/mandys-selfheal && git init 2>/dev/null; git status -sb
 ```json
 {
   "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"]
+  },
   "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
 }
 ```
+
+**为什么根配置要同时挂 node 与 Cloudflare 两套类型：** 门禁的 `npx tsc --noEmit` 从根跑一次，覆盖全部 workspace。collector 用 Workers 全局（`D1Database` / `KVNamespace` / `ExportedHandler`）与 `cloudflare:test` 模块，agent 与 poller 用 `node:*`——根配置只挂一套，另一套必然报 `Cannot find name`。各包自己的 `tsconfig.json` 仍各挂各的 `types`，单独检查某个包时隔离照旧；根配置的宽松只影响这一次全量检查。
+
+> 这两个 devDependency 在 Task 5 才装。Task 1 的根 `tsc` 只覆盖 `core`，此时 `types` 里列着尚未安装的包名会报错——**Task 1 先只写 `"types": ["node"]`，Task 5 装完 Cloudflare 依赖后再补齐另外两项。**
 
 - [ ] **Step 4: 写 eslint.config.mjs**
 
@@ -837,6 +844,16 @@ hardcoded rather than inferred."
 ```bash
 cd ~/Github/mandys-selfheal && npm install
 ```
+
+装完后把根 `tsconfig.json` 的 `types` 补齐（Task 1 只写了 `["node"]`，因为那时这两个包还没装）：
+
+```json
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"]
+  },
+```
+
+不补的话根 `npx tsc --noEmit` 会在 collector 上报 `Cannot find name 'D1Database' / 'KVNamespace' / 'ExportedHandler'` 与 `Cannot find module 'cloudflare:test'`——包自己的 `tsconfig.json` 管不到从根发起的那次全量检查。
 
 - [ ] **Step 2: 写 wrangler.jsonc**
 
