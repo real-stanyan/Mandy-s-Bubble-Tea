@@ -13,6 +13,12 @@ import { useEffect, useState } from "react";
 // on screen. Blanking the summary on every reward-count tap would be worse than
 // briefly showing the old number, and the charged amount never comes from here
 // anyway — it comes from the created order's own total.
+//
+// That last sentence is true of the *amount* but not of the *decision*: checkout
+// reads the quote to work out whether any money is due at all, and a stale quote
+// answers that question for the previous cart. Tapping "redeem" then Pay inside
+// the debounce window opened an Apple Pay sheet for an order the server then
+// priced at $0. Hence `stale` — see the return doc below.
 
 export type QuoteAmount = {
   uid: string;
@@ -99,6 +105,28 @@ export function interpretQuoteResponse(
   return { kind: "ignore" };
 }
 
+/**
+ * Does the quote on hand answer for the cart on screen?
+ *
+ * Split out for the same reason `interpretQuoteResponse` is: it is the part
+ * with a rule in it, and this repo tests hooks by testing the decisions pulled
+ * out of them rather than by rendering.
+ *
+ * `settledKey` moves on *every* settled request, including the failures
+ * `interpretQuoteResponse` deliberately ignores. A swallowed 401/502 leaves the
+ * old quote up on purpose (the page falls back to the bare subtotal, which is
+ * too high rather than too low) — but it has still answered, so it must not
+ * leave the Pay button disabled forever.
+ */
+export function isQuoteStale(
+  currentKey: string | null,
+  settledKey: string | null,
+): boolean {
+  // Nothing to price: an empty or disabled cart is never "waiting".
+  if (currentKey === null) return false;
+  return settledKey !== currentKey;
+}
+
 const DEBOUNCE_MS = 250;
 
 export function useOrderQuote(
@@ -110,10 +138,30 @@ export function useOrderQuote(
    * surcharge but not the cart, so nothing in the body would move.
    */
   refreshKey: string | number | boolean = "",
-): { quote: OrderQuote | null; loading: boolean; blocked: QuoteBlocked | null } {
+): {
+  quote: OrderQuote | null;
+  loading: boolean;
+  blocked: QuoteBlocked | null;
+  /**
+   * The cart on screen has not been answered yet — the request for it is
+   * debouncing or in flight, so `quote` (if any) was priced for a *previous*
+   * cart. Distinct from `loading`, which stays false through the 250ms debounce
+   * and so cannot be used to gate anything: the reward-then-Pay race lived
+   * entirely inside that window.
+   *
+   * Clears as soon as the current cart's request settles — including when it
+   * fails in a way we deliberately swallow (signed out, Square down). Those
+   * fall back to the bare subtotal and the order still goes through, so
+   * staying "stale" forever would strand the Pay button.
+   */
+  stale: boolean;
+} {
   const [quote, setQuote] = useState<OrderQuote | null>(null);
   const [blocked, setBlocked] = useState<QuoteBlocked | null>(null);
   const [loading, setLoading] = useState(false);
+  // The effect key whose request has settled. Compared against the current one
+  // to decide `stale`.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   // The serialized body doubles as the effect key: a re-render that produces an
   // identical cart must not refetch. `null` means "nothing to price".
   const key = enabled && body ? JSON.stringify(body) : null;
@@ -151,10 +199,13 @@ export function useOrderQuote(
             setBlocked(outcome.blocked);
           }
           setLoading(false);
+          setSettledKey(effectKey);
         })
         .catch(() => {
           if (controller.signal.aborted) return;
           setLoading(false);
+          // A swallowed failure still answers this cart — see `stale`.
+          setSettledKey(effectKey);
         });
     }, DEBOUNCE_MS);
 
@@ -171,5 +222,6 @@ export function useOrderQuote(
     quote: key ? quote : null,
     loading: key ? loading : false,
     blocked: key ? blocked : null,
+    stale: isQuoteStale(effectKey, settledKey),
   };
 }

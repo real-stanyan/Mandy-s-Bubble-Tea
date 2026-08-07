@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpretQuoteResponse } from "./use-order-quote";
+import { interpretQuoteResponse, isQuoteStale } from "./use-order-quote";
 
 /**
  * The rule this pins: exactly two quote failures are worth interrupting the
@@ -100,5 +100,46 @@ describe("interpretQuoteResponse", () => {
       unknownVariationIds: ["X"],
     });
     expect(out.kind === "blocked" && out.blocked.message).toBeTruthy();
+  });
+});
+
+/**
+ * The rule this pins: checkout may only act on a quote that was priced for the
+ * cart currently on screen.
+ *
+ * Why it exists (2026-08-07): applying a star reward and tapping Pay inside the
+ * 250ms debounce window opened an Apple Pay sheet for a pickup order the server
+ * then priced at $0. The page decides whether any money is due from the quote,
+ * and stale-while-revalidate had left the pre-reward quote on hand. `loading`
+ * could not have caught it — it is still false throughout the debounce.
+ */
+describe("isQuoteStale", () => {
+  it("is not stale when there is nothing to price", () => {
+    // Empty/disabled cart. No request is coming, so nothing is being waited on.
+    expect(isQuoteStale(null, null)).toBe(false);
+    expect(isQuoteStale(null, "some|older|cart")).toBe(false);
+  });
+
+  it("is stale before the first answer lands", () => {
+    expect(isQuoteStale("cart-a", null)).toBe(true);
+  });
+
+  it("is not stale once this cart has been answered", () => {
+    expect(isQuoteStale("cart-a", "cart-a")).toBe(false);
+  });
+
+  it("is stale while the previous cart's quote is the one on hand", () => {
+    // The reward-then-Pay race: reward count is part of the key, so the moment
+    // it changes the quote on screen is answering the wrong question.
+    expect(isQuoteStale("cart-a|reward-1", "cart-a|reward-0")).toBe(true);
+  });
+
+  it("clears once the request settles, even if the answer was swallowed", () => {
+    // A 401/502 is intentionally ignored (the old quote stays, the page falls
+    // back to the bare subtotal) — but the hook still records the key as
+    // settled, or a signed-out customer would face a permanently dead Pay
+    // button. That write lives in the effect's .catch/.then; this pins the
+    // decision it feeds.
+    expect(isQuoteStale("cart-a", "cart-a")).toBe(false);
   });
 });
