@@ -23,6 +23,15 @@ type Props = {
   lockedToppings?: string[];
   /** Customer-facing name override used as the cart line label. */
   displayName?: string;
+  /**
+   * Pin the cup preview to the top of the scroll container so it stays in
+   * view while the customer scrolls the modifier lists — the drop animation
+   * is pointless off-screen. Only the item modal turns this on: it owns its
+   * scroll container, so `sticky top-0` is exact. The full-route page sits
+   * under the mobile app bar (z-40, safe-area-dependent height), where a
+   * hardcoded offset would either clip or float.
+   */
+  stickyPreview?: boolean;
 };
 
 type CountMap = Record<string, Record<string, number>>;
@@ -77,6 +86,7 @@ export function ItemOrderForm({
   modifierLists,
   lockedToppings = [],
   displayName,
+  stickyPreview = false,
 }: Props) {
   const addLine = useCart((s) => s.addLine);
   // Non-null only when rendered inside the item modal — dismiss it after a
@@ -316,7 +326,16 @@ export function ItemOrderForm({
 
   return (
     <div>
-      <div className="mb-6 rounded-card border border-line bg-bg2/60 p-4">
+      <div
+        className={
+          stickyPreview
+            ? // Solid background + shadow because form content scrolls
+              // underneath while it's stuck. Opaque, not translucent — text
+              // ghosting through the cup reads as a rendering bug.
+              "sticky top-0 z-10 -mx-1 mb-6 rounded-card border border-line bg-card px-4 py-3 shadow-[0_10px_28px_rgba(42,30,20,0.12)]"
+            : "mb-6 rounded-card border border-line bg-bg2/60 p-4"
+        }
+      >
         <CupPreview visual={cupVisual} drinkName={displayName ?? item.name} />
       </div>
 

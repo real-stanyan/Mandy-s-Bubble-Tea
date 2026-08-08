@@ -145,6 +145,7 @@ export async function ItemDetailContent({
             modifierLists={modifierLists}
             lockedToppings={lockedToppings}
             displayName={shownName}
+            stickyPreview={inModal}
           />
         </div>
       </div>
