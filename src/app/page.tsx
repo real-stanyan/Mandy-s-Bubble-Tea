@@ -285,6 +285,13 @@ function Featured({ items }: { items: FeaturedItem[] }) {
           <Link
             key={it.id}
             href={`/menu/${it.categorySlug}/${it.id}`}
+            // prefetch off: a prefetched navigation can skip the @modal
+            // intercepting route and render the full item page instead of
+            // the bottom sheet — whether the customer got the sheet depended
+            // on whether prefetch had finished before the tap. The menu
+            // grid's cards use router.push (never prefetched), which is why
+            // only this entry point flickered between the two.
+            prefetch={false}
             className="group flex w-[158px] shrink-0 snap-start flex-col overflow-hidden rounded-card border border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)] sm:w-[200px] lg:w-auto lg:shrink"
           >
             <div className="relative aspect-square overflow-hidden bg-bg2">
