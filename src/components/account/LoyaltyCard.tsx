@@ -497,8 +497,8 @@ export function LoyaltyCard({
                 <span
                   className="font-serif text-white"
                   style={{
-                    fontSize: 40,
-                    lineHeight: "40px",
+                    fontSize: 46,
+                    lineHeight: "46px",
                     letterSpacing: -1,
                     fontWeight: 500,
                     textShadow: "0 1px 2px rgba(0,0,0,0.30)",
@@ -508,7 +508,7 @@ export function LoyaltyCard({
                 </span>
                 <span
                   className="font-serif text-white/40 ml-2"
-                  style={{ fontSize: 20, fontWeight: 500 }}
+                  style={{ fontSize: 23, fontWeight: 500 }}
                 >
                   {`/ ${goal} stars`}
                 </span>
