@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Check, Clock, Phone } from "lucide-react";
 import { DELIVERY_DRIVER } from "@/lib/constants";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { FreshnessBar, type Tracking } from "@/components/delivery/DeliveryMap";
 import {
   deriveStatusUi,
@@ -337,14 +338,11 @@ function DeliveryTrackingView({
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const [sheetInset, setSheetInset] = useState(0);
 
-  // Lock background scroll while the overlay owns the screen.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // Lock background scroll while the overlay owns the screen. Shared counter:
+  // the cart drawer sits in the layout above this page, so leaving via a link
+  // inside the drawer unmounts this overlay and closes the drawer in an order
+  // React decides — the old private save/restore lost that race.
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const measure = () => {

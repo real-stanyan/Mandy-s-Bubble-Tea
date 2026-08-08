@@ -54,6 +54,17 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Shared page-scroll lock — src/lib/scroll-lock.ts owns the attribute and
+   counts holders, so the cart drawer, the menu item modal and the order
+   tracking overlay can no longer strand each other's saved value.
+
+   An attribute rather than an inline style on purpose: Radix dialogs
+   (react-remove-scroll) save and restore body's *inline* overflow. Two owners
+   of one inline property overwrite each other; two different layers do not. */
+body[data-scroll-locked] {
+  overflow: hidden;
+}
+
 /* The customer site is light-only on purpose — the dark-scheme block above
    deliberately keeps the brand cream/ink pair. The staff tools are the one
    part that does follow the device theme, and inheriting the site's ink-brown

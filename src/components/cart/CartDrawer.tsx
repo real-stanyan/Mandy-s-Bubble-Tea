@@ -18,6 +18,7 @@ import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
 import { formatPrice } from "@/lib/utils";
 import { pickPromoCups } from "@/lib/promo-cup-pick";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { BRAND, CARD_SURCHARGE, LOYALTY, PH_SURCHARGE, PLATFORM_FEE } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -47,15 +48,11 @@ export function CartDrawer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, closeDrawer]);
 
-  // Lock body scroll while open.
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [isOpen]);
+  // Lock body scroll while open. Shared counter, not a private
+  // save/restore — this drawer lives in the layout, so it is open at the same
+  // time as menu modals, order-tracking overlays and Radix dialogs, and
+  // whichever closed last used to win with a stale value.
+  useBodyScrollLock(isOpen);
 
   // Avoid SSR hydration mismatch — server renders nothing for this drawer.
   if (!hydrated) return null;
