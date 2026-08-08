@@ -13,7 +13,15 @@ export type ProductRowData = {
   /** This week's pre-discount price, or null if not currently a special. */
   originalPriceCents: number | null;
   variationLabel: string | null;
+  /**
+   * Can't be ordered right now. True for a sold-out drink AND for a TOP 10
+   * drink whose locked (non-removable) topping is sold out — from the
+   * customer's side those are the same wall, and the second one used to be
+   * invisible until they tapped in and found a dead button (#101).
+   */
   soldOut: boolean;
+  /** What to put on the badge, e.g. "Pudding sold out". */
+  soldOutLabel: string;
   categorySlug: string;
   defaultVariation: {
     id: string;
@@ -87,7 +95,7 @@ export function ProductRow({ item }: { item: ProductRowData }) {
               className="rounded-full bg-ink2 px-2 py-0.5 text-white"
               style={{ fontSize: 9, letterSpacing: 1.1, fontWeight: 600 }}
             >
-              SOLD OUT
+              {item.soldOutLabel.toUpperCase()}
             </span>
           )}
         </div>

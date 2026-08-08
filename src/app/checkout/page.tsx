@@ -122,6 +122,7 @@ export default function CheckoutPage() {
 function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
+  const openDrawer = useCart((s) => s.openDrawer);
   const labelSelections = useCart((s) => s.labelSelections);
   const keepLabelCopy = useCart((s) => s.keepLabelCopy);
   const setKeepLabelCopy = useCart((s) => s.setKeepLabelCopy);
@@ -1016,12 +1017,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   ? "This order can't be placed until it's back in stock. Remove the sold-out item from your cart, or swap it for something else."
                   : "We can't work out the price, so this order can't be placed. Remove the affected drinks from your cart and add them again from the menu."}
               </p>
-              <Link
-                href="/cart"
+              {/* Was a Link to /cart, which is not a route — the cart is a
+                  drawer in the root layout. So the single escape hatch on the
+                  one screen that can't take payment was a 404 (#101). */}
+              <button
+                type="button"
+                onClick={openDrawer}
                 className="mt-3 inline-block font-semibold underline"
               >
-                Go to cart
-              </Link>
+                Open cart
+              </button>
             </div>
           )}
 
