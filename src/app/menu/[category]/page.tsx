@@ -6,6 +6,7 @@ import { getMenu, getCategoryBySlug, top10SurchargeCents, type MenuItem } from "
 import { formatPrice } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
+import { soldOutBadgeLabel, soldOutLockedToppingNames } from "@/lib/menu/sold-out";
 import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 import {
   Breadcrumb,
@@ -87,40 +88,41 @@ export default async function CategoryPage({ params }: PageProps) {
         </div>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-          {items.map((item) => (
-            <li key={item.id}>
-              {item.soldOut ? (
-                <div aria-disabled="true" className="block cursor-not-allowed">
-                  <ItemCard
-                    item={item}
-                    displayName={displayNameFor(category.slug, item.name)}
-                    imageUrl={imageUrlFor(category.slug, item.name)}
-                    priceCents={
-                      item.priceCents == null
-                        ? null
-                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
-                    }
-                  />
-                </div>
-              ) : (
-                <Link
-                  href={`/menu/${category.slug}/${item.id}`}
-                  className="block"
-                >
-                  <ItemCard
-                    item={item}
-                    displayName={displayNameFor(category.slug, item.name)}
-                    imageUrl={imageUrlFor(category.slug, item.name)}
-                    priceCents={
-                      item.priceCents == null
-                        ? null
-                        : item.priceCents + top10SurchargeCents(menu, category.slug, item)
-                    }
-                  />
-                </Link>
-              )}
-            </li>
-          ))}
+          {items.map((item) => {
+            // A TOP 10 drink whose locked topping is sold out can't be ordered
+            // either — the topping is part of the product and can't be removed.
+            // Blocking the tap here is the point: the card used to look normal
+            // and the dead end only showed up as a disabled button (#101).
+            const blockedToppings = soldOutLockedToppingNames(menu, category.slug, item);
+            const unorderable = item.soldOut || blockedToppings.length > 0;
+            const card = (
+              <ItemCard
+                item={item}
+                displayName={displayNameFor(category.slug, item.name)}
+                imageUrl={imageUrlFor(category.slug, item.name)}
+                unorderable={unorderable}
+                badgeLabel={soldOutBadgeLabel(blockedToppings) ?? "Sold out"}
+                priceCents={
+                  item.priceCents == null
+                    ? null
+                    : item.priceCents + top10SurchargeCents(menu, category.slug, item)
+                }
+              />
+            );
+            return (
+              <li key={item.id}>
+                {unorderable ? (
+                  <div aria-disabled="true" className="block cursor-not-allowed">
+                    {card}
+                  </div>
+                ) : (
+                  <Link href={`/menu/${category.slug}/${item.id}`} className="block">
+                    {card}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </CategoryFrame>
@@ -177,11 +179,17 @@ function ItemCard({
   displayName,
   imageUrl,
   priceCents,
+  unorderable = item.soldOut,
+  badgeLabel = "Sold out",
 }: {
   item: MenuItem;
   displayName?: string;
   imageUrl?: string | null;
   priceCents?: bigint | null;
+  /** The drink itself may be fine and still be unbuyable — see the caller. */
+  unorderable?: boolean;
+  /** Names the actual blocker, e.g. "Pudding sold out". */
+  badgeLabel?: string;
 }) {
   const shownImage = imageUrl ?? item.imageUrl;
   const shownPrice = priceCents !== undefined ? priceCents : item.priceCents;
@@ -193,12 +201,12 @@ function ItemCard({
   return (
     <div
       className={`relative overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm transition hover:shadow-md ${
-        item.soldOut ? "opacity-50" : ""
+        unorderable ? "opacity-50" : ""
       }`}
     >
-      {item.soldOut && (
+      {unorderable && (
         <span className="absolute right-2 top-2 z-10 rounded-full bg-zinc-900/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-          Sold out
+          {badgeLabel}
         </span>
       )}
       {shownImage ? (
@@ -208,7 +216,7 @@ function ItemCard({
             alt={displayName ?? item.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 250px"
-            className={`object-cover ${item.soldOut ? "grayscale" : ""}`}
+            className={`object-cover ${unorderable ? "grayscale" : ""}`}
           />
         </div>
       ) : (

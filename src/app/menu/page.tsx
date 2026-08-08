@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getMenu, top10SurchargeCents, type Menu } from "@/lib/catalog";
 import { displayNameFor, imageUrlFor } from "@/lib/menu/top10-presets";
+import { soldOutBadgeLabel, soldOutLockedToppingNames } from "@/lib/menu/sold-out";
 import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 import {
   MenuBrowser,
@@ -36,6 +37,10 @@ function toSections(menu: Menu): MenuBrowserSection[] {
     const rows: ProductRowData[] = items.map((item) => {
       const firstVariation = item.variations[0] ?? null;
       const surcharge = top10SurchargeCents(menu, cat.slug, item);
+      // A TOP 10 drink comes with its toppings locked in, so a sold-out
+      // topping makes the drink itself unbuyable — say which one rather than
+      // letting the row look normal and die on the detail page (#101).
+      const blockedToppings = soldOutLockedToppingNames(menu, cat.slug, item);
       return {
         id: item.id,
         name: displayNameFor(cat.slug, item.name),
@@ -43,7 +48,8 @@ function toSections(menu: Menu): MenuBrowserSection[] {
         priceCents: item.priceCents == null ? null : Number(item.priceCents + surcharge),
         originalPriceCents: originalPriceCentsFor(item.name),
         variationLabel: item.variationLabel,
-        soldOut: item.soldOut,
+        soldOut: item.soldOut || blockedToppings.length > 0,
+        soldOutLabel: soldOutBadgeLabel(blockedToppings) ?? "Sold out",
         categorySlug: cat.slug,
         defaultVariation: firstVariation
           ? {
