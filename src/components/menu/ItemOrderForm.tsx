@@ -27,7 +27,7 @@ type Props = {
    * Pin the cup preview to the top of the scroll container so it stays in
    * view while the customer scrolls the modifier lists — the drop animation
    * is pointless off-screen. Only the item modal turns this on: it owns its
-   * scroll container, so `sticky top-0` is exact. The full-route page sits
+   * scroll container, so a small fixed offset is exact. The full-route page sits
    * under the mobile app bar (z-40, safe-area-dependent height), where a
    * hardcoded offset would either clip or float.
    */
@@ -332,7 +332,10 @@ export function ItemOrderForm({
             ? // Solid background + shadow because form content scrolls
               // underneath while it's stuck. Opaque, not translucent — text
               // ghosting through the cup reads as a rendering bug.
-              "sticky top-0 z-10 -mx-1 mb-6 rounded-card border border-line bg-card px-4 py-3 shadow-[0_10px_28px_rgba(42,30,20,0.12)]"
+              // top-2, not top-0: the card has rounded corners and a shadow,
+              // and pressed flush against the container edge it read as
+              // clipped. A small reveal gap lets it float (Stan, 2026-08-08).
+              "sticky top-2 z-10 -mx-1 mb-6 rounded-card border border-line bg-card px-4 py-3 shadow-[0_10px_28px_rgba(42,30,20,0.12)]"
             : "mb-6 rounded-card border border-line bg-bg2/60 p-4"
         }
       >
