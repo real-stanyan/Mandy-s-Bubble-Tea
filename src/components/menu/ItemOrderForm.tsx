@@ -13,6 +13,8 @@ import { useCart } from "@/store/cart";
 import { isLockedToppingName, lockedModifierIds } from "@/lib/menu/top10-presets";
 import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
 import { useItemModalClose } from "@/components/menu/ItemModalContext";
+import { CupPreview } from "@/components/menu/CupPreview";
+import { resolveCupVisual } from "@/lib/menu/cup-visual";
 
 type Props = {
   item: MenuItem;
@@ -162,6 +164,24 @@ export function ItemOrderForm({
 
   const totalCents = unitPriceCents * BigInt(quantity);
 
+  // Everything currently switched on, flattened across lists — the cup only
+  // cares what was picked, not which list it came from. Sugar, ice, size and
+  // the "Standard (Recommended)" default all ride along and are ignored by
+  // whatever the mapper doesn't recognise.
+  const cupVisual = useMemo(
+    () =>
+      resolveCupVisual({
+        drinkName: displayName ?? item.name,
+        picked: modifierLists.flatMap((ml) =>
+          ml.modifiers.map((mod) => ({
+            name: mod.name,
+            count: countOf(selectedByList, ml.id, mod.id),
+          })),
+        ),
+      }),
+    [displayName, item.name, modifierLists, selectedByList],
+  );
+
   function getExclusivePartner(
     list: ModifierList,
     modifierId: string,
@@ -296,6 +316,10 @@ export function ItemOrderForm({
 
   return (
     <div>
+      <div className="mb-6 rounded-card border border-line bg-bg2/60 p-4">
+        <CupPreview visual={cupVisual} drinkName={displayName ?? item.name} />
+      </div>
+
       <Section title="Size">
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-400">

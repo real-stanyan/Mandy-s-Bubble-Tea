@@ -54,6 +54,144 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Membership card star track (src/components/account/StarTrack.tsx).
+
+   Three states, three different jobs:
+   - pop:     earned stars land in sequence when the card first paints
+   - pulse:   the NEXT star breathes, but only within 2 of a free drink —
+              a permanent pulse is wallpaper, an occasional one is a nudge
+   - shimmer: a reward is banked and waiting to be spent */
+@keyframes mbt-star-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes mbt-star-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes mbt-star-shimmer {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+.mbt-star-pop {
+  animation: mbt-star-pop 420ms cubic-bezier(0.34, 1.5, 0.5, 1) both;
+  transform-origin: center;
+}
+
+.mbt-star-pulse {
+  animation: mbt-star-pulse 1.9s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.mbt-star-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.42) 42%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: mbt-star-shimmer 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mbt-star-pop,
+  .mbt-star-pulse,
+  .mbt-star-shimmer {
+    animation: none;
+  }
+  /* The pulse carries meaning ("you're close"), so keep the star bright
+     instead of leaving it at the dim half of a cancelled cycle. */
+  .mbt-star-pulse {
+    opacity: 1;
+  }
+}
+
+/* Live cup preview (src/components/menu/CupPreview.tsx).
+
+   Each topping/ice element runs its drop exactly once, on mount — React keys
+   them by modifier name, so picking a topping mounts its shapes and the
+   animation plays itself. No "what changed" bookkeeping, and no way for the
+   cup to get stuck mid-animation if a render is dropped.
+
+   The small overshoot at 70% is the whole point: things fall into a drink and
+   settle, they don't glide. */
+@keyframes mbt-cup-drop {
+  0% {
+    transform: translateY(-46px);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(2.5px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes mbt-cup-steam {
+  0% {
+    transform: translateY(2px) scaleX(0.92);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(-13px) scaleX(1.18);
+    opacity: 0;
+  }
+}
+
+.mbt-cup-drop {
+  animation: mbt-cup-drop 620ms cubic-bezier(0.34, 1.4, 0.5, 1) both;
+}
+
+.mbt-cup-steam {
+  animation: mbt-cup-steam 2.8s ease-out infinite;
+}
+
+/* The cup is decoration for a form that already says everything in words, so
+   there is nothing to preserve when motion is unwelcome — land every piece in
+   its final position immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .mbt-cup-drop,
+  .mbt-cup-steam {
+    animation: none;
+  }
+  .mbt-cup-steam {
+    opacity: 0.4;
+  }
+}
+
 /* Shared page-scroll lock — src/lib/scroll-lock.ts owns the attribute and
    counts holders, so the cart drawer, the menu item modal and the order
    tracking overlay can no longer strand each other's saved value.
