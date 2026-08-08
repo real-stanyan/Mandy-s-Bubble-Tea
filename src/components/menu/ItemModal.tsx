@@ -38,23 +38,29 @@ export function ItemModal({ children }: { children: React.ReactNode }) {
         onClick={close}
         className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
       />
-      {/* card */}
+      {/* card — the card itself does NOT scroll, the body inside it does.
+          Close used to be absolutely positioned inside the scroll container,
+          so it sat at the top of the CONTENT rather than the top of the card:
+          any tall item (the live cup preview made every item tall) pushed it
+          out of view and the customer had to scroll back up to dismiss. */}
       <div
         role="dialog"
         aria-modal="true"
-        className="relative z-[1] max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-t-[24px] bg-card shadow-[0_30px_80px_rgba(42,30,20,0.4)] sm:max-h-[90vh] sm:rounded-card"
+        className="relative z-[1] flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-[24px] bg-card shadow-[0_30px_80px_rgba(42,30,20,0.4)] sm:max-h-[90vh] sm:rounded-card"
       >
         <button
           type="button"
           onClick={close}
           aria-label="Close"
-          className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full bg-paper text-ink2 shadow-sm transition hover:bg-bg2"
+          className="absolute right-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-paper text-ink2 shadow-sm transition hover:bg-bg2"
         >
           <X size={18} />
         </button>
-        <ItemModalCloseContext.Provider value={close}>
-          {children}
-        </ItemModalCloseContext.Provider>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <ItemModalCloseContext.Provider value={close}>
+            {children}
+          </ItemModalCloseContext.Provider>
+        </div>
       </div>
     </div>
   );
