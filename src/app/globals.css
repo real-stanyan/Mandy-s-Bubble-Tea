@@ -76,14 +76,17 @@ body {
   }
 }
 
+/* A breath, not a throb (Stan, 2026-08-08): the 1.18-scale pulse read as an
+   alert. Mostly opacity with a whisper of scale, on the same ~2.6s cadence
+   as the app's BreathingGlow launch animation. */
 @keyframes mbt-star-pulse {
   0%,
   100% {
     transform: scale(1);
-    opacity: 0.55;
+    opacity: 0.4;
   }
   50% {
-    transform: scale(1.18);
+    transform: scale(1.05);
     opacity: 1;
   }
 }
@@ -103,7 +106,7 @@ body {
 }
 
 .mbt-star-pulse {
-  animation: mbt-star-pulse 1.9s ease-in-out infinite;
+  animation: mbt-star-pulse 2.6s ease-in-out infinite;
   transform-origin: center;
 }
 
