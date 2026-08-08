@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Gem, Star } from "lucide-react";
@@ -134,6 +134,33 @@ export function LoyaltyCard({
   const { tier, nextTier, starsToNext } = tierProgress(lifetimePoints);
   const visual = TIER_VISUALS[tier];
   const TierIcon = tier === "diamond" ? Gem : Star;
+
+  // Which drink earned each star this cycle — fetched lazily because it costs
+  // two Square calls server-side and the card is complete without it: stars
+  // render immediately, then upgrade in place to mini cups when this lands.
+  // null (fetch miss, attribution failure, error shape) keeps plain stars.
+  const [starDrinks, setStarDrinks] = useState<Array<string | null> | null>(
+    null,
+  );
+  useEffect(() => {
+    // No sync setState here (react-hooks/set-state-in-effect): when this
+    // cycle has nothing to attribute, the render-time gate below simply
+    // doesn't pass whatever was fetched for a previous cycle.
+    if (currentStars <= 0 || goal > 12) return;
+    let cancelled = false;
+    fetch("/api/loyalty/star-drinks")
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json?.ok && Array.isArray(json.drinks)) setStarDrinks(json.drinks);
+      })
+      .catch(() => {
+        /* stars are the fallback; nothing to surface */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStars, goal]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLAnchorElement>(null);
@@ -495,6 +522,7 @@ export function LoyaltyCard({
                   balance={balance}
                   starsPerReward={goal}
                   fill={visual.starFill}
+                  drinks={currentStars > 0 ? starDrinks : null}
                 />
               ) : (
                 <div
