@@ -83,7 +83,9 @@ body {
   0%,
   100% {
     transform: scale(1);
-    opacity: 0.4;
+    /* Floor stays clearly visible — same principle as the reward glow:
+       breathing is louder-and-softer, never off. */
+    opacity: 0.55;
   }
   50% {
     transform: scale(1.05);
@@ -96,15 +98,19 @@ body {
    Same ~2.6s cadence as the next-star breath and the app's launch glow —
    one breathing rhythm across the brand. Warm white halo on purpose: it
    sits on all three tier metals without knowing the tier accent. */
+/* The glow's floor is a glow, not darkness: with the halo fading to alpha 0
+   at the ends, only the ~1s around the peak was visible and the effect read
+   as a blink that stopped (Stan, 2026-08-08). Breathing is louder-and-softer,
+   never off. */
 @keyframes mbt-star-shimmer {
   0%,
   100% {
-    opacity: 0.78;
-    filter: drop-shadow(0 0 1px rgba(255, 240, 200, 0));
+    opacity: 0.92;
+    filter: drop-shadow(0 0 3px rgba(255, 238, 190, 0.45));
   }
   50% {
     opacity: 1;
-    filter: drop-shadow(0 0 6px rgba(255, 236, 186, 0.8));
+    filter: drop-shadow(0 0 7px rgba(255, 236, 186, 0.85));
   }
 }
 
