@@ -5,6 +5,7 @@ import { useRef, type CSSProperties } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Gem, Star } from "lucide-react";
+import { StarTrack } from "@/components/account/StarTrack";
 import {
   DIAMOND_MONTHLY_FREE_TOPPINGS,
   tierProgress,
@@ -30,6 +31,8 @@ type TierVisual = {
   reflex: string;
   /** Fill of the hairline progress bar. */
   progressFill: string;
+  /** Solid tier accent for the star track — a gradient can't fill an svg path. */
+  starFill: string;
   sparkles: boolean;
   holo: boolean;
 };
@@ -57,6 +60,7 @@ const TIER_VISUALS: Record<MembershipTier, TierVisual> = {
     shadow: "0 20px 44px -20px rgba(10,14,24,0.65)",
     reflex: "rgba(255,255,255,0.12)",
     progressFill: "linear-gradient(90deg, #cdd4e0, #8a93a5)",
+    starFill: "#DCE2EC",
     sparkles: false,
     holo: false,
   },
@@ -76,6 +80,7 @@ const TIER_VISUALS: Record<MembershipTier, TierVisual> = {
     shadow: "0 20px 44px -20px rgba(40,26,0,0.65)",
     reflex: "rgba(255,241,200,0.13)",
     progressFill: "linear-gradient(90deg, #f0d489, #a87f2a)",
+    starFill: "#F2DA95",
     sparkles: false,
     holo: false,
   },
@@ -96,6 +101,7 @@ const TIER_VISUALS: Record<MembershipTier, TierVisual> = {
     shadow: "0 20px 44px -20px rgba(0,0,0,0.75)",
     reflex: "rgba(190,215,255,0.10)",
     progressFill: "linear-gradient(90deg, #9db8ff, #d3b3f5)",
+    starFill: "#C9BEFA",
     sparkles: true,
     holo: true,
   },
@@ -480,19 +486,30 @@ export function LoyaltyCard({
                   {`/ ${goal} stars`}
                 </span>
               </div>
-              {/* hairline progress toward the next free drink */}
-              <div
-                className="mt-3 h-[3px] w-full overflow-hidden rounded-full"
-                style={{ background: "rgba(255,255,255,0.13)" }}
-              >
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${progressPct}%`,
-                    background: visual.progressFill,
-                  }}
+              {/* Progress toward the next free drink. Nine pips you can count
+                  beats a bar you have to estimate — but only while they stay
+                  countable, so an unusually large goal falls back to the
+                  hairline rather than rendering 30 specks. */}
+              {goal <= 12 ? (
+                <StarTrack
+                  balance={balance}
+                  starsPerReward={goal}
+                  fill={visual.starFill}
                 />
-              </div>
+              ) : (
+                <div
+                  className="mt-3 h-[3px] w-full overflow-hidden rounded-full"
+                  style={{ background: "rgba(255,255,255,0.13)" }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${progressPct}%`,
+                      background: visual.progressFill,
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Diamond free-topping allowance — 10 pips, bright = available */}
               {showToppings && (
