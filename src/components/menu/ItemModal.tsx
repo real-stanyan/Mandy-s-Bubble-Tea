@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { ItemModalCloseContext } from "@/components/menu/ItemModalContext";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 // Client dialog shell for the intercepted item route. Renders a backdrop +
 // centered card; dismissing (backdrop click, close button, Escape) pops the
@@ -19,13 +20,14 @@ export function ItemModal({ children }: { children: React.ReactNode }) {
       if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [close]);
+
+  // Held for as long as the modal is mounted. This one is an intercepted
+  // route, so it unmounts on router.back() — out of band from whatever else
+  // opened after it, which is precisely the ordering the old private
+  // save/restore could not survive.
+  useBodyScrollLock(true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
