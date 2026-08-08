@@ -91,12 +91,20 @@ body {
   }
 }
 
+/* Reward ready: the whole track breathes with a warm halo. Replaces the
+   left-to-right sweep, which read as a loading shimmer (Stan, 2026-08-08).
+   Same ~2.6s cadence as the next-star breath and the app's launch glow —
+   one breathing rhythm across the brand. Warm white halo on purpose: it
+   sits on all three tier metals without knowing the tier accent. */
 @keyframes mbt-star-shimmer {
-  0% {
-    background-position: -140% 0;
-  }
+  0%,
   100% {
-    background-position: 240% 0;
+    opacity: 0.78;
+    filter: drop-shadow(0 0 1px rgba(255, 240, 200, 0));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(255, 236, 186, 0.8));
   }
 }
 
@@ -111,13 +119,6 @@ body {
 }
 
 .mbt-star-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    transparent 20%,
-    rgba(255, 255, 255, 0.42) 42%,
-    transparent 62%
-  );
-  background-size: 220% 100%;
   animation: mbt-star-shimmer 2.6s ease-in-out infinite;
 }
 
@@ -127,10 +128,15 @@ body {
   .mbt-star-shimmer {
     animation: none;
   }
-  /* The pulse carries meaning ("you're close"), so keep the star bright
-     instead of leaving it at the dim half of a cancelled cycle. */
+  /* Both effects carry meaning — "you're close" and "reward ready" — so
+     rather than freezing at the dim end of a cancelled cycle, hold the
+     bright half: full opacity, and for the ready state a constant halo. */
   .mbt-star-pulse {
     opacity: 1;
+  }
+  .mbt-star-shimmer {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(255, 236, 186, 0.8));
   }
 }
 
