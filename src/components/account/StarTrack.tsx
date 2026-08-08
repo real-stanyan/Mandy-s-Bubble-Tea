@@ -59,7 +59,7 @@ export function StarTrack({ balance, starsPerReward, fill, drinks }: Props) {
     <div className="mt-3">
       <div
         className={
-          "flex items-end gap-[3px] rounded-full " +
+          "flex items-end gap-[4px] rounded-full " +
           (track.rewardReady ? "mbt-star-shimmer" : "")
         }
         role="img"
@@ -95,7 +95,7 @@ export function StarTrack({ balance, starsPerReward, fill, drinks }: Props) {
 
       {track.nudge && (
         <p
-          className="mt-2 text-[11.5px] font-semibold leading-none"
+          className="mt-2 text-[12.5px] font-semibold leading-none"
           style={{ color: track.rewardReady ? fill : "rgba(255,255,255,0.72)" }}
         >
           {track.nudge}
@@ -120,7 +120,7 @@ function MiniCup({
   return (
     <svg
       viewBox="0 0 20 27"
-      className="mbt-star-pop h-[18px] w-auto shrink-0"
+      className="mbt-star-pop h-[24px] w-auto shrink-0"
       style={delayMs ? { animationDelay: `${delayMs}ms` } : undefined}
       aria-hidden="true"
     >
@@ -168,7 +168,7 @@ function OutlineCup({ accent, pulse }: { accent: string; pulse: boolean }) {
   return (
     <svg
       viewBox="0 0 20 27"
-      className={"h-[18px] w-auto shrink-0 " + (pulse ? "mbt-star-pulse" : "")}
+      className={"h-[24px] w-auto shrink-0 " + (pulse ? "mbt-star-pulse" : "")}
       aria-hidden="true"
     >
       <path
