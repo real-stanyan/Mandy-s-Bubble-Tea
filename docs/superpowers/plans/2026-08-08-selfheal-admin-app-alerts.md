@@ -408,6 +408,20 @@ GET    /incidents              → 200，按 last_seen 倒序，上限 50；无 
 
 - [ ] **Step 2: 实现**，插在 `/ingest/*` 分支之后，404 之前。三个分支都先 `if (!isAdmin(request, env)) return new Response("unauthorized", { status: 401 });`
 
+- [ ] **Step 2b: `/pause` `/resume` 同时接受 ADMIN_TOKEN**
+
+原来只认 `AGENT_SECRET`，但 app 只持有 `ADMIN_TOKEN`——管理端 UI 的 kill switch 全会 401。这不是让某个凭据升权：暂停管线本来就是管理员动作，`AGENT_SECRET` 能按开关是历史遗留（Task 5 建开关时它是唯一凭据），保留它只为不破坏应急 curl 路径。
+
+```ts
+    if (request.method === "POST" && (pathname === "/pause" || pathname === "/resume")) {
+      if (!isAuthorized(request, env) && !isAdmin(request, env)) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      ...
+```
+
+测试补两条：`ADMIN_TOKEN` 能 pause/resume；错凭据仍 401 且状态不变。
+
 - [ ] **Step 3: 门禁绿 + commit**
 
 ---
