@@ -195,6 +195,27 @@ body {
 :root[data-theme="evening"] :where(.bg-zinc-200) {
   background-color: var(--bg2);
 }
+/* Light-accent surfaces (cream chips, OTP boxes, benefit cards) go to the
+   dark secondary surface so their token text stays readable… */
+:root[data-theme="evening"] :where(.bg-cream) {
+  background-color: var(--bg2);
+}
+/* …while the deliberately-dark chips (bg-ink / bg-black + text-cream pills:
+   Menu →, cart badge, Expand) must NOT flip light with the ink token — pin
+   them to the day ink so their cream text keeps its contrast. Exact classes
+   only; the /45-style scrim variants are separate class names and untouched. */
+:root[data-theme="evening"] :where(.bg-ink),
+:root[data-theme="evening"] :where(.bg-black) {
+  background-color: #2a1e14;
+}
+:root[data-theme="evening"] :where(.text-zinc-900, .text-zinc-800) {
+  color: var(--ink);
+}
+/* White-background product photography glares on the warm black ground —
+   pull every photo down a notch. Logos and QR codes survive 0.88 fine. */
+:root[data-theme="evening"] img {
+  filter: brightness(0.88);
+}
 
 /* Membership card star track (src/components/account/StarTrack.tsx).
 

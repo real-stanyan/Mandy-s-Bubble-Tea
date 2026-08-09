@@ -20,7 +20,7 @@ export function CartIcon() {
       type="button"
       onClick={openDrawer}
       aria-label={`Open cart (${count} items)`}
-      className="relative rounded-full p-2 text-black hover:bg-white/15"
+      className="relative rounded-full p-2 text-ink hover:bg-white/15"
     >
       <CartSvg />
       {count > 0 && (

@@ -249,7 +249,7 @@ export function AppDownloadPopup() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submit();
                 }}
-                className="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink4"
+                className="w-full bg-transparent text-[15px] text-[#2A1E14] outline-none placeholder:text-[#B3A28D]"
               />
             </div>
             {error && (
