@@ -41,11 +41,8 @@ export default function PromotionsPage() {
   }, [profile, loyalty, welcomeDiscount, starsPerReward]);
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ backgroundColor: BRAND.bgColor }}>
-      <header
-        className="w-full px-4 py-6 sm:px-6 sm:py-8"
-        style={{ backgroundColor: BRAND.accentColor }}
-      >
+    <div className="flex min-h-screen flex-col bg-bg">
+      <header className="w-full bg-cream px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-2xl">
           <Link
             href="/account"
