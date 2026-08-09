@@ -22,9 +22,15 @@ describe("buildMemoryStampPrompt", () => {
     expect(prompt).toMatch(/no gradients/i);
   });
 
-  it("bans simulated paper texture — the sticker is already paper", () => {
-    expect(prompt).toMatch(/no paper texture/i);
+  it("keeps the white ground clean — the sticker itself is the paper", () => {
+    expect(prompt).toMatch(/white background completely clean/i);
     expect(prompt).toMatch(/no halftone/i);
+  });
+
+  it("demands coarse wear, not fine noise — grain turns to mush at 5cm", () => {
+    expect(prompt).toMatch(/dry-brush/i);
+    expect(prompt).toMatch(/large scale/i);
+    expect(prompt).toMatch(/never fine speckle/i);
   });
 
   it("keeps the source skill's identity locks", () => {
@@ -35,8 +41,14 @@ describe("buildMemoryStampPrompt", () => {
   });
 
   it("keeps the stamp physics that make it read as a stamp", () => {
-    expect(prompt).toMatch(/ink breakup/i);
-    expect(prompt).toMatch(/uneven pressure/i);
+    expect(prompt).toMatch(/ink wear/i);
+    expect(prompt).toMatch(/uneven ink pressure/i);
+  });
+
+  it("never lets the caption transcribe its own instructions", () => {
+    // The UPPER 1-3 incident: instruction fragments became the caption.
+    expect(prompt).toMatch(/never write any instruction wording or any numbers/i);
+    expect(prompt).not.toMatch(/\d/);
   });
 
   it("is square-composed for the square sticker", () => {
