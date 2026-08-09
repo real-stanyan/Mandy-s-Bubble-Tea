@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useCart, cupKey, type CupLabelSelection } from "@/store/cart";
 import { BRAND } from "@/lib/constants";
@@ -142,10 +142,89 @@ function renderThumb(sel: CupLabelSelection | undefined) {
       />
     );
   }
-  // kind === "ai" — no preview by design; placeholder star.
+  // kind === "ai" — poll until the background job lands, then show the
+  // result. Memory Stamp made the old always-✨ placeholder untenable: the
+  // whole point of the feature is what the stamp looks like.
+  if (sel.kind === "ai") return <AiThumb aiDoodleId={sel.aiDoodleId} />;
+  // Residual case: a draw selection with nothing on the canvas yet.
   return (
     <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
       ✨
+    </div>
+  );
+}
+
+/** Poll cadence + cap. Doubao p95 is well under 30s; 90s covers retries. */
+const AI_POLL_MS = 2_500;
+const AI_POLL_MAX = 36;
+
+function AiThumb({ aiDoodleId }: { aiDoodleId: string | null }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // No id yet (submit still in flight) — the cart re-renders us with the
+    // real id the moment the submit callback stamps it.
+    if (!aiDoodleId) return;
+    setPreviewUrl(null);
+    let cancelled = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async () => {
+      tries += 1;
+      try {
+        const res = await fetch(
+          `/api/cup-label/ai-status?aiDoodleId=${encodeURIComponent(aiDoodleId)}`,
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          status?: string;
+          previewUrl?: string;
+        };
+        if (cancelled) return;
+        if (json.ok && json.status === "ready" && json.previewUrl) {
+          setPreviewUrl(json.previewUrl);
+          return;
+        }
+        // failed → stop polling and keep the placeholder; the submit path
+        // separately clears the slot back to a gallery default.
+        if (json.ok && json.status === "failed") return;
+      } catch {
+        /* transient — next tick retries */
+      }
+      if (!cancelled && tries < AI_POLL_MAX) {
+        timer = setTimeout(tick, AI_POLL_MS);
+      }
+    };
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [aiDoodleId]);
+
+  if (previewUrl) {
+    return (
+      <Image
+        src={previewUrl}
+        alt="Your AI cup label"
+        fill
+        sizes="64px"
+        unoptimized
+        className="object-contain"
+      />
+    );
+  }
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
+      {aiDoodleId ? (
+        // Generating: pulse so "working" and "this is your final icon" don't
+        // look identical.
+        <span className="animate-pulse">✨</span>
+      ) : (
+        "✨"
+      )}
     </div>
   );
 }
