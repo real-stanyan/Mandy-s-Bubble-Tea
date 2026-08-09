@@ -28,24 +28,29 @@ export const MEMORY_STAMP_STYLE_ID = "memory-stamp" as const;
 export const MEMORY_STAMP_LABEL = "Memory Stamp";
 
 export const MEMORY_STAMP_PROMPT = [
-  "Convert the subject of the reference photo into a single rubber-stamp style seal graphic.",
+  "Convert the subject of the reference photo into a single hand-carved stamp print, in the manner of a worn woodblock or linocut travel stamp pressed by hand years ago.",
   // What a stamp is, for this printer:
-  "Solid black ink on a pure white background. No grey, no gradients, no shading — every mark is either full black ink or blank white paper.",
-  "The graphic must read as a hand-pressed ink stamp: bold simplified contours and structural lines, slight ink breakup, uneven pressure, small patches of missing ink at edges, a faint natural stamping offset.",
+  "Solid black ink on a pure white background. No grey, no gradients, no shading — every mark is either full black ink or blank white paper. Keep the white background completely clean and empty.",
+  // The texture that makes it read as vintage — this is the soul of the
+  // style, and it must be COARSE. The first version asked politely for
+  // "slight ink breakup" and got clean digital clipart back; fine grain is
+  // also what turns to mush at 5cm. Big, structural wear only.
+  "The print must look genuinely aged and hand-pressed: heavy dry-brush ink wear, chips and small missing chunks inside the black areas, visible carving marks, ragged eaten edges, uneven ink pressure across the whole print. Make the wear bold and chunky at a large scale so it stays legible when printed small — never fine speckle, never dust-like noise.",
   // Identity preservation (the heart of the source skill):
-  "Keep the subject's identity exactly: same pose, same proportions, same viewing angle, same key features. If the subject is a person, preserve the face, age, hairstyle, expression, hands and clothing faithfully — simplified into stamp linework but recognisably the same person. If it is a pet, keep its markings and posture.",
+  "Keep the subject's identity exactly: same pose, same proportions, same viewing angle, same key features. If the subject is a person, preserve the face, age, hairstyle, expression, hands and clothing faithfully — simplified into carved linework but recognisably the same person. If it is a pet, keep its markings and posture.",
   "Do not add, remove, duplicate or replace anything from the photo. Do not beautify, cartoonify or restyle the subject.",
   // Composition for a 5cm square sticker:
-  "Square composition. The stamp occupies about 60% of the frame, centred by visual weight, surrounded by clean empty white space. The stamp's outer shape may be circular, square or irregular — whatever suits the subject — with naturally imperfect, slightly broken edges. No perfect geometric border.",
-  // The typewriter caption, kept from the skill. Worded with care: an image
-  // model happily renders fragments of its own instructions as the caption —
-  // the first phrasing said "an UPPERCASE title of 1-3 short English words"
-  // and every stamp came back captioned, literally, "UPPER 1-3". So: no
-  // digits anywhere near this sentence, no meta-words like uppercase, and an
-  // explicit ban on copying instruction text.
-  "Near the stamp, add one tiny caption in worn typewriter capital letters: a very short English title you invent to match the mood of the photo itself. The caption's words must come from the photo, never from these instructions — do not write any instruction wording or any numbers on the image. Keep the caption small, sparse and off-centre; it must not touch or overpower the stamp.",
+  "Square composition. The stamp occupies roughly two thirds of the frame, centred by visual weight, surrounded by clean empty white space. Prefer a loose, irregular hand-carved outline over any neat enclosing frame; if a frame appears at all it must be heavily worn, broken and partial. No perfect geometric border.",
+  // The typewriter caption block, restored to the source skill's two-line
+  // form. Worded with care: an image model happily renders fragments of its
+  // own instructions as the caption — an earlier phrasing said "an UPPERCASE
+  // title of 1-3 short English words" and every stamp came back captioned,
+  // literally, "UPPER 1-3". So: no digits anywhere near these sentences, no
+  // meta-words like uppercase, and an explicit ban on copying instruction
+  // text.
+  "Near the stamp, add a small caption block in worn, slightly faded typewriter lettering: a very short title line in capital letters, and beneath it one quieter line of a few short lowercase words separated by slashes. Invent all of these words from the mood of the photo itself — never write any instruction wording or any numbers on the image. Keep the caption small and off-centre; it must not touch or overpower the stamp.",
   // Negatives, trimmed to what threatens this medium:
-  "No photorealism, no halftone texture, no paper texture, no background pattern, no grey tones, no gradients, no glow, no modern UI style, no vector-smooth edges, no cartoon style, no watermark, no logo, no border frame.",
+  "No photorealism, no halftone texture, no background pattern, no grey tones, no gradients, no glow, no modern UI style, no vector-smooth edges, no clean digital clipart look, no cartoon style, no watermark, no logo.",
 ].join(" ");
 
 /**
