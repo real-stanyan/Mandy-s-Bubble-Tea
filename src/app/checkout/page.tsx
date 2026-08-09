@@ -935,6 +935,21 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           sdkReady,
         },
       });
+      // "Already paid" is not a failure — it is the one error that MEANS
+      // success. The retry of a lost-response checkout replays the same
+      // idempotent order, and the REDEEM step then hits Square's "order is
+      // already paid" before our payment route's own idempotent-success
+      // branch can answer (OL866, 2026-08-09: a $0 stamp redeem completed
+      // server-side — label printed — while the customer sat on a "Payment
+      // Failed" dialog whose Retry could only ever re-trip this). Finish
+      // the success path instead: the confirmation page shows the order's
+      // real, server-side state whatever it is.
+      if (createdOrderId && /already\s+(been\s+)?paid/i.test(described.message)) {
+        clearOrderNonce();
+        clear();
+        router.push(`/order-confirmation/${createdOrderId}`);
+        return;
+      }
       // Delivery eligibility gates (minimum order, hours, zone, address) are
       // not payment failures — show an actionable dialog instead of "Retry".
       const block = classifyOrderBlock(described.message, subtotal);
