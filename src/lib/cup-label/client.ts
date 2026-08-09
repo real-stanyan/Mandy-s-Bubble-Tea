@@ -135,10 +135,19 @@ export async function submitAiCupLabel(args: AiSubmitArgs): Promise<AiSubmitResu
   };
   if (args.style) body.style = args.style;
   if (args.sourceImageBase64) body.sourceImageBase64 = args.sourceImageBase64;
+  const payload = JSON.stringify(body);
+  // Vercel's platform body limit sits around 4.5 MB and answers with a bare
+  // 413 before our route runs. Failing here instead gives the customer a
+  // sentence they can act on, not a silently reverted cup.
+  if (payload.length > 3_800_000) {
+    throw new CupLabelClientError(
+      "Photo is too large even after compression — please try a smaller image",
+    );
+  }
   const res = await fetch("/api/cup-label/ai-submit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: payload,
   });
   const json = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
@@ -155,4 +164,49 @@ export async function submitAiCupLabel(args: AiSubmitArgs): Promise<AiSubmitResu
     status: json.status ?? "pending",
     reused: json.reused ?? false,
   };
+}
+
+/**
+ * Shrink a reference image before it rides in a JSON body.
+ *
+ * The submit route accepts 8 MB, but it never gets to vote: Vercel rejects
+ * request bodies around 4.5 MB at the platform layer, and a phone photo as
+ * base64 (+33%) sails past that — the submit 413s, the catch handler clears
+ * the slot, and the customer watches their stamp silently turn back into a
+ * lucky cat (Stan, on production, 2026-08-09). Downscaling costs nothing:
+ * the server resizes to 1024px for Doubao anyway.
+ *
+ * Browser-only (canvas). Returns the input untouched when decoding fails or
+ * no DOM exists — the size backstop below still guards the payload.
+ */
+export async function downscaleDataUriForAi(
+  dataUri: string,
+  maxDim = 1280,
+): Promise<string> {
+  if (typeof document === "undefined") return dataUri;
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new window.Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("decode failed"));
+      el.src = dataUri;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    // Already small AND already a compact format — nothing to gain. A large
+    // PNG still gets re-encoded to JPEG even at scale 1.
+    if (scale === 1 && dataUri.startsWith("data:image/jpeg")) return dataUri;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUri;
+    // White backing: JPEG has no alpha, and transparent PNG regions would
+    // otherwise composite onto black.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return dataUri;
+  }
 }
