@@ -79,6 +79,8 @@ export async function uploadPhotoForCupLabel(file: File): Promise<UploadPhotoRes
 export interface AiSubmitArgs {
   slotKey: string;
   prompt: string;
+  /** Curated style id ("memory-stamp"). Requires sourceImageBase64. */
+  style?: string;
   sourceImageBase64?: string;
   cartSessionId: string;
 }
@@ -131,6 +133,7 @@ export async function submitAiCupLabel(args: AiSubmitArgs): Promise<AiSubmitResu
     prompt,
     cartSessionId: args.cartSessionId,
   };
+  if (args.style) body.style = args.style;
   if (args.sourceImageBase64) body.sourceImageBase64 = args.sourceImageBase64;
   const res = await fetch("/api/cup-label/ai-submit", {
     method: "POST",
