@@ -16,6 +16,7 @@ import {
   uploadDrawingForCupLabel,
   submitAiCupLabel,
   readFileAsDataUri,
+  downscaleDataUriForAi,
   AI_PROMPT_MAX_LEN,
   CupLabelClientError,
 } from "@/lib/cup-label/client";
@@ -385,7 +386,11 @@ function AiTab({
     setError(null);
     try {
       const dataUri = await readFileAsDataUri(file);
-      setRefDataUri(dataUri);
+      // Shrink before it ever rides in a JSON body — Vercel rejects bodies
+      // around 4.5 MB at the platform layer, so a full-size phone photo
+      // never even reached our route (it 413'd, the catch handler cleared
+      // the slot, and the stamp silently became a lucky cat).
+      setRefDataUri(await downscaleDataUriForAi(dataUri));
     } catch {
       setError("Could not read reference image");
     }
