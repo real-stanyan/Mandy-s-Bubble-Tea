@@ -149,24 +149,57 @@ export async function POST(request: NextRequest) {
 
   const sb = getSupabaseAdmin();
 
-  // Idempotency check: same (user, slot) → return existing job. The
-  // client will see the same aiDoodleId from the original submission
-  // and the modal stays disabled, so this is a defence-in-depth in
-  // case the client somehow bypasses its own "already submitted" UI
-  // state. We never re-trigger processAiJob on a duplicate request —
-  // Doubao is called at most once per slot per customer.
+  // Idempotency check: same (user, slot) → the existing job answers, UNLESS
+  // the customer has actually changed their input. The original rule was
+  // "Doubao is never called twice for the same slot", and its blind spot
+  // shipped a bride from last week: swap the photo, tap Generate, and the
+  // server silently handed back the OLD job's image (Stan, on production,
+  // 2026-08-09 — the printed label was a previously uploaded photo).
+  //
+  // Regenerate — same row, same aiDoodleId, fresh Doubao run — when the
+  // resubmission carries a source image or a different prompt: both only
+  // happen from a deliberate customer action, and the result PNG overwrites
+  // the same storage path (upsert). A byte-identical duplicate (double-tap,
+  // client retry) still reuses, and a job already mid-flight is never
+  // double-run.
   const { data: existing } = await sb
     .from("cup_label_ai_jobs")
-    .select("id, status")
+    .select("id, status, prompt")
     .eq("user_id", user.userId)
     .eq("slot_key", slotKey)
     .maybeSingle();
   if (existing) {
+    const inputChanged =
+      sourceImage !== undefined || existing.prompt !== promptForAudit;
+    if (!inputChanged || existing.status === "pending") {
+      return NextResponse.json({
+        ok: true,
+        aiDoodleId: existing.id,
+        status: existing.status,
+        reused: true,
+      });
+    }
+    const { error: updErr } = await sb
+      .from("cup_label_ai_jobs")
+      .update({ prompt: promptForAudit, status: "pending" })
+      .eq("id", existing.id);
+    if (updErr) {
+      console.error("[ai-submit] regenerate update failed:", updErr.message);
+      return NextResponse.json({ ok: false, error: "Submit failed" }, { status: 500 });
+    }
+    after(
+      processAiJob({
+        jobId: existing.id,
+        userId: user.userId,
+        prompt: promptForModel,
+        sourceImage,
+      }),
+    );
     return NextResponse.json({
       ok: true,
       aiDoodleId: existing.id,
-      status: existing.status,
-      reused: true,
+      status: "pending",
+      reused: false,
     });
   }
 
