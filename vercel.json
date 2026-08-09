@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/delivery-auth-timeout",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
