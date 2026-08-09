@@ -33,28 +33,31 @@
   --foreground: var(--ink);
 }
 
-/* Evening Mode — not a generic dark theme, the shop after sunset: warm black
-   tea-house tones, lighter brand bronze for contrast, everything else keeps
-   its role. Toggled by the inline script in layout.tsx (auto 18:00–06:00
+/* Evening Mode — not a generic dark theme, the shop after sunset. Palette
+   iterations: v1 brown-on-brown read "too chocolate" (hierarchy soup); v3 is
+   Stan's pick — the tea house: deep green-black ground (this IS a tea shop),
+   cards a shade of dark leaf, brass accent, parchment text. The rule that
+   fixed v1 carries over: ground, surface and accent each live in their own
+   register instead of one brown family. Toggled by the inline script in layout.tsx (auto 18:00–06:00
    device time; ?theme=evening / ?theme=day / ?theme=auto to override, choice
    persisted in localStorage). The account tier cards are self-contained dark
    material already and sit on this ground even better than on cream. */
 :root[data-theme="evening"] {
-  --bg: #191009;
-  --bg2: #26190F;
-  --paper: #1F150C;
-  --card: #2A1C11;
-  --ink: #F4E9DC;
-  --ink2: #D8C4AE;
-  --ink3: rgba(244, 233, 220, 0.6);
-  --ink4: rgba(244, 233, 220, 0.32);
-  --line: rgba(244, 233, 220, 0.13);
-  --brand: #C9925A;
-  --brand-dark: #A9743F;
-  --green: #4CC084;
-  --green-dark: #3CA96E;
+  --bg: #0F1512;
+  --bg2: #1B241E;
+  --paper: #141C17;
+  --card: #1F2A23;
+  --ink: #F0EBDD;
+  --ink2: #CFC8B2;
+  --ink3: rgba(240, 235, 221, 0.62);
+  --ink4: rgba(240, 235, 221, 0.34);
+  --line: rgba(240, 235, 221, 0.14);
+  --brand: #C9A75C;
+  --brand-dark: #A8873F;
+  --green: #5BC48E;
+  --green-dark: #46A874;
 
-  --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.4);
   --shadow-mini-cart-v: 0 10px 22px rgba(0, 0, 0, 0.6);
   --shadow-primary-cta-v: 0 14px 26px rgba(0, 0, 0, 0.6);
 }
