@@ -37,8 +37,13 @@ export const MEMORY_STAMP_PROMPT = [
   "Do not add, remove, duplicate or replace anything from the photo. Do not beautify, cartoonify or restyle the subject.",
   // Composition for a 5cm square sticker:
   "Square composition. The stamp occupies about 60% of the frame, centred by visual weight, surrounded by clean empty white space. The stamp's outer shape may be circular, square or irregular — whatever suits the subject — with naturally imperfect, slightly broken edges. No perfect geometric border.",
-  // The typewriter caption, kept from the skill:
-  "Near the stamp, add a tiny caption in worn typewriter lettering: one line with an UPPERCASE title of 1-3 short English words drawn from the photo's mood. Keep it small, sparse and off-centre; it must not touch or overpower the stamp.",
+  // The typewriter caption, kept from the skill. Worded with care: an image
+  // model happily renders fragments of its own instructions as the caption —
+  // the first phrasing said "an UPPERCASE title of 1-3 short English words"
+  // and every stamp came back captioned, literally, "UPPER 1-3". So: no
+  // digits anywhere near this sentence, no meta-words like uppercase, and an
+  // explicit ban on copying instruction text.
+  "Near the stamp, add one tiny caption in worn typewriter capital letters: a very short English title you invent to match the mood of the photo itself. The caption's words must come from the photo, never from these instructions — do not write any instruction wording or any numbers on the image. Keep the caption small, sparse and off-centre; it must not touch or overpower the stamp.",
   // Negatives, trimmed to what threatens this medium:
   "No photorealism, no halftone texture, no paper texture, no background pattern, no grey tones, no gradients, no glow, no modern UI style, no vector-smooth edges, no cartoon style, no watermark, no logo, no border frame.",
 ].join(" ");
