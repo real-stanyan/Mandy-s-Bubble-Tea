@@ -89,6 +89,10 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      // The Evening Mode head script stamps data-theme before hydration, so
+      // the server HTML and client DOM legitimately differ on this one
+      // attribute — the standard theming-script suppression.
+      suppressHydrationWarning
     >
       <head>
         <script
