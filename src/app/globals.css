@@ -1,50 +1,97 @@
 @import "tailwindcss";
 
+/* ── Runtime design tokens ─────────────────────────────────────────────────
+   Every colour the utilities compile to routes through a :root variable, the
+   same trick the font tokens already used — which is what makes Evening Mode
+   a token flip instead of a rewrite. Utilities like bg-card / text-ink keep
+   working everywhere; only this block and the evening block below know what
+   they currently mean. */
 :root {
-  --background: #F2E8DF;
-  --foreground: #2A1E14;
+  --bg: #F2E8DF;
+  --bg2: #E8DAC6;
+  --paper: #FFF9F0;
+  --card: #FFFFFF;
+  --ink: #2A1E14;
+  --ink2: #5A4330;
+  --ink3: rgba(42, 30, 20, 0.55);
+  --ink4: rgba(42, 30, 20, 0.28);
+  --line: rgba(42, 30, 20, 0.10);
+  --brand: #8D5524;
+  --brand-dark: #6B3E15;
+  --peach: #FFB380;
+  --cream: #FFF3DE;
+  --star: #F2B64A;
+  --sage: #A2AD91;
+  --green: #3CA96E;
+  --green-dark: #2E7F52;
+
+  --shadow-card-v: 0 2px 8px rgba(42, 30, 20, 0.04);
+  --shadow-mini-cart-v: 0 10px 20px rgba(107, 62, 21, 0.55);
+  --shadow-primary-cta-v: 0 14px 24px rgba(42, 30, 20, 0.55);
+
+  --background: var(--bg);
+  --foreground: var(--ink);
+}
+
+/* Evening Mode — not a generic dark theme, the shop after sunset: warm black
+   tea-house tones, lighter brand bronze for contrast, everything else keeps
+   its role. Toggled by the inline script in layout.tsx (auto 18:00–06:00
+   device time; ?theme=evening / ?theme=day / ?theme=auto to override, choice
+   persisted in localStorage). The account tier cards are self-contained dark
+   material already and sit on this ground even better than on cream. */
+:root[data-theme="evening"] {
+  --bg: #191009;
+  --bg2: #26190F;
+  --paper: #1F150C;
+  --card: #2A1C11;
+  --ink: #F4E9DC;
+  --ink2: #D8C4AE;
+  --ink3: rgba(244, 233, 220, 0.6);
+  --ink4: rgba(244, 233, 220, 0.32);
+  --line: rgba(244, 233, 220, 0.13);
+  --brand: #C9925A;
+  --brand-dark: #A9743F;
+  --green: #4CC084;
+  --green-dark: #3CA96E;
+
+  --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-mini-cart-v: 0 10px 22px rgba(0, 0, 0, 0.6);
+  --shadow-primary-cta-v: 0 14px 26px rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  --color-bg: #F2E8DF;
-  --color-bg2: #E8DAC6;
-  --color-paper: #FFF9F0;
-  --color-card: #FFFFFF;
-  --color-ink: #2A1E14;
-  --color-ink2: #5A4330;
-  --color-ink3: rgba(42, 30, 20, 0.55);
-  --color-ink4: rgba(42, 30, 20, 0.28);
-  --color-line: rgba(42, 30, 20, 0.10);
-  --color-brand: #8D5524;
-  --color-brand-dark: #6B3E15;
-  --color-peach: #FFB380;
-  --color-cream: #FFF3DE;
-  --color-star: #F2B64A;
-  --color-sage: #A2AD91;
-  --color-green: #3CA96E;
-  --color-green-dark: #2E7F52;
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-ink3: var(--ink3);
+  --color-ink4: var(--ink4);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-peach: var(--peach);
+  --color-cream: var(--cream);
+  --color-star: var(--star);
+  --color-sage: var(--sage);
+  --color-green: var(--green);
+  --color-green-dark: var(--green-dark);
 
   --radius-card: 20px;
   --radius-tile: 12px;
   --radius-small: 10px;
 
-  --shadow-card: 0 2px 8px rgba(42, 30, 20, 0.04);
-  --shadow-mini-cart: 0 10px 20px rgba(107, 62, 21, 0.55);
-  --shadow-primary-cta: 0 14px 24px rgba(42, 30, 20, 0.55);
+  --shadow-card: var(--shadow-card-v);
+  --shadow-mini-cart: var(--shadow-mini-cart-v);
+  --shadow-primary-cta: var(--shadow-primary-cta-v);
 
   --font-serif: var(--font-fraunces);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #F2E8DF;
-    --foreground: #2A1E14;
-  }
 }
 
 body {
@@ -52,6 +99,101 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-text-size-adjust: 100%;
+  /* Digits line up in columns everywhere money and counts appear — the
+     running-prose cost is negligible on a UI this numeric. */
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* One focus language site-wide. :where() carries zero specificity, so any
+   component that styles its own focus (focus:ring-*, focus:outline-none)
+   still wins; this only catches the elements nobody dressed. */
+:where(:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Display serif for the few headline moments — Fraunces' SOFT/WONK axes give
+   the letterforms a hand-set warmth the static instances flatten out. Applied
+   sparingly (hero, item titles); body-size serif stays as-is. */
+.serif-display {
+  font-variation-settings: "SOFT" 55, "WONK" 1;
+  font-optical-sizing: auto;
+}
+
+/* Skeleton shimmer — a slow warm sweep instead of the opacity pulse. The
+   sweep must be subtle: loading states should feel unhurried, not busy. */
+@keyframes mbt-shimmer {
+  0% {
+    background-position: -160% 0;
+  }
+  100% {
+    background-position: 260% 0;
+  }
+}
+.mbt-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  animation: mbt-shimmer 1.8s ease-in-out infinite;
+}
+:root[data-theme="evening"] .mbt-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 243, 222, 0.08) 50%,
+    transparent 70%
+  );
+}
+
+/* Route-enter transition (app/template.tsx): each page rises into place.
+   Deliberately CSS-only — React's ViewTransition component still needs a
+   canary build, and a production shop doesn't ride canaries for a flourish. */
+@keyframes mbt-route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.route-enter {
+  animation: mbt-route-enter 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mbt-shimmer,
+  .route-enter {
+    animation: none;
+  }
+}
+
+/* Evening remaps for the hard-coded light literals that predate the token
+   pass. Blanket, evening-scoped, zero-specificity — the right long-term fix
+   is migrating these components onto tokens, but a curated remap gets every
+   dialog and chip legible tonight without touching 30 files. */
+:root[data-theme="evening"] :where(.bg-white) {
+  background-color: var(--card);
+}
+:root[data-theme="evening"] :where(.bg-zinc-50) {
+  background-color: var(--bg2);
+}
+:root[data-theme="evening"] :where(.text-zinc-700, .text-zinc-600) {
+  color: var(--ink2);
+}
+:root[data-theme="evening"] :where(.text-zinc-500, .text-zinc-400, .text-zinc-300) {
+  color: var(--ink3);
+}
+:root[data-theme="evening"] :where(.border-zinc-200, .border-zinc-300, .border-black\/5, .border-black\/10) {
+  border-color: var(--line);
+}
+:root[data-theme="evening"] :where(.bg-zinc-200) {
+  background-color: var(--bg2);
 }
 
 /* Membership card star track (src/components/account/StarTrack.tsx).

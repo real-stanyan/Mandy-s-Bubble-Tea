@@ -11,11 +11,15 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const GA_ID = "G-KXVRP14YZF";
 
+// Variable Fraunces, with the SOFT/WONK optical axes along for the ride —
+// the .serif-display headline treatment (globals.css) dials them in. The
+// static 500/600 instances flattened those axes out entirely; the variable
+// font still serves font-medium/semibold through its weight axis.
 const fraunces = Fraunces({
-  weight: ["500", "600"],
   subsets: ["latin"],
   variable: "--font-fraunces",
   display: "swap",
+  axes: ["SOFT", "WONK", "opsz"],
 });
 
 const inter = Inter({
@@ -90,6 +94,20 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {/* Evening Mode init — parser-blocking on purpose so the theme lands
+            before first paint (no cream flash at night). Auto: 18:00–06:00
+            device time. Override: ?theme=evening | ?theme=day (persisted) |
+            ?theme=auto (back to the clock). Tokens live in globals.css. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var q=new URLSearchParams(location.search).get('theme');" +
+              "if(q==='evening'||q==='day'||q==='auto'){localStorage.setItem('mbt-theme',q);}" +
+              "var s=localStorage.getItem('mbt-theme');var h=new Date().getHours();" +
+              "var auto=h>=18||h<6;var ev=s==='evening'||((!s||s==='auto')&&auto);" +
+              "if(ev){document.documentElement.dataset.theme='evening';}}catch(e){}})();",
+          }}
         />
       </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">

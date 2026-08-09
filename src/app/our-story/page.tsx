@@ -142,7 +142,7 @@ export default async function OurStoryPage() {
           <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-peach">
             {KICKER}
           </p>
-          <h1 className="mt-4 font-serif text-[clamp(40px,4.8vw,64px)] font-semibold leading-[1.0] tracking-[-0.03em]">
+          <h1 className="serif-display mt-4 font-serif text-[clamp(40px,4.8vw,64px)] font-semibold leading-[1.0] tracking-[-0.03em]">
             <span className="block">{HEADLINE[0]}</span>
             <span className="block italic text-peach">{HEADLINE[1]}</span>
           </h1>
