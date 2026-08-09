@@ -138,14 +138,6 @@ export async function POST(request: NextRequest) {
   if (style !== undefined && style !== MEMORY_STAMP_STYLE_ID) {
     return NextResponse.json({ ok: false, error: "Unknown style" }, { status: 400 });
   }
-  if (style === MEMORY_STAMP_STYLE_ID && !sourceImage) {
-    // No photo → no subject to stamp. The client requires one before submit;
-    // this is the server-side backstop.
-    return NextResponse.json(
-      { ok: false, error: "Memory Stamp needs a photo" },
-      { status: 400 },
-    );
-  }
   // The prompt Doubao actually sees. For Memory Stamp the server-side style
   // prompt replaces the customer's text entirely — the style is the product,
   // and freeform steering is how the subject stops being theirs. The DB row
@@ -176,6 +168,18 @@ export async function POST(request: NextRequest) {
       status: existing.status,
       reused: true,
     });
+  }
+
+  // No photo → no subject to stamp. The client requires one before submit;
+  // this is the server-side backstop. It sits *after* the idempotency lookup
+  // on purpose: reopening the picker while a stamp job is still pending
+  // re-submits without re-attaching the photo, and 400ing there would make
+  // the client clear a job that was about to succeed.
+  if (style === MEMORY_STAMP_STYLE_ID && !sourceImage) {
+    return NextResponse.json(
+      { ok: false, error: "Memory Stamp needs a photo" },
+      { status: 400 },
+    );
   }
 
   // First submission for this slot — insert pending row, then queue
