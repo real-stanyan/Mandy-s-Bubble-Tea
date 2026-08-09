@@ -18,6 +18,10 @@ import { after } from "next/server";
 import { getAuthedUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { processAiJob } from "@/lib/cup-label/ai-process";
+import {
+  MEMORY_STAMP_STYLE_ID,
+  buildMemoryStampPrompt,
+} from "@/lib/cup-label/stamp-style";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +36,13 @@ type Body = {
   /** "{clientLineId}:{cupIdx}" — matches the cart's slot keying. */
   slotKey: string;
   prompt: string;
+  /**
+   * Curated style. "memory-stamp" turns the reference photo's subject into a
+   * seal-stamp graphic using a server-side prompt — the customer's own text
+   * is ignored (the style IS the prompt), and a reference image is required
+   * (there is no subject to stamp without one).
+   */
+  style?: string;
   /** Optional reference image (data URI or raw base64) for image-to-image. */
   sourceImageBase64?: string;
   /**
@@ -53,6 +64,7 @@ function isValidBody(body: unknown): body is Body {
   const b = body as Partial<Body>;
   if (typeof b.slotKey !== "string" || b.slotKey.trim().length === 0) return false;
   if (typeof b.prompt !== "string" || b.prompt.trim().length === 0) return false;
+  if (b.style !== undefined && typeof b.style !== "string") return false;
   if (b.sourceImageBase64 !== undefined && typeof b.sourceImageBase64 !== "string") return false;
   if (b.cartSessionId !== undefined && typeof b.cartSessionId !== "string") return false;
   return true;
@@ -120,6 +132,21 @@ export async function POST(request: NextRequest) {
     sourceImage = decoded;
   }
 
+  // Curated style gate. Unknown style ids 400 rather than silently running
+  // freeform — a typo'd style must not quietly produce the wrong product.
+  const style = body.style?.trim() || undefined;
+  if (style !== undefined && style !== MEMORY_STAMP_STYLE_ID) {
+    return NextResponse.json({ ok: false, error: "Unknown style" }, { status: 400 });
+  }
+  // The prompt Doubao actually sees. For Memory Stamp the server-side style
+  // prompt replaces the customer's text entirely — the style is the product,
+  // and freeform steering is how the subject stops being theirs. The DB row
+  // keeps a style marker instead so support can tell the flows apart.
+  const promptForModel =
+    style === MEMORY_STAMP_STYLE_ID ? buildMemoryStampPrompt() : prompt;
+  const promptForAudit =
+    style === MEMORY_STAMP_STYLE_ID ? `[${MEMORY_STAMP_STYLE_ID}]` : prompt;
+
   const sb = getSupabaseAdmin();
 
   // Idempotency check: same (user, slot) → return existing job. The
@@ -143,6 +170,18 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // No photo → no subject to stamp. The client requires one before submit;
+  // this is the server-side backstop. It sits *after* the idempotency lookup
+  // on purpose: reopening the picker while a stamp job is still pending
+  // re-submits without re-attaching the photo, and 400ing there would make
+  // the client clear a job that was about to succeed.
+  if (style === MEMORY_STAMP_STYLE_ID && !sourceImage) {
+    return NextResponse.json(
+      { ok: false, error: "Memory Stamp needs a photo" },
+      { status: 400 },
+    );
+  }
+
   // First submission for this slot — insert pending row, then queue
   // the background work via Next 15 `after()`. The row's id IS the
   // aiDoodleId we return to the client; processAiJob will upload to
@@ -153,7 +192,7 @@ export async function POST(request: NextRequest) {
     .insert({
       user_id: user.userId,
       slot_key: slotKey,
-      prompt,
+      prompt: promptForAudit,
       status: "pending",
     })
     .select("id")
@@ -189,7 +228,7 @@ export async function POST(request: NextRequest) {
     processAiJob({
       jobId: inserted.id,
       userId: user.userId,
-      prompt,
+      prompt: promptForModel,
       sourceImage,
     }),
   );

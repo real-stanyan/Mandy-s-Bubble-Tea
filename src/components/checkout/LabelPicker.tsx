@@ -20,6 +20,13 @@ import {
   CupLabelClientError,
 } from "@/lib/cup-label/client";
 import { DrawCanvas, BRUSHES, type BrushWidth } from "./cup-label/DrawCanvas";
+import {
+  MEMORY_STAMP_STYLE_ID,
+  MEMORY_STAMP_LABEL,
+} from "@/lib/cup-label/stamp-style";
+
+/** Cart-line label AND the client-side dedupe key for stamp submissions. */
+const MEMORY_STAMP_SENTINEL = MEMORY_STAMP_LABEL;
 import type { SvgPath } from "@/lib/doodle/render-svg";
 
 type GalleryItem = { hash: string; thumbUrl: string; source: "builtin" | "upload" };
@@ -352,12 +359,20 @@ function AiTab({
   const [prompt, setPrompt] = useState(current?.prompt ?? "");
   const [refDataUri, setRefDataUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Curated Memory Stamp style vs freeform prompting. Stamp mode ignores the
+  // textarea (the server-side style prompt IS the prompt) and requires a
+  // photo — there is no subject to stamp without one.
+  const [stampMode, setStampMode] = useState(
+    current?.prompt === MEMORY_STAMP_SENTINEL,
+  );
 
   if (!isSignedIn) return <SignInGate label="AI" />;
 
-  const trimmed = prompt.trim();
-  const overLimit = prompt.length > AI_PROMPT_MAX_LEN;
-  const canSubmit = trimmed.length > 0 && !overLimit;
+  const trimmed = stampMode ? MEMORY_STAMP_SENTINEL : prompt.trim();
+  const overLimit = !stampMode && prompt.length > AI_PROMPT_MAX_LEN;
+  const canSubmit = stampMode
+    ? refDataUri !== null || current?.prompt === MEMORY_STAMP_SENTINEL
+    : trimmed.length > 0 && !overLimit;
 
   async function handleRefFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -405,6 +420,7 @@ function AiTab({
     void submitAiCupLabel({
       slotKey,
       prompt: promptSnapshot,
+      style: stampMode ? MEMORY_STAMP_STYLE_ID : undefined,
       sourceImageBase64: refSnapshot ?? undefined,
       cartSessionId,
     })
@@ -437,23 +453,61 @@ function AiTab({
 
   return (
     <div className="flex flex-col gap-3 p-2">
-      <label className="text-sm font-medium">
-        Describe your design
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          maxLength={AI_PROMPT_MAX_LEN + 50}
-          rows={3}
-          placeholder="e.g. two cats reading on a moon, line drawing"
-          className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm"
-        />
-      </label>
-      <p
-        className="text-xs"
-        style={{ color: overLimit ? "#dc2626" : "#71717a" }}
-      >
-        {prompt.length}/{AI_PROMPT_MAX_LEN}
-      </p>
+      {/* Style switch: freeform prompting vs the curated Memory Stamp. */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setStampMode(false)}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            !stampMode
+              ? "border-transparent text-white"
+              : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
+          }`}
+          style={!stampMode ? { backgroundColor: BRAND.primaryColor } : undefined}
+        >
+          ✨ Describe it
+        </button>
+        <button
+          type="button"
+          onClick={() => setStampMode(true)}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            stampMode
+              ? "border-transparent text-white"
+              : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
+          }`}
+          style={stampMode ? { backgroundColor: BRAND.primaryColor } : undefined}
+        >
+          🧧 Memory Stamp
+        </button>
+      </div>
+
+      {stampMode ? (
+        <p className="text-xs leading-relaxed text-zinc-600">
+          Upload a photo and we&apos;ll press its subject into a vintage
+          ink-stamp keepsake — printed right on your cup. Pets, friends,
+          holiday snaps all work; faces stay true.
+        </p>
+      ) : (
+        <>
+          <label className="text-sm font-medium">
+            Describe your design
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              maxLength={AI_PROMPT_MAX_LEN + 50}
+              rows={3}
+              placeholder="e.g. two cats reading on a moon, line drawing"
+              className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm"
+            />
+          </label>
+          <p
+            className="text-xs"
+            style={{ color: overLimit ? "#dc2626" : "#71717a" }}
+          >
+            {prompt.length}/{AI_PROMPT_MAX_LEN}
+          </p>
+        </>
+      )}
 
       <div className="flex items-center gap-3 self-start">
         {refDataUri ? (
@@ -472,7 +526,14 @@ function AiTab({
               onChange={handleRefFile}
               className="hidden"
             />
-            📎 {refDataUri ? "Change reference image" : "Add a reference image (optional)"}
+            📎{" "}
+            {refDataUri
+              ? stampMode
+                ? "Change photo"
+                : "Change reference image"
+              : stampMode
+                ? "Add your photo (required)"
+                : "Add a reference image (optional)"}
           </label>
           {refDataUri ? (
             <button
