@@ -152,7 +152,17 @@ DeepSeek 真实调用不进门禁。
 
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_BASE_URL`（默认 `https://api.deepseek.com`）
-- `DEEPSEEK_MODEL`（默认值在实现时对照 DeepSeek 官方文档确认，不凭记忆写死）
+- `DEEPSEEK_MODEL`（默认 `deepseek-v4-pro`）
+
+已对照官方文档核实（2026-08-10，api-docs.deepseek.com）：
+
+- 在售模型只有 `deepseek-v4-flash` 与 `deepseek-v4-pro`。旧的 `deepseek-chat` / `deepseek-reasoner` 已不在列。
+- tool calls 文档的示例用 `deepseek-v4-pro`；未明确 flash 的 tool 支持，故默认取 pro。
+- OpenAI 兼容协议，可直接用 `openai` SDK 改 `baseURL`。
+- strict JSON schema 处于 beta：需 `baseURL` 指向 `https://api.deepseek.com/beta`，每个 function 加 `"strict": true`，且所有 object 加 `"additionalProperties": false`。
+- 定价（pro，每 1M input token）：cache hit $0.003625 / cache miss $0.435 — 命中缓存便宜约 120 倍，这是「菜单全量塞 system prompt」可行的前提。官方另注明近期将上调价格。
+
+**strict 模式只保证参数形状，不保证 id 真实存在。** 校验器始终是权威，不因启用 strict 而放松。
 
 需 Stan 在 Vercel 配置 production 值（属 AGENTS.md ADR-0008 的 A 类：凭证与外部账号）。
 
