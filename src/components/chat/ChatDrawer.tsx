@@ -92,7 +92,10 @@ export function ChatDrawer() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex h-[70vh] flex-col rounded-t-3xl bg-card shadow-card sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[32rem] sm:w-96 sm:rounded-card">
+    // dvh, not vh: vh ignores the iOS keyboard/toolbar, so the drawer's
+    // bottom row could sit under browser chrome; dvh tracks the dynamic
+    // viewport and keeps the input row visible when the keyboard is up.
+    <div className="fixed inset-x-0 bottom-0 z-50 flex h-[70dvh] flex-col rounded-t-3xl bg-card shadow-card sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[32rem] sm:w-96 sm:rounded-card">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <p className="font-serif text-[15px] font-semibold text-ink">{t.drawerTitle}</p>
         <button
@@ -120,7 +123,11 @@ export function ChatDrawer() {
           }}
           maxLength={MAX_CHARS}
           placeholder={t.inputPlaceholder}
-          className="flex-1 rounded-full border border-line bg-paper px-4 py-2 text-sm text-ink outline-none focus:border-brand"
+          // text-base, not text-sm: iOS Safari zooms the whole page when a
+          // focused input's font is under 16px, which shoved the send
+          // button off-screen the moment the keyboard opened (Stan's
+          // screenshots, 2026-08-10). 16px is the documented no-zoom floor.
+          className="flex-1 rounded-full border border-line bg-paper px-4 py-2 text-base text-ink outline-none focus:border-brand"
         />
         <button
           type="button"

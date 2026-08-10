@@ -9,6 +9,8 @@
 export type ChatUiStrings = {
   launcherLabel: string;
   launcherAria: string;
+  teaser: string;
+  teaserDismissAria: string;
   drawerTitle: string;
   closeAria: string;
   inputPlaceholder: string;
@@ -29,6 +31,8 @@ export type ChatUiStrings = {
 const ZH: ChatUiStrings = {
   launcherLabel: "点单助手",
   launcherAria: "打开点单助手",
+  teaser: "嗨！我是 AI 点单助手 🧋 可以帮你推荐、点单、答疑～",
+  teaserDismissAria: "关闭提示",
   drawerTitle: "点单助手",
   closeAria: "关闭",
   inputPlaceholder: "想喝点什么？",
@@ -49,6 +53,8 @@ const ZH: ChatUiStrings = {
 const EN: ChatUiStrings = {
   launcherLabel: "Order assistant",
   launcherAria: "Open the order assistant",
+  teaser: "Hi! I'm the AI order assistant 🧋 — ask me for picks, orders, or help.",
+  teaserDismissAria: "Dismiss",
   drawerTitle: "Order assistant",
   closeAria: "Close",
   inputPlaceholder: "What are you in the mood for?",

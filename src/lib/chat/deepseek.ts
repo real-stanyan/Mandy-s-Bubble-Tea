@@ -36,10 +36,13 @@ export type DeepSeekMessage = {
 export type ToolCall = { id: string; name: string; argumentsJson: string };
 export type DeepSeekReply = { content: string; toolCalls: ToolCall[] };
 
-/** Verified against api-docs.deepseek.com on 2026-08-10: the tool-calls guide
- *  demonstrates deepseek-v4-pro. The only other model on sale is
- *  deepseek-v4-flash. deepseek-chat no longer exists. */
-const DEFAULT_MODEL = "deepseek-v4-pro";
+/** Verified against api-docs.deepseek.com on 2026-08-10: the only two models
+ *  on sale are deepseek-v4-pro and deepseek-v4-flash (deepseek-chat no longer
+ *  exists). Default is flash — Stan found pro noticeably slow for a chat
+ *  bubble (2026-08-10), and latency loses customers faster than reasoning
+ *  wins them. Set DEEPSEEK_MODEL=deepseek-v4-pro to switch back without a
+ *  deploy if flash's tool-calling proves too sloppy. */
+const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
