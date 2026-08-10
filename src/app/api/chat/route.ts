@@ -11,6 +11,7 @@ import {
   type ValidationResult,
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
+import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
   hashIp,
@@ -237,24 +238,7 @@ export async function POST(request: Request): Promise<Response> {
       const v = validated.value;
       return json({
         reply: scrubPrices(result.content || v.reason),
-        proposal: {
-          itemId: v.line.itemId,
-          itemName: v.line.itemName,
-          imageUrl: v.line.itemImageUrl,
-          categorySlug: v.categorySlug,
-          variationId: v.line.variationId,
-          variationName: v.line.variationName,
-          variationPriceCents: v.line.variationPriceCents.toString(),
-          modifiers: v.line.modifiers.map((m) => ({
-            id: m.id,
-            name: m.name,
-            priceCents: m.priceCents.toString(),
-          })),
-          quantity: v.quantity,
-          unitPriceCents: v.unitPriceCents.toString(),
-          totalCents: v.totalCents.toString(),
-          reason: v.reason,
-        },
+        proposal: toApiProposal(v),
         action: null,
         degraded: false,
         suggestions: [],

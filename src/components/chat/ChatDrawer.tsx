@@ -25,7 +25,14 @@ export function ChatDrawer() {
 
   async function send() {
     const text = draft.trim().slice(0, MAX_CHARS);
-    if (!text || isThinking) return;
+    // Read the live store, not the `isThinking` this render closure was
+    // built with: setThinking(true) below commits to zustand synchronously,
+    // but a second Enter/click fired before React re-renders would still
+    // see this closure's stale `false`. useChat.getState() sees whatever
+    // the first call already committed, so a fast double-submit can't slip
+    // a second POST through (same shape as DrinkProposalCard's addLine
+    // guard).
+    if (!text || useChat.getState().isThinking) return;
     setDraft("");
     push({ id: newMessageId(), role: "user", content: text });
     setThinking(true);
@@ -102,7 +109,11 @@ export function ChatDrawer() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void send();
+            // Every string in this UI is Chinese, and Chinese input methods
+            // use Enter to commit a pinyin candidate — without the
+            // isComposing check, confirming a candidate mid-sentence would
+            // send whatever partial buffer was on screen at that instant.
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
           }}
           maxLength={MAX_CHARS}
           placeholder="想喝点什么？"

@@ -68,11 +68,19 @@ export function unitPriceCentsFor(
 }
 
 /** The single source of truth for turning a selection into a cart line.
- *  Both the menu's ItemOrderForm and the chatbox proposal card go through
- *  here — if they diverged, the same drink added from chat and from the
- *  menu would produce different signatureFor() ids and split into two
- *  cart rows. A modifier picked N times is emitted N times, which is what
- *  cart.ts's lineUnitPrice() sums over. */
+ *  ItemOrderForm calls this directly. The chatbox proposal card does not —
+ *  it can't, buildCartLine needs live catalog objects the client never
+ *  receives — so instead validateProposal() (src/lib/chat/validate-proposal.ts)
+ *  calls it server-side, toApiProposal() (src/lib/chat/proposal-to-cart.ts)
+ *  serializes the result (BigInt -> decimal string, since BigInt can't
+ *  cross JSON), and proposalToCartLine() rehydrates it client-side
+ *  (string -> BigInt) right before addLine(). The round trip is lossless
+ *  by construction — proposalToCartLine.test.ts asserts it — so both
+ *  surfaces still end up with identical signatureFor() ids. If they
+ *  diverged, the same drink added from chat and from the menu would split
+ *  into two cart rows instead of merging. A modifier picked N times is
+ *  emitted N times here, which is what cart.ts's lineUnitPrice() sums
+ *  over, and what the round trip must preserve. */
 export function buildCartLine(
   params: BuildCartLineParams,
 ): Omit<CartLine, "id" | "quantity"> {
