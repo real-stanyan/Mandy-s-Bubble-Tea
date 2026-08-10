@@ -40,7 +40,7 @@ describe("callDeepSeek", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.deepseek.com/chat/completions");
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.model).toBe("deepseek-v4-pro");
+    expect(body.model).toBe("deepseek-v4-flash");
     expect(body.tools).toHaveLength(3);
   });
 
