@@ -65,7 +65,11 @@ type CartState = {
   cartSessionId: string;
 
   // Actions
-  addLine: (line: Omit<CartLine, "id" | "quantity">, quantity?: number) => void;
+  addLine: (
+    line: Omit<CartLine, "id" | "quantity">,
+    quantity?: number,
+    opts?: { openDrawer?: boolean },
+  ) => void;
   setQuantity: (lineId: string, quantity: number) => void;
   removeLine: (lineId: string) => void;
   clear: () => void;
@@ -161,12 +165,18 @@ export const useCart = create<CartState>()(
       keepLabelCopy: false,
       cartSessionId: newCartSessionId(),
 
-      addLine: (partial, quantity = 1) => {
+      addLine: (partial, quantity = 1, opts = {}) => {
         const id = signatureFor(
           partial.itemId,
           partial.variationId,
           partial.modifiers,
         );
+        // The menu flow auto-opens the cart drawer as its "added" feedback.
+        // The chat flow passes openDrawer: false — its proposal card is the
+        // feedback, and the drawer would land on top of (or under) the chat
+        // sheet, each covering the other's header (Stan's screenshot,
+        // 2026-08-10).
+        const isOpen = opts.openDrawer === false ? undefined : true;
         set((state) => {
           const existing = state.lines.find((l) => l.id === id);
           if (existing) {
@@ -174,12 +184,12 @@ export const useCart = create<CartState>()(
               lines: state.lines.map((l) =>
                 l.id === id ? { ...l, quantity: l.quantity + quantity } : l,
               ),
-              isOpen: true,
+              ...(isOpen !== undefined && { isOpen }),
             };
           }
           return {
             lines: [...state.lines, { ...partial, id, quantity }],
-            isOpen: true,
+            ...(isOpen !== undefined && { isOpen }),
           };
         });
       },
