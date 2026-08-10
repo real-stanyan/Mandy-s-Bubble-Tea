@@ -19,7 +19,7 @@ create or replace function public.bump_chat_rate_limit(
   p_hour_bucket timestamptz
 ) returns integer
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 declare
@@ -35,3 +35,16 @@ end;
 $$;
 
 alter table public.chat_rate_limit enable row level security;
+
+-- Supabase's default privileges grant EXECUTE on new public-schema functions
+-- to anon/authenticated directly, and PostgreSQL grants it to PUBLIC. Left
+-- alone this RPC is callable from any browser holding the public anon key,
+-- and (were it still SECURITY DEFINER) would bypass the RLS enabled above.
+-- Only the service-role client ever calls it. Same lockdown as
+-- consume_topping_allowance (2026-06-12-tier-topping-usage.sql). SECURITY
+-- INVOKER above removes the privilege-escalation primitive itself — the
+-- revoke/grant here is defense in depth in case the ACL ever drifts.
+revoke all on function public.bump_chat_rate_limit(text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.bump_chat_rate_limit(text, timestamptz)
+  to service_role;

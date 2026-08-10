@@ -26,6 +26,16 @@ describe("hashIp", () => {
   it("does not leak the raw IP", () => {
     expect(hashIp("203.0.113.5")).not.toContain("203.0.113.5");
   });
+
+  it("throws when the salt is unset", () => {
+    delete process.env.CHAT_RATE_LIMIT_SALT;
+    expect(() => hashIp("203.0.113.5")).toThrow(/CHAT_RATE_LIMIT_SALT/);
+  });
+
+  it("throws when the salt is an empty string", () => {
+    process.env.CHAT_RATE_LIMIT_SALT = "";
+    expect(() => hashIp("203.0.113.5")).toThrow(/CHAT_RATE_LIMIT_SALT/);
+  });
 });
 
 describe("checkChatRateLimit", () => {
@@ -53,6 +63,27 @@ describe("checkChatRateLimit", () => {
     // limiter for a few minutes is cheaper than a dead feature.
     rpc.mockResolvedValue({ data: null, error: { message: "boom" } });
     expect((await checkChatRateLimit("abc")).allowed).toBe(true);
+  });
+
+  it("fails open on an error even with a numeric data payload", async () => {
+    // data:null alone would already satisfy `typeof data !== "number"`, so
+    // this pins down that the `error` branch is actually checked, not just
+    // the data type: an implementation that ignored `error` would compute
+    // this as "999 > CHAT_HOURLY_LIMIT" and wrongly block instead of
+    // failing open.
+    rpc.mockResolvedValue({ data: 999, error: { message: "boom" } });
+    const v = await checkChatRateLimit("abc");
+    expect(v.allowed).toBe(true);
+    expect(v.remaining).toBe(CHAT_HOURLY_LIMIT);
+  });
+
+  it("fails open when the RPC call rejects outright", async () => {
+    // Covers the try/catch path (e.g. network failure before Supabase ever
+    // returns a { data, error } pair), distinct from a resolved error.
+    rpc.mockRejectedValue(new Error("network"));
+    const v = await checkChatRateLimit("abc");
+    expect(v.allowed).toBe(true);
+    expect(v.remaining).toBe(CHAT_HOURLY_LIMIT);
   });
 
   it("buckets by the hour", async () => {

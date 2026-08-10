@@ -8,9 +8,16 @@ export const CHAT_HOURLY_LIMIT = 30;
 export type RateLimitVerdict = { allowed: boolean; remaining: number };
 
 /** Salted SHA-256 of the caller's IP. The salt keeps the table from being a
- *  rainbow-table-able list of who visited; the raw IP is never stored. */
+ *  rainbow-table-able list of who visited; the raw IP is never stored.
+ *  Missing or empty salt would make the hash publicly computable
+ *  (`sha256(":" + ip)`), which turns the rate limiter into a targeted-lockout
+ *  tool against any IP an attacker can guess — so this throws rather than
+ *  silently degrading. */
 export function hashIp(ip: string): string {
-  const salt = process.env.CHAT_RATE_LIMIT_SALT ?? "";
+  const salt = process.env.CHAT_RATE_LIMIT_SALT;
+  if (!salt) {
+    throw new Error("CHAT_RATE_LIMIT_SALT is not set");
+  }
   return createHash("sha256").update(`${salt}:${ip}`).digest("hex");
 }
 
