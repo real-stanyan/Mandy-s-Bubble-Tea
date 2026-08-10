@@ -24,6 +24,27 @@ const iceList: ModifierList = {
   modifiers: [
     { id: "MOD_ICE_REG", name: "Regular Ice", priceCents: null, ordinal: 0, onByDefault: true, soldOut: false },
     { id: "MOD_ICE_NONE", name: "No Ice", priceCents: null, ordinal: 1, onByDefault: false, soldOut: false },
+    // Matches isWarmIceModifier() in modifier-mutex.ts (name === "warm",
+    // case/whitespace-insensitive) — needed to exercise the warm-ice /
+    // cheese-cream cross-list mutex in validate-proposal.test.ts.
+    { id: "MOD_ICE_WARM", name: "Warm", priceCents: null, ordinal: 2, onByDefault: false, soldOut: false },
+  ],
+};
+
+// Matches EXCLUSIVE_TOPPINGS in modifier-mutex.ts ("Cheese Cream" /
+// "Brulee") — needed to exercise the Cheese-Cream/Brulee exclusivity rule
+// and the warm-ice cross-list mutex in validate-proposal.test.ts. Added
+// additively as its own list/ref: no existing id, name, or price changes.
+const creamList: ModifierList = {
+  id: "ML_CREAM",
+  name: "CREAM",
+  minSelected: 0,
+  maxSelected: null,
+  maxDistinct: null,
+  maxPerKind: null,
+  modifiers: [
+    { id: "MOD_CHEESE_CREAM", name: "Cheese Cream", priceCents: 100n, ordinal: 0, onByDefault: false, soldOut: false },
+    { id: "MOD_BRULEE", name: "Brulee", priceCents: 100n, ordinal: 1, onByDefault: false, soldOut: false },
   ],
 };
 
@@ -48,6 +69,7 @@ const refs = [
   { id: "ML_SUGAR", minOverride: null, maxOverride: null, modifierOverrides: [] },
   { id: "ML_ICE", minOverride: null, maxOverride: null, modifierOverrides: [] },
   { id: "ML_TOPPING", minOverride: null, maxOverride: null, modifierOverrides: [] },
+  { id: "ML_CREAM", minOverride: null, maxOverride: null, modifierOverrides: [] },
 ];
 
 function item(
@@ -104,6 +126,7 @@ export function fixtureMenu(): Menu {
       ["ML_SUGAR", sugarList],
       ["ML_ICE", iceList],
       ["ML_TOPPING", toppingList],
+      ["ML_CREAM", creamList],
     ]),
   };
 }

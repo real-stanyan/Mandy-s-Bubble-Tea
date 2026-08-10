@@ -266,6 +266,169 @@ describe("validateProposal — TOP 10 locked toppings", () => {
   });
 });
 
+describe("validateProposal — sold-out variation (partial sell-through)", () => {
+  it("rejects a specific sold-out size even when other sizes remain", () => {
+    // ITEM_GONE's Regular variation is NOT sold out in the fixture — only
+    // Large is. This exercises the variation.soldOut branch specifically:
+    // deleting that branch still leaves r.ok === false (the item-level
+    // soldOut check also fires for this fixture item), but the message
+    // naming the size ("Large") would disappear, which is what this
+    // assertion is actually pinned on.
+    const r = validateProposal(
+      menu,
+      proposal({ itemId: "ITEM_GONE", variationId: "ITEM_GONE_LRG" }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toMatch(/Large/);
+  });
+});
+
+describe("validateProposal — sold-out locked topping", () => {
+  it("rejects a TOP 10 item whose locked topping is sold out, instead of force-adding it silently", () => {
+    // Build a locally modified copy of the menu with Pudding sold out —
+    // must not mutate the shared fixtureMenu()'s modifierLists Map or its
+    // ModifierList/ModifierOption objects, since `menu` above is reused by
+    // every other test in this file.
+    const base = fixtureMenu();
+    const toppingList = base.modifierLists.get("ML_TOPPING")!;
+    const modifierLists = new Map(base.modifierLists);
+    modifierLists.set("ML_TOPPING", {
+      ...toppingList,
+      modifiers: toppingList.modifiers.map((m) =>
+        m.id === "MOD_PUDDING" ? { ...m, soldOut: true } : m,
+      ),
+    });
+    const menuWithSoldOutPudding = { ...base, modifierLists };
+
+    const r = validateProposal(
+      menuWithSoldOutPudding,
+      proposal({
+        itemId: "ITEM_TOP10_TARO",
+        variationId: "ITEM_TOP10_TARO_REG",
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toMatch(/Pudding/);
+    expect(r.errors.join(" ")).toMatch(/sold out/i);
+  });
+
+  it("does not affect the shared fixture menu used by other tests", () => {
+    // Guards against a regression where the previous test's local copy
+    // accidentally mutated shared state: the module-level `menu` must
+    // still price Pudding as available.
+    const r = validateProposal(
+      menu,
+      proposal({
+        itemId: "ITEM_TOP10_TARO",
+        variationId: "ITEM_TOP10_TARO_REG",
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("validateProposal — cross-modifier mutex", () => {
+  it("rejects Warm ice combined with Cheese Cream", () => {
+    const r = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_WARM", count: 1 },
+          { modifierId: "MOD_CHEESE_CREAM", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toMatch(/warm/i);
+  });
+
+  it("rejects Warm ice combined with Brulee", () => {
+    const r = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_WARM", count: 1 },
+          { modifierId: "MOD_BRULEE", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects Cheese Cream and Brulee selected together", () => {
+    const r = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+          { modifierId: "MOD_CHEESE_CREAM", count: 1 },
+          { modifierId: "MOD_BRULEE", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join(" ")).toMatch(/Cheese Cream/);
+    expect(r.errors.join(" ")).toMatch(/Brulee/);
+  });
+
+  it("allows Cheese Cream on its own with regular ice", () => {
+    const r = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+          { modifierId: "MOD_CHEESE_CREAM", count: 1 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("validateProposal — Oreo exemption from maxPerKind", () => {
+  it("accepts 4 Oreos but still rejects 4 Pearls", () => {
+    const rOreo = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+          { modifierId: "MOD_OREO", count: 4 },
+        ],
+      }),
+    );
+    expect(rOreo.ok).toBe(true);
+
+    const rPearl = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+          { modifierId: "MOD_PEARL", count: 4 },
+        ],
+      }),
+    );
+    expect(rPearl.ok).toBe(false);
+  });
+});
+
 describe("validateProposal — error accumulation", () => {
   it("reports every problem at once so one retry can fix them all", () => {
     const r = validateProposal(

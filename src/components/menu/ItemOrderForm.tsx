@@ -21,6 +21,12 @@ import {
   unitPriceCentsFor,
   type CountMap,
 } from "@/lib/menu/build-cart-line";
+import {
+  getExclusivePartner,
+  isExclusiveModifier,
+  isWarmIceModifier,
+  someSelectedAcrossLists,
+} from "@/lib/menu/modifier-mutex";
 
 type Props = {
   item: MenuItem;
@@ -39,32 +45,6 @@ type Props = {
    */
   stickyPreview?: boolean;
 };
-
-const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
-const WARM_ICE_NAME = "warm";
-
-function isExclusiveModifier(mod: ModifierOption): boolean {
-  return EXCLUSIVE_TOPPINGS.includes(mod.name);
-}
-
-function isWarmIceModifier(mod: ModifierOption): boolean {
-  return mod.name.trim().toLowerCase() === WARM_ICE_NAME;
-}
-
-function someSelectedAcrossLists(
-  counts: CountMap,
-  modifierLists: ModifierList[],
-  predicate: (mod: ModifierOption) => boolean,
-): boolean {
-  for (const ml of modifierLists) {
-    const map = counts[ml.id];
-    if (!map) continue;
-    for (const mod of ml.modifiers) {
-      if ((map[mod.id] ?? 0) > 0 && predicate(mod)) return true;
-    }
-  }
-  return false;
-}
 
 function supportsMultiCount(list: ModifierList): boolean {
   // Single-select lists stay 0-or-1 per modifier. Exclusivity on
@@ -184,18 +164,6 @@ export function ItemOrderForm({
       }),
     [displayName, item.name, modifierLists, selectedByList],
   );
-
-  function getExclusivePartner(
-    list: ModifierList,
-    modifierId: string,
-  ): string | null {
-    const mod = list.modifiers.find((m) => m.id === modifierId);
-    if (!mod || !isExclusiveModifier(mod)) return null;
-    const partner = list.modifiers.find(
-      (m) => m.id !== modifierId && isExclusiveModifier(m),
-    );
-    return partner?.id ?? null;
-  }
 
   function canIncrement(list: ModifierList, modifierId: string): boolean {
     const mod = list.modifiers.find((m) => m.id === modifierId);

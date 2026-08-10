@@ -1,6 +1,6 @@
 import type { MenuCategory, MenuItem, Menu } from "@/lib/catalog";
 import { getItemDetail } from "@/lib/catalog";
-import { cappedDistinctCount } from "@/lib/menu/topping-rules";
+import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
 import {
   displayNameFor,
   lockedModifierIds,
@@ -11,6 +11,11 @@ import {
   unitPriceCentsFor,
   type CountMap,
 } from "@/lib/menu/build-cart-line";
+import {
+  isExclusiveModifier,
+  isWarmIceModifier,
+  someSelectedAcrossLists,
+} from "@/lib/menu/modifier-mutex";
 import type { CartLine } from "@/store/cart";
 
 /** Exactly the shape of the model's propose_drink tool call. */
@@ -140,14 +145,57 @@ export function validateProposal(
   // Reuses lockedModifierIds() rather than matching names here: the menu
   // path already goes through it, and a second name-normalizing rule would
   // be a second thing to keep in sync.
+  //
+  // A locked topping that's sold out cannot be silently seeded — the menu
+  // UI's soldOutSelectedNames disables Add to Cart in exactly this case
+  // (ItemOrderForm.tsx), so accepting the proposal here would let the chat
+  // path checkout a drink the shop can't actually make.
   const lockedToppings = lockedToppingsFor(category.slug, item.name);
   for (const { listId, modifierId } of lockedModifierIds(
     detail.modifierLists,
     lockedToppings,
   )) {
+    const list = detail.modifierLists.find((ml) => ml.id === listId);
+    const lockedMod = list?.modifiers.find((m) => m.id === modifierId);
+    if (lockedMod?.soldOut) {
+      errors.push(
+        `${lockedMod.name} is sold out today, so ${item.name} can't be made as configured`,
+      );
+      continue;
+    }
     const map = counts[listId] ?? {};
     if ((map[modifierId] ?? 0) < 1) map[modifierId] = 1;
     counts[listId] = map;
+  }
+
+  // Cross-list mutex: Warm ice ⊥ Cheese Cream / Brulee toppings — hot
+  // drinks don't pair with cold cream or torched sugar. Mirrors
+  // canIncrement() in ItemOrderForm.tsx via the shared modifier-mutex.ts
+  // helpers, so the chatbox can't compose a combination the shop can't
+  // make even though nothing on the id/bounds side objects to it.
+  if (
+    someSelectedAcrossLists(counts, detail.modifierLists, isWarmIceModifier) &&
+    someSelectedAcrossLists(counts, detail.modifierLists, isExclusiveModifier)
+  ) {
+    errors.push(
+      "Warm ice cannot be combined with Cheese Cream or Brulee toppings",
+    );
+  }
+
+  // Within-list mutex: Cheese Cream and Brulee are exclusive partners —
+  // each stackable on its own, but not together. Mirrors
+  // getExclusivePartner() in ItemOrderForm.tsx.
+  for (const ml of detail.modifierLists) {
+    const map = counts[ml.id];
+    if (!map) continue;
+    const selectedExclusive = ml.modifiers.filter(
+      (m) => (map[m.id] ?? 0) > 0 && isExclusiveModifier(m),
+    );
+    if (selectedExclusive.length > 1) {
+      errors.push(
+        `${selectedExclusive.map((m) => m.name).join(" and ")} cannot both be selected`,
+      );
+    }
   }
 
   // Same bounds the menu UI enforces, re-checked here because nothing
@@ -172,8 +220,12 @@ export function validateProposal(
     }
     if (ml.maxPerKind != null) {
       for (const [modId, n] of Object.entries(map)) {
+        const modInfo = ml.modifiers.find((m) => m.id === modId);
+        // Oreo (and any other uncounted topping) is exempt from maxPerKind,
+        // same as canIncrement() in ItemOrderForm.tsx — it's unlimited.
+        if (modInfo && isUncountedTopping(modInfo.name)) continue;
         if (n <= ml.maxPerKind) continue;
-        const name = ml.modifiers.find((m) => m.id === modId)?.name ?? modId;
+        const name = modInfo?.name ?? modId;
         errors.push(`${name} allows at most ${ml.maxPerKind}, got ${n}`);
       }
     }
