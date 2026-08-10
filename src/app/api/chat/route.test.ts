@@ -557,3 +557,65 @@ describe("POST /api/chat — complaints", () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 });
+
+describe("POST /api/chat — impossible customer requests", () => {
+  const fixedSweetArgs = {
+    itemId: "ITEM_FIXED_SWEET",
+    variationId: "ITEM_FIXED_SWEET_REG",
+    modifiers: [
+      { modifierId: "MOD_SUGAR_STD", count: 1 },
+      { modifierId: "MOD_ICE_REG", count: 1 },
+    ],
+    quantity: 1,
+    reason: "不加糖的奶茶",
+  };
+
+  it("rejects a proposal that ignores an impossible request, and says why", async () => {
+    // The production regression (2026-08-11): the customer asked for a
+    // drink with no sugar, that drink's SUGAR LEVEL is Standard/Extra
+    // only, and the model answered "sure, no sugar" while proposing it
+    // with the default. The card then contradicted the promise.
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? proposeCall(fixedSweetArgs)
+        : { content: "这款只有标准糖和多糖，做不了不加糖，要不要换一款？", toolCalls: [] };
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "Fixed Sweet Milk Tea 不要糖" }] }))
+    ).json();
+
+    expect(callDeepSeek).toHaveBeenCalledTimes(2);
+    // Second turn is a plain explanation — no card promising the impossible.
+    expect(body.proposals).toEqual([]);
+    expect(body.reply).toContain("做不了");
+
+    // The rejection must name the impossibility AND the real options, or
+    // the retry is a reroll instead of a correction.
+    const retry = JSON.stringify(seen[1]);
+    expect(retry).toContain("no sugar-free option");
+    expect(retry).toContain("Standard Sugar, Extra Sugar");
+  });
+
+  it("leaves a request the catalog CAN honour alone", async () => {
+    // Same drink, same shape — but "去冰" is on its ICE list, so the
+    // proposal must sail straight through on the first attempt.
+    callDeepSeek.mockResolvedValue(
+      proposeCall({
+        ...fixedSweetArgs,
+        modifiers: [
+          { modifierId: "MOD_SUGAR_STD", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+        ],
+      }),
+    );
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "Fixed Sweet Milk Tea 去冰" }] }))
+    ).json();
+
+    expect(callDeepSeek).toHaveBeenCalledTimes(1);
+    expect(body.proposals).toHaveLength(1);
+  });
+});

@@ -16,6 +16,7 @@ import {
   isWarmIceModifier,
   someSelectedAcrossLists,
 } from "@/lib/menu/modifier-mutex";
+import { unsupportedPreferences } from "@/lib/chat/preference-check";
 import type { CartLine } from "@/store/cart";
 
 /** Exactly the shape of the model's propose_drink tool call. */
@@ -82,6 +83,11 @@ function locateItem(
 export function validateProposal(
   menu: Menu,
   proposal: DrinkProposal,
+  /** The customer's own last message. Supplied by the chat route so the
+   *  validator can reject a proposal that silently ignores a request the
+   *  catalog cannot honour (see preference-check.ts). Optional so unit
+   *  callers that only care about id/bounds integrity stay unchanged. */
+  customerText?: string,
 ): ValidationResult {
   const errors: string[] = [];
 
@@ -196,6 +202,17 @@ export function validateProposal(
         `${selectedExclusive.map((m) => m.name).join(" and ")} cannot both be selected`,
       );
     }
+  }
+
+  // Can this drink even do what the customer asked for? A drink whose
+  // SUGAR list stops at Standard/Extra cannot be made sugar-free, and a
+  // model that answers "sure, no sugar" and proposes it anyway has
+  // promised something the kitchen will not deliver. Checked before the
+  // bounds pass so the feedback names the impossibility, not a symptom.
+  if (customerText) {
+    errors.push(
+      ...unsupportedPreferences(customerText, detail.modifierLists, item.name),
+    );
   }
 
   // Same bounds the menu UI enforces, re-checked here because nothing

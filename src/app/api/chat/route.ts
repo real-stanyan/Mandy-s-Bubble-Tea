@@ -370,7 +370,7 @@ export async function POST(request: Request): Promise<Response> {
       // 500 the request.
       let validated: ValidationResult;
       try {
-        validated = validateProposal(menu, parsed);
+        validated = validateProposal(menu, parsed, lastUserText);
       } catch (err) {
         console.error(
           "[chat] propose_drink arguments had an unexpected shape; treating as a rejected proposal:",
