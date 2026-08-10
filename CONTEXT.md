@@ -30,7 +30,7 @@
 
 ## Key invariants
 
-- `AGENTS.md` 永远是唯一规则源；根 `CLAUDE.md` 永远只是 `@AGENTS.md` 空壳
+- `AGENTS.md` 永远是唯一规则源；根 `CLAUDE.md` 永远只是 `@AGENTS.md` 空壳，`.claude/CLAUDE.md` 永远只是指路表——两者都不复述规则（ADR-0010）
 - 不建 `HANDOFF.md`——交接走 issue comment（append-only、带时间戳）
 - 门禁命令在 AGENTS.md 和 `.github/workflows/ci.yml` 里必须字面一致（CI == Gate 契约）
 - 一个任务一个 agent 做完，交接只在任务边界发生
