@@ -1076,10 +1076,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-ink sm:text-base">
+                {/* Pinned day ink, not tokens: this card keeps its cream
+                    poster face in evening mode (inline BRAND.accentColor
+                    bg), so token text would flip light-on-light. Same
+                    idiom as AuthSplitCard's brand panel. */}
+                <h3 className="text-sm font-bold text-[#2A1E14] sm:text-base">
                   Rewards Progress
                 </h3>
-                <p className="mt-0.5 text-xs text-ink2 sm:mt-1 sm:text-sm">
+                <p className="mt-0.5 text-xs text-[#5A4330] sm:mt-1 sm:text-sm">
                   {loyaltyBalance > 0
                     ? `${loyaltyBalance} stars · +${starsThisOrder} this order`
                     : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} this order`}
@@ -1101,7 +1105,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 }}
               />
             </div>
-            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-ink3 sm:mt-2 sm:text-[11px]">
+            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-[#2A1E14]/55 sm:mt-2 sm:text-[11px]">
               <span>{loyaltyBalance} Stars</span>
               <span>{starsPerReward} for Free Drink</span>
             </div>
