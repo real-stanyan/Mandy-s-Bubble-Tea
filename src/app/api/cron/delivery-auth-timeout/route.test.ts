@@ -26,6 +26,11 @@ vi.mock("@/lib/release-delivery-order", () => ({
   releaseDeliveryOrder: (...a: unknown[]) => mockRelease(...a),
 }))
 
+const mockNag = vi.fn()
+vi.mock("@/lib/driver-notify", () => ({
+  nagDriversUnacceptedDelivery: (...a: unknown[]) => mockNag(...a),
+}))
+
 import { GET } from "./route"
 
 function req(): Request {
@@ -74,6 +79,60 @@ describe("GET /api/cron/delivery-auth-timeout", () => {
     expect(mockRelease).toHaveBeenCalledWith(
       expect.objectContaining({ id: "O1" }),
     )
+  })
+
+  it("nags — not releases — an order still inside the 30-minute grace", async () => {
+    // 10 minutes old: past the 5-minute nag threshold, well before cancel.
+    // The Jorja case (2026-08-09): one missed popup, then silence, then an
+    // auto-cancel nobody understood. Every sweep tick must shout again.
+    const order = {
+      ...authedOrderWithReward(),
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    }
+    mockOrdersSearch.mockResolvedValue({ orders: [order], cursor: undefined })
+    mockNag.mockResolvedValue(undefined)
+
+    const res = await GET(req())
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, cancelled: 0, nagged: 1 })
+    expect(mockRelease).not.toHaveBeenCalled()
+    // age 10 min, 20 min left before auto-cancel.
+    expect(mockNag).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "O1" }),
+      10,
+      20,
+    )
+  })
+
+  it("does not nag an order a driver already accepted", async () => {
+    const order = {
+      ...authedOrderWithReward(),
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    }
+    mockOrdersSearch.mockResolvedValue({ orders: [order], cursor: undefined })
+    mockGetAccepted.mockResolvedValue(new Set(["O1"]))
+
+    const res = await GET(req())
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, nagged: 0, cancelled: 0 })
+    expect(mockNag).not.toHaveBeenCalled()
+  })
+
+  it("a nag failure is logged, not fatal to the sweep", async () => {
+    const young = {
+      ...authedOrderWithReward(),
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    }
+    const old = { ...authedOrderWithReward(), id: "O2", referenceId: "DE827" }
+    mockOrdersSearch.mockResolvedValue({ orders: [young, old], cursor: undefined })
+    mockNag.mockRejectedValue(new Error("expo down"))
+
+    const res = await GET(req())
+    const json = await res.json()
+    // The old order still gets released even though the nag threw.
+    expect(json).toMatchObject({ ok: true, cancelled: 1, nagged: 0 })
+    expect(json.errors.join()).toContain("expo down")
+    expect(mockRelease).toHaveBeenCalledWith(expect.objectContaining({ id: "O2" }))
   })
 
   it("releases a $0 free-redeem order (no tender) too", async () => {
