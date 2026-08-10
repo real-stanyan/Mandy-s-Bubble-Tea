@@ -9,7 +9,7 @@ export type MenuSuggestion = {
 /** Words too common to carry signal in a bubble tea shop. */
 const STOP_WORDS = new Set([
   "a", "an", "the", "i", "want", "would", "like", "please", "me", "get",
-  "one", "some", "with", "and", "or", "tea", "drink", "milk",
+  "one", "some", "with", "and", "or",
 ]);
 
 function tokenize(text: string): string[] {
