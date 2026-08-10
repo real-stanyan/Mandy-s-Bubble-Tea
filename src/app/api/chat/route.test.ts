@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fixtureMenu } from "@/lib/chat/__fixtures__/menu";
 
 // catalog.ts imports @/lib/square as a value at module scope, which throws
@@ -62,12 +62,22 @@ const goodArgs = {
   reason: "半糖芋头奶茶",
 };
 
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   callDeepSeek.mockReset();
   checkChatRateLimit.mockReset();
   checkChatRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
   hashIp.mockReset();
   hashIp.mockImplementation((ip: string) => `h:${ip}`);
+  // Every degrade/failure path is expected to log now (Finding 3) — spy
+  // rather than let it print, and silence it by default so passing tests
+  // stay quiet; individual tests assert on calls where the log matters.
+  consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  consoleErrorSpy.mockRestore();
 });
 
 describe("POST /api/chat", () => {
@@ -85,17 +95,34 @@ describe("POST /api/chat", () => {
   });
 
   it("feeds validation errors back and accepts the retry", async () => {
-    callDeepSeek
-      .mockResolvedValueOnce(proposeCall({ ...goodArgs, itemId: "ITEM_NOPE" }))
-      .mockResolvedValueOnce(proposeCall(goodArgs));
+    // `messages` is a single array the route mutates and reuses across
+    // every callDeepSeek invocation in its retry loop, so
+    // callDeepSeek.mock.calls[n][0] all alias the SAME object by the time
+    // the test inspects it — reading that array after the fact would only
+    // ever show its final state, not what it looked like at call N.
+    // Snapshot a JSON copy the instant each call happens instead.
+    const seenMessages: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seenMessages.push(JSON.parse(JSON.stringify(messages)));
+      return seenMessages.length === 1
+        ? proposeCall({ ...goodArgs, itemId: "ITEM_NOPE" })
+        : proposeCall(goodArgs);
+    });
 
     const body = await (await POST(req(askTaro))).json();
     expect(callDeepSeek).toHaveBeenCalledTimes(2);
     expect(body.proposal.itemId).toBe("ITEM_TARO");
 
-    // The retry must carry the errors, or it's just a reroll.
-    const retryMessages = callDeepSeek.mock.calls[1][0];
-    expect(JSON.stringify(retryMessages)).toContain("ITEM_NOPE");
+    const retryMessages = seenMessages[1] as { role: string }[];
+    // Assert on the validator's own rejection text ("itemId ... is not on
+    // the menu", from validate-proposal.ts), not on the rejected id alone.
+    // The rejected tool call's raw arguments get echoed back as an
+    // `assistant` message regardless of whether real error feedback is
+    // sent, so an assertion that only looks for "ITEM_NOPE" would still
+    // pass even if the `role: "tool"` error-feedback push were deleted
+    // entirely and the retry were a bare reroll.
+    expect(JSON.stringify(retryMessages)).toContain("is not on the menu");
+    expect(retryMessages.some((m) => m.role === "tool")).toBe(true);
   });
 
   it("degrades after two failed validations instead of a third call", async () => {
@@ -168,5 +195,89 @@ describe("POST /api/chat", () => {
     // Fails open without a hash to check — the counter call itself is
     // skipped rather than invoked with a bogus value.
     expect(checkChatRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("logs when the salt is missing, without leaking the salt or the raw IP", async () => {
+    hashIp.mockImplementationOnce(() => {
+      throw new Error("CHAT_RATE_LIMIT_SALT is not set");
+    });
+    callDeepSeek.mockResolvedValue(proposeCall(goodArgs));
+
+    const res = await POST(req(askTaro));
+    expect(res.status).toBe(200);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    const logged = consoleErrorSpy.mock.calls.map((c: unknown[]) => c.join(" ")).join("\n");
+    expect(logged).toMatch(/salt/i);
+    // The raw IP from the request's x-forwarded-for header must never
+    // appear in a log line.
+    expect(logged).not.toContain("203.0.113.5");
+  });
+
+  it("degrades instead of 500ing when propose_drink arguments are the literal null", async () => {
+    // Valid JSON, but `JSON.parse("null") as DrinkProposal` is still
+    // `null` — validateProposal() indexes straight into it
+    // (`proposal.quantity`, `proposal.itemId`, ...) and throws a
+    // TypeError. The model's tool call shape is steered by the customer's
+    // own wording, so this is reachable, not hypothetical.
+    callDeepSeek.mockResolvedValue({
+      content: "这样如何",
+      toolCalls: [{ id: "c3", name: "propose_drink", argumentsJson: "null" }],
+    });
+
+    const res = await POST(req(askTaro));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.degraded).toBe(true);
+    expect(body.proposal).toBeNull();
+    expect(callDeepSeek).toHaveBeenCalledTimes(2);
+  });
+
+  it("degrades instead of 500ing when propose_drink arguments omit modifiers", async () => {
+    // validateProposal() does `for (const ... of proposal.modifiers)` —
+    // without a `modifiers` array that's a TypeError, not a validation
+    // error, unless the route guards the call.
+    const argsWithoutModifiers = {
+      itemId: goodArgs.itemId,
+      variationId: goodArgs.variationId,
+      quantity: goodArgs.quantity,
+      reason: goodArgs.reason,
+    };
+    callDeepSeek.mockResolvedValue(proposeCall(argsWithoutModifiers));
+
+    const res = await POST(req(askTaro));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.degraded).toBe(true);
+    expect(body.proposal).toBeNull();
+    expect(callDeepSeek).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not show the failed attempt's own text on the degraded path", async () => {
+    const modelText = "推荐芋头奶茶，只要$9.99哦";
+    callDeepSeek.mockResolvedValue({
+      content: modelText,
+      toolCalls: [
+        { id: "c1", name: "propose_drink", argumentsJson: JSON.stringify({ ...goodArgs, itemId: "ITEM_NOPE" }) },
+      ],
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(body.degraded).toBe(true);
+    expect(body.reply).not.toContain(modelText);
+    expect(body.reply).not.toContain("$9.99");
+  });
+
+  it("scrubs an invented price out of a successful reply", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "这杯只要$9.99，超划算！",
+      toolCalls: [{ id: "c1", name: "propose_drink", argumentsJson: JSON.stringify(goodArgs) }],
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(body.degraded).toBe(false);
+    expect(body.reply).not.toContain("$9.99");
+    // The real price still comes through on the card, untouched.
+    expect(body.proposal.unitPriceCents).toBe("750");
   });
 });
