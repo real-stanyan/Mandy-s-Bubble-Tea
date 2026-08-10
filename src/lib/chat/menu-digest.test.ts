@@ -1,4 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock the Square client so catalog.ts doesn't require SQUARE_ACCESS_TOKEN at import time
+vi.mock("@/lib/square", () => ({
+  squareClient: { catalog: { list: vi.fn() } },
+  SQUARE_LOCATION_ID: "test_location",
+}));
+
 import { buildMenuDigest } from "@/lib/chat/menu-digest";
 import { fixtureMenu } from "@/lib/chat/__fixtures__/menu";
 
