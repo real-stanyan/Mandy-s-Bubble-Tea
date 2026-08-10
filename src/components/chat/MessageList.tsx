@@ -4,8 +4,11 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useChat } from "@/store/chat";
 import { DrinkProposalCard } from "@/components/chat/DrinkProposalCard";
+import { CheckoutCard } from "@/components/chat/CheckoutCard";
+import { chatUiStrings } from "@/lib/chat/ui-strings";
 
 export function MessageList() {
+  const t = chatUiStrings();
   const messages = useChat((s) => s.messages);
   const isThinking = useChat((s) => s.isThinking);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -30,7 +33,7 @@ export function MessageList() {
     <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       {messages.length === 0 ? (
         <p className="text-sm text-ink3">
-          想喝点什么？描述一下口味就行，比如「不太甜的芋头奶茶，去冰」。
+          {t.emptyStateHint}
         </p>
       ) : null}
 
@@ -46,13 +49,24 @@ export function MessageList() {
             {m.content}
           </div>
 
-          {m.proposal ? (
+          {(() => {
+            // New turns carry `proposals`; a session persisted before the
+            // multi-drink release may still hold single-`proposal` turns.
+            const proposals = m.proposals ?? (m.proposal ? [m.proposal] : []);
+            return proposals.length > 0 ? (
+              <div className="mt-2 max-w-[90%]">
+                <DrinkProposalCard
+                  messageId={m.id}
+                  proposals={proposals}
+                  added={m.added}
+                />
+              </div>
+            ) : null;
+          })()}
+
+          {m.checkoutCard ? (
             <div className="mt-2 max-w-[90%]">
-              <DrinkProposalCard
-                messageId={m.id}
-                proposal={m.proposal}
-                added={m.added}
-              />
+              <CheckoutCard />
             </div>
           ) : null}
 
@@ -72,7 +86,7 @@ export function MessageList() {
         </div>
       ))}
 
-      {isThinking ? <p className="text-sm text-ink3">正在想…</p> : null}
+      {isThinking ? <p className="text-sm text-ink3">{t.thinking}</p> : null}
     </div>
   );
 }

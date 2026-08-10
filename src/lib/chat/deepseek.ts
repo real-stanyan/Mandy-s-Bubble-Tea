@@ -56,7 +56,7 @@ export const CHAT_TOOLS = [
     function: {
       name: "propose_drink",
       description:
-        "Propose one drink for the customer to confirm. Use only ids that appear in the menu you were given. Do not state prices in your message text; the app fills those in.",
+        "Propose one drink for the customer to confirm. Call it once per distinct drink — several calls in one reply build a multi-drink order. Use only ids that appear in the menu you were given. Do not state prices in your message text; the app fills those in.",
       parameters: {
         type: "object",
         properties: {
@@ -82,6 +82,35 @@ export const CHAT_TOOLS = [
           },
         },
         required: ["itemId", "variationId", "modifiers", "quantity", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_complaint",
+      description:
+        "File a customer complaint for the store manager. Call this when the customer reports a problem with an order, a drink, the store, or the service. Your accompanying message must tell them the manager has been notified and will contact them within 24 hours, in the customer's language. Never promise refunds or compensation.",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: {
+            type: "string",
+            description:
+              "One or two sentences describing the complaint, in the customer's own words as far as possible.",
+          },
+          orderNumber: {
+            type: "string",
+            description: "The order number, only if the customer gave one.",
+          },
+          contact: {
+            type: "string",
+            description:
+              "Phone or email for the manager to reach them, only if the customer gave one.",
+          },
+        },
+        required: ["summary"],
         additionalProperties: false,
       },
     },
