@@ -29,6 +29,10 @@ vi.mock("@/lib/chat/rate-limit", () => ({
   hashIp,
   CHAT_HOURLY_LIMIT: 30,
 }));
+// complaint.ts pulls in supabase-server and the resend client at module
+// scope, both of which want env this test file deliberately runs without.
+const fileChatComplaint = vi.fn();
+vi.mock("@/lib/chat/complaint", () => ({ fileChatComplaint }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -65,6 +69,8 @@ const goodArgs = {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  fileChatComplaint.mockReset();
+  fileChatComplaint.mockResolvedValue({ stored: true, emailed: true });
   callDeepSeek.mockReset();
   checkChatRateLimit.mockReset();
   checkChatRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
@@ -135,7 +141,7 @@ describe("POST /api/chat", () => {
     // list (see Finding 1's no-suggestions tests below for the case where
     // it must NOT end this way).
     expect(body.suggestions.length).toBeGreaterThan(0);
-    expect(body.reply).toMatch(/：$/);
+    expect(body.reply).toMatch(/[:：]$/);
   });
 
   it("degrades with keyword suggestions when DeepSeek throws", async () => {
@@ -145,7 +151,7 @@ describe("POST /api/chat", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.suggestions[0].itemId).toBe("ITEM_TARO");
-    expect(body.reply).toMatch(/：$/);
+    expect(body.reply).toMatch(/[:：]$/);
   });
 
   // Finding 1(a): fallbackMatch() can legitimately come back empty — most
@@ -423,5 +429,131 @@ describe("POST /api/chat", () => {
     it("leaves ordinary text with no price in it untouched", () => {
       expect(scrubPrices("半糖芋头奶茶")).toBe("半糖芋头奶茶");
     });
+  });
+});
+
+describe("POST /api/chat — multi-drink orders", () => {
+  it("returns one proposal per propose_drink call, all catalog-priced", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "两杯都来",
+      toolCalls: [
+        { id: "c1", name: "propose_drink", argumentsJson: JSON.stringify(goodArgs) },
+        {
+          id: "c2",
+          name: "propose_drink",
+          argumentsJson: JSON.stringify({
+            ...goodArgs,
+            itemId: "ITEM_BROWN",
+            variationId: "ITEM_BROWN_REG",
+            quantity: 2,
+          }),
+        },
+      ],
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(body.proposals).toHaveLength(2);
+    expect(body.proposals[0].itemName).toBe("Taro Milk Tea");
+    expect(body.proposals[1].itemName).toBe("Brown Sugar Milk Tea");
+    expect(body.proposals[1].totalCents).toBe("1500");
+    // Back-compat mirror for clients rendered from the previous deploy.
+    expect(body.proposal.itemName).toBe("Taro Milk Tea");
+    expect(callDeepSeek).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects the turn when ANY drink fails validation, echoing every tool call", async () => {
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? {
+            content: "",
+            toolCalls: [
+              { id: "c1", name: "propose_drink", argumentsJson: JSON.stringify(goodArgs) },
+              {
+                id: "c2",
+                name: "propose_drink",
+                argumentsJson: JSON.stringify({ ...goodArgs, itemId: "ITEM_NOPE" }),
+              },
+            ],
+          }
+        : {
+            content: "",
+            toolCalls: [
+              { id: "c3", name: "propose_drink", argumentsJson: JSON.stringify(goodArgs) },
+            ],
+          };
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(callDeepSeek).toHaveBeenCalledTimes(2);
+    expect(body.proposals).toHaveLength(1);
+
+    // The retry conversation must echo BOTH tool calls and answer each id —
+    // a missing tool reply is a malformed OpenAI-protocol conversation.
+    const retry = seen[1] as { role: string; tool_call_id?: string }[];
+    const toolReplies = retry.filter((m) => m.role === "tool");
+    expect(toolReplies.map((m) => m.tool_call_id)).toEqual(["c1", "c2"]);
+  });
+});
+
+describe("POST /api/chat — complaints", () => {
+  it("files the complaint and answers with the manager promise", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "非常抱歉！已经帮你记下来了，店长会在24小时内联系你。",
+      toolCalls: [
+        {
+          id: "c1",
+          name: "file_complaint",
+          argumentsJson: JSON.stringify({ summary: "订单少了一杯", orderNumber: "A103" }),
+        },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "我的订单少了一杯" }] }))
+    ).json();
+
+    expect(fileChatComplaint).toHaveBeenCalledTimes(1);
+    expect(fileChatComplaint.mock.calls[0][0]).toMatchObject({
+      summary: "订单少了一杯",
+      orderNumber: "A103",
+    });
+    expect(body.reply).toContain("24");
+    expect(body.proposals).toEqual([]);
+  });
+
+  it("falls back to the raw customer message when the tool arguments are junk", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "",
+      toolCalls: [{ id: "c1", name: "file_complaint", argumentsJson: "{not json" }],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "my drink was wrong" }] }))
+    ).json();
+
+    expect(fileChatComplaint.mock.calls[0][0]).toMatchObject({
+      summary: "my drink was wrong",
+    });
+    // Empty model text → fixed ack, in the customer's language (English here).
+    expect(body.reply).toContain("24 hours");
+  });
+
+  it("withholds the promise when the complaint could be neither stored nor emailed", async () => {
+    fileChatComplaint.mockResolvedValue({ stored: false, emailed: false });
+    callDeepSeek.mockResolvedValue({
+      content: "记下了！",
+      toolCalls: [
+        { id: "c1", name: "file_complaint", argumentsJson: JSON.stringify({ summary: "x" }) },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "投诉" }] }))
+    ).json();
+
+    expect(body.reply).not.toContain("24");
+    expect(consoleErrorSpy).toHaveBeenCalled();
   });
 });

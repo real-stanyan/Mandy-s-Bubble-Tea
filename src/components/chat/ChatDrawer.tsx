@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useChat, newMessageId, type ChatMessage } from "@/store/chat";
 import { MessageList } from "@/components/chat/MessageList";
+import { chatUiStrings } from "@/lib/chat/ui-strings";
 
 // Mirrors /api/chat's own limits (src/app/api/chat/route.ts: MAX_HISTORY,
 // MAX_CHARS) so the client trims itself down to what the route will accept
@@ -12,7 +12,7 @@ const MAX_HISTORY = 20;
 const MAX_CHARS = 500;
 
 export function ChatDrawer() {
-  const router = useRouter();
+  const t = chatUiStrings();
   const [draft, setDraft] = useState("");
   const isOpen = useChat((s) => s.isOpen);
   const close = useChat((s) => s.close);
@@ -57,7 +57,7 @@ export function ChatDrawer() {
         push({
           id: newMessageId(),
           role: "assistant",
-          content: "聊天有点忙，过一会儿再试试，或者直接看菜单。",
+          content: t.rateLimited,
         });
         return;
       }
@@ -68,20 +68,23 @@ export function ChatDrawer() {
         id: newMessageId(),
         role: "assistant",
         content: body.reply,
-        proposal: body.proposal ?? undefined,
+        proposals: body.proposals?.length
+          ? body.proposals
+          : body.proposal
+            ? [body.proposal]
+            : undefined,
         suggestions: body.suggestions?.length ? body.suggestions : undefined,
+        // A card in the conversation, not an instant redirect: the customer
+        // reviews what's in the cart and taps 去结账 themselves — being
+        // yanked to a payment page mid-sentence reads as a malfunction.
+        checkoutCard: body.action === "checkout" || undefined,
       };
       push(reply);
-
-      if (body.action === "checkout") {
-        close();
-        router.push("/checkout");
-      }
     } catch {
       push({
         id: newMessageId(),
         role: "assistant",
-        content: "网络好像出了点问题，再发一次试试？",
+        content: t.networkError,
       });
     } finally {
       setThinking(false);
@@ -91,11 +94,11 @@ export function ChatDrawer() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex h-[70vh] flex-col rounded-t-3xl bg-card shadow-card sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[32rem] sm:w-96 sm:rounded-card">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="font-serif text-[15px] font-semibold text-ink">点单助手</p>
+        <p className="font-serif text-[15px] font-semibold text-ink">{t.drawerTitle}</p>
         <button
           type="button"
           onClick={close}
-          aria-label="关闭"
+          aria-label={t.closeAria}
           className="flex h-8 w-8 items-center justify-center rounded-full text-ink3 transition hover:bg-paper hover:text-ink"
         >
           ✕
@@ -116,7 +119,7 @@ export function ChatDrawer() {
             if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
           }}
           maxLength={MAX_CHARS}
-          placeholder="想喝点什么？"
+          placeholder={t.inputPlaceholder}
           className="flex-1 rounded-full border border-line bg-paper px-4 py-2 text-sm text-ink outline-none focus:border-brand"
         />
         <button
@@ -125,7 +128,7 @@ export function ChatDrawer() {
           disabled={isThinking || draft.trim().length === 0}
           className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
-          发送
+          {t.send}
         </button>
       </div>
     </div>

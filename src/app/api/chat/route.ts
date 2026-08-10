@@ -12,6 +12,7 @@ import {
   type ValidationResult,
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
+import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
@@ -28,22 +29,47 @@ const MAX_CHARS = 500;
  *  past the second the customer is better served by the menu link. */
 const MAX_ATTEMPTS = 2;
 
-/** Two variants each, because fallbackMatch() can legitimately come back
- *  empty — always for a non-menu query, and (before Finding 1's fix) for
- *  every single Chinese query regardless of intent. A message that ends in
- *  a colon promising a list must never be shown next to an empty list; the
- *  no-suggestions variant points at the menu instead of promising
- *  something that isn't there. */
-const DEEPSEEK_UNREACHABLE_WITH_SUGGESTIONS = "抱歉，助手暂时连不上。这几款你可能会喜欢：";
-const DEEPSEEK_UNREACHABLE_NO_SUGGESTIONS = "抱歉，助手暂时连不上，先去菜单看看想喝点什么吧。";
-/** Fixed on purpose — see degraded()'s doc comment on why these never
- *  carry model-authored text. */
-const NO_CONFIDENT_MATCH_WITH_SUGGESTIONS = "我没太确定你想要哪一款，这几个也许合适：";
-const NO_CONFIDENT_MATCH_NO_SUGGESTIONS = "我没太确定你想要哪一款，去菜单挑一挑，也许有你喜欢的。";
-/** Fixed on purpose, same reasoning as above. Last resort when a model
- *  reply is empty after scrubPrices() strips it (the model said nothing
- *  but a price) and there's no non-empty fallback text to use instead. */
-const EMPTY_REPLY_FALLBACK = "抱歉，我刚才没说清楚——能再说一次吗？";
+/** Fixed server-authored strings, two languages. The model matches the
+ *  customer's language natively; these strings appear exactly when the
+ *  model's output can't be used, so they pick a language by a cheap
+ *  heuristic instead: CJK characters in the customer's last message →
+ *  Chinese, anything else → English (the store is in Queensland — English
+ *  is the safe default for every other language).
+ *
+ *  Two variants of each degrade string, because fallbackMatch() can
+ *  legitimately come back empty — a message that ends in a colon promising
+ *  a list must never be shown next to an empty list. All fixed on purpose:
+ *  see degraded()'s doc comment on why these never carry model text. */
+const STRINGS = {
+  zh: {
+    unreachableWithSuggestions: "抱歉，助手暂时连不上。这几款你可能会喜欢：",
+    unreachableNoSuggestions: "抱歉，助手暂时连不上，先去菜单看看想喝点什么吧。",
+    noMatchWithSuggestions: "我没太确定你想要哪一款，这几个也许合适：",
+    noMatchNoSuggestions: "我没太确定你想要哪一款，去菜单挑一挑，也许有你喜欢的。",
+    emptyReplyFallback: "抱歉，我刚才没说清楚——能再说一次吗？",
+    checkoutFallback: "好的，这就带你去结账。",
+    complaintAck: "已经记下了，我马上通知店长，他会在 24 小时内联系你处理。",
+  },
+  en: {
+    unreachableWithSuggestions: "Sorry, the assistant is unreachable right now. You might like one of these:",
+    unreachableNoSuggestions: "Sorry, the assistant is unreachable right now — have a browse of the menu instead.",
+    noMatchWithSuggestions: "I'm not quite sure which drink you meant — maybe one of these:",
+    noMatchNoSuggestions: "I'm not quite sure which drink you meant — the menu might have just the thing.",
+    emptyReplyFallback: "Sorry, I didn't put that well — could you say it again?",
+    checkoutFallback: "Sure — taking you to checkout.",
+    complaintAck: "I've noted it down and notified the store manager — they'll contact you within 24 hours.",
+  },
+} as const;
+
+function stringsFor(lastUserText: string): (typeof STRINGS)["zh"] | (typeof STRINGS)["en"] {
+  // Han without kana -> Chinese. Kana present -> Japanese, which gets the
+  // English strings (a Japanese variant would be guesswork; English is
+  // the store lingua franca and the model own replies still come back
+  // in Japanese).
+  const hasKana = /[぀-ヿ]/.test(lastUserText);
+  const hasHan = /[㐀-鿿]/.test(lastUserText);
+  return hasHan && !hasKana ? STRINGS.zh : STRINGS.en;
+}
 
 type IncomingMessage = { role: "user" | "assistant"; content: string };
 
@@ -83,6 +109,10 @@ function findToolCall(calls: ToolCall[], name: string): ToolCall | undefined {
   return calls.find((c) => c.name === name);
 }
 
+function allToolCalls(calls: ToolCall[], name: string): ToolCall[] {
+  return calls.filter((c) => c.name === name);
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -109,7 +139,7 @@ function degraded(
   suggestions: ReturnType<typeof fallbackMatch>,
 ) {
   const reply = suggestions.length > 0 ? withSuggestions : noSuggestions;
-  return json({ reply, proposal: null, action: null, suggestions });
+  return json({ reply, proposal: null, proposals: [], action: null, suggestions });
 }
 
 /** Matches anything price-shaped so it can be stripped out of a
@@ -175,6 +205,17 @@ function describeDeepSeekFailure(err: unknown): string {
  *  Logged so a misconfigured deploy shows up to anyone scanning logs — the
  *  logged error is hashIp's own message ("CHAT_RATE_LIMIT_SALT is not
  *  set"), never the salt or the raw IP. */
+/** hashIp() throws when the salt is missing (see rateLimitVerdict below);
+ *  for complaint bookkeeping a null hash is fine — the row just carries no
+ *  IP fingerprint. */
+function safeIpHash(request: Request): string | null {
+  try {
+    return hashIp(clientIp(request));
+  } catch {
+    return null;
+  }
+}
+
 async function rateLimitVerdict(request: Request): Promise<RateLimitVerdict> {
   let ipHash: string;
   try {
@@ -207,6 +248,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const menu = await getMenu();
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+  const t = stringsFor(lastUserText);
 
   const messages: DeepSeekMessage[] = [
     { role: "system", content: buildSystemPrompt(menu) },
@@ -225,10 +267,49 @@ export async function POST(request: Request): Promise<Response> {
         describeDeepSeekFailure(err),
       );
       return degraded(
-        DEEPSEEK_UNREACHABLE_WITH_SUGGESTIONS,
-        DEEPSEEK_UNREACHABLE_NO_SUGGESTIONS,
+        t.unreachableWithSuggestions,
+        t.unreachableNoSuggestions,
         fallbackMatch(menu, lastUserText),
       );
+    }
+
+    // A complaint outranks everything else the model did this turn — the
+    // customer who says "wrong order, and also get me a taro tea" still
+    // deserves the complaint filed first; drinks can be re-proposed next
+    // turn if the model dropped them.
+    const complaintCall = findToolCall(result.toolCalls, "file_complaint");
+    if (complaintCall) {
+      let filing: ComplaintFiling = { summary: "" };
+      try {
+        filing = JSON.parse(complaintCall.argumentsJson) as ComplaintFiling;
+      } catch {
+        // Model text still acknowledges; the filing falls back to the raw
+        // customer message so the complaint is never dropped on a JSON slip.
+      }
+      if (!filing || typeof filing.summary !== "string" || !filing.summary.trim()) {
+        filing = { ...filing, summary: lastUserText };
+      }
+      const { stored, emailed } = await fileChatComplaint(
+        filing,
+        safeIpHash(request),
+      );
+      if (!stored && !emailed) {
+        console.error("[chat] complaint neither stored nor emailed — customer promise withheld");
+        return json({
+          reply: t.emptyReplyFallback,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+        });
+      }
+      return json({
+        reply: scrubPrices(result.content) || t.complaintAck,
+        proposal: null,
+        proposals: [],
+        action: null,
+        suggestions: [],
+      });
     }
 
     if (findToolCall(result.toolCalls, "go_checkout")) {
@@ -238,103 +319,126 @@ export async function POST(request: Request): Promise<Response> {
       // be written with (which chose the model's text before scrubbing
       // ever got a chance to empty it).
       return json({
-        reply: scrubPrices(result.content) || "好的，带你去结账。",
+        reply: scrubPrices(result.content) || t.checkoutFallback,
         proposal: null,
+        proposals: [],
         action: "checkout",
         suggestions: [],
       });
     }
 
-    const call = findToolCall(result.toolCalls, "propose_drink");
-    if (!call) {
+    const calls = allToolCalls(result.toolCalls, "propose_drink");
+    if (calls.length === 0) {
       // Plain conversational turn — a question, a greeting, a refusal.
       // Same scrub-first-then-fallback shape as above; this site had no
       // fallback at all before, so a price-only reply reached the
       // customer as a silently blank bubble.
       return json({
-        reply: scrubPrices(result.content) || EMPTY_REPLY_FALLBACK,
+        reply: scrubPrices(result.content) || t.emptyReplyFallback,
         proposal: null,
+        proposals: [],
         action: null,
         suggestions: [],
       });
     }
 
-    let parsed: DrinkProposal;
-    try {
-      parsed = JSON.parse(call.argumentsJson) as DrinkProposal;
-    } catch {
-      messages.push({
-        role: "assistant",
-        content: null,
-        tool_calls: [
-          { id: call.id, type: "function", function: { name: call.name, arguments: call.argumentsJson } },
-        ],
-      });
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        content: "Your tool arguments were not valid JSON. Emit valid JSON.",
-      });
-      continue;
+    // Validate every propose_drink call in this reply — a multi-drink
+    // order arrives as several tool calls in one turn. Each call gets a
+    // verdict; the turn succeeds only if every call validated, so a card
+    // can never silently omit a drink the model told the customer about.
+    const verdicts: { call: ToolCall; validated: ValidationResult }[] = [];
+    for (const call of calls) {
+      let parsed: DrinkProposal | null = null;
+      try {
+        parsed = JSON.parse(call.argumentsJson) as DrinkProposal;
+      } catch {
+        verdicts.push({
+          call,
+          validated: { ok: false, errors: ["Your tool arguments were not valid JSON. Emit valid JSON."] },
+        });
+        continue;
+      }
+
+      // `parsed` is a cast, not a validation — valid JSON can still be the
+      // literal `null`, or an object missing `modifiers` entirely, and
+      // validateProposal() indexes straight into it (`for (const ... of
+      // proposal.modifiers)`, `proposal.quantity`, ...). The customer's own
+      // wording steers what the model puts in the tool call, so a malformed
+      // shape is reachable, not hypothetical. Treat a thrown validation the
+      // same as a normal rejection: feed a generic error back and let the
+      // retry loop handle it, rather than letting the exception escape and
+      // 500 the request.
+      let validated: ValidationResult;
+      try {
+        validated = validateProposal(menu, parsed);
+      } catch (err) {
+        console.error(
+          "[chat] propose_drink arguments had an unexpected shape; treating as a rejected proposal:",
+          err instanceof Error ? err.message : String(err),
+        );
+        validated = {
+          ok: false,
+          errors: [
+            "propose_drink arguments were malformed: itemId, variationId, quantity, and reason must all be present, and modifiers must be an array of { modifierId, count }.",
+          ],
+        };
+      }
+      verdicts.push({ call, validated });
     }
 
-    // `parsed` is a cast, not a validation — valid JSON can still be the
-    // literal `null`, or an object missing `modifiers` entirely, and
-    // validateProposal() indexes straight into it (`for (const ... of
-    // proposal.modifiers)`, `proposal.quantity`, ...). The customer's own
-    // wording steers what the model puts in the tool call, so a malformed
-    // shape is reachable, not hypothetical. Treat a thrown validation the
-    // same as a normal rejection: feed a generic error back and let the
-    // retry loop handle it, rather than letting the exception escape and
-    // 500 the request.
-    let validated: ValidationResult;
-    try {
-      validated = validateProposal(menu, parsed);
-    } catch (err) {
-      console.error(
-        "[chat] propose_drink arguments had an unexpected shape; treating as a rejected proposal:",
-        err instanceof Error ? err.message : String(err),
+    const failed = verdicts.filter((v) => !v.validated.ok);
+    if (failed.length === 0) {
+      const values = verdicts.map((v) =>
+        (v.validated as Extract<ValidationResult, { ok: true }>).value,
       );
-      validated = {
-        ok: false,
-        errors: [
-          "propose_drink arguments were malformed: itemId, variationId, quantity, and reason must all be present, and modifiers must be an array of { modifierId, count }.",
-        ],
-      };
-    }
-
-    if (validated.ok) {
-      const v = validated.value;
+      const proposals = values.map(toApiProposal);
       // Scrub-first-then-fallback again, with a two-step fallback chain:
       // the model's own text, then its (also scrubbed — it can quote a
-      // price too) one-line reason for the pick, then the fixed string.
+      // price too) one-line reason for the first pick, then the fixed
+      // string.
       return json({
-        reply: scrubPrices(result.content) || scrubPrices(v.reason) || EMPTY_REPLY_FALLBACK,
-        proposal: toApiProposal(v),
+        reply:
+          scrubPrices(result.content) ||
+          scrubPrices(values[0].reason) ||
+          t.emptyReplyFallback,
+        // Kept for one release so a client rendered from the previous
+        // deploy keeps working mid-session: old JS reads `proposal`, new
+        // JS reads `proposals`. Remove after this ships.
+        proposal: proposals[0] ?? null,
+        proposals,
         action: null,
         suggestions: [],
       });
     }
 
-    // Hand the failures back verbatim. A bare "try again" produces a reroll;
-    // the specific errors produce a correction.
+    // Hand the failures back verbatim. A bare "try again" produces a
+    // reroll; the specific errors produce a correction. The OpenAI tool
+    // protocol wants the assistant turn echoed with ALL of its tool calls
+    // and then one tool message per call id — including the ones that
+    // passed, or the reply is malformed and the retry never happens.
     messages.push({
       role: "assistant",
       content: null,
-      tool_calls: [
-        { id: call.id, type: "function", function: { name: call.name, arguments: call.argumentsJson } },
-      ],
+      tool_calls: verdicts.map(({ call }) => ({
+        id: call.id,
+        type: "function",
+        function: { name: call.name, arguments: call.argumentsJson },
+      })),
     });
-    messages.push({
-      role: "tool",
-      tool_call_id: call.id,
-      content: `That proposal was rejected:\n- ${validated.errors.join("\n- ")}\nFix every point and call propose_drink again with ids copied from the menu.`,
-    });
+    for (const { call, validated } of verdicts) {
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: validated.ok
+          ? "This proposal is valid — repeat it unchanged alongside the fixes."
+          : `That proposal was rejected:\n- ${validated.errors.join("\n- ")}\nFix every point and call propose_drink again with ids copied from the menu.`,
+      });
+    }
   }
 
   return degraded(
-    NO_CONFIDENT_MATCH_WITH_SUGGESTIONS,
-    NO_CONFIDENT_MATCH_NO_SUGGESTIONS,
+    t.noMatchWithSuggestions,
+    t.noMatchNoSuggestions,
     fallbackMatch(menu, lastUserText),
   );
 }

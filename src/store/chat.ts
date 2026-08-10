@@ -8,8 +8,15 @@ export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  /** Present on assistant turns that produced a card to confirm. */
+  /** Present on assistant turns that produced a card to confirm. Kept for
+   *  sessionStorage backward-compat — conversations persisted before the
+   *  multi-drink release stored a single `proposal`; new turns store
+   *  `proposals`. MessageList reads both. */
   proposal?: ApiProposal;
+  /** One entry per drink on assistant turns that proposed an order. */
+  proposals?: ApiProposal[];
+  /** Set on assistant turns that should render the go-to-checkout card. */
+  checkoutCard?: boolean;
   /** Menu links offered when the model was unreachable or unconfident. */
   suggestions?: { itemId: string; itemName: string; categorySlug: string }[];
   /** Set once the customer has pressed Add — the card locks after that.
