@@ -19,10 +19,21 @@ const STOP_WORDS = new Set([
  *  whether anything actually matched. The menu's item names are in
  *  English, so exact CJK-to-name matching will rarely hit; that's expected
  *  — the point is that a Chinese query produces real tokens to search
- *  with, not that it's guaranteed to find something. */
-function tokenize(text: string): string[] {
+ *  with, not that it's guaranteed to find something.
+ *
+ *  Making CJK a word character removes the separator that used to fall
+ *  between it and adjacent Latin text, and Chinese input normally has no
+ *  space before a Latin word ("来杯mango", "有taro吗") — so without an
+ *  explicit script-boundary split, the whole unspaced run collapses into
+ *  one unmatchable token ("来杯mango") instead of yielding "mango". The
+ *  replace() below inserts a boundary at every CJK <-> Latin/digit
+ *  transition before the normal separator split runs, so a script change
+ *  counts as a word break even with no space. Do not remove this "to
+ *  simplify" — it is exactly what makes "来杯mango" recover "mango". */
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
+    .replace(/(?<=[一-鿿㐀-䶿])(?=[a-z0-9])|(?<=[a-z0-9])(?=[一-鿿㐀-䶿])/g, " ")
     .split(/[^a-z0-9一-鿿㐀-䶿]+/)
     .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }

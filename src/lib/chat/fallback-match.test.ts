@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Menu } from "@/lib/catalog";
-import { fallbackMatch } from "@/lib/chat/fallback-match";
+import { fallbackMatch, tokenize } from "@/lib/chat/fallback-match";
 import { fixtureMenu } from "@/lib/chat/__fixtures__/menu";
 
 const menu = fixtureMenu();
@@ -74,20 +74,21 @@ describe("fallbackMatch", () => {
   // Finding 1: the keyword fallback exists so the chatbox degrades instead
   // of breaking when the model is unreachable — but a Chinese query used to
   // tokenize to an empty array (every CJK character was treated as a
-  // separator), making it indistinguishable from a genuine no-match. These
-  // pin the fix: CJK produces real tokens, English is untouched, and a
-  // genuine CJK miss still correctly returns [].
+  // separator), making it indistinguishable from a genuine no-match. That
+  // was fixed by making CJK a word character, which introduced a second
+  // bug: CJK now has no script boundary, so unspaced mixed-script input
+  // (the normal shape for this shop's customers — "来杯mango", no space
+  // before the Latin word) collapsed into one unmatchable token. These
+  // tests pin both: CJK produces real tokens, a CJK/Latin boundary splits
+  // even with no space, English is untouched, and a genuine CJK miss still
+  // correctly returns [].
   it("tokenizes a Chinese query into a non-empty token list instead of discarding it", () => {
     // The menu's item names are English ("Taro Milk Tea"), so this won't
     // match anything — but it must not be empty for the same reason "taro"
     // isn't: tokenize() has to see it as signal, not punctuation.
-    const hits = fallbackMatch(menu, "芋头奶茶");
-    // Not asserting a match (there is none — see the English-name comment
-    // above); asserting this path was reached at all. If tokenize() still
-    // discarded CJK, `words.length === 0` would short-circuit before ever
-    // scoring a single item, and this call would look identical whether or
-    // not the scoring loop ran.
-    expect(hits).toEqual([]);
+    const words = tokenize("芋头奶茶");
+    expect(words.length).toBeGreaterThan(0);
+    expect(words).toContain("芋头奶茶");
   });
 
   it("still returns [] for a Chinese query that genuinely matches nothing", () => {
@@ -105,5 +106,22 @@ describe("fallbackMatch", () => {
     const hits = fallbackMatch(menu, "I want taro please");
     expect(hits[0]?.itemId).toBe("ITEM_TARO");
     expect(fallbackMatch(menu, "brown sugar milk")[0]?.itemId).toBe("ITEM_BROWN");
+  });
+
+  // Regression test for the unspaced-mixed-script collapse: Chinese input
+  // normally runs straight into an adjacent Latin word with no space, and
+  // the tokenizer must still split "mango" out so it can match the menu.
+  // This must fail against a tokenizer that treats CJK as a word character
+  // with no script boundary (i.e. it would fail against the tokenizer that
+  // merely fixed the pure-CJK-discard bug).
+  it("splits an unspaced mixed Chinese/English query at the script boundary", () => {
+    const hits = fallbackMatch(menu, "来杯mango");
+    expect(hits[0]?.itemId).toBe("ITEM_MANGO");
+  });
+
+  it("tokenizes mixed-script text into separate CJK and Latin tokens", () => {
+    expect(tokenize("来杯mango")).toEqual(["来杯", "mango"]);
+    expect(tokenize("我要taro")).toEqual(["我要", "taro"]);
+    expect(tokenize("有taro吗")).toContain("taro");
   });
 });
