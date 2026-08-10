@@ -68,7 +68,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
+  // 1, not 5: iOS Safari auto-zooms the page when focusing any input and
+  // KEEPS that zoom until the customer pinches out — half the chat drawer
+  // (send button included) sat off-screen after one tap on the input
+  // (Stan's screenshots, 2026-08-10). maximumScale: 1 kills the auto-zoom;
+  // iOS still allows deliberate pinch-zoom regardless of this value
+  // (accessibility behavior since iOS 10), so zoom-to-read keeps working.
+  maximumScale: 1,
   viewportFit: "cover",
   themeColor: "#8D5524",
 };

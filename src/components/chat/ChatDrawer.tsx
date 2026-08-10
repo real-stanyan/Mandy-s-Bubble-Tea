@@ -127,15 +127,28 @@ export function ChatDrawer() {
           // focused input's font is under 16px, which shoved the send
           // button off-screen the moment the keyboard opened (Stan's
           // screenshots, 2026-08-10). 16px is the documented no-zoom floor.
-          className="flex-1 rounded-full border border-line bg-paper px-4 py-2 text-base text-ink outline-none focus:border-brand"
+          className="min-w-0 flex-1 rounded-full border border-line bg-paper px-4 py-2 text-base text-ink outline-none focus:border-brand"
         />
+        {/* Fixed-size icon button, shrink-0 + min-w-0 on the input: a text
+            button behind a flex-1 input could be shoved past the viewport
+            edge whenever anything zoomed or overflowed — an icon with a
+            hard 44px box survives every layout accident. */}
         <button
           type="button"
           onClick={() => void send()}
           disabled={isThinking || draft.trim().length === 0}
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={t.send}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t.send}
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5 translate-x-[1px]">
+            <path
+              d="M4.5 12 3 4.5c-.2-.9.7-1.6 1.5-1.2l16 7.6c.8.4.8 1.8 0 2.2l-16 7.6c-.8.4-1.7-.3-1.5-1.2L4.5 12Zm0 0h7"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
       </div>
     </div>

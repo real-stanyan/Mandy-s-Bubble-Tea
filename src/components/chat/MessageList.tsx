@@ -30,7 +30,7 @@ export function MessageList() {
   }, [messages, isThinking]);
 
   return (
-    <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+    <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden p-4">
       {messages.length === 0 ? (
         <p className="text-sm text-ink3">
           {t.emptyStateHint}
@@ -38,12 +38,23 @@ export function MessageList() {
       ) : null}
 
       {messages.map((m) => (
-        <div key={m.id} className={m.role === "user" ? "self-end" : "self-start"}>
+        // w-full + items-* instead of self-* shrink-to-fit: a shrink-to-fit
+        // wrapper gives the proposal card no definite width, so its
+        // truncate/flex internals never engage and the price column walks
+        // off the right edge on narrow screens.
+        <div
+          key={m.id}
+          className={
+            m.role === "user"
+              ? "flex w-full flex-col items-end"
+              : "flex w-full flex-col items-start"
+          }
+        >
           <div
             className={
               m.role === "user"
-                ? "max-w-[80%] rounded-2xl bg-ink px-3 py-2 text-sm text-white"
-                : "max-w-[90%] rounded-2xl bg-cream px-3 py-2 text-sm text-ink"
+                ? "max-w-[80%] break-words rounded-2xl bg-ink px-3 py-2 text-sm text-white"
+                : "max-w-[90%] break-words rounded-2xl bg-cream px-3 py-2 text-sm text-ink"
             }
           >
             {m.content}
@@ -54,7 +65,7 @@ export function MessageList() {
             // multi-drink release may still hold single-`proposal` turns.
             const proposals = m.proposals ?? (m.proposal ? [m.proposal] : []);
             return proposals.length > 0 ? (
-              <div className="mt-2 max-w-[90%]">
+              <div className="mt-2 w-full max-w-[90%]">
                 <DrinkProposalCard
                   messageId={m.id}
                   proposals={proposals}
@@ -65,7 +76,7 @@ export function MessageList() {
           })()}
 
           {m.checkoutCard ? (
-            <div className="mt-2 max-w-[90%]">
+            <div className="mt-2 w-full max-w-[90%]">
               <CheckoutCard />
             </div>
           ) : null}
