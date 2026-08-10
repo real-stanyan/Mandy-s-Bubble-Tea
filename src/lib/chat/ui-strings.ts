@@ -29,9 +29,9 @@ export type ChatUiStrings = {
 };
 
 const ZH: ChatUiStrings = {
-  launcherLabel: "点单助手",
-  launcherAria: "打开点单助手",
-  teaser: "嗨！我是 AI 点单助手 🧋 可以帮你推荐、点单、答疑～",
+  launcherLabel: "Hi Mandy!",
+  launcherAria: "打开 Mandy 点单助手",
+  teaser: "嗨！我是 Mandy 🧋 帮你推荐、点单、有问必答～",
   teaserDismissAria: "关闭提示",
   drawerTitle: "点单助手",
   closeAria: "关闭",
@@ -51,9 +51,9 @@ const ZH: ChatUiStrings = {
 };
 
 const EN: ChatUiStrings = {
-  launcherLabel: "Order assistant",
-  launcherAria: "Open the order assistant",
-  teaser: "Hi! I'm the AI order assistant 🧋 — ask me for picks, orders, or help.",
+  launcherLabel: "Hi Mandy!",
+  launcherAria: "Open Mandy, the order assistant",
+  teaser: "Hi! I'm Mandy 🧋 — ask me for picks, orders, or help.",
   teaserDismissAria: "Dismiss",
   drawerTitle: "Order assistant",
   closeAria: "Close",
