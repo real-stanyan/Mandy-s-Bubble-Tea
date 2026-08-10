@@ -36,20 +36,25 @@ describe("fallbackMatch", () => {
     // Build a local menu copy where the same item (same id) is listed under two categories.
     // Do NOT modify the shared fixture — two later tasks depend on its current structure.
     const taroItem = menu.itemsBySlug.get("milky")![0]!; // ITEM_TARO
+    // Critical: categories are iterated in this order (menu.categories), so "milky" comes before "top-10".
+    // The dedup logic keeps the FIRST occurrence's categorySlug; without it, the LAST occurrence wins.
     const menuWithDupTaro: Menu = {
       categories: menu.categories,
       itemsBySlug: new Map([
-        ["milky", [taroItem]],
+        ["milky", [taroItem]],    // FIRST occurrence, should survive with dedup logic
         ["fruity", menu.itemsBySlug.get("fruity")!],
-        // Add the SAME taro item to top-10, creating a duplicate entry.
-        ["top-10", [taroItem]],
+        ["top-10", [taroItem]],   // SECOND occurrence, should be skipped by dedup
       ]),
       uncategorizedItems: menu.uncategorizedItems,
       modifierLists: menu.modifierLists,
     };
 
     const hits = fallbackMatch(menuWithDupTaro, "taro");
+    // The item appears in two categories but should deduplicate to a single result.
     expect(hits.filter((h) => h.itemId === "ITEM_TARO")).toHaveLength(1);
+    // With the dedup logic, the FIRST occurrence's categorySlug is kept.
+    // Without the dedup branch, the LAST occurrence overwrites it, making this fail.
+    expect(hits[0]?.categorySlug).toBe("milky");
   });
 
   it("honours the limit", () => {
