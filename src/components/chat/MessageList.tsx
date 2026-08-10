@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useChat } from "@/store/chat";
 import { DrinkProposalCard } from "@/components/chat/DrinkProposalCard";
 import { CheckoutCard } from "@/components/chat/CheckoutCard";
+import { VOICE_ENABLED } from "@/components/chat/ChatGate";
 import { chatUiStrings } from "@/lib/chat/ui-strings";
 
 /** One page-wide audio element — starting a clip stops the previous one,
@@ -131,7 +132,7 @@ export function MessageList() {
             {m.content}
           </div>
 
-          {m.role === "assistant" && m.content ? (
+          {VOICE_ENABLED && m.role === "assistant" && m.content ? (
             <SpeakButton text={m.content} label={t.playAria} />
           ) : null}
 
