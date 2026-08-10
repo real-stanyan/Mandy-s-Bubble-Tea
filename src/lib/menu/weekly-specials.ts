@@ -26,6 +26,7 @@ export const WEEKLY_SPECIALS: WeeklySpecial[] = [
   { name: "Grapefruit Iced Green Tea", originalPriceCents: 620 },
   { name: "Blueberry Iced Green Tea", originalPriceCents: 620 },
   { name: "Honeydew Milk Tea", originalPriceCents: 620 },
+  { name: "Blueberry Slushy", originalPriceCents: 620 },
 ];
 
 function norm(s: string): string {
