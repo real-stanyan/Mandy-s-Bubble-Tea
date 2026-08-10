@@ -65,6 +65,24 @@ const toppingList: ModifierList = {
   ],
 };
 
+// Production's Taro Milk Tea ships SUGAR LEVEL as Standard/Extra only —
+// there is no reduced-sugar option at all (probed 2026-08-11). That shape
+// is what let the model promise a customer '不要糖' and send a card
+// carrying the default; preference-check.ts exists to stop it, and this
+// list is what proves it end to end.
+const fixedSugarList: ModifierList = {
+  id: 'ML_SUGAR_FIXED',
+  name: 'SUGAR LEVEL',
+  minSelected: 0,
+  maxSelected: 1,
+  maxDistinct: null,
+  maxPerKind: 1,
+  modifiers: [
+    { id: 'MOD_SUGAR_STD', name: 'Standard Sugar', priceCents: null, ordinal: 0, onByDefault: true, soldOut: false },
+    { id: 'MOD_SUGAR_EXTRA', name: 'Extra Sugar', priceCents: null, ordinal: 1, onByDefault: false, soldOut: false },
+  ],
+};
+
 const refs = [
   { id: "ML_SUGAR", minOverride: null, maxOverride: null, modifierOverrides: [] },
   { id: "ML_ICE", minOverride: null, maxOverride: null, modifierOverrides: [] },
@@ -76,7 +94,7 @@ function item(
   id: string,
   name: string,
   categoryIds: string[],
-  opts: { soldOut?: boolean } = {},
+  opts: { soldOut?: boolean; refs?: typeof refs } = {},
 ): MenuItem {
   return {
     id,
@@ -89,7 +107,7 @@ function item(
       { id: `${id}_REG`, name: "Regular", priceCents: 750n, soldOut: false },
       { id: `${id}_LRG`, name: "Large", priceCents: 850n, soldOut: opts.soldOut ?? false },
     ],
-    modifierListRefs: refs,
+    modifierListRefs: opts.refs ?? refs,
     categoryIds,
     soldOut: opts.soldOut ?? false,
   };
@@ -107,6 +125,9 @@ const soldOutItem = item("ITEM_GONE", "Winter Melon Tea", ["CAT_FRUITY"], { sold
 // It gets its own id so the milky-category tests above stay unaffected:
 // locateItem() scans categories in order and would otherwise resolve
 // ITEM_TARO to milky, leaving the locked-topping path untested.
+const fixedSweet = item('ITEM_FIXED_SWEET', 'Fixed Sweet Milk Tea', ['CAT_MILKY'], {
+  refs: refs.map((r) => (r.id === 'ML_SUGAR' ? { ...r, id: 'ML_SUGAR_FIXED' } : r)),
+});
 const top10Taro = item("ITEM_TOP10_TARO", "Taro Milk Tea", ["CAT_TOP10"]);
 
 export function fixtureMenu(): Menu {
@@ -117,13 +138,14 @@ export function fixtureMenu(): Menu {
       { id: "CAT_TOP10", squareName: "TOP 10", slug: "top-10", imageUrl: null, itemCount: 1 },
     ],
     itemsBySlug: new Map([
-      ["milky", [taro, brownSugar]],
+      ["milky", [taro, brownSugar, fixedSweet]],
       ["fruity", [mango, soldOutItem]],
       ["top-10", [top10Taro]],
     ]),
     uncategorizedItems: [],
     modifierLists: new Map([
       ["ML_SUGAR", sugarList],
+      ["ML_SUGAR_FIXED", fixedSugarList],
       ["ML_ICE", iceList],
       ["ML_TOPPING", toppingList],
       ["ML_CREAM", creamList],

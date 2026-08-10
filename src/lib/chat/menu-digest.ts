@@ -70,7 +70,10 @@ export function buildMenuDigest(menu: Menu): string {
       for (const ml of detail?.modifierLists ?? []) {
         const available = ml.modifiers.filter((m) => !m.soldOut);
         if (available.length === 0) continue;
-        out.push(`  - ${ml.name} [${boundsLabel(ml)}]:`);
+        // "only" is load-bearing: a SUGAR list of Standard/Extra means
+        // sugar-free is impossible, and a model reading a bare list treats
+        // the absence as "unspecified" rather than "unavailable".
+        out.push(`  - ${ml.name} [${boundsLabel(ml)}] — only these exist:`);
         for (const m of available) {
           const up = m.priceCents ? ` +${dollars(m.priceCents)}` : "";
           const def = m.onByDefault ? " (default)" : "";
