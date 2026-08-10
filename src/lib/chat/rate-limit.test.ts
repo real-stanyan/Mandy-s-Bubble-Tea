@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const rpc = vi.fn();
 vi.mock("@/lib/supabase-server", () => ({
@@ -9,9 +9,19 @@ const { checkChatRateLimit, hashIp, CHAT_HOURLY_LIMIT } = await import(
   "@/lib/chat/rate-limit"
 );
 
+// Both fail-open branches (RPC error, RPC throw) now log — see Finding 3.
+// Spy and silence by default so the passing-case tests below stay quiet;
+// the dedicated "logs" tests assert on calls where the log matters.
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   rpc.mockReset();
   process.env.CHAT_RATE_LIMIT_SALT = "test-salt";
+  consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  consoleErrorSpy.mockRestore();
 });
 
 describe("hashIp", () => {
@@ -84,6 +94,31 @@ describe("checkChatRateLimit", () => {
     const v = await checkChatRateLimit("abc");
     expect(v.allowed).toBe(true);
     expect(v.remaining).toBe(CHAT_HOURLY_LIMIT);
+  });
+
+  // Finding 3: both fail-open branches used to return silently. If the RPC
+  // breaks, the log line is the only way anyone finds out the rate limiter
+  // is gone before the DeepSeek bill does.
+  it("logs what degraded when failing open on a Supabase RPC error", async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: "connection refused" } });
+    await checkChatRateLimit("abc");
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    const logged = consoleErrorSpy.mock.calls.map((c: unknown[]) => c.join(" ")).join("\n");
+    expect(logged).toMatch(/rate limit/i);
+    // The error's own message is fine to log; the raw Supabase error
+    // object itself (which could carry connection details) must not be.
+    expect(logged).toContain("connection refused");
+  });
+
+  it("logs what degraded when the RPC call throws outright", async () => {
+    rpc.mockRejectedValue(new Error("network unreachable"));
+    await checkChatRateLimit("abc");
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    const logged = consoleErrorSpy.mock.calls.map((c: unknown[]) => c.join(" ")).join("\n");
+    expect(logged).toMatch(/rate limit/i);
+    expect(logged).toContain("network unreachable");
   });
 
   it("buckets by the hour", async () => {

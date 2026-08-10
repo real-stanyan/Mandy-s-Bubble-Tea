@@ -24,7 +24,6 @@ const apiProposal: ApiProposal = {
   quantity: 2,
   unitPriceCents: "830",
   totalCents: "1660",
-  reason: "半糖芋头奶茶加珍珠",
 };
 
 describe("proposalToCartLine", () => {

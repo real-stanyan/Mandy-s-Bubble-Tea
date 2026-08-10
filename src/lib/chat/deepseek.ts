@@ -1,6 +1,24 @@
 import "server-only";
 
-export class DeepSeekError extends Error {}
+export class DeepSeekError extends Error {
+  /** Set only when the failure came from a non-2xx upstream response —
+   *  undefined for a timeout, a network failure, or a missing API key
+   *  (none of which ever produced a response to have a status). Lets a
+   *  caller's log line tell a 401 (rotated key) apart from a 402 (empty
+   *  balance) apart from a timeout without ever reading `.message`, which
+   *  can embed the raw upstream response body for the non-2xx case (see
+   *  the `!res.ok` branch below) and must never land in a log line. */
+  readonly status?: number;
+
+  constructor(message: string, opts: { status?: number } = {}) {
+    super(message);
+    // Without this, every DeepSeekError logs its name as the base class's
+    // "Error" — a timeout, a rotated-key 401, and an empty-balance 402 all
+    // looked identical to anyone scanning production logs.
+    this.name = "DeepSeekError";
+    this.status = opts.status;
+  }
+}
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
@@ -124,7 +142,9 @@ export async function callDeepSeek(
   }
 
   if (!res.ok) {
-    throw new DeepSeekError(`DeepSeek responded ${res.status}: ${await res.text()}`);
+    throw new DeepSeekError(`DeepSeek responded ${res.status}: ${await res.text()}`, {
+      status: res.status,
+    });
   }
 
   const body = (await res.json()) as {

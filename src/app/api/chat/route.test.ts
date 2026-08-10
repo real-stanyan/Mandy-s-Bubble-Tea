@@ -30,7 +30,7 @@ vi.mock("@/lib/chat/rate-limit", () => ({
   CHAT_HOURLY_LIMIT: 30,
 }));
 
-const { POST } = await import("@/app/api/chat/route");
+const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
 function req(body: unknown) {
   return new Request("http://localhost/api/chat", {
@@ -90,7 +90,6 @@ describe("POST /api/chat", () => {
     expect(body.proposal.itemName).toBe("Taro Milk Tea");
     expect(body.proposal.unitPriceCents).toBe("750");
     expect(body.proposal.totalCents).toBe("750");
-    expect(body.degraded).toBe(false);
     expect(callDeepSeek).toHaveBeenCalledTimes(1);
   });
 
@@ -131,7 +130,12 @@ describe("POST /api/chat", () => {
 
     expect(callDeepSeek).toHaveBeenCalledTimes(2);
     expect(body.proposal).toBeNull();
-    expect(body.degraded).toBe(true);
+    // "taro milk tea, half sugar" matches ITEM_TARO by keyword, so this is
+    // the with-suggestions variant — ends in the colon that promises a
+    // list (see Finding 1's no-suggestions tests below for the case where
+    // it must NOT end this way).
+    expect(body.suggestions.length).toBeGreaterThan(0);
+    expect(body.reply).toMatch(/：$/);
   });
 
   it("degrades with keyword suggestions when DeepSeek throws", async () => {
@@ -140,8 +144,39 @@ describe("POST /api/chat", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.degraded).toBe(true);
     expect(body.suggestions[0].itemId).toBe("ITEM_TARO");
+    expect(body.reply).toMatch(/：$/);
+  });
+
+  // Finding 1(a): fallbackMatch() can legitimately come back empty — most
+  // reliably for a Chinese query, since the menu's item names are all
+  // English and CJK-to-name matching essentially never hits (see Finding
+  // 1(b)'s fallback-match.test.ts cases). Before this fix, both degrade
+  // paths below used a message ending in "：", promising a list, and then
+  // rendered nothing — indistinguishable from a crash. Now the
+  // no-suggestions variant is used instead, which doesn't promise a list
+  // and instead points at the menu.
+  it("degrades to the no-suggestions message (not a broken promise of one) when DeepSeek throws on a query with no keyword match", async () => {
+    callDeepSeek.mockRejectedValue(new Error("timeout"));
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "拿铁咖啡" }] }))
+    ).json();
+
+    expect(body.suggestions).toEqual([]);
+    expect(body.reply).not.toMatch(/：$/);
+    expect(body.reply).toContain("菜单");
+  });
+
+  it("degrades to the no-suggestions message after two failed validations on a query with no keyword match", async () => {
+    callDeepSeek.mockResolvedValue(proposeCall({ ...goodArgs, itemId: "ITEM_NOPE" }));
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "拿铁咖啡" }] }))
+    ).json();
+
+    expect(body.proposal).toBeNull();
+    expect(body.suggestions).toEqual([]);
+    expect(body.reply).not.toMatch(/：$/);
+    expect(body.reply).toContain("菜单");
   });
 
   it("passes go_checkout through as an action", async () => {
@@ -228,8 +263,8 @@ describe("POST /api/chat", () => {
     const res = await POST(req(askTaro));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.degraded).toBe(true);
     expect(body.proposal).toBeNull();
+    expect(body.suggestions.length).toBeGreaterThan(0);
     expect(callDeepSeek).toHaveBeenCalledTimes(2);
   });
 
@@ -248,8 +283,8 @@ describe("POST /api/chat", () => {
     const res = await POST(req(askTaro));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.degraded).toBe(true);
     expect(body.proposal).toBeNull();
+    expect(body.suggestions.length).toBeGreaterThan(0);
     expect(callDeepSeek).toHaveBeenCalledTimes(2);
   });
 
@@ -263,7 +298,7 @@ describe("POST /api/chat", () => {
     });
 
     const body = await (await POST(req(askTaro))).json();
-    expect(body.degraded).toBe(true);
+    expect(body.proposal).toBeNull();
     expect(body.reply).not.toContain(modelText);
     expect(body.reply).not.toContain("$9.99");
   });
@@ -275,9 +310,118 @@ describe("POST /api/chat", () => {
     });
 
     const body = await (await POST(req(askTaro))).json();
-    expect(body.degraded).toBe(false);
+    expect(body.proposal).not.toBeNull();
     expect(body.reply).not.toContain("$9.99");
     // The real price still comes through on the card, untouched.
     expect(body.proposal.unitPriceCents).toBe("750");
+  });
+
+  // Finding 2: three sites build the customer-visible `reply`. Two applied
+  // `||` BEFORE scrubPrices(), so a fallback could never fire once
+  // scrubbing had already emptied the string; one had no fallback at all.
+  // scrubPrices("$7.80") -> "" (see the scrubPrices tests below), and
+  // deepseek.ts coerces a null model content to "" — so a model reply that
+  // was nothing but a price used to reach the customer as a blank bubble
+  // with no error, indistinguishable from a crash.
+  describe("empty-after-scrub replies always fall back to non-empty text", () => {
+    it("falls back on the go_checkout site", async () => {
+      callDeepSeek.mockResolvedValue({
+        content: "$9.99",
+        toolCalls: [{ id: "c1", name: "go_checkout", argumentsJson: "{}" }],
+      });
+      const body = await (
+        await POST(req({ messages: [{ role: "user", content: "结账" }] }))
+      ).json();
+      expect(body.reply.length).toBeGreaterThan(0);
+      expect(body.reply).not.toContain("$");
+    });
+
+    it("falls back on the plain-conversational site (previously had no fallback at all)", async () => {
+      callDeepSeek.mockResolvedValue({ content: "$9.99", toolCalls: [] });
+      const body = await (await POST(req(askTaro))).json();
+      expect(body.reply.length).toBeGreaterThan(0);
+      expect(body.reply).not.toContain("$");
+    });
+
+    it("falls back to the proposal's own (scrubbed) reason when the model's reply is price-only", async () => {
+      callDeepSeek.mockResolvedValue({
+        content: "$9.99",
+        toolCalls: [
+          { id: "c1", name: "propose_drink", argumentsJson: JSON.stringify(goodArgs) },
+        ],
+      });
+      const body = await (await POST(req(askTaro))).json();
+      expect(body.reply.length).toBeGreaterThan(0);
+      expect(body.reply).not.toContain("$");
+      // goodArgs.reason ("半糖芋头奶茶") has no price in it, so it survives
+      // scrubbing untouched and is exactly what should show up here.
+      expect(body.reply).toBe(goodArgs.reason);
+    });
+
+    it("falls all the way through to the fixed fallback when both the reply and the reason are price-only", async () => {
+      callDeepSeek.mockResolvedValue({
+        content: "$9.99",
+        toolCalls: [
+          {
+            id: "c1",
+            name: "propose_drink",
+            argumentsJson: JSON.stringify({ ...goodArgs, reason: "$5.00" }),
+          },
+        ],
+      });
+      const body = await (await POST(req(askTaro))).json();
+      expect(body.reply.length).toBeGreaterThan(0);
+      expect(body.reply).not.toContain("$");
+    });
+  });
+
+  // Finding 4: the old price regex (`/\$\s?\d+(?:\.\d{1,2})?/g`) was
+  // ASCII-only and mangled thousands separators. These pin the widened
+  // coverage directly (scrubPrices is now exported from the route for
+  // exactly this) rather than only indirectly through a POST round trip.
+  describe("scrubPrices", () => {
+    it("removes a plain ASCII dollar price (baseline, unchanged)", () => {
+      expect(scrubPrices("only $7.80 today")).toBe("only today");
+    });
+
+    it("removes a price with a multi-space gap after the dollar sign", () => {
+      expect(scrubPrices("only $  9.99 today")).toBe("only today");
+    });
+
+    it("removes a full-width dollar sign price", () => {
+      expect(scrubPrices("只要＄9.99")).toBe("只要");
+    });
+
+    it("removes a thousands-separated price without leaving orphaned punctuation", () => {
+      // The old regex matched only "$1" and left ",299" behind verbatim —
+      // this is the exact corruption Finding 4 called out.
+      expect(scrubPrices("It costs $1,299 today")).toBe("It costs today");
+      expect(scrubPrices("$1,299")).not.toContain(",");
+    });
+
+    it("removes an AUD-prefixed price", () => {
+      expect(scrubPrices("AUD 9.99 total")).toBe("total");
+      expect(scrubPrices("AUD9.99 total")).toBe("total");
+    });
+
+    it("removes a trailing-元 price", () => {
+      expect(scrubPrices("只要9.99元哦")).toBe("只要哦");
+    });
+
+    it("removes a trailing-块 price", () => {
+      expect(scrubPrices("只要9.99块哦")).toBe("只要哦");
+    });
+
+    it("removes a trailing dollars-worded price", () => {
+      expect(scrubPrices("just 9.99 dollars")).toBe("just");
+    });
+
+    it("removes the colloquial Chinese N块M pattern", () => {
+      expect(scrubPrices("才7块5")).toBe("才");
+    });
+
+    it("leaves ordinary text with no price in it untouched", () => {
+      expect(scrubPrices("半糖芋头奶茶")).toBe("半糖芋头奶茶");
+    });
   });
 });

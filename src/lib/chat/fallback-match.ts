@@ -12,10 +12,18 @@ const STOP_WORDS = new Set([
   "one", "some", "with", "and", "or",
 ]);
 
+/** CJK Unified Ideographs (+ Extension A) are treated as word characters,
+ *  not separators. Without this, every Chinese query — the shop's majority
+ *  language — tokenizes to an empty array and fallbackMatch() returns []
+ *  indistinguishably from a genuine no-match, even before considering
+ *  whether anything actually matched. The menu's item names are in
+ *  English, so exact CJK-to-name matching will rarely hit; that's expected
+ *  — the point is that a Chinese query produces real tokens to search
+ *  with, not that it's guaranteed to find something. */
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    .split(/[^a-z0-9一-鿿㐀-䶿]+/)
     .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }
 

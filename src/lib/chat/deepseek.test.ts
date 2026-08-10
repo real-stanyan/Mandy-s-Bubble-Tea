@@ -107,6 +107,54 @@ describe("callDeepSeek", () => {
     );
   });
 
+  // Finding 3: the base Error class leaves `.name` as "Error", so a
+  // timeout, a rotated-key 401, and an empty-balance 402 were
+  // indistinguishable in the route's log line. `.name` fixes the class
+  // identity; `.status` (next test) fixes the case-specific detail without
+  // ever having to log `.message`, which can embed the raw upstream body.
+  it("sets its own name instead of the base Error class's \"Error\"", async () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    try {
+      await callDeepSeek([{ role: "user", content: "x" }]);
+      throw new Error("expected callDeepSeek to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepSeekError);
+      expect((err as DeepSeekError).name).toBe("DeepSeekError");
+    }
+  });
+
+  it("carries the upstream HTTP status on a non-2xx response", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => "invalid api key",
+    } as Response);
+
+    let caught: unknown;
+    try {
+      await callDeepSeek([{ role: "user", content: "x" }]);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(DeepSeekError);
+    expect((caught as DeepSeekError).status).toBe(401);
+  });
+
+  it("leaves status unset for a failure that never got an upstream response", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+
+    let caught: unknown;
+    try {
+      await callDeepSeek([{ role: "user", content: "x" }]);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(DeepSeekError);
+    expect((caught as DeepSeekError).status).toBeUndefined();
+  });
+
   it("throws DeepSeekError when the API key is missing", async () => {
     delete process.env.DEEPSEEK_API_KEY;
     await expect(callDeepSeek([{ role: "user", content: "x" }])).rejects.toBeInstanceOf(

@@ -2,6 +2,7 @@ import { getMenu } from "@/lib/catalog";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import {
   callDeepSeek,
+  DeepSeekError,
   type DeepSeekMessage,
   type ToolCall,
 } from "@/lib/chat/deepseek";
@@ -27,10 +28,22 @@ const MAX_CHARS = 500;
  *  past the second the customer is better served by the menu link. */
 const MAX_ATTEMPTS = 2;
 
-const DEEPSEEK_UNREACHABLE_MESSAGE = "抱歉，助手暂时连不上。这几款你可能会喜欢：";
-/** Fixed on purpose — see degraded()'s doc comment on why this never
- *  carries model-authored text. */
-const NO_CONFIDENT_MATCH_MESSAGE = "我没太确定你想要哪一款，这几个也许合适：";
+/** Two variants each, because fallbackMatch() can legitimately come back
+ *  empty — always for a non-menu query, and (before Finding 1's fix) for
+ *  every single Chinese query regardless of intent. A message that ends in
+ *  a colon promising a list must never be shown next to an empty list; the
+ *  no-suggestions variant points at the menu instead of promising
+ *  something that isn't there. */
+const DEEPSEEK_UNREACHABLE_WITH_SUGGESTIONS = "抱歉，助手暂时连不上。这几款你可能会喜欢：";
+const DEEPSEEK_UNREACHABLE_NO_SUGGESTIONS = "抱歉，助手暂时连不上，先去菜单看看想喝点什么吧。";
+/** Fixed on purpose — see degraded()'s doc comment on why these never
+ *  carry model-authored text. */
+const NO_CONFIDENT_MATCH_WITH_SUGGESTIONS = "我没太确定你想要哪一款，这几个也许合适：";
+const NO_CONFIDENT_MATCH_NO_SUGGESTIONS = "我没太确定你想要哪一款，去菜单挑一挑，也许有你喜欢的。";
+/** Fixed on purpose, same reasoning as above. Last resort when a model
+ *  reply is empty after scrubPrices() strips it (the model said nothing
+ *  but a price) and there's no non-empty fallback text to use instead. */
+const EMPTY_REPLY_FALLBACK = "抱歉，我刚才没说清楚——能再说一次吗？";
 
 type IncomingMessage = { role: "user" | "assistant"; content: string };
 
@@ -85,22 +98,70 @@ function json(body: unknown, status = 200): Response {
  *  model produced. Every degrade path is triggered by something going
  *  wrong with the model's output (unreachable, or two rejected proposals
  *  in a row), so any prose it did manage to emit belongs to a failed
- *  attempt and must not be shown to the customer as if it were an answer. */
-function degraded(reply: string, suggestions: ReturnType<typeof fallbackMatch>) {
-  return json({ reply, proposal: null, action: null, degraded: true, suggestions });
+ *  attempt and must not be shown to the customer as if it were an answer.
+ *
+ *  Picks between the "here are some suggestions" and "no suggestions"
+ *  copy based on whether fallbackMatch() actually found anything — see the
+ *  two message constants above. */
+function degraded(
+  withSuggestions: string,
+  noSuggestions: string,
+  suggestions: ReturnType<typeof fallbackMatch>,
+) {
+  const reply = suggestions.length > 0 ? withSuggestions : noSuggestions;
+  return json({ reply, proposal: null, action: null, suggestions });
 }
 
-/** The system prompt tells the model never to state a price, but that's a
- *  request, not an enforcement — nothing stops its own sentence from
- *  quoting a number that then contradicts the real price printed on the
- *  card. Strip anything dollar-shaped out of every model-authored reply
- *  before it reaches the client; the card stays the single source of
- *  truth. */
-function scrubPrices(text: string): string {
+/** Matches anything price-shaped so it can be stripped out of a
+ *  model-authored reply before it reaches the client. This is defence in
+ *  depth, not a security control: the authoritative price is always the
+ *  catalog-derived one already printed on the proposal card. The system
+ *  prompt tells the model never to state a price, but that's a request,
+ *  not an enforcement, so this exists for the case where the model's own
+ *  sentence quotes a number that then contradicts the card.
+ *
+ *  Covers, in order: an ASCII or full-width dollar sign followed by an
+ *  amount (allowing any gap of spaces after the sign, and thousands
+ *  separators — the whole "$1,299" is consumed as one match so no orphaned
+ *  ",299" is left behind); "AUD 9.99" / "AUD9.99"; the colloquial Chinese
+ *  "N块M" pattern ("7块5" = seven kuai five) — checked before the plain
+ *  trailing-unit case below so "7块5" isn't half-eaten as "7块" + a
+ *  dangling "5"; and the trailing-unit forms "9.99元", "9.99块", "9.99
+ *  dollars".
+ *
+ *  Deliberately does NOT catch prices spelled out in Chinese numerals
+ *  (e.g. "九块九") — recognizing those needs a numeral parser, not a
+ *  regex, and that's out of scope for a defence-in-depth scrub. */
+const PRICE_PATTERN =
+  /[$＄]\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|AUD\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+块\d+(?:毛)?|\d+(?:\.\d{1,2})?\s*(?:dollars?|元|块)/gi;
+
+export function scrubPrices(text: string): string {
   return text
-    .replace(/\$\s?\d+(?:\.\d{1,2})?/g, "")
+    .replace(PRICE_PATTERN, "")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+/** Distinguish DeepSeek failure causes for the log line without ever
+ *  logging `err.message` when it might carry the raw upstream response
+ *  body — callDeepSeek() embeds `await res.text()` into the thrown
+ *  error's message for a non-2xx response (see deepseek.ts), and that can
+ *  contain key-adjacent detail from the provider's error payload.
+ *  DeepSeekError.status is set exactly when that happened, so logging the
+ *  status instead of the message still tells a 401 apart from a 402 apart
+ *  from a timeout — the three cases used to all log as the bare string
+ *  "Error" (or, after just fixing DeepSeekError's name, a uniform
+ *  "DeepSeekError" with no further detail). When status is unset, the
+ *  failure happened before any upstream response existed (timeout, DNS,
+ *  missing API key), so the message never had a body to embed and is
+ *  safe to log as-is. */
+function describeDeepSeekFailure(err: unknown): string {
+  if (err instanceof DeepSeekError) {
+    return err.status !== undefined
+      ? `DeepSeekError (upstream status ${err.status})`
+      : `DeepSeekError: ${err.message}`;
+  }
+  return err instanceof Error ? err.name : "unknown error";
 }
 
 /** hashIp() deliberately THROWS when CHAT_RATE_LIMIT_SALT is unset or
@@ -157,23 +218,29 @@ export async function POST(request: Request): Promise<Response> {
     try {
       result = await callDeepSeek(messages);
     } catch (err) {
-      // Never log err.message here: DeepSeekError's message can embed the
-      // raw upstream response body (see deepseek.ts), which must not land
-      // in a log line. The error's name/type is enough for a human
-      // scanning logs to notice something is wrong.
+      // describeDeepSeekFailure() picks what's safe to log — see its own
+      // doc comment for why this is not just err.message.
       console.error(
         "[chat] DeepSeek call failed; degrading to keyword suggestions:",
-        err instanceof Error ? err.name : "unknown error",
+        describeDeepSeekFailure(err),
       );
-      return degraded(DEEPSEEK_UNREACHABLE_MESSAGE, fallbackMatch(menu, lastUserText));
+      return degraded(
+        DEEPSEEK_UNREACHABLE_WITH_SUGGESTIONS,
+        DEEPSEEK_UNREACHABLE_NO_SUGGESTIONS,
+        fallbackMatch(menu, lastUserText),
+      );
     }
 
     if (findToolCall(result.toolCalls, "go_checkout")) {
+      // Scrub FIRST, then fall back — scrubPrices() can turn a
+      // price-only reply into "", and the fallback has to fire on that
+      // empty result, not get shadowed by the pre-scrub `||` this used to
+      // be written with (which chose the model's text before scrubbing
+      // ever got a chance to empty it).
       return json({
-        reply: scrubPrices(result.content || "好的，带你去结账。"),
+        reply: scrubPrices(result.content) || "好的，带你去结账。",
         proposal: null,
         action: "checkout",
-        degraded: false,
         suggestions: [],
       });
     }
@@ -181,11 +248,13 @@ export async function POST(request: Request): Promise<Response> {
     const call = findToolCall(result.toolCalls, "propose_drink");
     if (!call) {
       // Plain conversational turn — a question, a greeting, a refusal.
+      // Same scrub-first-then-fallback shape as above; this site had no
+      // fallback at all before, so a price-only reply reached the
+      // customer as a silently blank bubble.
       return json({
-        reply: scrubPrices(result.content),
+        reply: scrubPrices(result.content) || EMPTY_REPLY_FALLBACK,
         proposal: null,
         action: null,
-        degraded: false,
         suggestions: [],
       });
     }
@@ -236,11 +305,13 @@ export async function POST(request: Request): Promise<Response> {
 
     if (validated.ok) {
       const v = validated.value;
+      // Scrub-first-then-fallback again, with a two-step fallback chain:
+      // the model's own text, then its (also scrubbed — it can quote a
+      // price too) one-line reason for the pick, then the fixed string.
       return json({
-        reply: scrubPrices(result.content || v.reason),
+        reply: scrubPrices(result.content) || scrubPrices(v.reason) || EMPTY_REPLY_FALLBACK,
         proposal: toApiProposal(v),
         action: null,
-        degraded: false,
         suggestions: [],
       });
     }
@@ -261,5 +332,9 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  return degraded(NO_CONFIDENT_MATCH_MESSAGE, fallbackMatch(menu, lastUserText));
+  return degraded(
+    NO_CONFIDENT_MATCH_WITH_SUGGESTIONS,
+    NO_CONFIDENT_MATCH_NO_SUGGESTIONS,
+    fallbackMatch(menu, lastUserText),
+  );
 }

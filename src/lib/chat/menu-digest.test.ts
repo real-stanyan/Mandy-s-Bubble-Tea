@@ -48,6 +48,17 @@ describe("buildMenuDigest", () => {
     // ~4 chars/token. The whole point of the digest is that it fits in a
     // cached system prompt; a blown budget means we regressed to dumping raw
     // catalog JSON.
-    expect(digest.length).toBeLessThan(40_000);
+    //
+    // This fixture's digest is ~4.4k chars. 6,000 is tuned to that — real
+    // headroom for the format growing a field or two, but tight enough that
+    // a format regression (e.g. swapping the compact text lines for
+    // pretty-printed JSON, which is the actual failure mode this test
+    // guards against) still trips it. The old bound of 40,000 was ~9x the
+    // fixture's actual size and could not have caught that regression.
+    //
+    // This number is sized to the five-item fixture, not the real menu —
+    // it will need raising if the fixture grows meaningfully, same as any
+    // fixture-shaped assertion.
+    expect(digest.length).toBeLessThan(6_000);
   });
 });

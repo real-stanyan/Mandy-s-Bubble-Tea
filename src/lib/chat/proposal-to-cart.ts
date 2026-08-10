@@ -6,7 +6,14 @@ import type { ValidatedProposal } from "@/lib/chat/validate-proposal";
  *  the `proposal` object built in src/app/api/chat/route.ts's POST handler
  *  (validated.ok branch) — keep the two in sync by hand, there is no shared
  *  type between server and client here since the server payload is only
- *  ever assembled as an inline object literal. */
+ *  ever assembled as an inline object literal.
+ *
+ *  No `reason` field here on purpose: ValidatedProposal.reason is
+ *  model-authored text, and nothing in src/components or src/store ever
+ *  read it off this type (verified by grep) — it was crossing the wire
+ *  unscrubbed for no consumer. The route still uses the reason string
+ *  server-side as a *scrubbed* reply-text fallback (see route.ts), which
+ *  is a different, safer use than exposing it as a raw card field. */
 export type ApiProposal = {
   itemId: string;
   itemName: string;
@@ -19,7 +26,6 @@ export type ApiProposal = {
   quantity: number;
   unitPriceCents: string;
   totalCents: string;
-  reason: string;
 };
 
 /** Serialize a validated, catalog-priced proposal into the wire shape
@@ -46,7 +52,6 @@ export function toApiProposal(v: ValidatedProposal): ApiProposal {
     quantity: v.quantity,
     unitPriceCents: v.unitPriceCents.toString(),
     totalCents: v.totalCents.toString(),
-    reason: v.reason,
   };
 }
 

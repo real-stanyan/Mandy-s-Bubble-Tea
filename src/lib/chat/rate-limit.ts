@@ -49,13 +49,27 @@ export async function checkChatRateLimit(
       p_hour_bucket: hourBucket(now),
     });
     if (error || typeof data !== "number") {
+      // If the RPC breaks, this is the only signal between a public
+      // endpoint and a metered LLM disappearing — silently failing open
+      // means nobody finds out until the DeepSeek bill does. Log the
+      // error's own message only: `error` here is a PostgrestError-shaped
+      // object that can carry connection detail, so the object itself
+      // never gets logged, just its `.message`.
+      console.error(
+        "[chat] rate limit RPC returned an error or a non-numeric count; failing open (this request is unmetered):",
+        error?.message ?? `unexpected data type: ${typeof data}`,
+      );
       return { allowed: true, remaining: CHAT_HOURLY_LIMIT };
     }
     return {
       allowed: data <= CHAT_HOURLY_LIMIT,
       remaining: Math.max(0, CHAT_HOURLY_LIMIT - data),
     };
-  } catch {
+  } catch (err) {
+    console.error(
+      "[chat] rate limit RPC threw; failing open (this request is unmetered):",
+      err instanceof Error ? err.message : String(err),
+    );
     return { allowed: true, remaining: CHAT_HOURLY_LIMIT };
   }
 }

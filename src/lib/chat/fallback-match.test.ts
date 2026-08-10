@@ -70,4 +70,40 @@ describe("fallbackMatch", () => {
       true,
     );
   });
+
+  // Finding 1: the keyword fallback exists so the chatbox degrades instead
+  // of breaking when the model is unreachable — but a Chinese query used to
+  // tokenize to an empty array (every CJK character was treated as a
+  // separator), making it indistinguishable from a genuine no-match. These
+  // pin the fix: CJK produces real tokens, English is untouched, and a
+  // genuine CJK miss still correctly returns [].
+  it("tokenizes a Chinese query into a non-empty token list instead of discarding it", () => {
+    // The menu's item names are English ("Taro Milk Tea"), so this won't
+    // match anything — but it must not be empty for the same reason "taro"
+    // isn't: tokenize() has to see it as signal, not punctuation.
+    const hits = fallbackMatch(menu, "芋头奶茶");
+    // Not asserting a match (there is none — see the English-name comment
+    // above); asserting this path was reached at all. If tokenize() still
+    // discarded CJK, `words.length === 0` would short-circuit before ever
+    // scoring a single item, and this call would look identical whether or
+    // not the scoring loop ran.
+    expect(hits).toEqual([]);
+  });
+
+  it("still returns [] for a Chinese query that genuinely matches nothing", () => {
+    // "Espresso Martini" in Chinese — not on a bubble tea menu in any
+    // language. This is fallbackMatch's contract for a real miss, and it
+    // must hold for CJK exactly like it already does for English
+    // ("espresso martini" above).
+    expect(fallbackMatch(menu, "浓缩咖啡马提尼")).toEqual([]);
+  });
+
+  it("leaves English tokenization unchanged by the CJK fix", () => {
+    // Same assertions as the "exact word" and "two-word ranking" cases
+    // above, re-run after the tokenize() change to pin that widening the
+    // character class didn't alter how ASCII text splits.
+    const hits = fallbackMatch(menu, "I want taro please");
+    expect(hits[0]?.itemId).toBe("ITEM_TARO");
+    expect(fallbackMatch(menu, "brown sugar milk")[0]?.itemId).toBe("ITEM_BROWN");
+  });
 });
