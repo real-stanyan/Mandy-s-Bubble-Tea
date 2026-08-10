@@ -1,99 +1,35 @@
-# Mandy's Bubble Tea — Claude Instructions
+# Mandy's Bubble Tea — Claude Code 入口
 
-## Project Overview
+**规则不在这里。** `AGENTS.md` 是所有 coding agent（Claude Code、Z Code…）的唯一事实源。
+根 `CLAUDE.md` 只是 `@AGENTS.md` 空壳，本文件同理——**只指路，不复述**。
 
-A custom Next.js e-commerce site for Mandy's Bubble Tea, replacing Square Online with a fully branded experience powered by Square API.
+| 要找什么 | 去哪 |
+|---|---|
+| 协议、Hard rules、Tech stack、开工/收工仪式、Gate | `AGENTS.md` |
+| 领域词汇（star / tier / cup-label / promo / Live Activity…） | `CONTEXT.md` |
+| 本项目的架构决策 | `docs/adr/` |
+| 协议决策（gearbox 管理，禁手改） | `docs/gearbox-adr/` |
+| 目录导航（`src/lib`、API 路由、`printer-client/`…） | `AGENTS.md` → Where to find things |
 
-## Tech Stack
+## 模块深挖文档（参考资料，不是规则）
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
-- **Payments**: Square Web Payments SDK
-- **Backend**: Square API (Catalog, Orders, Payments, Loyalty, Customers)
-- **Deployment**: Vercel
+动对应模块前读一遍：
 
-## Brand
+- `.claude/square-api.md` — Square client、BigInt、错误处理
+- `.claude/catalog.md` — 菜单、品类、item card
+- `.claude/cart-checkout.md` — 购物车状态、结账流程、建单
+- `.claude/payment.md` — Square Web Payments SDK、Apple Pay
+- `.claude/loyalty.md` — stars、loyalty card、进度条
+- `.claude/account.md` — 账户页、手机号查询
+- `.claude/deployment.md` — Vercel、env、域名
 
-- **Primary color**: `#C43A10` (brick red)
-- **Accent color**: `#F5E6C8` (cream)
-- **Font**: System sans-serif
-- **Tone**: Friendly, casual, bubble tea shop vibe
+> 这些是参考资料，**不是第二份规则源**。与 `AGENTS.md` / `CONTEXT.md` 冲突时以后两者为准，
+> 并回改这里——别两边各留一份。
 
-## Module Docs
+## 为什么这份文件这么短
 
-Read these before working on each area:
+它曾经复制过一份 Tech stack、Key Rules、Project Structure、Loyalty System、Business Info。
+到 2026-08 全都腐烂了：Next.js 写着 14（实际 16.2.3，直接顶掉 `AGENTS.md` 开篇的版本告警）、
+字体写着 system sans-serif（实际 Shantell Sans + Fraunces）、API 路由列了 7 条（实际 24 条）。
 
-- `.claude/square-api.md` — Square client setup, BigInt handling, error handling
-- `.claude/catalog.md` — Menu, categories, item cards
-- `.claude/cart-checkout.md` — Cart state, checkout flow, order creation
-- `.claude/payment.md` — Square Web Payments SDK, Apple Pay
-- `.claude/loyalty.md` — Stars system, loyalty card, progress bar
-- `.claude/account.md` — User account page, phone-based lookup
-- `.claude/deployment.md` — Vercel, env vars, domain setup
-
-## Key Rules
-
-- Always use `serializeSquareResponse()` when returning Square API data — BigInt will break JSON serialization
-- Never expose `SQUARE_ACCESS_TOKEN` to the client — server-only
-- All Square money amounts are in **cents as BigInt** — use `toCents()` and `toDollars()` helpers
-- Use `NEXT_PUBLIC_` prefix only for env vars needed in the browser
-- Tailwind only — no inline style except for brand colors
-- All API routes in `src/app/api/`
-- Components in `src/components/[feature]/`
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── layout.tsx
-│   ├── page.tsx               # Home
-│   ├── menu/page.tsx          # Category grid
-│   ├── menu/[category]/page.tsx
-│   ├── cart/page.tsx
-│   ├── checkout/page.tsx
-│   ├── order-confirmation/page.tsx
-│   ├── account/page.tsx       # Loyalty + order history
-│   └── api/
-│       ├── catalog/route.ts
-│       ├── orders/route.ts
-│       ├── payment/route.ts
-│       ├── loyalty/account/route.ts
-│       ├── loyalty/events/route.ts
-│       └── customer/route.ts
-├── components/
-│   ├── layout/
-│   ├── menu/
-│   ├── cart/
-│   ├── checkout/
-│   └── account/
-├── lib/
-│   ├── square.ts              # Square client
-│   ├── constants.ts           # Brand, loyalty config
-│   └── utils.ts               # BigInt helpers, formatPrice
-├── store/
-│   └── cart.ts                # Zustand cart
-└── types/
-    └── square.ts
-```
-
-## Loyalty System
-
-- **Unit**: Stars (⭐)
-- **Rule**: 1 drink = 1 star (across all 7 categories)
-- **Reward**: 9 stars = Free Drink of Your Choice
-- **Categories**: MILKY, FRUITY, SPECIAL MIX, FRESH BREW, FRUITY BLACK TEA, FROZEN, CHEESE CREAM
-- Configured in Square Dashboard — no code changes needed for rules
-
-## Business Info
-
-- **Name**: Mandy's Bubble Tea
-- **Address**: 34 Davenport St, Southport QLD 4215
-- **Phone**: 0404 978 238
-- **Domain**: mandybubbletea.com
-- **Timezone**: Australia/Brisbane
-- **Currency**: AUD
-
-## System
-Cross-project tracking lives in `~/system/`. Check `~/system/DEV_QUEUE.md` for priorities if needed.
+副本会腐烂，引用不会（ADR-0045）。理由见 `docs/adr/0010`。
