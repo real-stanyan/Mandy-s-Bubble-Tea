@@ -112,7 +112,7 @@ export async function ItemDetailContent({
           {category.squareName}
         </p>
 
-        <h1 className="mt-2 font-serif text-[clamp(26px,3.4vw,34px)] font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
+        <h1 className="serif-display mt-2 font-serif text-[clamp(26px,3.4vw,34px)] font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
           {shownName}
         </h1>
 

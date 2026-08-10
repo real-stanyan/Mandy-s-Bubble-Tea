@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Inter, JetBrains_Mono, Shantell_Sans } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { CartDrawerGate } from "@/components/cart/CartDrawerGate";
@@ -11,11 +11,29 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const GA_ID = "G-KXVRP14YZF";
 
+// Variable Fraunces, with the SOFT/WONK optical axes along for the ride —
+// the .serif-display headline treatment (globals.css) dials them in. The
+// static 500/600 instances flattened those axes out entirely; the variable
+// font still serves font-medium/semibold through its weight axis.
 const fraunces = Fraunces({
-  weight: ["500", "600"],
   subsets: ["latin"],
   variable: "--font-fraunces",
   display: "swap",
+  axes: ["SOFT", "WONK", "opsz"],
+});
+
+// Shantell Sans — the marker-pen voice from the shop's own posters, promoted
+// to the site's ONE typeface at Stan's call (2026-08-10, "全站换", concern
+// about checkout digits raised and accepted). Variable weight covers every
+// font-medium/semibold the old Inter served; the BNCE/INFM axes let
+// .serif-display push headlines toward the hand-drawn end while body text
+// stays on the calmer default. JetBrains Mono stays for the data voice
+// (member ids, eyebrows) — handwriting a QR id helps nobody.
+const shantell = Shantell_Sans({
+  subsets: ["latin"],
+  variable: "--font-shantell",
+  display: "swap",
+  axes: ["BNCE", "INFM"],
 });
 
 const inter = Inter({
@@ -84,12 +102,30 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable} ${shantell.variable} h-full antialiased`}
+      // The Evening Mode head script stamps data-theme before hydration, so
+      // the server HTML and client DOM legitimately differ on this one
+      // attribute — the standard theming-script suppression.
+      suppressHydrationWarning
     >
       <head>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {/* Evening Mode init — parser-blocking on purpose so the theme lands
+            before first paint (no cream flash at night). Auto: 18:00–06:00
+            device time. Override: ?theme=evening | ?theme=day (persisted) |
+            ?theme=auto (back to the clock). Tokens live in globals.css. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var q=new URLSearchParams(location.search).get('theme');" +
+              "if(q==='evening'||q==='day'||q==='auto'){localStorage.setItem('mbt-theme',q);}" +
+              "var s=localStorage.getItem('mbt-theme');var h=new Date().getHours();" +
+              "var auto=h>=18||h<6;var ev=s==='evening'||((!s||s==='auto')&&auto);" +
+              "if(ev){document.documentElement.dataset.theme='evening';}}catch(e){}})();",
+          }}
         />
       </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">

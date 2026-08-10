@@ -61,10 +61,10 @@ export function AuthSplitCard({ onComplete }: { onComplete?: () => void }) {
             height={52}
             className="h-[52px] w-[52px] object-contain"
           />
-          <h2 className="mt-6 max-w-[320px] font-serif text-[34px] font-semibold leading-tight tracking-[-0.03em] text-ink">
+          <h2 className="mt-6 max-w-[320px] font-serif text-[34px] font-semibold leading-tight tracking-[-0.03em] text-[#2A1E14]">
             Rewards that stack up, sip by sip.
           </h2>
-          <p className="mt-3 max-w-[340px] text-sm leading-relaxed text-ink2">
+          <p className="mt-3 max-w-[340px] text-sm leading-relaxed text-[#5A4330]">
             Join Mandy&apos;s Rewards to earn a star with every drink, redeem a
             free one at nine, and unlock member-only seasonal sips.
           </p>
@@ -87,7 +87,7 @@ export function AuthSplitCard({ onComplete }: { onComplete?: () => void }) {
             />
           </div>
 
-          <div className="mt-auto flex items-center gap-2 pt-10 text-[12.5px] font-medium text-ink2">
+          <div className="mt-auto flex items-center gap-2 pt-10 text-[12.5px] font-medium text-[#5A4330]">
             <span className="inline-block h-2 w-2 rounded-full bg-green" />
             Mandy&apos;s · Southport — open daily 10:30 am – 10:30 pm
           </div>
@@ -113,12 +113,12 @@ function PerkRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-card text-brand shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-[#FFFDF8] text-[#8D5524] shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
         {icon}
       </span>
       <div>
-        <p className="text-[14.5px] font-semibold text-ink">{title}</p>
-        <p className="text-[12.5px] text-ink3">{sub}</p>
+        <p className="text-[14.5px] font-semibold text-[#2A1E14]">{title}</p>
+        <p className="text-[12.5px] text-[#8A7263]">{sub}</p>
       </div>
     </div>
   );

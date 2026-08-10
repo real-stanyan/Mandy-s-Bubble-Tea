@@ -154,7 +154,7 @@ export function AppDownloadPopup() {
       >
         <button
           onClick={dismiss}
-          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-zinc-700 transition hover:bg-black/20 active:scale-95"
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-[#5A4330] transition hover:bg-black/20 active:scale-95"
           aria-label="Close"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -249,7 +249,7 @@ export function AppDownloadPopup() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submit();
                 }}
-                className="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink4"
+                className="w-full bg-transparent text-[15px] text-[#2A1E14] outline-none placeholder:text-[#B3A28D]"
               />
             </div>
             {error && (

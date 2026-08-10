@@ -114,7 +114,7 @@ function Hero() {
             <span className="h-[7px] w-[7px] rounded-full bg-current" />
             Freshly brewed daily in Southport
           </span>
-          <h1 className="mt-3.5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink sm:mt-5">
+          <h1 className="serif-display mt-3.5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink sm:mt-5">
             Your daily dose
             <br />
             of <span className="italic text-brand">happiness</span>.
