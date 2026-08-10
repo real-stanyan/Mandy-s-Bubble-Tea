@@ -21,6 +21,7 @@ export type ChatUiStrings = {
   networkError: string;
   addToCart: string;
   addedToCart: string;
+  payNow: string;
   addAllToCart: (cups: number) => string;
   cupsTotal: (cups: number) => string;
   checkoutEmptyCart: string;
@@ -43,6 +44,7 @@ const ZH: ChatUiStrings = {
   networkError: "网络好像出了点问题，再发一次试试？",
   addToCart: "加入购物车",
   addedToCart: "已加入购物车",
+  payNow: "直接支付",
   addAllToCart: (cups) => `全部加入购物车 · ${cups} 杯`,
   cupsTotal: (cups) => `共 ${cups} 杯`,
   checkoutEmptyCart: "购物车还是空的——先挑一杯，或者直接跟我说想喝什么。",
@@ -65,6 +67,7 @@ const EN: ChatUiStrings = {
   networkError: "Network hiccup — try sending that again?",
   addToCart: "Add to cart",
   addedToCart: "Added to cart",
+  payNow: "Pay now",
   addAllToCart: (cups) => `Add all to cart · ${cups} cups`,
   cupsTotal: (cups) => `${cups} cups`,
   checkoutEmptyCart: "Your cart is still empty — pick a drink, or just tell me what you feel like.",

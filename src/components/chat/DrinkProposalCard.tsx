@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/store/cart";
 import { useChat } from "@/store/chat";
 import { formatPrice } from "@/lib/utils";
@@ -65,13 +66,15 @@ export function DrinkProposalCard({
   added?: boolean;
 }) {
   const t = chatUiStrings();
+  const router = useRouter();
   const addLine = useCart((s) => s.addLine);
   const markAdded = useChat((s) => s.markAdded);
+  const closeChat = useChat((s) => s.close);
 
   const cupCount = proposals.reduce((n, p) => n + p.quantity, 0);
   const orderTotal = proposals.reduce((sum, p) => sum + BigInt(p.totalCents), 0n);
 
-  function handleAdd() {
+  function addAll() {
     // Guard against the live store, not the `added` prop this closure was
     // created with — a real double-click can fire two click handlers
     // before React re-renders with the new `disabled` state, and the prop
@@ -93,6 +96,14 @@ export function DrinkProposalCard({
     }
   }
 
+  /** Add (idempotent) and head straight for payment. Payment itself stays
+   *  on /checkout — this is a shortcut, not a second payment surface. */
+  function handlePay() {
+    addAll();
+    closeChat();
+    router.push("/checkout");
+  }
+
   if (proposals.length === 0) return null;
 
   return (
@@ -110,18 +121,27 @@ export function DrinkProposalCard({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={handleAdd}
-        disabled={added}
-        className="mt-3 w-full rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
-      >
-        {added
-          ? t.addedToCart
-          : proposals.length > 1
-            ? t.addAllToCart(cupCount)
-            : t.addToCart}
-      </button>
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={addAll}
+          disabled={added}
+          className="flex-1 truncate rounded-full border-[1.5px] border-brand px-3 py-2 text-sm font-semibold text-brand transition hover:bg-brand/10 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
+        >
+          {added
+            ? t.addedToCart
+            : proposals.length > 1
+              ? t.addAllToCart(cupCount)
+              : t.addToCart}
+        </button>
+        <button
+          type="button"
+          onClick={handlePay}
+          className="flex-1 truncate rounded-full bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark active:scale-[0.99]"
+        >
+          {t.payNow}
+        </button>
+      </div>
     </div>
   );
 }
