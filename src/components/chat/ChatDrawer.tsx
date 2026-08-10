@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useChat, newMessageId, type ChatMessage } from "@/store/chat";
 import { MessageList } from "@/components/chat/MessageList";
 import { chatUiStrings } from "@/lib/chat/ui-strings";
@@ -20,11 +20,23 @@ export function ChatDrawer() {
   const push = useChat((s) => s.push);
   const setThinking = useChat((s) => s.setThinking);
   const isThinking = useChat((s) => s.isThinking);
+  const voiceDraft = useChat((s) => s.voiceDraft);
+  const setVoiceDraft = useChat((s) => s.setVoiceDraft);
+
+  // A transcript handed over by the voice-order button sends itself the
+  // moment the drawer is open — voice is just another way to type.
+  useEffect(() => {
+    if (!isOpen || !voiceDraft) return;
+    const text = voiceDraft;
+    setVoiceDraft(null);
+    void send(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- send is stable in behavior; re-running on its identity would double-send
+  }, [isOpen, voiceDraft]);
 
   if (!isOpen) return null;
 
-  async function send() {
-    const text = draft.trim().slice(0, MAX_CHARS);
+  async function send(spoken?: string) {
+    const text = (spoken ?? draft).trim().slice(0, MAX_CHARS);
     // Read the live store, not the `isThinking` this render closure was
     // built with: setThinking(true) below commits to zustand synchronously,
     // but a second Enter/click fired before React re-renders would still
@@ -33,7 +45,7 @@ export function ChatDrawer() {
     // a second POST through (same shape as DrinkProposalCard's addLine
     // guard).
     if (!text || useChat.getState().isThinking) return;
-    setDraft("");
+    if (!spoken) setDraft("");
     push({ id: newMessageId(), role: "user", content: text });
     setThinking(true);
 
