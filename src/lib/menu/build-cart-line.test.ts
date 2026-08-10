@@ -77,6 +77,30 @@ describe("unitPriceCentsFor", () => {
     const counts: CountMap = { ML_SUGAR: { MOD_FULL: 1 } };
     expect(unitPriceCentsFor(variation, [sugarList, toppingList], counts)).toBe(750n);
   });
+
+  // Deliberate: matches lineUnitPrice() in src/store/cart.ts, which sums
+  // variationPriceCents + modifiers with the variation price already
+  // defaulted to 0n. The pre-refactor ItemOrderForm guard
+  // (`if (!selectedVariation?.priceCents) return 0n`) was a falsy check,
+  // so a 0n-priced variation zeroed the ENTIRE total including modifier
+  // upcharges — the item modal showed $0.00 while the cart showed the
+  // real with-toppings price. unitPriceCentsFor must not reproduce that
+  // divergence: a 0n base still accrues modifier upcharges.
+  it("still accrues modifier upcharges when variation priceCents is 0n", () => {
+    const freeVariation: ItemVariation = { ...variation, priceCents: 0n };
+    const counts: CountMap = { ML_TOPPING: { MOD_PEARL: 1 } };
+    expect(unitPriceCentsFor(freeVariation, [toppingList], counts)).toBe(80n);
+  });
+
+  // Deliberate, same reasoning as above — priceCents: null (Square's
+  // "no price set") must not zero out modifier upcharges either.
+  // `variation.priceCents ?? 0n` only substitutes for null/undefined, so
+  // this and the 0n case both fall through to accruing upcharges normally.
+  it("still accrues modifier upcharges when variation priceCents is null", () => {
+    const noPriceVariation: ItemVariation = { ...variation, priceCents: null };
+    const counts: CountMap = { ML_TOPPING: { MOD_PEARL: 1 } };
+    expect(unitPriceCentsFor(noPriceVariation, [toppingList], counts)).toBe(80n);
+  });
 });
 
 describe("buildCartLine", () => {

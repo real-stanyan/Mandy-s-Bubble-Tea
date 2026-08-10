@@ -36,7 +36,20 @@ export function buildDefaultCounts(
   return initial;
 }
 
-/** Variation price plus every selected modifier's upcharge × its count. */
+/** Variation price plus every selected modifier's upcharge × its count.
+ *
+ *  `variation.priceCents ?? 0n` only substitutes for null/undefined, so a
+ *  `0n`-priced variation still accrues modifier upcharges — it does NOT
+ *  collapse the whole total to zero. This is deliberate, not a refactor
+ *  slip: it matches `lineUnitPrice()` in `src/store/cart.ts`, which has
+ *  always summed `variationPriceCents + modifiers` with the variation
+ *  price already defaulted to `0n`. The pre-refactor inline guard in
+ *  ItemOrderForm (`if (!selectedVariation?.priceCents) return 0n`) was
+ *  falsy-checked, so it also zeroed the total for `priceCents === 0n`,
+ *  not just `null` — the item modal showed $0.00 while the cart showed
+ *  the real with-toppings price. Bringing the guard in line with
+ *  lineUnitPrice() makes the two surfaces agree. Do not reintroduce the
+ *  old all-or-nothing guard. */
 export function unitPriceCentsFor(
   variation: ItemVariation,
   modifierLists: ModifierList[],
