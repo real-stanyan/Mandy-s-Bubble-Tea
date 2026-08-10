@@ -116,20 +116,18 @@ export function ChatBubble() {
         </div>
       ) : null}
 
+      {/* A named pill at every breakpoint — "Hi Mandy!" says there's
+          someone to talk to. No AI badge: Stan cut the AI branding, and
+          the badge's ink-on-cream inverted into an unreadable blob under
+          the evening tokens anyway. */}
       <button
         type="button"
         onClick={openChat}
         aria-label={t.launcherAria}
-        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:h-13 lg:w-auto lg:gap-2 lg:px-5"
+        className="fixed bottom-24 right-4 z-40 flex h-13 items-center gap-2 rounded-full bg-brand px-4 text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:px-5"
       >
-        <BobaChatIcon className="h-7 w-7 lg:h-6 lg:w-6" />
-        <span className="hidden text-sm font-semibold lg:inline">{t.launcherLabel}</span>
-        {/* AI badge — the circle alone reads as "contact us"; this says
-            there's an assistant behind it. Hidden on lg where the pill
-            already spells it out. */}
-        <span className="absolute -top-1 -right-1 rounded-full bg-ink px-1.5 py-0.5 font-mono text-[9px] font-bold leading-none text-cream lg:hidden">
-          AI
-        </span>
+        <BobaChatIcon className="h-6 w-6" />
+        <span className="text-sm font-semibold">{t.launcherLabel}</span>
       </button>
     </>
   );
