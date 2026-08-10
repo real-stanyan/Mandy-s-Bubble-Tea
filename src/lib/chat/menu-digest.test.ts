@@ -25,6 +25,20 @@ describe("buildMenuDigest", () => {
     expect(digest).toContain("$8.50");
   });
 
+  it("marks preset drinks' fixed toppings as unremovable", () => {
+    // ITEM_TOP10_TARO sits in the TOP 10 category, whose preset locks
+    // toppings on. The model must see they can't be removed, or it
+    // promises "without pearls" and the validator's force-seed makes the
+    // card contradict it.
+    const top10Line = digest
+      .split("\n")
+      .find((l) => l.includes("ITEM_TOP10_TARO"));
+    expect(top10Line).toMatch(/FIXED toppings, cannot be removed:/);
+    // Non-preset items carry no such marker.
+    const plainLine = digest.split("\n").find((l) => l.includes("ITEM_MANGO"));
+    expect(plainLine).not.toMatch(/FIXED toppings/);
+  });
+
   it("marks sold-out items so the model stops offering them", () => {
     expect(digest).toMatch(/Winter Melon Tea.*SOLD OUT/);
   });

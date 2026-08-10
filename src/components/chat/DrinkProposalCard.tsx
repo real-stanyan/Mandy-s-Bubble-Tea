@@ -84,7 +84,12 @@ export function DrinkProposalCard({
     if (already) return;
     markAdded(messageId);
     for (const proposal of proposals) {
-      addLine(proposalToCartLine(proposal), proposal.quantity);
+      // openDrawer: false — the card's own "已加入" state is the feedback;
+      // the cart drawer opening under the chat sheet just stacked two
+      // half-visible headers on top of each other.
+      addLine(proposalToCartLine(proposal), proposal.quantity, {
+        openDrawer: false,
+      });
     }
   }
 

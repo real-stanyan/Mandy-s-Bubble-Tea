@@ -1,5 +1,6 @@
 import type { Menu, ModifierList } from "@/lib/catalog";
 import { getItemDetail } from "@/lib/catalog";
+import { lockedToppingsFor } from "@/lib/menu/top10-presets";
 
 /** Cents to a plain dollar string. Local to the digest because the model
  *  reads dollars, not the cent integers the rest of the codebase passes
@@ -49,7 +50,17 @@ export function buildMenuDigest(menu: Menu): string {
       const detail = getItemDetail(menu, cat.slug, item.id);
       const soldOut = item.soldOut ? " [SOLD OUT]" : "";
       const desc = item.description ? ` — ${item.description}` : "";
-      out.push(`- ${item.name}${desc} (itemId: ${item.id})${soldOut}`);
+      // Preset drinks carry toppings baked into the recipe that the
+      // validator force-seeds and the menu UI won't let a customer remove.
+      // Without this marker the model happily promises "the Trio without
+      // pearls" and the card then contradicts it (Stan's screenshot,
+      // 2026-08-10) — the one thing the card must never do.
+      const locked = lockedToppingsFor(cat.slug, item.name);
+      const lockedNote =
+        locked.length > 0
+          ? ` [FIXED toppings, cannot be removed: ${locked.join(", ")}]`
+          : "";
+      out.push(`- ${item.name}${desc} (itemId: ${item.id})${soldOut}${lockedNote}`);
 
       for (const v of item.variations) {
         if (v.soldOut) continue;
