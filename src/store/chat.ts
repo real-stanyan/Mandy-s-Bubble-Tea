@@ -26,6 +26,9 @@ export type ChatMessage = {
 };
 
 type ChatState = {
+  /** A transcript handed over by the voice-order button; ChatDrawer sends
+   *  it as soon as the drawer is open and clears it. */
+  voiceDraft: string | null;
   messages: ChatMessage[];
   isOpen: boolean;
   isThinking: boolean;
@@ -35,6 +38,7 @@ type ChatState = {
   setThinking: (value: boolean) => void;
   markAdded: (messageId: string) => void;
   clear: () => void;
+  setVoiceDraft: (text: string | null) => void;
 };
 
 function newId(): string {
@@ -54,6 +58,7 @@ export const useChat = create<ChatState>()(
   persist(
     (set) => ({
       messages: [],
+      voiceDraft: null,
       isOpen: false,
       isThinking: false,
       open: () => set({ isOpen: true }),
@@ -67,6 +72,7 @@ export const useChat = create<ChatState>()(
           ),
         })),
       clear: () => set({ messages: [] }),
+      setVoiceDraft: (text) => set({ voiceDraft: text }),
     }),
     {
       name: "mandy-chat",
