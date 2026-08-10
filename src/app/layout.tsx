@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono, Shantell_Sans } from "next/font/google
 import Script from "next/script";
 import "./globals.css";
 import { CartDrawerGate } from "@/components/cart/CartDrawerGate";
+import { ChatGate } from "@/components/chat/ChatGate";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
 import { SiteTabBarGate } from "@/components/layout/SiteTabBarGate";
@@ -137,6 +138,7 @@ export default function RootLayout({
           <SiteFooterGate />
           <SiteTabBarGate />
           <CartDrawerGate />
+          <ChatGate />
         </AuthProvider>
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}

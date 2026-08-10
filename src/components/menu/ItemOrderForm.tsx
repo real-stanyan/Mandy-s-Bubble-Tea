@@ -10,11 +10,23 @@ import type {
   ModifierOption,
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
-import { isLockedToppingName, lockedModifierIds } from "@/lib/menu/top10-presets";
+import { isLockedToppingName } from "@/lib/menu/top10-presets";
 import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
 import { useItemModalClose } from "@/components/menu/ItemModalContext";
 import { CupPreview } from "@/components/menu/CupPreview";
 import { resolveCupVisual } from "@/lib/menu/cup-visual";
+import {
+  buildCartLine,
+  buildDefaultCounts,
+  unitPriceCentsFor,
+  type CountMap,
+} from "@/lib/menu/build-cart-line";
+import {
+  getExclusivePartner,
+  isExclusiveModifier,
+  isWarmIceModifier,
+  someSelectedAcrossLists,
+} from "@/lib/menu/modifier-mutex";
 
 type Props = {
   item: MenuItem;
@@ -33,34 +45,6 @@ type Props = {
    */
   stickyPreview?: boolean;
 };
-
-type CountMap = Record<string, Record<string, number>>;
-
-const EXCLUSIVE_TOPPINGS = ["Cheese Cream", "Brulee"];
-const WARM_ICE_NAME = "warm";
-
-function isExclusiveModifier(mod: ModifierOption): boolean {
-  return EXCLUSIVE_TOPPINGS.includes(mod.name);
-}
-
-function isWarmIceModifier(mod: ModifierOption): boolean {
-  return mod.name.trim().toLowerCase() === WARM_ICE_NAME;
-}
-
-function someSelectedAcrossLists(
-  counts: CountMap,
-  modifierLists: ModifierList[],
-  predicate: (mod: ModifierOption) => boolean,
-): boolean {
-  for (const ml of modifierLists) {
-    const map = counts[ml.id];
-    if (!map) continue;
-    for (const mod of ml.modifiers) {
-      if ((map[mod.id] ?? 0) > 0 && predicate(mod)) return true;
-    }
-  }
-  return false;
-}
 
 function supportsMultiCount(list: ModifierList): boolean {
   // Single-select lists stay 0-or-1 per modifier. Exclusivity on
@@ -99,7 +83,7 @@ export function ItemOrderForm({
   );
 
   const [selectedByList, setSelectedByList] = useState<CountMap>(() =>
-    buildDefaults(modifierLists, lockedToppings),
+    buildDefaultCounts(modifierLists, lockedToppings),
   );
 
   const [quantity, setQuantity] = useState(1);
@@ -133,7 +117,7 @@ export function ItemOrderForm({
   }, [modifierLists, selectedByList]);
 
   // Names of every currently-selected modifier that's sold out — includes
-  // TOP 10 locked toppings, which are auto-selected by buildDefaults() and
+  // TOP 10 locked toppings, which are auto-selected by buildDefaultCounts() and
   // can't be removed by the customer. Surfaced below so a disabled Add to
   // Cart button always comes with an explanation instead of just going dead.
   const soldOutSelectedNames = useMemo(() => {
@@ -157,19 +141,8 @@ export function ItemOrderForm({
     Object.keys(validationErrors).length === 0;
 
   const unitPriceCents = useMemo(() => {
-    if (!selectedVariation?.priceCents) return 0n;
-    let total = selectedVariation.priceCents;
-    for (const ml of modifierLists) {
-      const map = selectedByList[ml.id];
-      if (!map) continue;
-      for (const mod of ml.modifiers) {
-        const count = map[mod.id] ?? 0;
-        if (count > 0 && mod.priceCents) {
-          total += mod.priceCents * BigInt(count);
-        }
-      }
-    }
-    return total;
+    if (!selectedVariation) return 0n;
+    return unitPriceCentsFor(selectedVariation, modifierLists, selectedByList);
   }, [selectedVariation, modifierLists, selectedByList]);
 
   const totalCents = unitPriceCents * BigInt(quantity);
@@ -191,18 +164,6 @@ export function ItemOrderForm({
       }),
     [displayName, item.name, modifierLists, selectedByList],
   );
-
-  function getExclusivePartner(
-    list: ModifierList,
-    modifierId: string,
-  ): string | null {
-    const mod = list.modifiers.find((m) => m.id === modifierId);
-    if (!mod || !isExclusiveModifier(mod)) return null;
-    const partner = list.modifiers.find(
-      (m) => m.id !== modifierId && isExclusiveModifier(m),
-    );
-    return partner?.id ?? null;
-  }
 
   function canIncrement(list: ModifierList, modifierId: string): boolean {
     const mod = list.modifiers.find((m) => m.id === modifierId);
@@ -290,34 +251,19 @@ export function ItemOrderForm({
 
   function handleAdd() {
     if (!canAdd || !selectedVariation) return;
-    const chosenModifiers = modifierLists.flatMap((ml) => {
-      const map = selectedByList[ml.id];
-      if (!map) return [];
-      return ml.modifiers.flatMap((m) => {
-        const count = map[m.id] ?? 0;
-        if (count <= 0) return [];
-        return Array.from({ length: count }, () => ({
-          id: m.id,
-          name: m.name,
-          priceCents: m.priceCents ?? 0n,
-        }));
-      });
-    });
 
     addLine(
-      {
-        itemId: item.id,
-        itemName: displayName ?? item.name,
-        itemImageUrl: item.imageUrl,
-        variationId: selectedVariation.id,
-        variationName: selectedVariation.name,
-        variationPriceCents: selectedVariation.priceCents ?? 0n,
-        modifiers: chosenModifiers,
-      },
+      buildCartLine({
+        item,
+        displayName,
+        variation: selectedVariation,
+        modifierLists,
+        counts: selectedByList,
+      }),
       quantity,
     );
 
-    setSelectedByList(buildDefaults(modifierLists, lockedToppings));
+    setSelectedByList(buildDefaultCounts(modifierLists, lockedToppings));
     setQuantity(1);
 
     // Inside the modal: dismiss it so the shopper drops back to the menu.
@@ -682,26 +628,4 @@ function describeSelection(ml: ModifierList, multi: boolean): string {
     return `Pick at least ${minSelected}`;
   if (minSelected === 0) return `Pick up to ${maxSelected}`;
   return `Pick ${minSelected}–${maxSelected}`;
-}
-
-function buildDefaults(
-  modifierLists: ModifierList[],
-  lockedToppings: string[] = [],
-): CountMap {
-  const initial: CountMap = {};
-  for (const ml of modifierLists) {
-    const defaults = ml.modifiers.filter((m) => m.onByDefault);
-    if (defaults.length > 0) {
-      const map: Record<string, number> = {};
-      for (const m of defaults) map[m.id] = 1;
-      initial[ml.id] = map;
-    }
-  }
-  // Seed TOP 10 locked toppings to count 1 (on top of Square onByDefault).
-  for (const { listId, modifierId } of lockedModifierIds(modifierLists, lockedToppings)) {
-    const map = initial[listId] ?? {};
-    if ((map[modifierId] ?? 0) < 1) map[modifierId] = 1;
-    initial[listId] = map;
-  }
-  return initial;
 }
