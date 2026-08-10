@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Inter, JetBrains_Mono, Shantell_Sans } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { CartDrawerGate } from "@/components/cart/CartDrawerGate";
@@ -20,6 +20,20 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
   display: "swap",
   axes: ["SOFT", "WONK", "opsz"],
+});
+
+// Shantell Sans — the marker-pen voice from the shop's own posters, promoted
+// to the site's ONE typeface at Stan's call (2026-08-10, "全站换", concern
+// about checkout digits raised and accepted). Variable weight covers every
+// font-medium/semibold the old Inter served; the BNCE/INFM axes let
+// .serif-display push headlines toward the hand-drawn end while body text
+// stays on the calmer default. JetBrains Mono stays for the data voice
+// (member ids, eyebrows) — handwriting a QR id helps nobody.
+const shantell = Shantell_Sans({
+  subsets: ["latin"],
+  variable: "--font-shantell",
+  display: "swap",
+  axes: ["BNCE", "INFM"],
 });
 
 const inter = Inter({
@@ -88,7 +102,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable} ${shantell.variable} h-full antialiased`}
       // The Evening Mode head script stamps data-theme before hydration, so
       // the server HTML and client DOM legitimately differ on this one
       // attribute — the standard theming-script suppression.

@@ -92,15 +92,20 @@
   --shadow-mini-cart: var(--shadow-mini-cart-v);
   --shadow-primary-cta: var(--shadow-primary-cta-v);
 
-  --font-serif: var(--font-fraunces);
-  --font-sans: var(--font-inter);
+  /* Site-wide handwriting (Stan, 2026-08-10): Shantell Sans takes BOTH the
+     serif and sans slots, so every font-serif headline and font-sans body
+     lands on the marker voice without touching a component. Fraunces and
+     Inter stay loaded one release as the rollback lever; mono keeps the
+     data voice (ids, eyebrows). */
+  --font-serif: var(--font-shantell);
+  --font-sans: var(--font-shantell);
   --font-mono: var(--font-jetbrains-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-shantell), var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-text-size-adjust: 100%;
   /* Digits line up in columns everywhere money and counts appear — the
      running-prose cost is negligible on a UI this numeric. */
@@ -115,11 +120,12 @@ body {
   outline-offset: 2px;
 }
 
-/* Display serif for the few headline moments — Fraunces' SOFT/WONK axes give
-   the letterforms a hand-set warmth the static instances flatten out. Applied
-   sparingly (hero, item titles); body-size serif stays as-is. */
+/* Display treatment for the headline moments (hero, item titles, Our Story).
+   Retuned for Shantell Sans: push the informality and bounce axes so the big
+   lines lean into the poster's loose marker writing, while body text keeps
+   the calmer default cut of the same family. */
 .serif-display {
-  font-variation-settings: "SOFT" 55, "WONK" 1;
+  font-variation-settings: "INFM" 62, "BNCE" 32;
   font-optical-sizing: auto;
 }
 
