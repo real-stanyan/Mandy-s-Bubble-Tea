@@ -29,14 +29,30 @@ describe("deliveryMaintenanceCopy", () => {
 });
 
 describe("buildStoreDigest with a pause", () => {
+  const paused = buildStoreDigest({ until: RESUME, reason: "maintenance" });
+
   it("tells Mandy to stop offering delivery", () => {
-    const digest = buildStoreDigest({ until: RESUME, reason: "maintenance" });
-    expect(digest).toContain("DELIVERY IS PAUSED RIGHT NOW");
-    expect(digest).toContain("maintenance");
+    expect(paused).toContain("DELIVERY IS PAUSED RIGHT NOW");
+    expect(paused).toContain("maintenance");
+  });
+
+  it("REPLACES the delivery facts rather than annotating them", () => {
+    // The regression this pins: a warning line sat above "delivery to
+    // postcodes 4211, 4214, …" and "Delivery hours: 10:30–22:30", and the
+    // model answered "yes, 4217 is in our delivery area" anyway. A live
+    // pause must leave no postcode list and no hours to quote.
+    expect(paused).not.toContain("4217");
+    expect(paused).not.toContain("10:30");
+    expect(paused).not.toContain("22:30");
+    expect(paused).toContain("pickup at the store ONLY");
   });
 
   it("says nothing extra when delivery is running", () => {
-    expect(buildStoreDigest()).not.toContain("PAUSED");
-    expect(buildStoreDigest(null)).not.toContain("PAUSED");
+    for (const digest of [buildStoreDigest(), buildStoreDigest(null)]) {
+      expect(digest).not.toContain("PAUSED");
+      // …and the real facts are back.
+      expect(digest).toContain("4217");
+      expect(digest).toContain("10:30");
+    }
   });
 });
