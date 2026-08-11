@@ -9,11 +9,13 @@ vi.mock("@/lib/store-status-server", async () => {
     ...actual,
     getEffectiveOrderingStatus: vi.fn(),
     isDeliveryEnabled: vi.fn(),
+    getDeliveryPause: vi.fn(),
   };
 });
 
 import {
   getEffectiveOrderingStatus,
+  getDeliveryPause,
   isDeliveryEnabled,
 } from "@/lib/store-status-server";
 
@@ -21,6 +23,8 @@ describe("GET /api/store-status", () => {
   beforeEach(() => {
     vi.mocked(getEffectiveOrderingStatus).mockReset();
     vi.mocked(isDeliveryEnabled).mockReset();
+    vi.mocked(getDeliveryPause).mockReset();
+    vi.mocked(getDeliveryPause).mockResolvedValue(null);
   });
 
   it("returns effective status JSON with the live delivery flag", async () => {
@@ -35,6 +39,7 @@ describe("GET /api/store-status", () => {
       open: true,
       nextLabel: "until 10:30pm",
       deliveryEnabled: true,
+      deliveryPause: null,
     });
   });
 
@@ -56,5 +61,29 @@ describe("GET /api/store-status", () => {
     vi.mocked(isDeliveryEnabled).mockResolvedValue(true);
     const res = await GET();
     expect(res.headers.get("Cache-Control")).toContain("s-maxage=30");
+  });
+});
+
+describe("GET /api/store-status — maintenance pause", () => {
+  beforeEach(() => {
+    vi.mocked(getEffectiveOrderingStatus).mockReset();
+    vi.mocked(isDeliveryEnabled).mockReset();
+    vi.mocked(getDeliveryPause).mockReset();
+  });
+
+  it("passes the live pause through so the UI can say why", async () => {
+    // "Delivery unavailable" with no reason reads as a broken site; the
+    // reason and the return time are the whole point of this field.
+    const pause = { until: "2026-08-11T07:00:00.000Z", reason: "maintenance" };
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+    vi.mocked(isDeliveryEnabled).mockResolvedValue(false);
+    vi.mocked(getDeliveryPause).mockResolvedValue(pause);
+
+    const body = await (await GET()).json();
+    expect(body.deliveryEnabled).toBe(false);
+    expect(body.deliveryPause).toEqual(pause);
   });
 });

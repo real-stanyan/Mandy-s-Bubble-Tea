@@ -37,7 +37,69 @@ function deliveryEnabledEnvDefault(): boolean {
   return process.env.NEXT_PUBLIC_DELIVERY_ENABLED === "true";
 }
 
+/** A delivery pause that ends by itself.
+ *
+ *  The plain `delivery_enabled` switch has no memory: whoever turns it off
+ *  has to remember to turn it back on, and a forgotten switch is a day of
+ *  silently refused delivery orders. A pause carries its own expiry, so
+ *  "off until 5pm" needs nobody awake at 5pm — no cron, no scheduled job,
+ *  nothing to fail. Past `until`, this returns null and delivery is back.
+ *
+ *  `reason` drives the customer-facing copy; "maintenance" is the only one
+ *  in use today (Stan, 2026-08-11). */
+export type DeliveryPause = { until: string; reason: string };
+
+const DELIVERY_PAUSE_CACHE_TTL_MS = 60_000;
+let deliveryPauseCache: { value: DeliveryPause | null; fetchedAt: number } | null = null;
+
+export function __resetDeliveryPauseCacheForTests(): void {
+  deliveryPauseCache = null;
+}
+
+/** The pause if one is currently in force, else null. A stored pause whose
+ *  `until` has passed is treated as absent — expiry is what makes this
+ *  self-healing, so it is checked on read, not on write. */
+export async function getDeliveryPause(
+  now: Date = new Date(),
+): Promise<DeliveryPause | null> {
+  const ms = Date.now();
+  let stored: DeliveryPause | null;
+  if (deliveryPauseCache && ms - deliveryPauseCache.fetchedAt < DELIVERY_PAUSE_CACHE_TTL_MS) {
+    stored = deliveryPauseCache.value;
+  } else {
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from("app_settings")
+        .select("value")
+        .eq("key", "delivery_pause")
+        .maybeSingle();
+      if (error) throw error;
+      const v = data?.value as Partial<DeliveryPause> | null | undefined;
+      stored =
+        v && typeof v.until === "string" && typeof v.reason === "string"
+          ? { until: v.until, reason: v.reason }
+          : null;
+      deliveryPauseCache = { value: stored, fetchedAt: ms };
+    } catch {
+      // Same posture as the switch below: a Supabase blip must not invent a
+      // pause and take a live delivery business offline.
+      stored = null;
+      deliveryPauseCache = { value: null, fetchedAt: ms };
+    }
+  }
+  if (!stored) return null;
+  const until = Date.parse(stored.until);
+  if (!Number.isFinite(until) || until <= now.getTime()) return null;
+  return stored;
+}
+
 export async function isDeliveryEnabled(): Promise<boolean> {
+  // A live pause outranks the switch — and because it expires on its own,
+  // delivery comes back without anyone flipping anything. Checked here, in
+  // the one function /api/orders and the UI both go through, so a paused
+  // shop cannot take a delivery order from any surface.
+  if (await getDeliveryPause()) return false;
+
   const now = Date.now();
   if (
     deliveryEnabledCache &&

@@ -12,6 +12,7 @@ import {
   type ValidationResult,
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
+import { getDeliveryPause } from "@/lib/store-status-server";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
@@ -246,7 +247,9 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "rate limited" }, 429);
   }
 
-  const menu = await getMenu();
+  // Fetched with the menu: a paused shop must not have Mandy cheerfully
+  // taking delivery orders /api/orders will refuse.
+  const [menu, deliveryPause] = await Promise.all([getMenu(), getDeliveryPause()]);
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const t = stringsFor(lastUserText);
 
