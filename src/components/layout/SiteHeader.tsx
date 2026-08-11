@@ -42,7 +42,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 hidden w-full border-b border-line bg-bg/85 shadow-[0_4px_16px_rgba(42,30,20,0.05)] backdrop-blur-md lg:block">
       <div className="mx-auto flex h-[74px] max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-        <Link href="/" aria-label="Mandy's home" className="shrink-0">
+        <Link prefetch={false} href="/" aria-label="Mandy's home" className="shrink-0">
           <Image
             src="/logo.webp"
             width={200}
@@ -56,6 +56,7 @@ export function SiteHeader() {
         <nav className="hidden items-center gap-1 lg:flex">
           {NAV_LINKS.map((l) => (
             <Link
+              prefetch={false}
               key={l.href}
               href={l.href}
               className={
@@ -88,6 +89,7 @@ export function SiteHeader() {
           </span>
           <CartIcon />
           <Link
+            prefetch={false}
             href="/menu"
             className="hidden items-center gap-1.5 rounded-full bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.97] sm:inline-flex"
           >
