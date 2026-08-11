@@ -34,13 +34,23 @@ export function buildStoreDigest(
   deliveryPause: { until: string; reason: string } | null = null,
 ): string {
   const specials = WEEKLY_SPECIALS.map((s) => s.name).join(", ");
-  const pauseLine = deliveryPause
-    ? `\n- DELIVERY IS PAUSED RIGHT NOW (${deliveryPause.reason}). Do not offer or promise delivery; pickup is still open. If asked, say delivery is paused for maintenance and back later today.`
-    : "";
-  return `STORE FACTS${pauseLine}
+  // While paused, the delivery facts are REPLACED, not annotated. A warning
+  // line above "we deliver to 4211, 4214, …, daily 10:30–22:30" loses to the
+  // concrete list every time — the model answered "yes, 4217 is in our
+  // delivery area" with the warning right there in its own prompt
+  // (2026-08-11). Contradictory context is worse than missing context.
+  const deliveryFacts = deliveryPause
+    ? [
+        `- DELIVERY IS PAUSED RIGHT NOW (${deliveryPause.reason}) and cannot be ordered at all — not to any postcode, not at any time today until it resumes later today. There is no delivery area and no delivery hours while paused: the checkout will refuse a delivery order.`,
+        `- Ordering: pickup at the store ONLY. If the customer asks about delivery, or names an address or postcode, tell them delivery is paused for system maintenance and will be back later today, and offer pickup. Never say a postcode is in range, never quote delivery hours or fees.`,
+      ]
+    : [
+        `- Ordering: pickup at the store, or delivery to postcodes ${DELIVERABLE_POSTCODES.join(", ")} (minimum order applies; the delivery fee depends on distance and order size and is shown at checkout).`,
+        `- Delivery hours: ${hourLabel(DELIVERY.hoursOpen)}–${hourLabel(DELIVERY.hoursClose)} Brisbane time daily.`,
+      ];
+  return `STORE FACTS
 - Store: ${BUSINESS.name}, ${BUSINESS.address}. Phone ${BUSINESS.phone}. Website ${BUSINESS.domain}.
-- Ordering: pickup at the store, or delivery to postcodes ${DELIVERABLE_POSTCODES.join(", ")} (minimum order applies; the delivery fee depends on distance and order size and is shown at checkout).
-- Delivery hours: ${hourLabel(DELIVERY.hoursOpen)}–${hourLabel(DELIVERY.hoursClose)} Brisbane time daily.
+${deliveryFacts.join("\n")}
 - Loyalty: buy drinks from the ${LOYALTY_CATEGORIES.join("/")} categories to earn 1 star each; ${LOYALTY.starsPerReward} stars = ${LOYALTY.rewardLabel}. Stars and rewards are used at checkout.
 - This week's specials (discounted on the menu): ${specials || "none right now"}.
 - Anything not stated here (exact fees, store opening hours, stock tomorrow): say you are not sure and point the customer at the menu, the checkout page, or the store phone. Never guess.`;
