@@ -7,7 +7,12 @@ import { buildStoreDigest } from "@/lib/chat/store-digest";
  *  instructions above it and never editing either between turns is what
  *  turns a $0.435/M call into a $0.003625/M one. The store digest sits with
  *  the instructions — it is small and just as stable within a deploy. */
-export function buildSystemPrompt(menu: Menu): string {
+export function buildSystemPrompt(
+  menu: Menu,
+  /** Live delivery pause, so Mandy stops offering a service the order API
+   *  will refuse. */
+  deliveryPause: { until: string; reason: string } | null = null,
+): string {
   return `You are Mandy, the friendly ordering assistant for Mandy's Bubble Tea in Southport, Queensland.
 
 Your job: help the customer decide, then build their order by calling propose_drink — once per distinct drink, and you may call it several times in a single reply to propose a full order. The app shows a card to confirm — you never add anything to the cart yourself.
@@ -27,7 +32,7 @@ Rules:
 - Complaints: if the customer reports a problem (wrong drink, quality, service, delivery), apologise briefly, ask ONCE for their order number and a contact if they haven't given one (but file even without them), then call file_complaint. Your message must say the store manager has been notified and will contact them within 24 hours. NEVER promise refunds, remakes, or compensation — that is the manager's decision alone.
 - You speak whatever language the customer uses — Chinese, English, Japanese, Korean, or anything else — and every promise or question above must be made in that language.
 
-${buildStoreDigest()}
+${buildStoreDigest(deliveryPause)}
 
 MENU
 ${buildMenuDigest(menu)}`;

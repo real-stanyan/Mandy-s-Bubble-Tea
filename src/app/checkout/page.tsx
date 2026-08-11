@@ -190,6 +190,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const [deliveryEnabled, setDeliveryEnabled] = useState<boolean>(
     DELIVERY_ENV_MASTER,
   );
+  // Why delivery is off, when there is a reason worth telling the customer.
+  const [deliveryPause, setDeliveryPause] = useState<{ until: string; reason: string } | null>(null);
   const appliedOrderModeRef = useRef(false);
   useEffect(() => {
     if (appliedOrderModeRef.current) return;
@@ -421,10 +423,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         if (!res.ok) return;
         const data = (await res.json()) as OrderingStatus & {
           deliveryEnabled?: boolean;
+          deliveryPause?: { until: string; reason: string } | null;
         };
         if (!cancelled) {
           setOrderingStatus(data);
           setDeliveryEnabled(DELIVERY_ENV_MASTER && data.deliveryEnabled !== false);
+          setDeliveryPause(data.deliveryPause ?? null);
         }
       } catch {
         /* keep last-known good value */
@@ -1054,6 +1058,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 onChange={setFulfillment}
                 drinksSubtotalCents={subtotal}
                 deliveryEnabled={deliveryEnabled}
+                deliveryPause={deliveryPause}
               />
             </div>
 

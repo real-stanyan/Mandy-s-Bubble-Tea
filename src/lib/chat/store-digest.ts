@@ -26,9 +26,18 @@ function hourLabel(h: number): string {
  * schedule is better answered by checkout itself, which computes the real
  * amount for the customer's actual address and subtotal.
  */
-export function buildStoreDigest(): string {
+export function buildStoreDigest(
+  /** A live delivery pause, so Mandy stops offering delivery the moment the
+   *  shop pauses it. Without this she keeps promising a service the order
+   *  API will refuse — the same "promised what we can't deliver" failure
+   *  preference-check.ts exists to stop. */
+  deliveryPause: { until: string; reason: string } | null = null,
+): string {
   const specials = WEEKLY_SPECIALS.map((s) => s.name).join(", ");
-  return `STORE FACTS
+  const pauseLine = deliveryPause
+    ? `\n- DELIVERY IS PAUSED RIGHT NOW (${deliveryPause.reason}). Do not offer or promise delivery; pickup is still open. If asked, say delivery is paused for maintenance and back later today.`
+    : "";
+  return `STORE FACTS${pauseLine}
 - Store: ${BUSINESS.name}, ${BUSINESS.address}. Phone ${BUSINESS.phone}. Website ${BUSINESS.domain}.
 - Ordering: pickup at the store, or delivery to postcodes ${DELIVERABLE_POSTCODES.join(", ")} (minimum order applies; the delivery fee depends on distance and order size and is shown at checkout).
 - Delivery hours: ${hourLabel(DELIVERY.hoursOpen)}–${hourLabel(DELIVERY.hoursClose)} Brisbane time daily.
