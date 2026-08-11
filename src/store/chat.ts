@@ -26,6 +26,10 @@ export type ChatMessage = {
 };
 
 type ChatState = {
+  /** Groups this chat's turns in the Admin transcript. Minted once per
+   *  browser session and persisted with the messages, so a conversation
+   *  that survives a page navigation stays one thread in the log. */
+  conversationId: string;
   /** A transcript handed over by the voice-order button; ChatDrawer sends
    *  it as soon as the drawer is open and clears it. */
   voiceDraft: string | null;
@@ -58,6 +62,7 @@ export const useChat = create<ChatState>()(
   persist(
     (set) => ({
       messages: [],
+      conversationId: newId(),
       voiceDraft: null,
       isOpen: false,
       isThinking: false,
@@ -77,7 +82,7 @@ export const useChat = create<ChatState>()(
     {
       name: "mandy-chat",
       storage: createJSONStorage(() => sessionStorage),
-      partialize: (s) => ({ messages: s.messages }),
+      partialize: (s) => ({ messages: s.messages, conversationId: s.conversationId }),
     },
   ),
 );
