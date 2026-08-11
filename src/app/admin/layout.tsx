@@ -31,6 +31,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Loyalty pushes
             </Link>
           </li>
+          <li>
+            <Link href="/admin/chats" className="hover:underline">
+              Chat logs
+            </Link>
+          </li>
         </ul>
       </nav>
       {children}

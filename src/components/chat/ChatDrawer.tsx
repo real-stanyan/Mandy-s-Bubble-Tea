@@ -62,7 +62,14 @@ export function ChatDrawer() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        // conversationId groups this chat's turns in the Admin log; surface
+        // says it came from the website. Both are cosmetic to the reply —
+        // the server falls back to an IP-and-hour bucket without them.
+        body: JSON.stringify({
+          messages: history,
+          conversationId: useChat.getState().conversationId,
+          surface: "web",
+        }),
       });
 
       if (res.status === 429) {

@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/delivery-auth-timeout",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/chat-log-retention",
+      "schedule": "30 3 * * *"
     }
   ]
 }

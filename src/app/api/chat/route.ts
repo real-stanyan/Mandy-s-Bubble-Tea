@@ -13,6 +13,11 @@ import {
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
 import { getDeliveryPause } from "@/lib/store-status-server";
+import {
+  recordChatTurns,
+  normalizeConversationId,
+  fallbackConversationId,
+} from "@/lib/chat/log";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
@@ -106,6 +111,13 @@ function clientIp(request: Request): string {
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
+/** 'web' | 'app' — where the conversation happened, for the Admin view.
+ *  Anything unrecognised is dropped rather than stored, so a client can't
+ *  scribble arbitrary text into the column. */
+function parseSurface(raw: unknown): string | null {
+  return raw === "web" || raw === "app" ? raw : null;
+}
+
 function findToolCall(calls: ToolCall[], name: string): ToolCall | undefined {
   return calls.find((c) => c.name === name);
 }
@@ -140,7 +152,10 @@ function degraded(
   suggestions: ReturnType<typeof fallbackMatch>,
 ) {
   const reply = suggestions.length > 0 ? withSuggestions : noSuggestions;
-  return json({ reply, proposal: null, proposals: [], action: null, suggestions });
+  // Returns the BODY, not a Response: the caller hands it to answer() so a
+  // degraded exchange lands in the transcript like any other. A chat that
+  // went wrong is the one worth reading back.
+  return { reply, proposal: null, proposals: [] as unknown[], action: null, suggestions };
 }
 
 /** Matches anything price-shaped so it can be stripped out of a
@@ -253,6 +268,47 @@ export async function POST(request: Request): Promise<Response> {
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const t = stringsFor(lastUserText);
 
+  // Transcript for the Admin log. Written on the way out of every
+  // customer-visible path (including degrades — a conversation that went
+  // wrong is the one worth reading), and never awaited: logging must not
+  // add latency to a reply, and must never be why a chat fails.
+  const ipHash = safeIpHash(request);
+  const conversationId =
+    normalizeConversationId((raw as { conversationId?: unknown }).conversationId) ??
+    fallbackConversationId(ipHash, new Date());
+  const surface = parseSurface((raw as { surface?: unknown }).surface);
+  const userTurnIndex = history.length - 1;
+
+  function answer(body: {
+    reply: string;
+    proposal: unknown;
+    proposals: unknown[];
+    action: string | null;
+    suggestions: unknown[];
+  }): Response {
+    void recordChatTurns([
+      {
+        conversationId,
+        turnIndex: userTurnIndex,
+        role: "user",
+        content: lastUserText,
+        surface,
+        ipHash,
+      },
+      {
+        conversationId,
+        turnIndex: userTurnIndex + 1,
+        role: "assistant",
+        content: body.reply,
+        surface,
+        ipHash,
+        proposalCount: body.proposals.length,
+        action: body.action,
+      },
+    ]);
+    return json(body);
+  }
+
   const messages: DeepSeekMessage[] = [
     { role: "system", content: buildSystemPrompt(menu, deliveryPause) },
     ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -269,11 +325,11 @@ export async function POST(request: Request): Promise<Response> {
         "[chat] DeepSeek call failed; degrading to keyword suggestions:",
         describeDeepSeekFailure(err),
       );
-      return degraded(
+      return answer(degraded(
         t.unreachableWithSuggestions,
         t.unreachableNoSuggestions,
         fallbackMatch(menu, lastUserText),
-      );
+      ));
     }
 
     // A complaint outranks everything else the model did this turn — the
@@ -298,7 +354,7 @@ export async function POST(request: Request): Promise<Response> {
       );
       if (!stored && !emailed) {
         console.error("[chat] complaint neither stored nor emailed — customer promise withheld");
-        return json({
+        return answer({
           reply: t.emptyReplyFallback,
           proposal: null,
           proposals: [],
@@ -306,7 +362,7 @@ export async function POST(request: Request): Promise<Response> {
           suggestions: [],
         });
       }
-      return json({
+      return answer({
         reply: scrubPrices(result.content) || t.complaintAck,
         proposal: null,
         proposals: [],
@@ -321,7 +377,7 @@ export async function POST(request: Request): Promise<Response> {
       // empty result, not get shadowed by the pre-scrub `||` this used to
       // be written with (which chose the model's text before scrubbing
       // ever got a chance to empty it).
-      return json({
+      return answer({
         reply: scrubPrices(result.content) || t.checkoutFallback,
         proposal: null,
         proposals: [],
@@ -336,7 +392,7 @@ export async function POST(request: Request): Promise<Response> {
       // Same scrub-first-then-fallback shape as above; this site had no
       // fallback at all before, so a price-only reply reached the
       // customer as a silently blank bubble.
-      return json({
+      return answer({
         reply: scrubPrices(result.content) || t.emptyReplyFallback,
         proposal: null,
         proposals: [],
@@ -399,7 +455,7 @@ export async function POST(request: Request): Promise<Response> {
       // the model's own text, then its (also scrubbed — it can quote a
       // price too) one-line reason for the first pick, then the fixed
       // string.
-      return json({
+      return answer({
         reply:
           scrubPrices(result.content) ||
           scrubPrices(values[0].reason) ||
@@ -439,9 +495,9 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return degraded(
+  return answer(degraded(
     t.noMatchWithSuggestions,
     t.noMatchNoSuggestions,
     fallbackMatch(menu, lastUserText),
-  );
+  ));
 }
