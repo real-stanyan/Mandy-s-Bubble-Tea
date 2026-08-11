@@ -16,7 +16,7 @@ export function AccountLink({
   const label = loading ? "Account" : profile ? "My Account" : "Sign in";
 
   return (
-    <Link href="/account" className={className} style={style} onClick={onClick}>
+    <Link prefetch={false} href="/account" className={className} style={style} onClick={onClick}>
       {label}
     </Link>
   );

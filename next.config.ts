@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
     "sharp",
   ],
   images: {
+    // Next's default optimized-image TTL is 60 seconds, so nearly every
+    // visitor pays for a fresh optimize. Measured on production 2026-08-11:
+    // a 21KB hero image took 719–1052ms through /_next/image and came back
+    // cache=MISS even on an immediate second request, while the raw .webp
+    // served in 126ms. One day keeps the cache warm across a whole trading
+    // day (1440× fewer re-optimizes) and still lets a replaced product photo
+    // heal by itself within 24h — the reason not to set this to a month.
+    minimumCacheTTL: 86400,
     remotePatterns: [
       {
         protocol: "https",

@@ -41,6 +41,7 @@ function OrdersButton() {
   if (count <= 0) return null;
   return (
     <Link
+      prefetch={false}
       href="/account/orders"
       aria-label={`${count} order${count !== 1 ? "s" : ""} in progress`}
       className="relative grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full border border-line bg-card text-ink2"
@@ -100,7 +101,7 @@ export function MobileAppBar() {
     <header className="sticky top-0 z-40 flex items-center justify-between gap-3 bg-bg/90 px-[18px] pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur-md lg:hidden">
       <div className="flex min-w-0 items-center gap-2.5">
         {bar.kind === "logo" && (
-          <Link href="/" aria-label="Mandy's home">
+          <Link prefetch={false} href="/" aria-label="Mandy's home">
             <Image
               src="/logo.webp"
               width={160}
@@ -113,6 +114,7 @@ export function MobileAppBar() {
         {bar.kind === "back" && (
           <>
             <Link
+              prefetch={false}
               href={bar.backHref}
               aria-label="Back"
               className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full border border-line bg-card text-ink2"

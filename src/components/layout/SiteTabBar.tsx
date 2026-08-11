@@ -10,6 +10,15 @@ import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
 // (lg:hidden) — desktop uses the SiteHeader nav. Fixed to the bottom with a
 // paper fade and safe-area padding. Gated out of /checkout and
 // /order-confirmation by SiteTabBarGate, matching the prototype.
+//
+// prefetch={false} on every link here, and in the other always-visible
+// chrome (SiteHeader, MobileAppBar, AccountLink): this bar renders on EVERY
+// mobile page, so Next's automatic viewport prefetch fires a full RSC
+// round-trip per destination per page view — for pages the customer may
+// never open. Measured on production 2026-08-11: one /menu load made 22
+// fetches, including /account 5x, /menu 4x and / 3x at 300–450ms each.
+// Tapping still streams the route normally; only the speculative fetch is
+// gone. Don't "fix" this by removing the prop.
 
 const TABS = [
   { href: "/", label: "Home", icon: Home, match: (p: string) => p === "/" },
@@ -49,6 +58,7 @@ export function SiteTabBar() {
         const badge = href === "/account/orders" ? orderCount : 0;
         return (
           <Link
+            prefetch={false}
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
