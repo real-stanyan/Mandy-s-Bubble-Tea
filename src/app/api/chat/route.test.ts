@@ -33,6 +33,9 @@ vi.mock("@/lib/chat/rate-limit", () => ({
 // scope, both of which want env this test file deliberately runs without.
 const fileChatComplaint = vi.fn();
 vi.mock("@/lib/chat/complaint", () => ({ fileChatComplaint }));
+// store-status-server pulls in supabase-server at module scope.
+const getDeliveryPause = vi.fn();
+vi.mock("@/lib/store-status-server", () => ({ getDeliveryPause }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -69,6 +72,8 @@ const goodArgs = {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  getDeliveryPause.mockReset();
+  getDeliveryPause.mockResolvedValue(null);
   fileChatComplaint.mockReset();
   fileChatComplaint.mockResolvedValue({ stored: true, emailed: true });
   callDeepSeek.mockReset();
@@ -617,5 +622,37 @@ describe("POST /api/chat — impossible customer requests", () => {
 
     expect(callDeepSeek).toHaveBeenCalledTimes(1);
     expect(body.proposals).toHaveLength(1);
+  });
+});
+
+describe("POST /api/chat — delivery pause reaches the model", () => {
+  it("puts the live pause in the system prompt and drops the delivery facts", async () => {
+    // The bug this pins (2026-08-11): the route fetched the pause and then
+    // called buildSystemPrompt(menu) without it. The digest was correct,
+    // the wiring was not, and production Mandy kept telling customers
+    // "4217 is in our delivery area" while the shop was paused. Unit tests
+    // on the digest could not see it — only the prompt actually sent can.
+    getDeliveryPause.mockResolvedValue({
+      until: "2026-08-11T07:00:00.000Z",
+      reason: "maintenance",
+    });
+    callDeepSeek.mockResolvedValue({ content: "好的", toolCalls: [] });
+
+    await POST(req({ messages: [{ role: "user", content: "可以送到4217吗" }] }));
+
+    const messages = callDeepSeek.mock.calls[0][0] as { role: string; content: string }[];
+    const systemPrompt = messages.find((m) => m.role === "system")!.content;
+    expect(systemPrompt).toContain("DELIVERY IS PAUSED RIGHT NOW");
+    expect(systemPrompt).not.toContain("4217");
+  });
+
+  it("keeps the delivery facts when nothing is paused", async () => {
+    callDeepSeek.mockResolvedValue({ content: "好的", toolCalls: [] });
+    await POST(req({ messages: [{ role: "user", content: "可以送到4217吗" }] }));
+
+    const messages = callDeepSeek.mock.calls[0][0] as { role: string; content: string }[];
+    const systemPrompt = messages.find((m) => m.role === "system")!.content;
+    expect(systemPrompt).not.toContain("PAUSED");
+    expect(systemPrompt).toContain("4217");
   });
 });

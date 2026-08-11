@@ -254,7 +254,7 @@ export async function POST(request: Request): Promise<Response> {
   const t = stringsFor(lastUserText);
 
   const messages: DeepSeekMessage[] = [
-    { role: "system", content: buildSystemPrompt(menu) },
+    { role: "system", content: buildSystemPrompt(menu, deliveryPause) },
     ...history.map((m) => ({ role: m.role, content: m.content })),
   ];
 
