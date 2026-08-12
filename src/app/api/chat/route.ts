@@ -1,6 +1,6 @@
 import { getMenu } from "@/lib/catalog";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
-import { scriptHint } from "@/lib/chat/language-hint";
+import { scriptHint, violatesScriptHint, SCRIPT_RETRY_NOTE } from "@/lib/chat/language-hint";
 import {
   callDeepSeek,
   DeepSeekError,
@@ -333,6 +333,10 @@ export async function POST(request: Request): Promise<Response> {
     return json(body);
   }
 
+  const script = scriptHint(
+    history.filter((m) => m.role === "user").map((m) => m.content),
+  );
+
   const messages: DeepSeekMessage[] = [
     {
       role: "system",
@@ -341,7 +345,7 @@ export async function POST(request: Request): Promise<Response> {
         deliveryPause,
         promotions,
         nearRewardNudge(customer),
-        scriptHint(history.filter((m) => m.role === "user").map((m) => m.content)),
+        script,
       ),
     },
     ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -363,6 +367,30 @@ export async function POST(request: Request): Promise<Response> {
         t.unreachableNoSuggestions,
         fallbackMatch(menu, lastUserText),
       ));
+    }
+
+    // Answered in a script this customer has never used? Ask again rather
+    // than send it. The prompt already carries the hint and still misses
+    // roughly 1 turn in 10 on production for an open-ended question, and no
+    // amount of further rewording fixes a sampling tail — this is the gate
+    // that does not depend on the model cooperating.
+    //
+    // Restricted to turns with no tool calls, which is where every observed
+    // failure lives: it keeps a retry from re-running a validated drink
+    // proposal, and leaves the attempt budget to the validation loop below
+    // for the turns that actually need it. On the final attempt the reply is
+    // sent as-is — a customer reading the wrong language beats a customer
+    // reading nothing.
+    if (
+      result.toolCalls.length === 0 &&
+      violatesScriptHint(script, result.content) &&
+      attempt < MAX_ATTEMPTS
+    ) {
+      messages[0] = {
+        role: "system",
+        content: `${messages[0].content}\n${SCRIPT_RETRY_NOTE}`,
+      };
+      continue;
     }
 
     // A complaint outranks everything else the model did this turn — the

@@ -33,3 +33,25 @@ export function scriptHint(customerTexts: string[]): string | null {
   if (!LATIN_WORD.test(all)) return null;
   return "Every message this customer has written uses the Latin alphabet. Write your reply in the Latin alphabet too.";
 }
+
+/**
+ * Did the reply come back in a script the customer never used?
+ *
+ * The hint above is still only a request, and asking is what kept failing:
+ * on production after every wording fix, an open-ended English question
+ * ("what do you recommend?") still came back in Chinese roughly 1 turn in
+ * 10. This is the part that does not ask — the caller regenerates.
+ *
+ * False by definition when there is no hint, so a Chinese, Japanese or
+ * Korean customer can never trip it.
+ */
+export function violatesScriptHint(hint: string | null, reply: string): boolean {
+  if (!hint) return false;
+  return CJK.test(reply);
+}
+
+/** Appended to the system prompt for the retry. Sits last, after the hint
+ *  it is reinforcing, and names no language for the same reason nothing
+ *  else here does. */
+export const SCRIPT_RETRY_NOTE =
+  "Your previous attempt was written in a script this customer has not used. Write the reply again, in the Latin alphabet.";
