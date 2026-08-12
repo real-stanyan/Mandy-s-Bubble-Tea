@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useChat } from "@/store/chat";
 import { DrinkProposalCard } from "@/components/chat/DrinkProposalCard";
 import { CheckoutCard } from "@/components/chat/CheckoutCard";
+import { PromotionCard } from "@/components/chat/PromotionCard";
 import { VOICE_ENABLED } from "@/components/chat/ChatGate";
 import { chatUiStrings } from "@/lib/chat/ui-strings";
 
@@ -150,6 +151,14 @@ export function MessageList() {
               </div>
             ) : null;
           })()}
+
+          {m.promotions?.length ? (
+            <div className="mt-2 w-full max-w-[90%] space-y-2">
+              {m.promotions.map((p) => (
+                <PromotionCard key={p.key} promotion={p} />
+              ))}
+            </div>
+          ) : null}
 
           {m.checkoutCard ? (
             <div className="mt-2 w-full max-w-[90%]">

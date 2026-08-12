@@ -656,3 +656,81 @@ describe("POST /api/chat — delivery pause reaches the model", () => {
     expect(systemPrompt).toContain("4217");
   });
 });
+
+describe("POST /api/chat — promotions, not complaints", () => {
+  it("refuses to file a complaint about a free-drink question, and answers it", async () => {
+    // The production regression (2026-08-12): "我可以免费换了吗" produced an
+    // apology, a filed complaint and a request for the order number. The
+    // customer was asking about their loyalty reward.
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? {
+            content: "不好意思给您带来不便了。",
+            toolCalls: [
+              {
+                id: "c1",
+                name: "file_complaint",
+                argumentsJson: JSON.stringify({ summary: "想免费换" }),
+              },
+            ],
+          }
+        : {
+            content: "你现在的星星还差一点，再买一杯就能换啦～",
+            toolCalls: [
+              { id: "c2", name: "show_promotion", argumentsJson: JSON.stringify({ key: "loyalty" }) },
+            ],
+          };
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "我可以免费换了吗" }] }))
+    ).json();
+
+    // No complaint was filed…
+    expect(fileChatComplaint).not.toHaveBeenCalled();
+    // …the model was told why, in terms it can act on…
+    expect(JSON.stringify(seen[1])).toContain("show_promotion");
+    // …and the customer got the loyalty card instead of an apology.
+    expect(body.promotions).toHaveLength(1);
+    expect(body.promotions[0].key).toBe("loyalty");
+  });
+
+  it("still files a real complaint", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "非常抱歉！",
+      toolCalls: [
+        {
+          id: "c1",
+          name: "file_complaint",
+          argumentsJson: JSON.stringify({ summary: "饮品洒了" }),
+        },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "我的奶茶洒了一半" }] }))
+    ).json();
+
+    expect(fileChatComplaint).toHaveBeenCalledTimes(1);
+    expect(body.reply).toContain("抱歉");
+  });
+
+  it("never emits a promotion the server didn't author", async () => {
+    // The model picks a key; if it invents one there is no card, because a
+    // model-authored discount is a promise checkout will not keep.
+    callDeepSeek.mockResolvedValue({
+      content: "给你个五折券！",
+      toolCalls: [
+        { id: "c1", name: "show_promotion", argumentsJson: JSON.stringify({ key: "half-price-everything" }) },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "有什么活动" }] }))
+    ).json();
+
+    expect(body.promotions ?? []).toEqual([]);
+  });
+});
