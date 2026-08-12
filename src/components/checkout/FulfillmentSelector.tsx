@@ -61,9 +61,13 @@ export function FulfillmentSelector({
           </div>
         </div>
         {/* Silence reads as broken. A named reason and a return time turn
-            "no delivery today?" into information the customer can act on. */}
+            "no delivery today?" into information the customer can act on.
+
+            text-ink2, not the #5A4330 literal it is by day: .bg-cream goes
+            dark in Evening Mode, so a pinned dark ink would hide the one
+            notice that explains why delivery is missing. */}
         {deliveryPause ? (
-          <p className="mt-3 rounded-lg bg-cream px-3 py-2 text-xs text-[#5A4330]">
+          <p className="mt-3 rounded-lg bg-cream px-3 py-2 text-xs text-ink2">
             {deliveryMaintenanceCopy(deliveryPause.until)}
           </p>
         ) : null}
