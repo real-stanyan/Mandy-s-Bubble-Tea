@@ -132,11 +132,16 @@ export default function PrivacyPage() {
               Anonymous sign-in identifiers from Apple Sign In or Google Sign In,
               when you choose those login methods
             </li>
+            <li>
+              Photos you choose to attach when reporting a problem with an order
+              — only the images you select yourself, used to assess the issue
+            </li>
           </ul>
           <p className="mt-2">
-            We do not collect precise location, contacts, photos, or any data
-            not listed above. The app does not use third-party advertising or
-            analytics SDKs.
+            We do not collect precise location or contacts, and we never browse
+            your photo library — the app can only see the photos you pick for a
+            report. We collect no data not listed above, and the app does not
+            use third-party advertising or analytics SDKs.
           </p>
         </Section>
 
@@ -182,8 +187,9 @@ export default function PrivacyPage() {
               .
             </li>
             <li>
-              <strong>Supabase, Inc.</strong> (authentication, account database)
-              — stores your phone number, name, and account metadata. See{" "}
+              <strong>Supabase, Inc.</strong> (authentication, account database,
+              file storage) — stores your phone number, name, account metadata,
+              and any photos you attach to an order report. See{" "}
               <a
                 href="https://supabase.com/privacy"
                 className="underline"
