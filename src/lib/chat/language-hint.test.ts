@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scriptHint } from "@/lib/chat/language-hint";
+import { scriptHint, violatesScriptHint } from "@/lib/chat/language-hint";
 
 describe("scriptHint", () => {
   it("pins Latin script for a customer writing English", () => {
@@ -41,5 +41,35 @@ describe("scriptHint", () => {
   it("names no language, so it cannot prime one", () => {
     const hint = scriptHint(["hello there"])!;
     expect(hint).not.toMatch(/Chinese|English|Japanese|Korean/);
+  });
+});
+
+describe("violatesScriptHint", () => {
+  const latin = scriptHint(["what do you recommend?"]);
+
+  it("catches the production failure: English asked, Chinese answered", () => {
+    expect(violatesScriptHint(latin, "想喝偏甜的还是清爽果茶？")).toBe(true);
+  });
+
+  it("passes a reply in the customer's own script", () => {
+    expect(violatesScriptHint(latin, "Sweet or fresh? I'd go with the Brown Sugar.")).toBe(false);
+  });
+
+  it("never fires without a hint, so a CJK customer is untouchable", () => {
+    // scriptHint() returns null for them, and this must then be inert no
+    // matter what the reply says — otherwise the retry loop would fight a
+    // Chinese customer's own language.
+    expect(violatesScriptHint(null, "想喝偏甜的还是清爽果茶？")).toBe(false);
+    expect(violatesScriptHint(scriptHint(["有什么推荐"]), "喝奶茶吧")).toBe(false);
+  });
+
+  it("catches a drink name left in the customer's script but the sentence not", () => {
+    // The realistic partial failure: an English reply that slips one
+    // Chinese clause in. A whole-reply check would miss a per-sentence rule.
+    expect(violatesScriptHint(latin, "Sure! 想喝点什么？")).toBe(true);
+  });
+
+  it("tolerates an empty reply", () => {
+    expect(violatesScriptHint(latin, "")).toBe(false);
   });
 });
