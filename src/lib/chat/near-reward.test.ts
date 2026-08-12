@@ -57,7 +57,14 @@ describe("nearRewardNudge", () => {
 
   it("rides in the digest only when present", () => {
     const promos = [
-      { key: "loyalty" as const, title: "t", detail: "d", href: null, cta: null },
+      {
+        key: "loyalty" as const,
+        title: "t",
+        detail: "d",
+        promptDetail: "p",
+        href: null,
+        cta: null,
+      },
     ];
     expect(buildPromotionsDigest(promos, null)).not.toContain("NEARLY THERE");
     expect(buildPromotionsDigest(promos, nearRewardNudge(customer(8)))).toContain("NEARLY THERE");

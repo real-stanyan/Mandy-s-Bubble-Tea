@@ -1,5 +1,6 @@
 import { getMenu } from "@/lib/catalog";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
+import { scriptHint } from "@/lib/chat/language-hint";
 import {
   callDeepSeek,
   DeepSeekError,
@@ -340,6 +341,7 @@ export async function POST(request: Request): Promise<Response> {
         deliveryPause,
         promotions,
         nearRewardNudge(customer),
+        scriptHint(history.filter((m) => m.role === "user").map((m) => m.content)),
       ),
     },
     ...history.map((m) => ({ role: m.role, content: m.content })),

@@ -18,6 +18,7 @@ const PERSONAL: Promotion[] = [
     key: "loyalty",
     title: "你有 2 杯免费饮品",
     detail: "你现在有 18 颗星。",
+    promptDetail: "They have 18 stars and can redeem 2 free drinks.",
     href: "/account/promotions",
     cta: "去兑换",
   },
@@ -54,6 +55,10 @@ describe("buildSystemPrompt — prompt cache prefix", () => {
   it("still carries the promotions the model is allowed to speak about", () => {
     const prompt = buildSystemPrompt(fixtureMenu(), null, PERSONAL);
     expect(prompt).toContain("[loyalty]");
-    expect(prompt).toContain("你有 2 杯免费饮品");
+    // The model reads promptDetail, never the card's Chinese copy — this
+    // used to assert the opposite, which is how the language bug shipped.
+    // See promotions-language.test.ts for the gate.
+    expect(prompt).toContain("They have 18 stars");
+    expect(prompt).not.toContain("你有 2 杯免费饮品");
   });
 });
