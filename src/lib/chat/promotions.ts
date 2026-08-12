@@ -32,6 +32,17 @@ export type Promotion = {
   title: string;
   /** One or two sentences the card shows. Server-authored, never model text. */
   detail: string;
+  /** The same fact, written for the model instead of for the customer.
+   *
+   *  `detail` is card copy, and it is Chinese because that is how the site
+   *  prints it. Feeding it straight into the system prompt turned the whole
+   *  block into a language sample: measured 2026-08-12 over 20 replies per
+   *  variant against the live catalog, a signed-out customer asking an
+   *  English question got a Chinese answer 4/20 of the time, with nothing
+   *  else Chinese anywhere in the prompt. The model cannot tell reference
+   *  data from a demonstration, so reference data has to be neutral. The
+   *  card keeps its Chinese; only what the model reads changes. */
+  promptDetail: string;
   /** Where the card's button sends them, if anywhere. */
   href: string | null;
   /** Button copy; null when the card is informational only. */
@@ -96,6 +107,10 @@ export async function getLivePromotions(
         redeemable > 0
           ? `你现在有 ${customer.starBalance} 颗星，可以兑换 ${redeemable} 杯免费饮品（任意口味任意杯型）。在结账页或到店出示会员码即可使用。`
           : `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品。你现在有 ${customer.starBalance} 颗星，再买 ${toNext} 杯就能换一杯。`,
+      promptDetail:
+        redeemable > 0
+          ? `They have ${customer.starBalance} stars and can redeem ${redeemable} free drink(s) — any flavour, any size — at checkout or in store with their member code.`
+          : `One star per drink bought; ${perReward} stars earns a free drink of any flavour and size. They have ${customer.starBalance} stars and need ${toNext} more.`,
       href: redeemable > 0 ? "/account/promotions" : "/menu",
       cta: redeemable > 0 ? "去兑换" : "去点单",
     });
@@ -104,6 +119,7 @@ export async function getLivePromotions(
       key: "loyalty",
       title: "集星换免费饮品",
       detail: `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品（任意口味任意杯型）。登录后可以看到自己攒了多少颗。`,
+      promptDetail: `One star per drink bought; ${perReward} stars earns a free drink of any flavour and size. Signing in shows them their own balance — you do not know it.`,
       href: "/account",
       cta: "查看我的星星",
     });
@@ -115,6 +131,7 @@ export async function getLivePromotions(
       key: "weekly-specials",
       title: "本周特价",
       detail: `${WEEKLY_SPECIALS.map((s) => s.name).join("、")} —— 本周限时降价，菜单顶部的「WEEKLY SPECIALS」区就能点。`,
+      promptDetail: `Discounted this week only: ${WEEKLY_SPECIALS.map((s) => s.name).join(", ")}. They sit in the WEEKLY SPECIALS shelf at the top of the menu.`,
       href: "/menu",
       cta: "看特价",
     });
@@ -130,6 +147,7 @@ export async function getLivePromotions(
       key: "tasting",
       title: `新品尝鲜价 ${money(tasting.tastingPriceCents)}`,
       detail: `${tasting.productName} 尝鲜价 ${money(tasting.tastingPriceCents)}，每单限一杯，结账时自动取用你能享受的最优折扣。`,
+      promptDetail: `${tasting.productName} is on an introductory price, one per order, applied at checkout alongside whichever discount works out best for them.`,
       href: "/menu",
       cta: "去尝鲜",
     });
@@ -140,6 +158,7 @@ export async function getLivePromotions(
       key: "flash",
       title: `限时 ${customer.flashPercentage}% OFF`,
       detail: `你有一张 ${customer.flashPercentage}% 的限时折扣，结账时自动使用。`,
+      promptDetail: `They hold a ${customer.flashPercentage}% limited-time discount, applied automatically at checkout.`,
       href: "/menu",
       cta: "去点单",
     });
@@ -150,6 +169,8 @@ export async function getLivePromotions(
       key: "welcome",
       title: "新客首单优惠",
       detail: "你的新客优惠还没用，下单时会自动抵扣。",
+      promptDetail:
+        "Their first-order welcome discount is unused and comes off automatically when they order.",
       href: "/menu",
       cta: "去点单",
     });
@@ -160,6 +181,7 @@ export async function getLivePromotions(
       key: "ig-follow",
       title: `关注 Instagram 得 ${customer.igFollowPercentage}% OFF`,
       detail: `关注 @mandysbubbletea 就能领 ${customer.igFollowPercentage}% 折扣，自动打在最便宜的那杯上。`,
+      promptDetail: `Following @mandysbubbletea on Instagram earns a ${customer.igFollowPercentage}% discount, applied to the cheapest drink in the order.`,
       href: "/account/promotions",
       cta: "去领取",
     });
@@ -168,6 +190,8 @@ export async function getLivePromotions(
       key: "ig-follow",
       title: "关注 Instagram 有折扣",
       detail: "关注 @mandysbubbletea 可以领一次性折扣，登录后在「我的优惠」里领取。",
+      promptDetail:
+        "Following @mandysbubbletea on Instagram earns a one-off discount, claimed under My Offers once signed in.",
       href: "/account",
       cta: "登录查看",
     });
@@ -178,6 +202,7 @@ export async function getLivePromotions(
       key: "app-download",
       title: `下载 App 首单 ${customer.appDownloadPercentage}% OFF`,
       detail: `在 App 里下单，首单直接减 ${customer.appDownloadPercentage}%，结账时自动生效。`,
+      promptDetail: `Their first order placed in the app takes ${customer.appDownloadPercentage}% off, applied automatically at checkout.`,
       href: "/menu",
       cta: "去点单",
     });
@@ -191,6 +216,9 @@ export async function getLivePromotions(
     detail: tier
       ? tierDetail(tier, customer!.lifetimePoints)
       : `累计买满 ${TIER_THRESHOLDS.gold} 杯升黄金、${TIER_THRESHOLDS.diamond} 杯升钻石。黄金和钻石会员每单享 ${TIER_DISCOUNT_PERCENT}% 折扣，钻石会员每月还有 ${DIAMOND_MONTHLY_FREE_TOPPINGS} 份免费小料。`,
+    promptDetail: tier
+      ? tierPromptDetail(tier, customer!.lifetimePoints)
+      : `${TIER_THRESHOLDS.gold} drinks bought lifetime reaches Gold, ${TIER_THRESHOLDS.diamond} reaches Diamond. Gold and Diamond take ${TIER_DISCOUNT_PERCENT}% off every order; Diamond also gets ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`,
     href: "/account",
     cta: "查看会员",
   });
@@ -212,6 +240,16 @@ function tierDetail(tier: "silver" | "gold" | "diamond", lifetime: number): stri
   return `白银会员。再买 ${TIER_THRESHOLDS.gold - lifetime} 杯升黄金，每单就有 ${TIER_DISCOUNT_PERCENT}% 折扣。`;
 }
 
+function tierPromptDetail(tier: "silver" | "gold" | "diamond", lifetime: number): string {
+  if (tier === "diamond") {
+    return `Diamond member: ${TIER_DISCOUNT_PERCENT}% off every order, plus ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`;
+  }
+  if (tier === "gold") {
+    return `Gold member: ${TIER_DISCOUNT_PERCENT}% off every order. ${TIER_THRESHOLDS.diamond - lifetime} more drinks reaches Diamond, which adds ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`;
+  }
+  return `Silver member. ${TIER_THRESHOLDS.gold - lifetime} more drinks reaches Gold, which is ${TIER_DISCOUNT_PERCENT}% off every order.`;
+}
+
 /** How close this customer is to their next free drink, when close enough
  *  to be worth saying out loud unprompted.
  *
@@ -222,24 +260,30 @@ function tierDetail(tier: "silver" | "gold" | "diamond", lifetime: number): stri
  *  happens to be the moment it is most useful.
  *
  *  Only 1–2 away qualifies. At three or more it stops being news and starts
- *  being pressure, which costs more than it earns. */
+ *  being pressure, which costs more than it earns.
+ *
+ *  Carries no sample sentence, for the same reason promptDetail exists: the
+ *  first version demonstrated the line in Chinese and the model copied the
+ *  language instead of the instruction. */
 export function nearRewardNudge(customer: CustomerPromoState | null): string | null {
   if (!customer) return null;
   const per = customer.starsPerReward || LOYALTY.starsPerReward;
   if (per <= 0) return null;
   const toNext = per - (customer.starBalance % per);
   if (toNext > 2 || toNext === per) return null;
-  return `This customer is ${toNext} star${toNext === 1 ? "" : "s"} away from a free drink (they have ${customer.starBalance}). Mention it ONCE, in passing, while helping them order — "再买 ${toNext} 杯就能换一杯免费的" — and never repeat it in the same conversation. Do not turn it into a pitch: say it once and get on with their order.`;
+  return `This customer is ${toNext} star${toNext === 1 ? "" : "s"} away from a free drink (they have ${customer.starBalance}). Mention it ONCE, in passing, while helping them order, and never repeat it in the same conversation. Do not turn it into a pitch: say it once and get on with their order.`;
 }
 
 /** The block that goes in the system prompt: what is running, in Mandy's
- *  own reading order, plus the customer's own numbers when we have them. */
+ *  own reading order, plus the customer's own numbers when we have them.
+ *
+ *  Reads promptDetail, never detail — see the field's own comment. */
 export function buildPromotionsDigest(
   promotions: Promotion[],
   nudge: string | null = null,
 ): string {
   if (promotions.length === 0 && !nudge) return "";
-  const lines = promotions.map((p) => `- [${p.key}] ${p.title} — ${p.detail}`);
+  const lines = promotions.map((p) => `- [${p.key}] ${p.promptDetail}`);
   const head = `LIVE PROMOTIONS (these are the ONLY promotions; never invent one, never quote a discount that is not listed here)
 ${lines.join("\n")}`;
   return nudge ? `${head}\n\nNEARLY THERE\n${nudge}` : head;
