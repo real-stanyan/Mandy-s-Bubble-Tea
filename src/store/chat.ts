@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { ApiProposal } from "@/lib/chat/proposal-to-cart";
+import type { ApiPromotion } from "@/components/chat/PromotionCard";
 
 export type ChatMessage = {
   id: string;
@@ -15,6 +16,8 @@ export type ChatMessage = {
   proposal?: ApiProposal;
   /** One entry per drink on assistant turns that proposed an order. */
   proposals?: ApiProposal[];
+  /** Promotion cards Mandy pointed at this turn. */
+  promotions?: ApiPromotion[];
   /** Set on assistant turns that should render the go-to-checkout card. */
   checkoutCard?: boolean;
   /** Menu links offered when the model was unreachable or unconfident. */

@@ -13,6 +13,9 @@ import {
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
 import { getDeliveryPause } from "@/lib/store-status-server";
+import { getLivePromotions, type Promotion } from "@/lib/chat/promotions";
+import { readCustomerPromoState } from "@/lib/chat/customer-state";
+import { guardComplaint } from "@/lib/chat/complaint-guard";
 import {
   recordChatTurns,
   normalizeConversationId,
@@ -263,8 +266,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Fetched with the menu: a paused shop must not have Mandy cheerfully
-  // taking delivery orders /api/orders will refuse.
-  const [menu, deliveryPause] = await Promise.all([getMenu(), getDeliveryPause()]);
+  // taking delivery orders /api/orders will refuse. The customer's own
+  // promo state comes from the same helpers /api/me uses, so Mandy quotes
+  // the numbers they already see on their account page — and can answer
+  // "我可以免费换了吗" with their actual star count instead of guessing.
+  const [menu, deliveryPause, customer] = await Promise.all([
+    getMenu(),
+    getDeliveryPause(),
+    readCustomerPromoState(request),
+  ]);
+  const promotions = await getLivePromotions(customer);
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const t = stringsFor(lastUserText);
 
@@ -285,6 +296,8 @@ export async function POST(request: Request): Promise<Response> {
     proposals: unknown[];
     action: string | null;
     suggestions: unknown[];
+    /** Server-authored promotion cards; the model only picks which key. */
+    promotions?: Promotion[];
   }): Response {
     void recordChatTurns([
       {
@@ -310,7 +323,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const messages: DeepSeekMessage[] = [
-    { role: "system", content: buildSystemPrompt(menu, deliveryPause) },
+    {
+      role: "system",
+      content: buildSystemPrompt(menu, deliveryPause, promotions),
+    },
     ...history.map((m) => ({ role: m.role, content: m.content })),
   ];
 
@@ -338,6 +354,35 @@ export async function POST(request: Request): Promise<Response> {
     // turn if the model dropped them.
     const complaintCall = findToolCall(result.toolCalls, "file_complaint");
     if (complaintCall) {
+      // Did anything actually go wrong? A customer asking "我可以免费换了吗"
+      // got an apology, a filed complaint and a request for their order
+      // number (2026-08-12) — they were asking about their loyalty reward.
+      // Feed the refusal back and let the model answer properly instead.
+      const allCustomerText = history
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+        .join("\n");
+      const verdict = guardComplaint(allCustomerText);
+      if (!verdict.allow) {
+        messages.push({
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: complaintCall.id,
+              type: "function",
+              function: { name: complaintCall.name, arguments: complaintCall.argumentsJson },
+            },
+          ],
+        });
+        messages.push({
+          role: "tool",
+          tool_call_id: complaintCall.id,
+          content: verdict.reason,
+        });
+        continue;
+      }
+
       let filing: ComplaintFiling = { summary: "" };
       try {
         filing = JSON.parse(complaintCall.argumentsJson) as ComplaintFiling;
@@ -369,6 +414,36 @@ export async function POST(request: Request): Promise<Response> {
         action: null,
         suggestions: [],
       });
+    }
+
+    // Promotion cards. The model picks a key; the card's words and numbers
+    // are the server's, from the same helpers the account page renders —
+    // a model-authored discount is a promise checkout won't keep. An
+    // unknown key yields no card rather than an invented one.
+    const promoCalls = allToolCalls(result.toolCalls, "show_promotion");
+    if (promoCalls.length > 0) {
+      const keys = new Set<string>();
+      for (const call of promoCalls) {
+        try {
+          const { key } = JSON.parse(call.argumentsJson) as { key?: unknown };
+          if (typeof key === "string") keys.add(key);
+        } catch {
+          // Ignore a malformed pick; the reply text still answers.
+        }
+      }
+      const cards = promotions.filter((p) => keys.has(p.key));
+      if (cards.length > 0) {
+        return answer({
+          reply: scrubPrices(result.content) || cards[0].detail,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+          promotions: cards,
+        });
+      }
+      // Named nothing real — fall through so the turn is answered as plain
+      // text rather than silently dropping the model's sentence.
     }
 
     if (findToolCall(result.toolCalls, "go_checkout")) {

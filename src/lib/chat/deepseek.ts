@@ -92,9 +92,29 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "show_promotion",
+      description:
+        "Show the customer a card for one of the LIVE PROMOTIONS listed in your instructions. Use this whenever they ask what's on, whether they can redeem a free drink, how the stars work, or about any discount. Explain it in your own words too — the card is the summary, your sentence is the answer.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description:
+              "The bracketed key of one promotion from LIVE PROMOTIONS, e.g. loyalty or weekly-specials. Never invent a key.",
+          },
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "file_complaint",
       description:
-        "File a customer complaint for the store manager. Call this when the customer reports a problem with an order, a drink, the store, or the service. Your accompanying message must tell them the manager has been notified and will contact them within 24 hours, in the customer's language. Never promise refunds or compensation.",
+        "File a customer complaint for the store manager. ONLY when the customer has actually reported something going wrong — a wrong or bad drink, a delivery problem, rude service. Asking whether they can redeem a free drink, what promotions are on, or how the stars work is NOT a complaint: answer it with show_promotion instead. Filing a complaint about nothing wastes the manager's time and tells the customer something is broken when it isn't. Your accompanying message must tell them the manager has been notified and will contact them within 24 hours, in the customer's language. Never promise refunds or compensation.",
       parameters: {
         type: "object",
         properties: {

@@ -93,6 +93,7 @@ export function ChatDrawer() {
             ? [body.proposal]
             : undefined,
         suggestions: body.suggestions?.length ? body.suggestions : undefined,
+        promotions: body.promotions?.length ? body.promotions : undefined,
         // A card in the conversation, not an instant redirect: the customer
         // reviews what's in the cart and taps 去结账 themselves — being
         // yanked to a payment page mid-sentence reads as a malfunction.
