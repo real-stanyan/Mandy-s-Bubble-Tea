@@ -14,5 +14,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: base, lastModified: now, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/menu`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
     { url: `${base}/our-story`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+    // Both are URLs the app stores point at, so they have to be reachable and
+    // indexable rather than pages only a footer link finds.
+    { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    {
+      url: `${base}/delete-account`,
+      lastModified: now,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
   ];
 }
