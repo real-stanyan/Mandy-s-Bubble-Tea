@@ -212,11 +212,35 @@ function tierDetail(tier: "silver" | "gold" | "diamond", lifetime: number): stri
   return `白银会员。再买 ${TIER_THRESHOLDS.gold - lifetime} 杯升黄金，每单就有 ${TIER_DISCOUNT_PERCENT}% 折扣。`;
 }
 
+/** How close this customer is to their next free drink, when close enough
+ *  to be worth saying out loud unprompted.
+ *
+ *  61.9% of orders over the last 90 days were a single drink. The cheapest
+ *  honest way to move that is not a sales pitch — it is telling someone who
+ *  is one cup from a free drink that they are one cup from a free drink.
+ *  That is information they want and cannot see mid-conversation, and it
+ *  happens to be the moment it is most useful.
+ *
+ *  Only 1–2 away qualifies. At three or more it stops being news and starts
+ *  being pressure, which costs more than it earns. */
+export function nearRewardNudge(customer: CustomerPromoState | null): string | null {
+  if (!customer) return null;
+  const per = customer.starsPerReward || LOYALTY.starsPerReward;
+  if (per <= 0) return null;
+  const toNext = per - (customer.starBalance % per);
+  if (toNext > 2 || toNext === per) return null;
+  return `This customer is ${toNext} star${toNext === 1 ? "" : "s"} away from a free drink (they have ${customer.starBalance}). Mention it ONCE, in passing, while helping them order — "再买 ${toNext} 杯就能换一杯免费的" — and never repeat it in the same conversation. Do not turn it into a pitch: say it once and get on with their order.`;
+}
+
 /** The block that goes in the system prompt: what is running, in Mandy's
  *  own reading order, plus the customer's own numbers when we have them. */
-export function buildPromotionsDigest(promotions: Promotion[]): string {
-  if (promotions.length === 0) return "";
+export function buildPromotionsDigest(
+  promotions: Promotion[],
+  nudge: string | null = null,
+): string {
+  if (promotions.length === 0 && !nudge) return "";
   const lines = promotions.map((p) => `- [${p.key}] ${p.title} — ${p.detail}`);
-  return `LIVE PROMOTIONS (these are the ONLY promotions; never invent one, never quote a discount that is not listed here)
+  const head = `LIVE PROMOTIONS (these are the ONLY promotions; never invent one, never quote a discount that is not listed here)
 ${lines.join("\n")}`;
+  return nudge ? `${head}\n\nNEARLY THERE\n${nudge}` : head;
 }
