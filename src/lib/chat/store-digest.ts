@@ -5,6 +5,7 @@ import {
   LOYALTY,
   LOYALTY_CATEGORIES,
 } from "@/lib/constants";
+import { OPEN_MIN, CLOSE_MIN, ORDER_CUTOFF_MIN, formatClock } from "@/lib/store-status";
 import { WEEKLY_SPECIALS } from "@/lib/menu/weekly-specials";
 
 /** Decimal Brisbane hour → "10:30"-style label. */
@@ -46,12 +47,15 @@ export function buildStoreDigest(
       ]
     : [
         `- Ordering: pickup at the store, or delivery to postcodes ${DELIVERABLE_POSTCODES.join(", ")} (minimum order applies; the delivery fee depends on distance and order size and is shown at checkout).`,
+        `- How a delivery order is placed: exactly like pickup — choose the drinks first, then enter the address on the CHECKOUT page, which is what confirms the area and calculates the fee. Do not ask the customer which postcode they are in and do not try to map a street address to one yourself.`,
         `- Delivery hours: ${hourLabel(DELIVERY.hoursOpen)}–${hourLabel(DELIVERY.hoursClose)} Brisbane time daily.`,
       ];
   return `STORE FACTS
 - Store: ${BUSINESS.name}, ${BUSINESS.address}. Phone ${BUSINESS.phone}. Website ${BUSINESS.domain}.
+- Opening hours: ${formatClock(OPEN_MIN)}–${formatClock(CLOSE_MIN)} Brisbane time, every day.
+- Online ordering closes at ${formatClock(ORDER_CUTOFF_MIN)} — the last ${(CLOSE_MIN - ORDER_CUTOFF_MIN)} minutes before closing are walk-in only, so the counter can finish the queue.
 ${deliveryFacts.join("\n")}
 - Loyalty: buy drinks from the ${LOYALTY_CATEGORIES.join("/")} categories to earn 1 star each; ${LOYALTY.starsPerReward} stars = ${LOYALTY.rewardLabel}. Stars and rewards are used at checkout.
 - This week's specials (discounted on the menu): ${specials || "none right now"}.
-- Anything not stated here (exact fees, store opening hours, stock tomorrow): say you are not sure and point the customer at the menu, the checkout page, or the store phone. Never guess.`;
+- Anything not stated here (exact fees, stock tomorrow): say you are not sure and point the customer at the menu, the checkout page, or the store phone. Never guess.`;
 }

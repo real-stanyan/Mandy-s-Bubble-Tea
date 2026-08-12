@@ -42,9 +42,18 @@ describe("buildStoreDigest with a pause", () => {
     // model answered "yes, 4217 is in our delivery area" anyway. A live
     // pause must leave no postcode list and no hours to quote.
     expect(paused).not.toContain("4217");
-    expect(paused).not.toContain("10:30");
+    expect(paused).not.toContain("Delivery hours");
     expect(paused).not.toContain("22:30");
     expect(paused).toContain("pickup at the store ONLY");
+  });
+
+  it("keeps the STORE's own hours while delivery is paused", () => {
+    // These assertions used to key on the bare string "10:30", which broke
+    // the moment the digest learned the shop's opening hours (2026-08-12) —
+    // 10:30am is when the door opens, and that stays true whether or not
+    // delivery is running. Only the DELIVERY window disappears.
+    expect(paused).toContain("Opening hours");
+    expect(paused).toContain("10:30am");
   });
 
   it("says nothing extra when delivery is running", () => {
@@ -52,7 +61,7 @@ describe("buildStoreDigest with a pause", () => {
       expect(digest).not.toContain("PAUSED");
       // …and the real facts are back.
       expect(digest).toContain("4217");
-      expect(digest).toContain("10:30");
+      expect(digest).toContain("Delivery hours");
     }
   });
 });
