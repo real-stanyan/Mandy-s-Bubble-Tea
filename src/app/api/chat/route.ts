@@ -13,7 +13,11 @@ import {
 } from "@/lib/chat/validate-proposal";
 import { fallbackMatch } from "@/lib/chat/fallback-match";
 import { getDeliveryPause } from "@/lib/store-status-server";
-import { getLivePromotions, type Promotion } from "@/lib/chat/promotions";
+import {
+  getLivePromotions,
+  fetchPromoCampaigns,
+  type Promotion,
+} from "@/lib/chat/promotions";
 import { readCustomerPromoState } from "@/lib/chat/customer-state";
 import { guardComplaint } from "@/lib/chat/complaint-guard";
 import {
@@ -270,12 +274,17 @@ export async function POST(request: Request): Promise<Response> {
   // promo state comes from the same helpers /api/me uses, so Mandy quotes
   // the numbers they already see on their account page — and can answer
   // "我可以免费换了吗" with their actual star count instead of guessing.
-  const [menu, deliveryPause, customer] = await Promise.all([
+  // One round of parallel work, not two. The campaign lookups don't depend
+  // on who is asking, so they belong in this batch rather than in a second
+  // await after it — the model call is expensive enough without adding a
+  // serialized Supabase hop in front of it.
+  const [menu, deliveryPause, customer, campaigns] = await Promise.all([
     getMenu(),
     getDeliveryPause(),
     readCustomerPromoState(request),
+    fetchPromoCampaigns(),
   ]);
-  const promotions = await getLivePromotions(customer);
+  const promotions = await getLivePromotions(customer, campaigns);
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const t = stringsFor(lastUserText);
 

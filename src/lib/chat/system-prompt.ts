@@ -3,11 +3,22 @@ import { buildMenuDigest } from "@/lib/chat/menu-digest";
 import { buildStoreDigest } from "@/lib/chat/store-digest";
 import { buildPromotionsDigest, type Promotion } from "@/lib/chat/promotions";
 
-/** The menu goes last and unchanged on every turn: DeepSeek's cache keys on
- *  a stable prefix, and the menu is by far the largest block. Keeping the
- *  instructions above it and never editing either between turns is what
- *  turns a $0.435/M call into a $0.003625/M one. The store digest sits with
- *  the instructions — it is small and just as stable within a deploy. */
+/** Block order is a cost and latency decision, not a layout one.
+ *
+ *  DeepSeek caches on a stable PREFIX, and the menu is by far the largest
+ *  block — keeping everything above it identical between turns is what
+ *  turns a $0.435/M call into a $0.003625/M one. So anything that varies
+ *  per CUSTOMER must sit BELOW the menu.
+ *
+ *  The promotions digest carries the asker's own star balance, so it does
+ *  vary per customer. Shipped above the menu on 2026-08-12 it destroyed the
+ *  prefix for every signed-in customer: measured against the live catalog,
+ *  a second customer got cache_hit=0 / cache_miss=2578 — the entire menu
+ *  re-prefilled, every turn, at full price. Below the menu the same second
+ *  customer gets cache_hit=2560 / cache_miss=18.
+ *
+ *  The store digest stays above: it is small and changes only when the shop
+ *  toggles delivery, not per reader. */
 export function buildSystemPrompt(
   menu: Menu,
   /** Live delivery pause, so Mandy stops offering a service the order API
@@ -40,8 +51,8 @@ Rules:
 
 ${buildStoreDigest(deliveryPause)}
 
-${buildPromotionsDigest(promotions)}
-
 MENU
-${buildMenuDigest(menu)}`;
+${buildMenuDigest(menu)}
+
+${buildPromotionsDigest(promotions)}`;
 }

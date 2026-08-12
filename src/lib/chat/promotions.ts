@@ -63,8 +63,24 @@ function money(cents: number): string {
  * asking. Order matters: the list doubles as what Mandy reads out when a
  * customer asks "有什么活动", so the most immediately useful comes first.
  */
+/** The campaign lookups that don't depend on who is asking, so the caller
+ *  can run them alongside the menu fetch instead of after it. */
+export type PromoCampaigns = {
+  tasting: { available: boolean; productName: string | null; tastingPriceCents: number } | null;
+  flash: { available: boolean; percentage: number } | null;
+};
+
+export async function fetchPromoCampaigns(): Promise<PromoCampaigns> {
+  const [tasting, flash] = await Promise.all([
+    getActiveTastingPromo().catch(() => null),
+    getActiveFlashPromo().catch(() => null),
+  ]);
+  return { tasting, flash };
+}
+
 export async function getLivePromotions(
   customer: CustomerPromoState | null,
+  campaigns?: PromoCampaigns,
 ): Promise<Promotion[]> {
   const out: Promotion[] = [];
 
@@ -105,10 +121,9 @@ export async function getLivePromotions(
   }
 
   // --- Time-boxed campaigns, only while actually running ---
-  const [tasting, flash] = await Promise.all([
-    getActiveTastingPromo().catch(() => null),
-    getActiveFlashPromo().catch(() => null),
-  ]);
+  // Reuses the caller's parallel fetch when it has one; falling back to
+  // fetching here keeps the function usable on its own (and in tests).
+  const { tasting, flash } = campaigns ?? (await fetchPromoCampaigns());
 
   if (tasting?.available && tasting.productName) {
     out.push({
