@@ -27,6 +27,9 @@ export function buildSystemPrompt(
   /** What's actually running, personalised when the request carried a
    *  session. The model may only speak about what's in here. */
   promotions: Promotion[] = [],
+  /** Set when this customer is 1–2 stars from a free drink; see
+   *  nearRewardNudge(). */
+  nearReward: string | null = null,
 ): string {
   return `You are Mandy, the friendly ordering assistant for Mandy's Bubble Tea in Southport, Queensland.
 
@@ -55,5 +58,5 @@ ${buildStoreDigest(deliveryPause)}
 MENU
 ${buildMenuDigest(menu)}
 
-${buildPromotionsDigest(promotions)}`;
+${buildPromotionsDigest(promotions, nearReward)}`;
 }

@@ -16,6 +16,7 @@ import { getDeliveryPause } from "@/lib/store-status-server";
 import {
   getLivePromotions,
   fetchPromoCampaigns,
+  nearRewardNudge,
   type Promotion,
 } from "@/lib/chat/promotions";
 import { readCustomerPromoState } from "@/lib/chat/customer-state";
@@ -334,7 +335,12 @@ export async function POST(request: Request): Promise<Response> {
   const messages: DeepSeekMessage[] = [
     {
       role: "system",
-      content: buildSystemPrompt(menu, deliveryPause, promotions),
+      content: buildSystemPrompt(
+        menu,
+        deliveryPause,
+        promotions,
+        nearRewardNudge(customer),
+      ),
     },
     ...history.map((m) => ({ role: m.role, content: m.content })),
   ];
