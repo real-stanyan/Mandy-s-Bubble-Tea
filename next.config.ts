@@ -51,6 +51,32 @@ const nextConfig: NextConfig = {
         source: "/.well-known/assetlinks.json",
         headers: [{ key: "Content-Type", value: "application/json" }],
       },
+      {
+        // The cheap, no-downside half of the security headers. A real
+        // Content-Security-Policy is deliberately NOT here: this page hosts
+        // the Square Web Payments SDK plus Sentry and Analytics, and a CSP
+        // written without testing every one of those is a way to break
+        // checkout for everybody. That belongs in its own change, with the
+        // payment flow exercised before it ships.
+        source: "/:path*",
+        headers: [
+          // Stop a browser from second-guessing a Content-Type — the classic
+          // way an uploaded "image" gets executed as script. This site takes
+          // customer photo uploads for cup labels.
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Don't leak the full URL (order ids, tokens in paths) to third
+          // parties on outbound clicks.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Nobody should be framing the shop to phish payment details.
+          // SAMEORIGIN rather than DENY so our own flows stay free to embed.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // No page here needs the camera, mic or a customer's location.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+          },
+        ],
+      },
     ];
   },
 };

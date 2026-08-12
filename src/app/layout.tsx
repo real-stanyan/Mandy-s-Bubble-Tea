@@ -1,5 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, JetBrains_Mono, Shantell_Sans } from "next/font/google";
+import { BUSINESS } from "@/lib/constants";
+import { OPEN_MIN, CLOSE_MIN } from "@/lib/store-status";
+
+/** Minutes-of-day to the "HH:MM" schema.org wants. */
+function toIsoTime(minsOfDay: number): string {
+  const h = Math.floor(minsOfDay / 60);
+  const m = minsOfDay % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 import Script from "next/script";
 import "./globals.css";
 import { CartDrawerGate } from "@/components/cart/CartDrawerGate";
@@ -58,10 +67,29 @@ export const metadata: Metadata = {
   },
   description:
     "Fresh bubble tea in Southport QLD — order online for pickup at 34 Davenport St, Southport.",
+  // metadataBase resolves the relative og:image below to an absolute URL —
+  // scrapers ignore relative ones, which is why the card stayed blank.
+  metadataBase: new URL(`https://${BUSINESS.domain}`),
+  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     siteName: "Mandy's Bubble Tea",
     locale: "en_AU",
+    // Without this a shared link rendered as a grey box in WhatsApp,
+    // Messenger and iMessage — the places a drink shop actually gets
+    // passed around. Built by scripts/render-og-image.ts.
+    images: [
+      {
+        url: "/og.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Mandy's Bubble Tea — fresh bubble tea in Southport",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og.jpg"],
   },
 };
 
@@ -97,6 +125,28 @@ const jsonLd = {
   },
   servesCuisine: "Bubble Tea",
   currenciesAccepted: "AUD",
+  // "bubble tea near me open now" is how a local shop gets found, and this
+  // was the one thing the Restaurant schema didn't say. Derived from the
+  // same OPEN_MIN/CLOSE_MIN the site and the chat assistant read, so the
+  // hours Google shows can't drift from the hours the door keeps.
+  openingHoursSpecification: [
+    {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+      ],
+      opens: toIsoTime(OPEN_MIN),
+      closes: toIsoTime(CLOSE_MIN),
+    },
+  ],
+  image: `https://${BUSINESS.domain}/og.jpg`,
+  priceRange: "$$",
 };
 
 export default function RootLayout({
