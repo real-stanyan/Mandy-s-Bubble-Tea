@@ -20,9 +20,32 @@
 // staff can actually verify. Fractions are real (herbal jelly 0.3, watermelon
 // 0.5) and are why quantity is a float, not an int.
 
+//   * `sufficiency` — stock nobody counts, because counting it is absurd.
+//     Nobody tallies 1,400 cups; they look at the stack and know whether it
+//     lasts the day. Forcing a number here would get a made-up one, and a
+//     made-up number is worse than an honest "maybe" — it reads as a fact.
+//     Answered as enough / maybe / not enough, and "not enough" is the only
+//     state that means order today.
+
 export type AlertRule =
   | { kind: "threshold"; value: number }
-  | { kind: "weekly" };
+  | { kind: "weekly" }
+  | { kind: "sufficiency" };
+
+/** The three answers a sufficiency item accepts. Stored as these strings all
+ *  the way through — form field, POST body, history — so a reader of any of
+ *  them sees the answer rather than a code. */
+export type Sufficiency = "enough" | "maybe" | "short";
+
+export const SUFFICIENCY_LABEL: Record<Sufficiency, string> = {
+  enough: "Enough for today",
+  maybe: "Maybe",
+  short: "Not enough",
+};
+
+export function isSufficiency(value: string): value is Sufficiency {
+  return value === "enough" || value === "maybe" || value === "short";
+}
 
 export type StockItem = {
   /** Stable id — used as the form field name and the history key, so it must
@@ -40,6 +63,7 @@ export type StockCategory = {
 
 const t = (value: number): AlertRule => ({ kind: "threshold", value });
 const weekly: AlertRule = { kind: "weekly" };
+const sufficiency: AlertRule = { kind: "sufficiency" };
 
 export const STOCK_LIST: StockCategory[] = [
   {
@@ -98,6 +122,8 @@ export const STOCK_LIST: StockCategory[] = [
       { id: "powder-thai", name: "Thai", rule: t(1) },
       { id: "powder-cheese", name: "Cheese Powder", rule: weekly },
       { id: "powder-chocolate", name: "Chocolate", rule: weekly },
+      { id: "powder-brulee", name: "Brûlée Powder", rule: t(1) },
+      { id: "powder-pudding", name: "Pudding Powder", rule: t(1) },
     ],
   },
   {
@@ -105,9 +131,19 @@ export const STOCK_LIST: StockCategory[] = [
     name: "Tea",
     items: [
       { id: "tea-black", name: "Black Tea", rule: weekly },
+      { id: "tea-black-fannings", name: "Black Tea Fannings", rule: t(1) },
       { id: "tea-green", name: "Green Tea", rule: t(2) },
       { id: "tea-oolong", name: "Oolong", rule: weekly },
       { id: "tea-earl-grey", name: "Earl Grey", rule: weekly },
+    ],
+  },
+  {
+    // Counted by eye, not by number — see the `sufficiency` rule above.
+    id: "packaging",
+    name: "Packaging",
+    items: [
+      { id: "packaging-cups", name: "Cups", rule: sufficiency },
+      { id: "packaging-straws", name: "Straws", rule: sufficiency },
     ],
   },
   {
@@ -173,7 +209,13 @@ export function isDueToday(item: StockItem, now: Date = new Date()): boolean {
   return item.rule.kind !== "weekly" || isOrderDay(now);
 }
 
-export type Counted = { item: StockItem; qty: number | null };
+export type Counted = {
+  item: StockItem;
+  /** Numeric items. Null means nobody counted. */
+  qty: number | null;
+  /** Sufficiency items. Null means nobody answered. */
+  level?: Sufficiency | null;
+};
 
 export type StockReport = {
   /** Below or at threshold — needs reordering today. */
@@ -182,6 +224,14 @@ export type StockReport = {
   weekly: Array<{ item: StockItem; qty: number }>;
   /** Counted but fine — kept so the email can show the full picture. */
   ok: Array<{ item: StockItem; qty: number }>;
+  /**
+   * Sufficiency items, all of them, in urgency order: short, then maybe,
+   * then enough. One bucket rather than splitting across `reorder` and `ok`
+   * because those two carry quantities and a threshold, and there is no
+   * honest number to put there — inventing one is the thing the rule exists
+   * to avoid.
+   */
+  sufficiency: Array<{ item: StockItem; level: Sufficiency }>;
   /** Left blank by staff. Surfaced rather than silently treated as zero. */
   missing: StockItem[];
   /**
@@ -207,12 +257,20 @@ export function buildReport(counts: Counted[], now: Date = new Date()): StockRep
     reorder: [],
     weekly: [],
     ok: [],
+    sufficiency: [],
     missing: [],
     notDue: [],
     isOrderDay: orderDay,
   };
 
-  for (const { item, qty } of counts) {
+  for (const { item, qty, level } of counts) {
+    if (item.rule.kind === "sufficiency") {
+      // Blank is still a real omission here — these are due every day, and
+      // "nobody looked at the cups" is exactly what the report is for.
+      if (level == null) report.missing.push(item);
+      else report.sufficiency.push({ item, level });
+      continue;
+    }
     if (qty == null || Number.isNaN(qty)) {
       // A weekly item blank on a non-Tuesday was never asked for, so calling
       // it "not counted" would be reporting an omission that did not happen.
@@ -233,5 +291,19 @@ export function buildReport(counts: Counted[], now: Date = new Date()): StockRep
     }
   }
 
+  // Worst first, so whoever opens the email on a phone sees "not enough"
+  // without scrolling — the whole reason these are asked every day.
+  const order: Record<Sufficiency, number> = { short: 0, maybe: 1, enough: 2 };
+  report.sufficiency.sort((a, b) => order[a.level] - order[b.level]);
+
   return report;
+}
+
+/** Sufficiency items that mean "order today". `maybe` counts: the answer
+ *  exists so staff can flag a stack they are unsure about, and treating
+ *  unsure as fine would make it a synonym for enough. */
+export function sufficiencyNeedingAction(
+  report: StockReport,
+): Array<{ item: StockItem; level: Sufficiency }> {
+  return report.sufficiency.filter((s) => s.level !== "enough");
 }

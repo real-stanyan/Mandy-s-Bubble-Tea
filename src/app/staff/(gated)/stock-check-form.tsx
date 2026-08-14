@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { StockCategory, StockItem } from "@/lib/staff/stocklist";
+import { SUFFICIENCY_LABEL, type StockCategory, type StockItem, type Sufficiency } from "@/lib/staff/stocklist";
 import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
 
@@ -218,6 +218,7 @@ export function StockCheckForm({
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
                 onOpen={() => setPickedId(item.id)}
+                onSet={(v) => set(item.id, v)}
                 isOrderDay={isOrderDay}
               />
             ))}
@@ -257,6 +258,7 @@ export function StockCheckForm({
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
                 onOpen={() => setPickedId(item.id)}
+                onSet={(v) => set(item.id, v)}
                 isOrderDay={isOrderDay}
               />
             ))}
@@ -395,6 +397,7 @@ function Row({
   previous,
   previousLabel,
   onOpen,
+  onSet,
   isOrderDay,
 }: {
   item: StockItem;
@@ -403,8 +406,18 @@ function Row({
   previous: string | null;
   previousLabel: string | null;
   onOpen: () => void;
+  onSet?: (value: string) => void;
   isOrderDay: boolean;
 }) {
+  // Cups and straws are answered, not counted — three buttons instead of the
+  // number pad, because nobody tallies a stack of 1,400 cups and a number
+  // typed here would be invented.
+  if (item.rule.kind === "sufficiency") {
+    return (
+      <SufficiencyRow item={item} value={value} previous={previous} onSet={onSet} />
+    );
+  }
+
   const parsed = value.trim() === "" ? null : Number(value);
   const low =
     item.rule.kind === "threshold" &&
@@ -452,6 +465,66 @@ function Row({
       >
         {value.trim() === "" ? "—" : value}
       </button>
+    </li>
+  );
+}
+
+/**
+ * Cups and straws: three buttons, no number.
+ *
+ * Sized for a thumb on a phone in a shop, and deliberately unselected until
+ * someone taps — a default would be answered by the layout rather than by
+ * looking at the shelf, and "enough" is exactly the answer nobody should get
+ * for free.
+ */
+function SufficiencyRow({
+  item,
+  value,
+  previous,
+  onSet,
+}: {
+  item: StockItem;
+  value: string;
+  previous: string | null;
+  onSet?: (value: string) => void;
+}) {
+  const options: Array<{ key: Sufficiency; label: string; tone: string }> = [
+    { key: "enough", label: "Enough", tone: "border-green-500 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200" },
+    { key: "maybe", label: "Maybe", tone: "border-orange-500 bg-orange-50 text-orange-800 dark:bg-orange-950 dark:text-orange-200" },
+    { key: "short", label: "Not enough", tone: "border-red-500 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" },
+  ];
+
+  return (
+    <li className="py-3">
+      <div className="flex items-baseline gap-2">
+        <span className="font-medium">{item.name}</span>
+        <span className="text-xs text-zinc-500">enough for today?</span>
+        {previous != null && SUFFICIENCY_LABEL[previous as Sufficiency] && (
+          <span className="ml-auto text-xs text-zinc-400">
+            was {SUFFICIENCY_LABEL[previous as Sufficiency]}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {options.map((o) => {
+          const active = value === o.key;
+          return (
+            <button
+              key={o.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSet?.(active ? "" : o.key)}
+              className={`rounded-lg border px-2 py-3 text-sm font-semibold transition-transform duration-150 ease-out active:scale-[0.97] ${
+                active
+                  ? o.tone
+                  : "border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
     </li>
   );
 }
