@@ -1,6 +1,13 @@
 "use client";
 import { useMemo, useState } from "react";
-import { SUFFICIENCY_LABEL, type StockCategory, type StockItem, type Sufficiency } from "@/lib/staff/stocklist";
+import {
+  SUFFICIENCY_CHOICES,
+  SUFFICIENCY_LABEL,
+  ruleHint,
+  type StockCategory,
+  type StockItem,
+  type Sufficiency,
+} from "@/lib/staff/stocklist";
 import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
 
@@ -179,7 +186,15 @@ export function StockCheckForm({
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-32 pt-6">
-      <h1 className="text-2xl font-bold">Stock check</h1>
+      {/* Plain link rather than a button: the page behind it 404s for anyone
+          without the owner passcode, so it costs nothing to show and saves the
+          owner remembering a URL. */}
+      <div className="flex items-baseline justify-between gap-3">
+        <h1 className="text-2xl font-bold">Stock check</h1>
+        <a href="/staff/thresholds" className="text-sm text-zinc-500 underline">
+          Thresholds
+        </a>
+      </div>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Count what&apos;s left and enter the number. Leave blank only if you
         genuinely didn&apos;t check it —{" "}
@@ -360,12 +375,9 @@ export function StockCheckForm({
           // replaces" flag, and it is instant — the sheet never leaves.
           key={picking.id}
           title={picking.name}
-          hint={
-            picking.rule.kind === "threshold"
-              ? `reorder at ${picking.rule.value}`
-              : isOrderDay
-                ? "weekly — due today"
-                : "weekly — Tuesdays only"
+          hint={ruleHint(picking, isOrderDay)}
+          choices={
+            picking.rule.kind === "sufficiency" ? SUFFICIENCY_CHOICES : undefined
           }
           value={counts[picking.id] ?? ""}
           // Both undefined for an item outside today's walk: the sheet then
@@ -488,11 +500,7 @@ function SufficiencyRow({
   previous: string | null;
   onSet?: (value: string) => void;
 }) {
-  const options: Array<{ key: Sufficiency; label: string; tone: string }> = [
-    { key: "enough", label: "Enough", tone: "border-green-500 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200" },
-    { key: "maybe", label: "Maybe", tone: "border-orange-500 bg-orange-50 text-orange-800 dark:bg-orange-950 dark:text-orange-200" },
-    { key: "short", label: "Not enough", tone: "border-red-500 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" },
-  ];
+  const options = SUFFICIENCY_CHOICES;
 
   return (
     <li className="py-3">

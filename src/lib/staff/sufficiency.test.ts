@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   buildReport,
   findItem,
+  SUFFICIENCY_CHOICES,
   isSufficiency,
+  ruleHint,
   sufficiencyNeedingAction,
   type Counted,
   type StockItem,
@@ -66,6 +68,35 @@ describe("cups and straws", () => {
     expect(isSufficiency("short")).toBe(true);
     expect(isSufficiency("7")).toBe(false);
     expect(isSufficiency("")).toBe(false);
+  });
+});
+
+describe("what the count sheet shows for them", () => {
+  it("labels them as a question, not as a weekly item", () => {
+    // The bug Stan hit: the keypad walk described Cups as "weekly — Tuesdays
+    // only" and opened a number pad, because the caption fell through an
+    // if/else that only knew threshold and weekly.
+    expect(ruleHint(CUPS, false)).toBe("enough for today?");
+    expect(ruleHint(CUPS, true)).toBe("enough for today?");
+  });
+
+  it("still labels the other two kinds the way it always did", () => {
+    const milk = findItem("other-fresh-milk")!;
+    const blackTea = findItem("tea-black")!;
+    expect(ruleHint(milk, false)).toBe("reorder at 5");
+    expect(ruleHint(blackTea, true)).toBe("weekly — due today");
+    expect(ruleHint(blackTea, false)).toBe("weekly — Tuesdays only");
+  });
+
+  it("offers exactly the three answers the report understands", () => {
+    // One definition, so the list and the keypad cannot drift apart — they
+    // already did once, which is how the pad reached Cups.
+    expect(SUFFICIENCY_CHOICES.map((c) => c.key)).toEqual([
+      "enough",
+      "maybe",
+      "short",
+    ]);
+    for (const c of SUFFICIENCY_CHOICES) expect(isSufficiency(c.key)).toBe(true);
   });
 });
 
