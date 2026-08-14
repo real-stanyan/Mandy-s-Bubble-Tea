@@ -4,11 +4,12 @@ import { sendTransactionalEmail } from "@/lib/email/send";
 import { hasAtLeast } from "@/lib/staff/auth";
 import { writeLastCount } from "@/lib/staff/stock-history-store";
 import {
-  ALL_ITEMS,
+  applyThresholds,
   buildReport,
   isSufficiency,
   type Counted,
 } from "@/lib/staff/stocklist";
+import { readThresholds } from "@/lib/staff/threshold-store";
 import {
   renderReportHtml,
   renderReportText,
@@ -40,7 +41,13 @@ export async function POST(request: Request) {
   // Built from ALL_ITEMS, not from the submitted keys: an item the browser
   // never sent (a cached page after the list changed, a field that failed to
   // render) has to land in "not counted" rather than vanish from the report.
-  const counts: Counted[] = ALL_ITEMS.map((item) => {
+  // The edited thresholds, not the defaults. Without this the form would show
+  // a changed number while the report still flagged against the original —
+  // the edit would look applied and change nothing that matters.
+  const overrides = await readThresholds();
+  const items = applyThresholds(overrides).flatMap((c) => c.items);
+
+  const counts: Counted[] = items.map((item) => {
     const value = raw[item.id];
     if (value == null || value.trim() === "") return { item, qty: null, level: null };
     if (item.rule.kind === "sufficiency") {

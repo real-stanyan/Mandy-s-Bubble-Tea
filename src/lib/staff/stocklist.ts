@@ -43,6 +43,40 @@ export const SUFFICIENCY_LABEL: Record<Sufficiency, string> = {
   short: "Not enough",
 };
 
+/** The three buttons, defined once. The list and the keypad walk both render
+ *  them, and two copies would drift — the walk shipped showing a number pad
+ *  for cups because it only knew about the other two rule kinds. */
+export const SUFFICIENCY_CHOICES: Array<{
+  key: Sufficiency;
+  label: string;
+  tone: string;
+}> = [
+  {
+    key: "enough",
+    label: "Enough",
+    tone: "border-green-500 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200",
+  },
+  {
+    key: "maybe",
+    label: "Maybe",
+    tone: "border-orange-500 bg-orange-50 text-orange-800 dark:bg-orange-950 dark:text-orange-200",
+  },
+  {
+    key: "short",
+    label: "Not enough",
+    tone: "border-red-500 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200",
+  },
+];
+
+/** The caption under an item's name, for whichever rule it carries. Returns
+ *  the sufficiency wording rather than falling through to "weekly", which is
+ *  what the keypad was showing for Cups. */
+export function ruleHint(item: StockItem, isOrderDay: boolean): string {
+  if (item.rule.kind === "threshold") return `reorder at ${item.rule.value}`;
+  if (item.rule.kind === "sufficiency") return "enough for today?";
+  return isOrderDay ? "weekly — due today" : "weekly — Tuesdays only";
+}
+
 export function isSufficiency(value: string): value is Sufficiency {
   return value === "enough" || value === "maybe" || value === "short";
 }
@@ -172,6 +206,47 @@ export const STOCK_LIST: StockCategory[] = [
     ],
   },
 ];
+
+/** A reorder threshold changed from the default in this file, with who
+ *  changed it and when. Keyed by item id. */
+export type ThresholdOverrides = Record<
+  string,
+  { value: number; by: string | null; at: string | null }
+>;
+
+/**
+ * The list as the shop actually uses it: defaults from this file, with any
+ * edited thresholds applied over the top.
+ *
+ * Pure, and returns a new list rather than mutating STOCK_LIST — the defaults
+ * have to stay reachable so the UI can show what a number was before someone
+ * changed it, and so a bad override is one delete away from the original
+ * rather than lost.
+ *
+ * Only `threshold` items can be overridden. A number on a weekly or
+ * sufficiency item would be meaningless — neither compares a count against
+ * one — so an override naming them is ignored rather than half-applied.
+ */
+export function applyThresholds(
+  overrides: ThresholdOverrides,
+  list: StockCategory[] = STOCK_LIST,
+): StockCategory[] {
+  return list.map((cat) => ({
+    ...cat,
+    items: cat.items.map((item) => {
+      const o = overrides[item.id];
+      if (!o || item.rule.kind !== "threshold") return item;
+      return { ...item, rule: { kind: "threshold", value: o.value } };
+    }),
+  }));
+}
+
+/** The default for an item, whatever the current override says. Used by the
+ *  editor to show what a changed number used to be. */
+export function defaultThreshold(id: string): number | null {
+  const item = ALL_ITEMS.find((i) => i.id === id);
+  return item && item.rule.kind === "threshold" ? item.rule.value : null;
+}
 
 export const ALL_ITEMS: StockItem[] = STOCK_LIST.flatMap((c) => c.items);
 

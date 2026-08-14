@@ -32,6 +32,7 @@ export function CountKeypadSheet({
   previousLabel,
   index,
   total,
+  choices,
   onCommit,
   onMove,
   onClose,
@@ -39,6 +40,12 @@ export function CountKeypadSheet({
   title: string;
   hint?: string;
   value: string;
+  /**
+   * Present for items answered rather than counted — cups, straws. The pad is
+   * replaced by these buttons; everything else about the sheet, including the
+   * walk, is unchanged. Absent means a number.
+   */
+  choices?: Array<{ key: string; label: string; tone: string }>;
   /** Last count for this item, shown beside the entry as a sanity check. */
   previous?: string | null;
   previousLabel?: string | null;
@@ -163,6 +170,37 @@ export function CountKeypadSheet({
           </button>
         </div>
 
+        {/* Cups and straws are answered, not counted, so the walk shows their
+            three choices in place of the pad. They have to stay IN the walk:
+            excluded, whoever starts at the top and taps Next to the end would
+            never be asked about them, which is the one omission this report
+            exists to catch. */}
+        {choices ? (
+          <div className="mx-auto grid max-w-xs gap-2 px-4 pb-4 pt-4">
+            {choices.map((c) => {
+              const active = value === c.key;
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    onCommit(c.key);
+                    onMove(1);
+                  }}
+                  className={`h-14 rounded-xl border text-lg font-semibold active:scale-[0.97] ${
+                    active
+                      ? c.tone
+                      : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <>
         {/* What's been tapped so far, big enough to read at arm's length while
             holding a bottle in the other hand. */}
         <div className="px-4 pt-3 text-center text-4xl font-semibold tabular-nums">
@@ -198,6 +236,8 @@ export function CountKeypadSheet({
             ⌫
           </button>
         </div>
+          </>
+        )}
 
         {/* Next carries the rhythm of the whole count, so it gets the width and
             the thumb position. Back exists but stays small — going back is the
