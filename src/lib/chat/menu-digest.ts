@@ -21,6 +21,13 @@ function boundsLabel(ml: ModifierList): string {
   else parts.push(`pick at least ${ml.minSelected}`);
   if (ml.maxDistinct != null) parts.push(`max ${ml.maxDistinct} different`);
   if (ml.maxPerKind != null && ml.maxPerKind > 1) parts.push(`max ${ml.maxPerKind} of each`);
+  // The model reads this to know what it may propose. Left saying "max 3
+  // different" it would keep offering three of each — nine toppings — and
+  // every one of those proposals would be rejected by the validator, which
+  // the customer would see as the assistant failing rather than as a rule.
+  if (ml.maxTotal != null) {
+    parts.push(`max ${ml.maxTotal} in total, not counting Oreo which is free`);
+  }
   return parts.join(", ");
 }
 

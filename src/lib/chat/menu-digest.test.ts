@@ -50,7 +50,10 @@ describe("buildMenuDigest", () => {
 
   it("states each modifier list's selection bounds", () => {
     expect(digest).toMatch(/SUGAR.*pick exactly 1/);
-    expect(digest).toMatch(/TOPPING.*optional.*max 3 different/);
+    // The model has to be told the total cap, or it proposes drinks the
+    // validator then rejects and the customer reads as the assistant failing.
+    expect(digest).toMatch(/TOPPING.*optional.*max 3 in total/);
+    expect(digest).toMatch(/TOPPING.*Oreo/);
   });
 
   it("groups items under their category slug", () => {

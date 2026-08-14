@@ -11,7 +11,11 @@ import type {
 } from "@/lib/catalog";
 import { useCart } from "@/store/cart";
 import { isLockedToppingName } from "@/lib/menu/top10-presets";
-import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
+import {
+  cappedDistinctCount,
+  cappedTotalCount,
+  isUncountedTopping,
+} from "@/lib/menu/topping-rules";
 import { useItemModalClose } from "@/components/menu/ItemModalContext";
 import { CupPreview } from "@/components/menu/CupPreview";
 import { resolveCupVisual } from "@/lib/menu/cup-visual";
@@ -111,6 +115,11 @@ export function ItemOrderForm({
         errors[ml.id] = `Pick no more than ${ml.maxSelected}`;
       } else if (ml.maxDistinct != null && distinct > ml.maxDistinct) {
         errors[ml.id] = `Pick no more than ${ml.maxDistinct} different options`;
+      } else if (
+        ml.maxTotal != null &&
+        cappedTotalCount(ml.modifiers, selectedByList[ml.id] ?? {}) > ml.maxTotal
+      ) {
+        errors[ml.id] = `Pick no more than ${ml.maxTotal} toppings`;
       }
     }
     return errors;
@@ -211,6 +220,15 @@ export function ItemOrderForm({
     }
     // Per-kind cap: each modifier can only be stacked up to this count.
     if (!uncounted && list.maxPerKind != null && current >= list.maxPerKind) {
+      return false;
+    }
+    // Total cap: three toppings on the cup, whatever mix. Oreo is exempt from
+    // it and does not consume one of the three.
+    if (
+      !uncounted &&
+      list.maxTotal != null &&
+      cappedTotalCount(list.modifiers, selectedByList[list.id] ?? {}) >= list.maxTotal
+    ) {
       return false;
     }
     // Bound by list-total maxSelected if set
@@ -603,13 +621,18 @@ function priceLabel(mod: ModifierOption): string {
 }
 
 function describeSelection(ml: ModifierList, multi: boolean): string {
-  const { minSelected, maxSelected, maxDistinct, maxPerKind } = ml;
+  const { minSelected, maxSelected, maxDistinct, maxPerKind, maxTotal } = ml;
   if (minSelected === 0 && maxSelected === 1) return "Pick one (optional)";
   if (minSelected === 1 && maxSelected === 1) return "Pick one";
   // Oreo is exempt from the cap — surface that when this list offers it.
   const oreoFree = ml.modifiers.some((m) => isUncountedTopping(m.name))
     ? " · Oreo unlimited (doesn't count)"
     : "";
+  // Total cap first: it is the rule now, and the old "3 kinds · 3 of each"
+  // wording described a nine-topping drink.
+  if (maxTotal != null) {
+    return `Up to ${maxTotal} toppings in total${oreoFree}`;
+  }
   if (multi) {
     if (maxDistinct != null && maxPerKind != null) {
       return `Up to ${maxDistinct} kinds · max ${maxPerKind} of each${oreoFree}`;
