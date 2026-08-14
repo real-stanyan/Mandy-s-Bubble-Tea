@@ -1,6 +1,10 @@
 import type { MenuCategory, MenuItem, Menu } from "@/lib/catalog";
 import { getItemDetail } from "@/lib/catalog";
-import { cappedDistinctCount, isUncountedTopping } from "@/lib/menu/topping-rules";
+import {
+  cappedDistinctCount,
+  cappedTotalCount,
+  isUncountedTopping,
+} from "@/lib/menu/topping-rules";
 import {
   displayNameFor,
   lockedModifierIds,
@@ -234,6 +238,17 @@ export function validateProposal(
       errors.push(
         `${ml.name} allows at most ${ml.maxDistinct} different options, got ${distinct}`,
       );
+    }
+    // Three toppings on the cup, Oreo free. Enforced here as well as in the
+    // form because a chat proposal never touches the form — the model can
+    // ask for four pearls and only this stops the card being built.
+    if (ml.maxTotal != null) {
+      const total = cappedTotalCount(ml.modifiers, map);
+      if (total > ml.maxTotal) {
+        errors.push(
+          `${ml.name} allows at most ${ml.maxTotal} in total, got ${total}`,
+        );
+      }
     }
     if (ml.maxPerKind != null) {
       for (const [modId, n] of Object.entries(map)) {

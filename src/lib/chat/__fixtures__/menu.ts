@@ -48,13 +48,18 @@ const creamList: ModifierList = {
   ],
 };
 
+// Mirrors what getItemDetail() builds for a real TOPPING list: a flat total
+// of three, Oreo exempt. Left on the old maxDistinct/maxPerKind pair, the
+// chat tests would keep proving the validator enforces a rule the shop no
+// longer has.
 const toppingList: ModifierList = {
   id: "ML_TOPPING",
   name: "TOPPING",
   minSelected: 0,
   maxSelected: null,
-  maxDistinct: 3,
-  maxPerKind: 3,
+  maxDistinct: null,
+  maxPerKind: null,
+  maxTotal: 3,
   modifiers: [
     { id: "MOD_PEARL", name: "Pearl", priceCents: 80n, ordinal: 0, onByDefault: false, soldOut: false },
     { id: "MOD_JELLY", name: "Grass Jelly", priceCents: 80n, ordinal: 1, onByDefault: false, soldOut: false },

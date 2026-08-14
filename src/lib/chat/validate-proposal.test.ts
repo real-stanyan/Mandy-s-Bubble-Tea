@@ -136,7 +136,7 @@ describe("validateProposal — selection bounds", () => {
     expect(r.errors.join(" ")).toMatch(/SUGAR/);
   });
 
-  it("rejects a 4th distinct topping (maxDistinct = 3)", () => {
+  it("rejects a 4th topping (total cap of 3)", () => {
     const r = validateProposal(
       menu,
       proposal({
@@ -152,7 +152,7 @@ describe("validateProposal — selection bounds", () => {
     );
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.errors.join(" ")).toMatch(/different/i);
+    expect(r.errors.join(" ")).toMatch(/at most 3 in total/i);
   });
 
   it("lets Oreo ride along free of the distinct cap", () => {
@@ -173,7 +173,7 @@ describe("validateProposal — selection bounds", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("rejects a 4th of one kind (maxPerKind = 3)", () => {
+  it("rejects a 4th of one kind — the total is what is capped", () => {
     const r = validateProposal(
       menu,
       proposal({
@@ -186,7 +186,9 @@ describe("validateProposal — selection bounds", () => {
     );
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.errors.join(" ")).toMatch(/Pearl/);
+    // Named by list, not by modifier: the total is over, and no single
+    // topping is individually at fault.
+    expect(r.errors.join(" ")).toMatch(/TOPPING allows at most 3 in total/);
   });
 
   it("rejects a non-positive quantity", () => {

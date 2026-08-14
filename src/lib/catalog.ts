@@ -43,6 +43,10 @@ export type ModifierList = {
    *     null = unlimited. Lets a list allow e.g. 3 kinds of toppings but
    *     each kind can be added multiple times.
    *   - maxPerKind: per-modifier count cap. null = unlimited.
+   *   - maxTotal: total count cap that SKIPS uncounted modifiers (Oreo).
+   *     Distinct from maxSelected, which counts everything picked — the
+   *     shop's topping rule is "three toppings, and Oreo is free", so a cap
+   *     that counted Oreo would be a different rule wearing the same name.
    *
    * These are the modifier list's OWN defaults. Per-item overrides are
    * applied later in getItemDetail() to produce the effective bounds
@@ -52,6 +56,8 @@ export type ModifierList = {
   maxSelected: number | null;
   maxDistinct: number | null;
   maxPerKind: number | null;
+  /** Optional: absent means no total cap, which is every list except TOPPING. */
+  maxTotal?: number | null;
   modifiers: ModifierOption[];
 };
 
@@ -585,12 +591,19 @@ export function getItemDetail(
     let maxSelected = resolveMax(ref.maxOverride, base.maxSelected);
     let maxDistinct = base.maxDistinct;
     let maxPerKind = base.maxPerKind;
+    let maxTotal = base.maxTotal;
 
-    // TOPPING list: up to 3 different toppings; each kind capped at 3.
+    // TOPPING list: three toppings on a drink, in total, and Oreo is free.
+    //
+    // It used to be three KINDS with three of each — nine toppings on one cup
+    // if you picked the right way, which is not what "up to 3" meant to
+    // anyone reading the menu. Stan set it to a flat three (2026-08-14). Three
+    // of one kind is fine; it is the total that is capped.
     if (base.name.toUpperCase() === "TOPPING") {
       maxSelected = null;
-      maxDistinct = 3;
-      maxPerKind = 3;
+      maxDistinct = null;
+      maxPerKind = null;
+      maxTotal = 3;
       minSelected = 0;
     }
 
@@ -601,6 +614,7 @@ export function getItemDetail(
       maxSelected,
       maxDistinct,
       maxPerKind,
+      maxTotal,
     });
   }
 
