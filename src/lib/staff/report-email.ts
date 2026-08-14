@@ -1,4 +1,9 @@
-import { SHOP_TIMEZONE, type StockReport } from "./stocklist";
+import {
+  SHOP_TIMEZONE,
+  SUFFICIENCY_LABEL,
+  sufficiencyNeedingAction,
+  type StockReport,
+} from "./stocklist";
 
 // Renders the stock check into the email that goes to the shop inbox.
 //
@@ -19,11 +24,13 @@ export function formatShopDate(now: Date): string {
 export function subjectFor(report: StockReport, now: Date): string {
   const date = formatShopDate(now);
   const parts: string[] = [];
-  parts.push(
-    report.reorder.length === 0
-      ? "nothing to order"
-      : `${report.reorder.length} to order`,
-  );
+  // Cups and straws count toward "to order" even though they carry no
+  // number: running out of cups closes the shop faster than running out of
+  // any syrup on the list, and a subject line reading "nothing to order" on
+  // a day the cups are short would be the most expensive sentence here.
+  const short = sufficiencyNeedingAction(report).length;
+  const toOrder = report.reorder.length + short;
+  parts.push(toOrder === 0 ? "nothing to order" : `${toOrder} to order`);
   if (report.isOrderDay && report.weekly.length > 0) {
     parts.push(`${report.weekly.length} weekly`);
   }
@@ -62,10 +69,27 @@ export function renderReportHtml(
 Mandy's Bubble Tea · stock check · ${date}${countedBy ? ` · counted by ${escapeHtml(countedBy)}` : ""}
 </p>`;
 
+  const needAction = sufficiencyNeedingAction(report);
+  const toOrder = report.reorder.length + needAction.length;
   const headline =
-    report.reorder.length === 0
+    toOrder === 0
       ? `<p style="font:600 18px system-ui,sans-serif;color:#166534;margin:12px 0">Nothing below threshold.</p>`
-      : `<p style="font:600 18px system-ui,sans-serif;color:#b91c1c;margin:12px 0">${report.reorder.length} item${report.reorder.length === 1 ? "" : "s"} to order.</p>`;
+      : `<p style="font:600 18px system-ui,sans-serif;color:#b91c1c;margin:12px 0">${toOrder} item${toOrder === 1 ? "" : "s"} to order.</p>`;
+
+  // Its own section, above the numbered shelves: cups and straws are the two
+  // things that stop the counter entirely, and they are answered in words.
+  const packaging = section(
+    "Cups & straws",
+    report.sufficiency.map((s) =>
+      row(
+        s.level === "enough"
+          ? escapeHtml(s.item.name)
+          : `<b>${escapeHtml(s.item.name)}</b>`,
+        SUFFICIENCY_LABEL[s.level],
+        s.level === "short" ? "#b91c1c" : s.level === "maybe" ? "#c2410c" : undefined,
+      ),
+    ),
+  );
 
   const reorder = section(
     "Order these",
@@ -104,7 +128,7 @@ Mandy's Bubble Tea · stock check · ${date}${countedBy ? ` · counted by ${esca
       : "";
 
   return `<div style="max-width:640px;margin:0 auto;padding:16px">
-${header}${headline}${reorder}${weekly}${missing}${ok}${notDue}
+${header}${headline}${packaging}${reorder}${weekly}${missing}${ok}${notDue}
 </div>`;
 }
 
@@ -119,10 +143,23 @@ export function renderReportText(
   if (countedBy) lines.push(`Counted by: ${countedBy}`);
   lines.push("");
 
-  if (report.reorder.length === 0) {
+  const needAction = sufficiencyNeedingAction(report);
+
+  if (report.sufficiency.length > 0) {
+    lines.push("CUPS & STRAWS:");
+    for (const s of report.sufficiency) {
+      lines.push(`  - ${s.item.name}: ${SUFFICIENCY_LABEL[s.level]}`);
+    }
+    lines.push("");
+  }
+
+  if (report.reorder.length === 0 && needAction.length === 0) {
     lines.push("Nothing below threshold.");
   } else {
-    lines.push(`ORDER THESE (${report.reorder.length}):`);
+    lines.push(`ORDER THESE (${report.reorder.length + needAction.length}):`);
+    for (const s of needAction) {
+      lines.push(`  - ${s.item.name}: ${SUFFICIENCY_LABEL[s.level]}`);
+    }
     for (const r of report.reorder) {
       lines.push(`  - ${r.item.name}: ${qty(r.qty)} left (reorder at ${qty(r.threshold)})`);
     }

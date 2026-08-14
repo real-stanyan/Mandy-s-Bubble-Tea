@@ -3,7 +3,12 @@ import { COMPLAINT_TO_EMAIL } from "@/lib/email/resend";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { hasAtLeast } from "@/lib/staff/auth";
 import { writeLastCount } from "@/lib/staff/stock-history-store";
-import { ALL_ITEMS, buildReport, type Counted } from "@/lib/staff/stocklist";
+import {
+  ALL_ITEMS,
+  buildReport,
+  isSufficiency,
+  type Counted,
+} from "@/lib/staff/stocklist";
 import {
   renderReportHtml,
   renderReportText,
@@ -37,7 +42,14 @@ export async function POST(request: Request) {
   // render) has to land in "not counted" rather than vanish from the report.
   const counts: Counted[] = ALL_ITEMS.map((item) => {
     const value = raw[item.id];
-    if (value == null || value.trim() === "") return { item, qty: null };
+    if (value == null || value.trim() === "") return { item, qty: null, level: null };
+    if (item.rule.kind === "sufficiency") {
+      // Anything that is not one of the three answers is treated as no
+      // answer. A stray value here would otherwise be reported as a state
+      // the shop does not have.
+      const v = value.trim();
+      return { item, qty: null, level: isSufficiency(v) ? v : null };
+    }
     const parsed = Number(value);
     return { item, qty: Number.isFinite(parsed) ? parsed : null };
   });
