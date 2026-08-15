@@ -13,6 +13,11 @@ import {
   checkPayments,
   checkPrinting,
   checkStoreStatus,
+  checkDevices,
+  checkMenuItem,
+  checkPromotions,
+  checkStock,
+  checkToday,
   lookUpOrder,
   lookUpCustomer,
   pauseDelivery,
@@ -52,6 +57,19 @@ async function runTool(
         ...(await lookUpOrder(String(args.reference ?? ""))),
         label: `looked up ${String(args.reference ?? "")}`,
       };
+    case "check_devices":
+      return { ...(await checkDevices()), label: "checked the printer machines" };
+    case "check_menu_item":
+      return {
+        ...(await checkMenuItem(String(args.query ?? ""))),
+        label: `checked the menu for ${String(args.query ?? "")}`,
+      };
+    case "check_promotions":
+      return { ...(await checkPromotions()), label: "checked promotions" };
+    case "check_stock":
+      return { ...(await checkStock()), label: "checked stock" };
+    case "check_today":
+      return { ...(await checkToday()), label: "checked today's takings" };
     case "look_up_customer": {
       const phone = String(args.phone ?? "");
       return {
