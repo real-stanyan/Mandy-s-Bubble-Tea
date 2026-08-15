@@ -62,7 +62,10 @@ describe("staff help controls", () => {
     // Talking is the primary way in — someone holding a cup should be able to
     // hit it without looking. It started as a 44px square with a 🎤 emoji
     // wedged beside the text field.
-    const start = MIC.indexOf('aria-label={listening ? "Stop listening"');
+    // Anchored on aria-pressed rather than the label: the label grew a
+    // hold-to-talk branch and the old anchor stopped matching, which this
+    // test duly reported as "mic button not found".
+    const start = MIC.indexOf("aria-pressed={listening}");
     expect(start, "mic button not found").toBeGreaterThan(-1);
     const block = MIC.slice(start, MIC.indexOf("</button>", start));
     expect(block).toMatch(/h-20 w-20/);
@@ -72,7 +75,10 @@ describe("staff help controls", () => {
   it("draws the microphone rather than borrowing an emoji", () => {
     // 🎤 is a different picture on every platform and renders at whatever size
     // the font decides, which is the opposite of a control you aim at.
-    const start = MIC.indexOf('aria-label={listening ? "Stop listening"');
+    // Anchored on aria-pressed rather than the label: the label grew a
+    // hold-to-talk branch and the old anchor stopped matching, which this
+    // test duly reported as "mic button not found".
+    const start = MIC.indexOf("aria-pressed={listening}");
     const block = MIC.slice(start, MIC.indexOf("</button>", start));
     expect(block).toMatch(/<svg/);
     // Comments stripped: the emoji is named in the comment that explains why

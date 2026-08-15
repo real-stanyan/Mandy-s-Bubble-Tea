@@ -9,26 +9,59 @@
 export function MicButton({
   listening,
   onClick,
+  onHoldStart,
+  onHoldEnd,
   idleLabel,
   busyLabel,
 }: {
   listening: boolean;
-  onClick: () => void;
+  /** Tap to start, tap again to stop. Used where a question takes a while to
+   *  compose and holding a phone up throughout would be daft. */
+  onClick?: () => void;
+  /** Press and hold. Counting stock is a burst per shelf, and holding is the
+   *  gesture that already means "I am talking now" on a phone. */
+  onHoldStart?: () => void;
+  onHoldEnd?: () => void;
   idleLabel: string;
   busyLabel: string;
 }) {
+  const hold = onHoldStart !== undefined;
   return (
     <div className="flex flex-col items-center">
       <button
         type="button"
-        onClick={onClick}
-        aria-label={listening ? "Stop listening" : "Speak"}
+        onClick={hold ? undefined : onClick}
+        // Pointer events, not touch: one set covers the finger in the shop and
+        // the mouse on the till computer.
+        //
+        // pointerup and pointercancel both end it, and so does the pointer
+        // leaving the button. A finger that slides off mid-sentence must not
+        // leave the microphone open with nobody watching it.
+        onPointerDown={
+          hold
+            ? (e) => {
+                // Stops the long-press turning into a text selection or the
+                // iOS callout menu, which cancels the gesture halfway.
+                e.preventDefault();
+                onHoldStart?.();
+              }
+            : undefined
+        }
+        onPointerUp={hold ? () => onHoldEnd?.() : undefined}
+        onPointerCancel={hold ? () => onHoldEnd?.() : undefined}
+        onPointerLeave={hold ? () => onHoldEnd?.() : undefined}
+        onContextMenu={hold ? (e) => e.preventDefault() : undefined}
+        aria-label={
+          hold ? "Hold to speak" : listening ? "Stop listening" : "Speak"
+        }
         aria-pressed={listening}
         // Filled in both states. An outlined blue mic on the shop's dark page
         // measured 3.5:1 — legible, but this is the control the page is for,
         // and white on the fill is 4.59:1.
-        className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-[#3579B8] text-white transition-transform active:scale-95 ${
-          listening ? "" : "shadow-lg"
+        // touch-none and select-none so a press-and-hold does not scroll the
+        // list underneath or start selecting the label.
+        className={`relative flex h-20 w-20 touch-none select-none items-center justify-center rounded-full bg-[#3579B8] text-white transition-transform ${
+          listening ? "scale-110" : "shadow-lg active:scale-95"
         }`}
       >
         {/* A drawn icon, not an emoji: the microphone glyph is a different

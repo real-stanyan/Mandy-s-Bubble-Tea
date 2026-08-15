@@ -142,7 +142,7 @@ export function StockCheckForm({
     setHeard(parts.join(" "));
   }, []);
 
-  const dictation = useDictation({ onFinal: applyVoice });
+  const dictation = useDictation({ onFinal: applyVoice, holdToTalk: true });
 
   /**
    * Open at the first item still blank, so picking the count back up after a
@@ -389,13 +389,16 @@ export function StockCheckForm({
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex flex-col items-center gap-2 px-4">
           {(dictation.listening || heard) && (
             <div className="pointer-events-auto max-h-20 max-w-md overflow-y-auto rounded-2xl bg-zinc-900/85 px-3 py-1.5 text-center text-sm text-white shadow-lg backdrop-blur dark:bg-zinc-800/90">
-              {dictation.listening ? dictation.interim || "Listening…" : heard}
+              {dictation.listening
+                ? dictation.interim || "Listening — keep holding"
+                : heard}
             </div>
           )}
           <div className="pointer-events-auto">
             <MicButton
               listening={dictation.listening}
-              onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+              onHoldStart={dictation.start}
+              onHoldEnd={dictation.stop}
               idleLabel=""
               busyLabel=""
             />
