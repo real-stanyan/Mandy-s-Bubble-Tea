@@ -35,9 +35,13 @@ const VALUES: Record<string, number> = {
   to: 2, too: 2, tu: 2, tour: 2, tue: 2,
   bun: 1, bum: 1, won: 1, wan: 1, wun: 1, run: 1, an: 1, a: 1,
   for: 4, fore: 4, faw: 4,
-  free: 3, tree: 3, thee: 3, tri: 3,
+  // "siri" is iPhone-specific and reported from the shop: the phone hears its
+  // own wake word in "three" and writes that instead. Nothing phonetic would
+  // have caught it — "siri" and "three" share no consonants — so it has to be
+  // named.
+  free: 3, tree: 3, thee: 3, tri: 3, siri: 3, sri: 3,
   ate: 8, eat: 8, hate: 8,
-  sicks: 6, sex: 6, six_: 6,
+  sicks: 6, sex: 6,
   fife: 5, hive: 5, faiv: 5,
   nein: 9, nain: 9, line: 9,
   sven: 7, seaven: 7,
