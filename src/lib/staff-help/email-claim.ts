@@ -29,9 +29,29 @@ const NOTIFY =
 /** Sentence enders in both scripts, plus line breaks. */
 const SENTENCE = /[.!?。！？；;\n]+/;
 
+/**
+ * Conditionals and refusals — sentences that leave the staff member knowing he
+ * has NOT been told.
+ *
+ * Seen in production: asked to notify the owner about a fridge, and told it was
+ * a test, the assistant answered "如果冰箱真的坏了，我马上发邮件给 Rick；如果只是
+ * 测试，我就先不发" and asked for confirmation. Nobody reading that believes an
+ * email has gone, so sending one anyway is noise — and an assistant that cries
+ * wolf gets ignored, which costs more than the email saves.
+ *
+ * The net still errs toward sending: only an explicit "if" or "not" suppresses
+ * it, never mere uncertainty.
+ */
+const NOT_YET = /\b(if|unless|would|should i|shall i|want me to|do you want)\b|如果|要是|若|除非|不发|不会发|没发|先不|要不要|需要我/i;
+
 export function claimsEmailSent(reply: string, ownerName: string): boolean {
   const name = ownerName.toLowerCase();
   return reply
     .split(SENTENCE)
-    .some((sentence) => sentence.toLowerCase().includes(name) && NOTIFY.test(sentence));
+    .some(
+      (sentence) =>
+        sentence.toLowerCase().includes(name) &&
+        NOTIFY.test(sentence) &&
+        !NOT_YET.test(sentence),
+    );
 }

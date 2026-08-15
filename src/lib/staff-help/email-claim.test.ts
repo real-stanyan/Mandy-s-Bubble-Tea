@@ -56,6 +56,28 @@ describe("detecting an email that was claimed but not sent", () => {
     }
   });
 
+  it("does not fire when it is asking permission rather than reporting", () => {
+    // Verbatim from production on 15 August: told the fridge report was a
+    // test, it offered to send and asked for confirmation. Nobody reading this
+    // believes an email has gone, so sending one is noise — and an assistant
+    // that cries wolf gets ignored, which costs more than the email saves.
+    expect(
+      claims(
+        "如果冰箱真的坏了，我马上发邮件给 Rick；如果只是测试，我就先不发，免得他收到假警报。",
+      ),
+    ).toBe(false);
+    expect(claims("Do you want me to email Rick about it?")).toBe(false);
+    expect(claims("Shall I email Rick?")).toBe(false);
+    expect(claims("要不要我发邮件给 Rick？")).toBe(false);
+  });
+
+  it("still fires on an unconditional claim in the same reply", () => {
+    // The suppression must not swallow the real thing when both appear.
+    expect(
+      claims("已经发邮件给 Rick 了。如果他没回，你再叫我一声。"),
+    ).toBe(true);
+  });
+
   it("does not fire on Chinese that promises nothing", () => {
     for (const s of [
       "刷卡看起来正常，过去 30 分钟 34 笔只有 1 笔失败。",
