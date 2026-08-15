@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { currentRole } from "@/lib/staff/auth";
-import { callDeepSeek, DeepSeekError, type DeepSeekMessage } from "@/lib/chat/deepseek";
+import {
+  callClaude,
+  ClaudeError,
+  type ClaudeBlock,
+  type ClaudeMessage,
+} from "@/lib/staff-help/claude";
 import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT } from "@/lib/staff-help/policy";
 import { notifyStan } from "@/lib/staff-help/agent";
 import {
@@ -129,13 +134,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "no message" }, { status: 400 });
   }
 
-  const messages: DeepSeekMessage[] = [
-    { role: "system", content: STAFF_SYSTEM_PROMPT },
-    ...incoming.map((m) => ({
-      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-      content: String(m.content ?? "").slice(0, 2000),
-    })),
-  ];
+  // Anthropic takes the system prompt as its own field, so it is not a message.
+  const messages: ClaudeMessage[] = incoming.map((m) => ({
+    role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+    content: String(m.content ?? "").slice(0, 2000),
+  }));
 
   // What actually happened, in the server's words. The reply the staff member
   // reads is the model's, but this is what Stan is told and what the UI shows
@@ -145,31 +148,24 @@ export async function POST(req: Request) {
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      const reply = await callDeepSeek(messages, { tools: [...STAFF_TOOLS], timeoutMs: 20000 });
-
-      if (reply.toolCalls.length === 0) {
-        await honourEmailClaim(reply.content, performed, incoming);
-        return NextResponse.json({ ok: true, reply: reply.content, performed });
-      }
-
-      messages.push({
-        role: "assistant",
-        content: reply.content ?? "",
-        tool_calls: reply.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function",
-          function: { name: tc.name, arguments: tc.argumentsJson },
-        })),
+      const reply = await callClaude(messages, {
+        system: STAFF_SYSTEM_PROMPT,
+        tools: [...STAFF_TOOLS],
       });
 
-      for (const tc of reply.toolCalls) {
-        let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(tc.argumentsJson) as Record<string, unknown>;
-        } catch {
-          /* a malformed call runs with no arguments and the tool rejects it */
-        }
-        const result = await runTool(tc.name, args);
+      if (reply.toolUses.length === 0) {
+        await honourEmailClaim(reply.text, performed, incoming);
+        return NextResponse.json({ ok: true, reply: reply.text, performed });
+      }
+
+      // Replayed exactly as returned. Reconstructing the assistant turn from
+      // its parts loses block ordering, and the API rejects a tool_result that
+      // does not answer a tool_use it can see.
+      messages.push({ role: "assistant", content: reply.blocks });
+
+      const results: ClaudeBlock[] = [];
+      for (const tc of reply.toolUses) {
+        const result = await runTool(tc.name, tc.input ?? {});
         performed.push(result.label);
 
         // Any change tells Stan, whether or not the model chose to. Staff have
@@ -192,21 +188,23 @@ export async function POST(req: Request) {
           );
         }
 
-        messages.push({ role: "tool", tool_call_id: tc.id, content: result.text });
+        results.push({ type: "tool_result", tool_use_id: tc.id, content: result.text });
       }
+      // Every tool_use from one turn must be answered in a single user turn.
+      messages.push({ role: "user", content: results });
     }
 
     // Out of rounds with tools still pending: answer from what we have rather
     // than leaving the staff member with a spinner.
-    const final = await callDeepSeek(messages, { tools: [], timeoutMs: 20000 });
-    await honourEmailClaim(final.content, performed, incoming);
-    return NextResponse.json({ ok: true, reply: final.content, performed });
+    const final = await callClaude(messages, { system: STAFF_SYSTEM_PROMPT });
+    await honourEmailClaim(final.text, performed, incoming);
+    return NextResponse.json({ ok: true, reply: final.text, performed });
   } catch (err) {
     // The staff member gets a calm sentence; the reason goes to the server log,
     // because "it broke" from someone mid-service is not a bug report.
     console.error("[staff-help]", err);
     const msg =
-      err instanceof DeepSeekError
+      err instanceof ClaudeError
         ? "I could not think that through just now — try again in a moment. If it is urgent, call Stan."
         : "Something went wrong on my side. If it is urgent, call Stan.";
     return NextResponse.json({ ok: true, reply: msg, performed });

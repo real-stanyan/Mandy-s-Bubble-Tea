@@ -6,118 +6,95 @@
 
 export const STAFF_TOOLS = [
   {
-    type: "function",
-    function: {
-      name: "check_payments",
-      description:
-        "Check whether card payments are actually failing right now, broken down by card brand. Use whenever anyone mentions a card being declined, payment not going through, or the terminal refusing a customer.",
-      parameters: {
-        type: "object",
-        properties: {
-          minutes: {
-            type: "number",
-            description: "How far back to look. Default 30.",
-          },
+    name: "check_payments",
+    description:
+      "Check whether card payments are actually failing right now, broken down by card brand. Use whenever anyone mentions a card being declined, payment not going through, or the terminal refusing a customer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        minutes: {
+          type: "number",
+          description: "How far back to look. Default 30.",
         },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "check_printing",
-      description:
-        "Check the sticker and cup-label print queue for failed or stuck jobs. Use when labels are not coming out, or an order was missed.",
-      parameters: { type: "object", properties: {} },
-    },
+    name: "check_printing",
+    description:
+      "Check the sticker and cup-label print queue for failed or stuck jobs. Use when labels are not coming out, or an order was missed.",
+    input_schema: { type: "object", properties: {} },
   },
   {
-    type: "function",
-    function: {
-      name: "check_store_status",
-      description:
-        "Check whether online ordering and delivery are currently on. Use when someone asks why orders stopped, or whether delivery is running.",
-      parameters: { type: "object", properties: {} },
-    },
+    name: "check_store_status",
+    description:
+      "Check whether online ordering and delivery are currently on. Use when someone asks why orders stopped, or whether delivery is running.",
+    input_schema: { type: "object", properties: {} },
   },
   {
-    type: "function",
-    function: {
-      name: "look_up_order",
-      description:
-        "Look up one recent order by its sticker number, e.g. OL846 or DE837. Use when staff are holding a receipt and something about it looks wrong.",
-      parameters: {
-        type: "object",
-        properties: {
-          reference: { type: "string", description: "The sticker number." },
-        },
-        required: ["reference"],
+    name: "look_up_order",
+    description:
+      "Look up one recent order by its sticker number, e.g. OL846 or DE837. Use when staff are holding a receipt and something about it looks wrong.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "The sticker number." },
       },
+      required: ["reference"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "pause_delivery",
-      description:
-        "Pause delivery orders for a few hours. Use only when the shop genuinely cannot deliver — the driver is gone, the weather is dangerous, the kitchen is overwhelmed. Pickup keeps working. It turns itself back on.",
-      parameters: {
-        type: "object",
-        properties: {
-          hours: { type: "number", description: "1 to 12." },
-          reason: {
-            type: "string",
-            description: "Short reason in the staff member's own words.",
-          },
+    name: "pause_delivery",
+    description:
+      "Pause delivery orders for a few hours. Use only when the shop genuinely cannot deliver — the driver is gone, the weather is dangerous, the kitchen is overwhelmed. Pickup keeps working. It turns itself back on.",
+    input_schema: {
+      type: "object",
+      properties: {
+        hours: { type: "number", description: "1 to 12." },
+        reason: {
+          type: "string",
+          description: "Short reason in the staff member's own words.",
         },
-        required: ["hours", "reason"],
       },
+      required: ["hours", "reason"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "resume_delivery",
-      description: "Turn delivery back on before the pause would have expired.",
-      parameters: { type: "object", properties: {} },
+    name: "resume_delivery",
+    description: "Turn delivery back on before the pause would have expired.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "reprint_order",
+    description:
+      "Put a sticker back in the print queue when it did not come out. Takes the sticker number.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sticker_number: { type: "string" },
+      },
+      required: ["sticker_number"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "reprint_order",
-      description:
-        "Put a sticker back in the print queue when it did not come out. Takes the sticker number.",
-      parameters: {
-        type: "object",
-        properties: {
-          sticker_number: { type: "string" },
+    name: "escalate_to_stan",
+    description:
+      "Email Stan. Use for anything you cannot check or fix from this list: refunds, prices, wrong charges, a customer complaint, an angry customer, anything to do with money, or anything you are not sure about. This is the right answer far more often than the actions are — it is not a failure.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: {
+          type: "string",
+          description:
+            "What is wrong, in plain English, including anything you already checked and what it said.",
         },
-        required: ["sticker_number"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "escalate_to_stan",
-      description:
-        "Email Stan. Use for anything you cannot check or fix from this list: refunds, prices, wrong charges, a customer complaint, an angry customer, anything to do with money, or anything you are not sure about. This is the right answer far more often than the actions are — it is not a failure.",
-      parameters: {
-        type: "object",
-        properties: {
-          summary: {
-            type: "string",
-            description:
-              "What is wrong, in plain English, including anything you already checked and what it said.",
-          },
-          urgent: {
-            type: "boolean",
-            description: "True if the shop cannot keep serving customers until Stan answers.",
-          },
+        urgent: {
+          type: "boolean",
+          description:
+            "True if the shop cannot keep serving customers until Stan answers.",
         },
-        required: ["summary"],
       },
+      required: ["summary"],
     },
   },
 ] as const;

@@ -21,7 +21,7 @@ const TOOLS_SRC = readFileSync(
   "utf8",
 );
 
-const declared = STAFF_TOOLS.map((t) => t.function.name);
+const declared = STAFF_TOOLS.map((t) => t.name);
 
 /** The complete list of things that write. Adding to it is the decision this
  *  file exists to make deliberate. */
