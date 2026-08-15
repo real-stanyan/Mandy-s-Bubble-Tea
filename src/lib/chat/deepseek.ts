@@ -161,7 +161,7 @@ export const CHAT_TOOLS = [
  */
 export async function callDeepSeek(
   messages: DeepSeekMessage[],
-  opts: { timeoutMs?: number; tools?: unknown[] } = {},
+  opts: { timeoutMs?: number } = {},
 ): Promise<DeepSeekReply> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new DeepSeekError("DEEPSEEK_API_KEY is not configured");
@@ -180,14 +180,7 @@ export async function callDeepSeek(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      // The customer bot's tools are the default because it is the caller
-      // that matters; the staff assistant passes its own much smaller set.
-      body: JSON.stringify({
-        model,
-        messages,
-        tools: opts.tools ?? CHAT_TOOLS,
-        temperature: 0.3,
-      }),
+      body: JSON.stringify({ model, messages, tools: CHAT_TOOLS, temperature: 0.3 }),
       signal: controller.signal,
     });
   } catch (err) {
