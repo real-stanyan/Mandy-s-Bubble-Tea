@@ -49,6 +49,9 @@ export function useDictation(opts: {
    * finished. Releasing ends it, which also means nothing has to guess.
    */
   holdToTalk?: boolean;
+  /** BCP-47 tag for the recogniser. No browser detects this from audio, so
+   *  somebody has to say which language is being spoken. */
+  lang?: string;
 }) {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
@@ -60,9 +63,13 @@ export function useDictation(opts: {
   const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdRef = useRef(opts.holdToTalk === true);
+  const langRef = useRef(opts.lang ?? "en-AU");
   useEffect(() => {
     holdRef.current = opts.holdToTalk === true;
-  }, [opts.holdToTalk]);
+    // Read at start(), not captured when the callback was built, so switching
+    // language takes effect on the very next press rather than one late.
+    langRef.current = opts.lang ?? "en-AU";
+  }, [opts.holdToTalk, opts.lang]);
   const onFinalRef = useRef(opts.onFinal);
 
   useEffect(() => {
@@ -96,9 +103,9 @@ export function useDictation(opts: {
     const Ctor = recognitionCtor();
     if (!Ctor) return;
     const rec = new Ctor();
-    // en-AU: the shop is in Brisbane, and the recogniser handles the local
-    // vowels and "three" versus "free" noticeably better than en-US.
-    rec.lang = "en-AU";
+    // Defaults to en-AU: the shop is in Brisbane, and the recogniser handles
+    // the local vowels and "three" versus "free" noticeably better than en-US.
+    rec.lang = langRef.current;
     // Continuous, because a shelf walk is one long sentence full of pauses.
     rec.continuous = true;
     rec.interimResults = true;

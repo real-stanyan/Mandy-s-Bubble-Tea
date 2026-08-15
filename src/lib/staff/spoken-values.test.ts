@@ -183,3 +183,32 @@ describe("pulling a stray word to the nearest number", () => {
     expect(vals("nan")).toEqual([]);
   });
 });
+
+describe("Chinese, Cantonese and Korean", () => {
+  it("reads Mandarin and the traditional forms Cantonese returns", () => {
+    // A Cantonese recogniser hands back the same characters, so the only
+    // additions it needed were 兩 and the 廿 that gets said for twenty.
+    expect(vals("三 二 一")).toEqual(["3", "2", "1"]);
+    expect(vals("兩")).toEqual(["2"]);
+    expect(vals("廿")).toEqual(["20"]);
+  });
+
+  it("reads the Cantonese answers for cups and straws", () => {
+    // Not in the spoken walk any more, but still parsed: somebody typing or
+    // reading these back should get the same answer either way.
+    expect(vals("唔夠")).toEqual(["short"]);
+    expect(vals("冇")).toEqual(["short"]);
+    expect(vals("夠")).toEqual(["enough"]);
+  });
+
+  it("reads Korean both ways round", () => {
+    expect(vals("하나 둘 셋")).toEqual(["1", "2", "3"]);
+    expect(vals("일 이 삼")).toEqual(["1", "2", "3"]);
+  });
+
+  it("reads a run mixed across scripts", () => {
+    // One person counting, one language — but a recogniser set to Chinese
+    // still writes digits when it hears them.
+    expect(vals("三 2 一")).toEqual(["3", "2", "1"]);
+  });
+});
