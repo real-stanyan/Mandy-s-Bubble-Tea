@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SPEECH_LOCALE, type StaffLanguage } from "@/lib/staff-help/language";
 import { chooseTranscript } from "@/lib/staff-help/transcript";
+import { SILENCE_MS, MAX_LISTEN_MS } from "@/lib/staff-help/listening";
 
 // Speech in and speech out, both from the browser.
 //
@@ -43,6 +44,7 @@ function recognitionCtor(): (new () => SpeechRecognitionLike) | null {
 
 const LANG_KEY = "staff-help-lang";
 
+
 export function useVoice(opts: { onFinal: (text: string) => void }) {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
@@ -58,6 +60,15 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
   // live transcript and was never sent. What was heard is what gets used,
   // whether or not the browser got around to blessing it.
   const interimRef = useRef("");
+  const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimers = useCallback(() => {
+    if (silenceRef.current) clearTimeout(silenceRef.current);
+    if (maxRef.current) clearTimeout(maxRef.current);
+    silenceRef.current = null;
+    maxRef.current = null;
+  }, []);
   // The callback changes identity every render; the recogniser is built once.
   const onFinalRef = useRef(opts.onFinal);
   useEffect(() => {
@@ -92,10 +103,25 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
 
     const rec = new Ctor();
     rec.lang = SPEECH_LOCALE[lang];
-    rec.continuous = false;
+    // Continuous, because the browser's own idea of "they've finished" is one
+    // short pause, and describing a shop problem is full of those — "冰箱坏了…
+    // 就是后面那台…". It used to cut off on the first breath and send half a
+    // sentence. Silence is now judged here instead, with a longer fuse.
+    rec.continuous = true;
     rec.interimResults = true;
     finalRef.current = "";
     interimRef.current = "";
+
+    const armSilence = () => {
+      if (silenceRef.current) clearTimeout(silenceRef.current);
+      silenceRef.current = setTimeout(() => {
+        try {
+          rec.stop();
+        } catch {
+          /* already stopped */
+        }
+      }, SILENCE_MS);
+    };
 
     rec.onresult = (e) => {
       let interimText = "";
@@ -106,9 +132,11 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
       }
       interimRef.current = interimText;
       setInterim(interimText);
+      armSilence();
     };
     rec.onerror = () => setListening(false);
     rec.onend = () => {
+      clearTimers();
       setListening(false);
       setInterim("");
       const said = chooseTranscript(finalRef.current, interimRef.current);
@@ -123,10 +151,21 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
     setListening(true);
     try {
       rec.start();
+      // Armed from the start, not from the first word: a mic opened by
+      // accident against a wall of shop noise would otherwise never close.
+      armSilence();
+      maxRef.current = setTimeout(() => {
+        try {
+          rec.stop();
+        } catch {
+          /* already stopped */
+        }
+      }, MAX_LISTEN_MS);
     } catch {
+      clearTimers();
       setListening(false);
     }
-  }, [lang]);
+  }, [lang, clearTimers]);
 
   const speak = useCallback(async (text: string, spokenLang: StaffLanguage) => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : null;

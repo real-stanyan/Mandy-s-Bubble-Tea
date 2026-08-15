@@ -156,6 +156,54 @@ export function HelpChat() {
         <div ref={endRef} />
       </div>
 
+      {/* Talking is the primary way in, so it gets the biggest target on the
+          page rather than a square wedged beside a text field. Someone holding
+          a cup in one hand should be able to hit it without looking. */}
+      {voice.supported && (
+        <div className="mt-4 flex flex-col items-center">
+          <button
+            type="button"
+            onClick={() => (voice.listening ? voice.stop() : voice.start())}
+            aria-label={voice.listening ? "Stop listening" : "Speak"}
+            aria-pressed={voice.listening}
+            // Filled in both states. An outlined blue mic on the shop's dark
+            // page measured 3.5:1 — legible, but this is the control the whole
+            // page is for, and white on the fill is 4.59:1.
+            className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-[#3579B8] text-white transition-transform active:scale-95 ${
+              voice.listening ? "" : "shadow-lg"
+            }`}
+          >
+            {/* A drawn icon, not an emoji: 🎤 is a different picture on every
+                platform and renders at whatever size the font decides. */}
+            {voice.listening ? (
+              <span className="block h-6 w-6 rounded-sm bg-current" />
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                className="h-9 w-9"
+                aria-hidden="true"
+              >
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <path d="M12 18v3" />
+              </svg>
+            )}
+            {/* The ring is outside the button's own box so it cannot nudge the
+                layout as it animates. */}
+            {voice.listening && (
+              <span className="pointer-events-none absolute -inset-2 animate-ping rounded-full border-2 border-[#3579B8] opacity-60" />
+            )}
+          </button>
+          <div className="mt-2 h-5 text-sm text-zinc-500">
+            {voice.listening ? "Listening — tap to stop" : "Tap and say what's wrong"}
+          </div>
+        </div>
+      )}
+
       <form
         className="mt-3 flex gap-2"
         onSubmit={(e) => {
@@ -163,25 +211,10 @@ export function HelpChat() {
           void send(input);
         }}
       >
-        {voice.supported && (
-          <button
-            type="button"
-            onClick={() => (voice.listening ? voice.stop() : voice.start())}
-            aria-label={voice.listening ? "Stop listening" : "Speak"}
-            aria-pressed={voice.listening}
-            className={`min-h-11 shrink-0 rounded-lg border px-3 text-lg ${
-              voice.listening
-                ? "animate-pulse border-[#3579B8] bg-[#3579B8] text-white"
-                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-            }`}
-          >
-            {voice.listening ? "■" : "🎤"}
-          </button>
-        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={voice.listening ? "Listening…" : "What's happening?"}
+          placeholder={voice.listening ? "Listening…" : "…or type it here"}
           className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <button
