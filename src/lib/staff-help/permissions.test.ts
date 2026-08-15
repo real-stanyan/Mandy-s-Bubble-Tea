@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT } from "./policy";
+import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT, OWNER_NAME } from "./policy";
 
 // The staff assistant's permission boundary, as a test rather than as a
 // paragraph in the prompt.
 //
-// Stan approved an exact scope: diagnose freely, and change exactly three
+// Rick approved an exact scope: diagnose freely, and change exactly three
 // reversible things. That decision lives here because prompts are advice and
 // this is not — a future change that widens what the assistant can do has to
 // come and delete an assertion, which is a conversation, whereas a widened
@@ -30,7 +30,7 @@ const APPROVED_ACTIONS = ["pause_delivery", "resume_delivery", "reprint_order"];
 describe("staff assistant permissions", () => {
   it("offers exactly the approved actions and nothing else that writes", () => {
     const actions = declared.filter(
-      (n) => !n.startsWith("check_") && !n.startsWith("look_up_") && n !== "escalate_to_stan",
+      (n) => !n.startsWith("check_") && !n.startsWith("look_up_") && n !== "escalate_to_owner",
     );
     expect(actions.sort()).toEqual([...APPROVED_ACTIONS].sort());
   });
@@ -58,12 +58,12 @@ describe("staff assistant permissions", () => {
     expect(tail).toMatch(/not something I can do/i);
   });
 
-  it("tells Stan on every mutation, regardless of what the model chose", () => {
+  it("tells Rick on every mutation, regardless of what the model chose", () => {
     // The notify call must be driven by the tool result, not by the model
-    // picking escalate_to_stan: staff cannot audit an agent, so the record
+    // picking escalate_to_owner: staff cannot audit an agent, so the record
     // cannot be opt-in.
     expect(ROUTE).toMatch(/if \(result\.mutated\)/);
-    expect(ROUTE.slice(ROUTE.indexOf("if (result.mutated)"))).toMatch(/notifyStan/);
+    expect(ROUTE.slice(ROUTE.indexOf("if (result.mutated)"))).toMatch(/notifyOwner/);
   });
 
   it("marks every writing tool as mutating, so none of them can skip the email", () => {
@@ -81,7 +81,7 @@ describe("staff assistant permissions", () => {
     // The action check above classifies by name prefix, so a writing tool
     // named look_up_something would slip past it. This is the same rule read
     // from the other end: whatever the name, only the approved three may set
-    // `mutated`, and only they can therefore trigger the email to Stan.
+    // `mutated`, and only they can therefore trigger the email to Rick.
     const approvedFns = APPROVED_ACTIONS.map((a) =>
       a.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
     );
@@ -116,5 +116,33 @@ describe("staff assistant permissions", () => {
     // for a refund because refusing felt unhelpful.
     expect(STAFF_SYSTEM_PROMPT).toMatch(/escalat/i);
     expect(STAFF_SYSTEM_PROMPT).toMatch(/not a failure|good outcome/i);
+  });
+});
+
+describe("the owner's name", () => {
+  // Renaming Stan to Rick broke the "did it claim to have emailed him?" check
+  // without failing anything: the prompt said Rick, the regex still said stan,
+  // and the safety net quietly stopped catching anything. Both now read the
+  // same constant, and this asserts neither has drifted back to a literal.
+  it("is stated in the prompt", () => {
+    expect(STAFF_SYSTEM_PROMPT).toContain(OWNER_NAME);
+  });
+
+  it("is not hard-coded into the claim check", () => {
+    const claim = ROUTE.slice(ROUTE.indexOf("async function honourEmailClaim"));
+    const withComments = claim.slice(0, claim.indexOf("\nexport "));
+    // Comments stripped first. The name appearing in prose that explains the
+    // check is fine; the name appearing in the check itself is the bug, since
+    // it survives a rename and then matches nothing at all.
+    const body = withComments.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(body).toMatch(/OWNER_NAME/);
+    // A literal name here is the bug: it survives a rename and matches nothing.
+    expect(body).not.toMatch(/\b(stan|rick)\b/i);
+  });
+
+  it("never leaves a stale name anywhere staff can read", () => {
+    for (const src of [ROUTE, TOOLS_SRC, STAFF_SYSTEM_PROMPT]) {
+      expect(src).not.toMatch(/\bStan\b/);
+    }
   });
 });

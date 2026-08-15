@@ -14,7 +14,7 @@ const AGENT = readFileSync(join(process.cwd(), "src/lib/staff-help/agent.ts"), "
 
 describe("the escalation recipient", () => {
   it("does not ride on the payments pager", () => {
-    // Setting PAYMENT_ALERT_TO to page Stan during an outage must not silently
+    // Setting PAYMENT_ALERT_TO to page Rick during an outage must not silently
     // redirect every "we're out of pearls" to the same place.
     const code = AGENT.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(code).not.toMatch(/PAYMENT_ALERT_TO/);

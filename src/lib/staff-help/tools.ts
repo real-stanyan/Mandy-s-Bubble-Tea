@@ -29,7 +29,7 @@ import { applyThresholds, type ThresholdOverrides } from "@/lib/staff/stocklist"
 //   customer chatbot runs on, and it exists because a model that can
 //   paraphrase a number will eventually invent one.
 //
-//   Every action is reversible and tells Stan. Staff cannot review what an
+//   Every action is reversible and tells Rick. Staff cannot review what an
 //   agent did, so the safety net is that nothing is one-way and nobody finds
 //   out later by accident.
 
@@ -79,11 +79,11 @@ export async function checkPayments(minutes = 30): Promise<ToolResult> {
       ? `PAYMENTS ARE FAILING: ${verdict.failures} of ${verdict.attempts} declined (${pct}%) in the last ${minutes} minutes.`
       : `Payments look normal: ${verdict.failures} of ${verdict.attempts} declined (${pct}%) in the last ${minutes} minutes.`;
     return {
-      text: `${headline} By card brand — ${brands}. If the declines are almost all one brand, it is the bank or Square, not the shop: tell customers to use another card and let Stan know so he can raise it with Square.`,
+      text: `${headline} By card brand — ${brands}. If the declines are almost all one brand, it is the bank or Square, not the shop: tell customers to use another card and let Rick know so he can raise it with Square.`,
     };
   } catch {
     return {
-      text: "Could not reach Square to check payments. That is not the same as payments being broken — try again in a minute, and tell Stan if it keeps failing.",
+      text: "Could not reach Square to check payments. That is not the same as payments being broken — try again in a minute, and tell Rick if it keeps failing.",
     };
   }
 }
@@ -129,7 +129,7 @@ export async function checkPrinting(): Promise<ToolResult> {
     }
     return { text: parts.join(" ") };
   } catch {
-    return { text: "Could not read the print queue just now. Tell Stan if this keeps happening." };
+    return { text: "Could not read the print queue just now. Tell Rick if this keeps happening." };
   }
 }
 
@@ -168,7 +168,7 @@ export async function lookUpOrder(reference: string): Promise<ToolResult> {
     );
     if (!hit) {
       return {
-        text: `No order found for ${ref} in the last 24 hours. Check the number, or it may be from an earlier day — Stan can look further back.`,
+        text: `No order found for ${ref} in the last 24 hours. Check the number, or it may be from an earlier day — Rick can look further back.`,
       };
     }
     const items = (hit.lineItems ?? [])
@@ -254,7 +254,7 @@ export async function lookUpCustomer(phone: string): Promise<ToolResult> {
     }
 
     parts.push(
-      "Anything beyond this — changing the account, refunding an order, adding stars by hand — is Stan's.",
+      "Anything beyond this — changing the account, refunding an order, adding stars by hand — is Rick's.",
     );
     return { text: parts.join(" ") };
   } catch {
@@ -274,7 +274,7 @@ export async function checkDevices(): Promise<ToolResult> {
       .limit(5);
     const rows = data ?? [];
     if (rows.length === 0) {
-      return { text: "No printer machine has ever checked in. Tell Stan." };
+      return { text: "No printer machine has ever checked in. Tell Rick." };
     }
     const now = Date.now();
     const lines = rows.map((r) => {
@@ -333,7 +333,7 @@ export async function checkPromotions(): Promise<ToolResult> {
     return {
       text:
         buildPromotionsDigest(promotions) +
-        "\n\nThese are the only deals. If a customer insists on one that is not here, do not honour it — get Stan.",
+        "\n\nThese are the only deals. If a customer insists on one that is not here, do not honour it — get Rick.",
     };
   } catch {
     return { text: "Could not read the promotions just now." };

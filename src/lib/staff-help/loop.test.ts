@@ -10,10 +10,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/staff/auth", () => ({ currentRole: async () => "staff" }));
 
 // vi.mock is hoisted above the file, so the spy has to be created there too.
-const { notifyStan } = vi.hoisted(() => ({
-  notifyStan: vi.fn<(subject: string, body: string) => Promise<void>>(async () => {}),
+const { notifyOwner } = vi.hoisted(() => ({
+  notifyOwner: vi.fn<(subject: string, body: string) => Promise<boolean>>(async () => true),
 }));
-vi.mock("@/lib/staff-help/agent", () => ({ notifyStan }));
+vi.mock("@/lib/staff-help/agent", () => ({ notifyOwner }));
 
 vi.mock("@/lib/staff-help/tools", () => ({
   checkPayments: async () => ({ text: "Payments look normal: 0 of 12 declined." }),
@@ -49,7 +49,7 @@ function post(text: string) {
 
 beforeEach(() => {
   calls.length = 0;
-  notifyStan.mockClear();
+  notifyOwner.mockClear();
   process.env.ANTHROPIC_API_KEY = "test-key";
 });
 
@@ -144,7 +144,7 @@ describe("the Claude tool loop", () => {
     expect(calls[0].messages.every((m) => m.role !== "system")).toBe(true);
   });
 
-  it("emails Stan when a tool mutated, without the model asking", async () => {
+  it("emails Rick when a tool mutated, without the model asking", async () => {
     let n = 0;
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
       calls.push(JSON.parse(String(init.body)) as Body);
@@ -153,7 +153,7 @@ describe("the Claude tool loop", () => {
           { type: "tool_use", id: "t1", name: "pause_delivery", input: { hours: 2, reason: "no driver" } },
         ]);
       }
-      // Deliberately says nothing about Stan: the email must not depend on it.
+      // Deliberately says nothing about Rick: the email must not depend on it.
       return reply([{ type: "text", text: "Delivery is paused. Pickup still works." }]);
     });
 
@@ -161,23 +161,51 @@ describe("the Claude tool loop", () => {
     const json = (await res.json()) as { performed: string[] };
 
     expect(json.performed).toEqual(["paused delivery"]);
-    expect(notifyStan).toHaveBeenCalledOnce();
-    expect(notifyStan.mock.calls[0][0]).toContain("paused delivery");
+    expect(notifyOwner).toHaveBeenCalledOnce();
+    expect(notifyOwner.mock.calls[0][0]).toContain("paused delivery");
   });
 
   it("sends the email when the model claims it did but never called the tool", async () => {
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
       calls.push(JSON.parse(String(init.body)) as Body);
       return reply([
-        { type: "text", text: "I can't refund that — it's Stan's call, and he's been emailed." },
+        { type: "text", text: "I can't refund that — it's Rick's call, and he's been emailed." },
       ]);
     });
 
     const res = await POST(post("refund her $8"));
     const json = (await res.json()) as { performed: string[] };
 
-    expect(notifyStan).toHaveBeenCalledOnce();
-    expect(json.performed).toEqual(["emailed Stan"]);
+    expect(notifyOwner).toHaveBeenCalledOnce();
+    expect(json.performed).toEqual(["emailed Rick"]);
+  });
+
+  it("says so on the receipt when the email is rejected", async () => {
+    // What actually happened in the shop: the sending domain was not verified,
+    // every escalation was rejected, and the page said "✓ emailed Rick"
+    // anyway. Staff told a customer someone would be in touch. Nobody was.
+    notifyOwner.mockResolvedValueOnce(false);
+    let n = 0;
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)) as Body);
+      if (++n === 1) {
+        return reply([
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "escalate_to_owner",
+            input: { summary: "fridge is broken", urgent: true },
+          },
+        ]);
+      }
+      return reply([{ type: "text", text: "Told him." }]);
+    });
+
+    const res = await POST(post("the fridge is broken"));
+    const json = (await res.json()) as { performed: string[] };
+
+    expect(json.performed).toEqual(["EMAIL FAILED"]);
+    expect(json.performed).not.toContain("emailed Rick");
   });
 
   it("degrades to a calm sentence when the API is down, and changes nothing", async () => {
@@ -188,8 +216,8 @@ describe("the Claude tool loop", () => {
     const res = await POST(post("cards declining"));
     const json = (await res.json()) as { reply: string; performed: string[] };
 
-    expect(json.reply).toMatch(/call Stan/i);
+    expect(json.reply).toMatch(/call Rick/i);
     expect(json.performed).toEqual([]);
-    expect(notifyStan).not.toHaveBeenCalled();
+    expect(notifyOwner).not.toHaveBeenCalled();
   });
 });

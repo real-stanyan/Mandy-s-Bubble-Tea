@@ -11,7 +11,7 @@ export default function StaffHelpPage() {
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Something wrong in the shop? Describe it here. I can check payments, the
         printer, and orders, and I can pause delivery or reprint a sticker.
-        Anything about refunds or money goes to Stan.
+        Anything about refunds or money goes to Rick.
       </p>
       <HelpChat />
     </main>

@@ -6,9 +6,10 @@ import {
   type ClaudeBlock,
   type ClaudeMessage,
 } from "@/lib/staff-help/claude";
-import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT } from "@/lib/staff-help/policy";
+import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT, OWNER_NAME } from "@/lib/staff-help/policy";
 import { detectLanguage, languageDirective } from "@/lib/staff-help/language";
-import { notifyStan } from "@/lib/staff-help/agent";
+import { claimsEmailSent } from "@/lib/staff-help/email-claim";
+import { notifyOwner } from "@/lib/staff-help/agent";
 import {
   checkPayments,
   checkPrinting,
@@ -95,53 +96,58 @@ async function runTool(
         ...(await reprintOrder(String(args.sticker_number ?? ""))),
         label: `reprinted ${String(args.sticker_number ?? "")}`,
       };
-    case "escalate_to_stan": {
+    case "escalate_to_owner": {
       const summary = String(args.summary ?? "").trim();
       if (!summary) return { text: "Nothing to send.", label: "escalation" };
-      await notifyStan(
+      const sent = await notifyOwner(
         args.urgent === true ? "URGENT from the shop" : "Message from the shop",
         `A staff member raised this through the shop assistant:\n\n${summary}\n`,
       );
+      // Said out loud when it fails. For two days this reported success
+      // unconditionally while every send was being rejected — the shop was
+      // told "someone will get back to you" and nobody ever did. A receipt
+      // that can only say yes is not a receipt.
+      if (!sent) {
+        return {
+          text: `The email did not go through. Do not tell the customer ${OWNER_NAME} has been told — ring him instead, and let him know the shop assistant's email is broken.`,
+          label: "EMAIL FAILED",
+        };
+      }
       return {
-        text: "Emailed Stan. Tell the customer someone will get back to them, and carry on with the queue.",
-        label: "emailed Stan",
+        text: `Emailed ${OWNER_NAME}. Tell the customer someone will get back to them, and carry on with the queue.`,
+        label: `emailed ${OWNER_NAME}`,
       };
     }
     default:
       return {
-        text: "That is not something I can do. If it needs doing, email Stan.",
+        text: "That is not something I can do. If it needs doing, email Rick.",
         label: "refused",
       };
   }
 }
 
-/** Roughly once in six tries the model signs off with "I've emailed Stan"
- *  without having called escalate_to_stan — observed against the real model on
+/** Roughly once in six tries the model signs off with "I've emailed Rick"
+ *  without having called escalate_to_owner — observed against the real model on
  *  a double-charge question, which is exactly the kind that must not go quiet.
  *  Prompt wording does not reliably fix this, and the staff member reads the
  *  sentence, not the receipt: they tell the customer someone will be in touch,
  *  and nobody is.
  *
  *  So the server makes the claim true instead of trying to prevent it. A
- *  duplicate email to Stan costs him ten seconds; a missing one costs a
+ *  duplicate email to Rick costs him ten seconds; a missing one costs a
  *  customer. */
 async function honourEmailClaim(
   reply: string,
   performed: string[],
   incoming: Array<{ role: string; content: string }>,
 ): Promise<void> {
-  if (performed.includes("emailed Stan")) return;
-  // Either order, because the model writes both "I've emailed Stan" and
-  // "that's Stan's call, and he's been emailed". Bounded by sentence
+  if (performed.includes(`emailed ${OWNER_NAME}`)) return;
+  // Either order, because the model writes both "I've emailed Rick" and
+  // "that's Rick's call, and he's been emailed". Bounded by sentence
   // punctuation so it cannot pair a verb in one sentence with a name in the
-  // next — "I've emailed Stan. Tell her to wait." must match once, not twice.
-  if (
-    !/\b(emailed|email|messaged|contacted|told)\b[^.!?]{0,40}\bstan\b/i.test(reply) &&
-    !/\bstan\b[^.!?]{0,40}\b(emailed|messaged|contacted|notified)\b/i.test(reply)
-  ) {
-    return;
-  }
-  await notifyStan("Message from the shop", [
+  // next — "I've emailed Rick. Tell her to wait." must match once, not twice.
+  if (!claimsEmailSent(reply, OWNER_NAME)) return;
+  const sent = await notifyOwner("Message from the shop", [
     `The shop assistant told a staff member it had emailed you, but did not.`,
     `Sending it now so the promise holds.`,
     ``,
@@ -151,7 +157,11 @@ async function honourEmailClaim(
     `The assistant replied:`,
     reply,
   ].join("\n"));
-  performed.push("emailed Stan");
+  // The receipt records what happened, not what was attempted. This whole
+  // function exists because the model claimed an email it never sent; a
+  // receipt that repeated the claim after a failed send would be the same
+  // lie with an extra step.
+  performed.push(sent ? `emailed ${OWNER_NAME}` : "EMAIL FAILED");
 }
 
 export async function POST(req: Request) {
@@ -184,7 +194,7 @@ export async function POST(req: Request) {
   const system = STAFF_SYSTEM_PROMPT + languageDirective(language);
 
   // What actually happened, in the server's words. The reply the staff member
-  // reads is the model's, but this is what Stan is told and what the UI shows
+  // reads is the model's, but this is what Rick is told and what the UI shows
   // as the receipt — so a model that describes an action it did not take is
   // contradicted by the page it is speaking through.
   const performed: string[] = [];
@@ -211,11 +221,11 @@ export async function POST(req: Request) {
         const result = await runTool(tc.name, tc.input ?? {});
         performed.push(result.label);
 
-        // Any change tells Stan, whether or not the model chose to. Staff have
+        // Any change tells Rick, whether or not the model chose to. Staff have
         // no way to review what an agent did on their behalf, so the record
         // cannot be something the agent opts into.
         if (result.mutated) {
-          await notifyStan(
+          await notifyOwner(
             `Shop assistant: ${result.label}`,
             [
               `Someone at the counter used the shop assistant, and it ${result.label}.`,
@@ -248,8 +258,8 @@ export async function POST(req: Request) {
     console.error("[staff-help]", err);
     const msg =
       err instanceof ClaudeError
-        ? "I could not think that through just now — try again in a moment. If it is urgent, call Stan."
-        : "Something went wrong on my side. If it is urgent, call Stan.";
+        ? "I could not think that through just now — try again in a moment. If it is urgent, call Rick."
+        : "Something went wrong on my side. If it is urgent, call Rick.";
     return NextResponse.json({ ok: true, reply: msg, performed, language });
   }
 }
