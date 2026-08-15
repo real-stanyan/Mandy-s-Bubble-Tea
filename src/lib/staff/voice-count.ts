@@ -155,37 +155,131 @@ function withFraction(
   return { value: `${whole}.${fraction}`, length: length + tail[0].length };
 }
 
+/** Levenshtein, for the near-miss pass. */
+function editDistance(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  let prev = Array.from({ length: cols }, (_, j) => j);
+  for (let i = 1; i < rows; i++) {
+    const row = [i, ...new Array<number>(cols - 1).fill(0)];
+    for (let j = 1; j < cols; j++) {
+      row[j] = Math.min(
+        prev[j] + 1,
+        row[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = row;
+  }
+  return prev[cols - 1];
+}
+
+/**
+ * How wrong a heard name may be and still count.
+ *
+ * One edit, and only for names of five characters or more. That is not a
+ * guess: across the whole list, no two names of five characters or more are
+ * closer than three edits apart (the nearest pair is "mango" and "orange").
+ * At distance three, a word within one edit of a name cannot also be within
+ * one edit of another — if it were, those two names would be within two of
+ * each other. So this pass can be wrong about whether it heard a name, and
+ * cannot be wrong about which one.
+ *
+ * The short names are excluded because they are the dangerous ones: PF, PA,
+ * GF and GA are mutually one edit apart, and LYMT is two from LIME. A single
+ * mis-heard letter there would swap passion fruit for pineapple silently.
+ * They still match exactly, which is how the labels are read anyway.
+ *
+ * name-collisions.test.ts fails if a future item breaks this.
+ */
+const FUZZY_MIN_LENGTH = 5;
+const FUZZY_MAX_EDITS = 1;
+
+type NameHit = { name: string; items: StockItem[] };
+
+function fuzzyFind(phrase: string, names: NameHit[]): NameHit | null {
+  if (phrase.length < FUZZY_MIN_LENGTH) return null;
+  let best: NameHit | null = null;
+  let bestDistance = Infinity;
+  let tied = false;
+  for (const candidate of names) {
+    if (candidate.name.length < FUZZY_MIN_LENGTH) continue;
+    // Length alone rules most of the list out before the expensive part.
+    if (Math.abs(candidate.name.length - phrase.length) > FUZZY_MAX_EDITS) continue;
+    const d = editDistance(phrase, candidate.name);
+    if (d > FUZZY_MAX_EDITS) continue;
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = candidate;
+      tied = false;
+    } else if (d === bestDistance) {
+      tied = true;
+    }
+  }
+  // A tie should be impossible given the distances in the list, but if the
+  // list ever changes, refusing is the failure this file is built around.
+  return tied ? null : best;
+}
+
 export function parseVoiceCounts(transcript: string): VoiceParse {
   const text = normalise(transcript);
   const names = searchOrder();
+  const longestName = names.reduce((n, x) => Math.max(n, x.name.split(" ").length), 1);
+
+  // Words with their offsets, so a match can be located back in the text and
+  // the gap to the next match read off as that item's answer.
+  const words: Array<{ word: string; start: number; end: number }> = [];
+  const wordPattern = /[a-z0-9.]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = wordPattern.exec(text)) !== null) {
+    words.push({ word: m[0], start: m.index, end: m.index + m[0].length });
+  }
+
+  // Pass one: where the item names are. Longest phrase wins, so "tiger brown
+  // sugar" beats "brown sugar", and exact always beats near-miss.
+  const hits: Array<{ hit: NameHit; from: number; to: number; fuzzy: boolean }> = [];
+  for (let w = 0; w < words.length; ) {
+    let found: { hit: NameHit; span: number; fuzzy: boolean } | null = null;
+    for (let n = Math.min(longestName, words.length - w); n >= 1 && !found; n--) {
+      const phrase = words
+        .slice(w, w + n)
+        .map((x) => x.word)
+        .join(" ");
+      const exact = names.find((x) => x.name === phrase);
+      if (exact) found = { hit: exact, span: n, fuzzy: false };
+    }
+    if (!found) {
+      for (let n = Math.min(longestName, words.length - w); n >= 1 && !found; n--) {
+        const phrase = words
+          .slice(w, w + n)
+          .map((x) => x.word)
+          .join(" ");
+        const near = fuzzyFind(phrase, names);
+        if (near) found = { hit: near, span: n, fuzzy: true };
+      }
+    }
+    if (!found) {
+      w += 1;
+      continue;
+    }
+    hits.push({
+      hit: found.hit,
+      from: words[w].start,
+      to: words[w + found.span - 1].end,
+      fuzzy: found.fuzzy,
+    });
+    w += found.span;
+  }
+
+  // Pass two: everything between one name and the next is that name's answer.
   const matched: VoiceMatch[] = [];
   const ambiguous: string[] = [];
   const missingValue: string[] = [];
   const taken = new Set<string>();
 
-  let i = 0;
-  while (i < text.length) {
-    const rest = text.slice(i);
-    const hit = names.find(
-      (n) =>
-        rest.startsWith(n.name) &&
-        // Whole words only: "pa" must not match inside "papaya".
-        !/[a-z0-9]/.test(rest.charAt(n.name.length)),
-    );
-    if (!hit) {
-      i += 1;
-      continue;
-    }
-
-    // Everything up to the next item name is this item's answer.
-    const after = rest.slice(hit.name.length);
-    const nextName = names
-      .map((n) => {
-        const at = after.indexOf(n.name);
-        return at === -1 ? Infinity : at;
-      })
-      .reduce((a, b) => Math.min(a, b), Infinity);
-    const window = after.slice(0, Number.isFinite(nextName) ? nextName : undefined);
+  for (let h = 0; h < hits.length; h++) {
+    const { hit, from, to } = hits[h];
+    const window = text.slice(to, hits[h + 1]?.from ?? text.length);
 
     let item: StockItem | null = null;
     if (hit.items.length === 1) {
@@ -194,7 +288,7 @@ export function parseVoiceCounts(transcript: string): VoiceParse {
       // Two items share this name — the Lemons, the Oranges. A category word
       // on either side decides it; without one this is left for a human,
       // because guessing writes a number against the wrong bottle.
-      const before = text.slice(Math.max(0, i - 24), i);
+      const before = text.slice(Math.max(0, from - 24), from);
       const category = [...CATEGORY_WORDS.entries()].find(
         ([word]) => before.includes(word) || window.includes(word),
       );
@@ -203,24 +297,19 @@ export function parseVoiceCounts(transcript: string): VoiceParse {
         : null;
       if (!item) {
         if (!ambiguous.includes(hit.name)) ambiguous.push(hit.name);
-        i += hit.name.length;
         continue;
       }
     }
 
-    if (taken.has(item.id)) {
-      i += hit.name.length;
-      continue;
-    }
+    if (taken.has(item.id)) continue;
 
     const value = valueIn(window, item);
     if (value === null) {
       if (!missingValue.includes(item.name)) missingValue.push(item.name);
     } else {
       taken.add(item.id);
-      matched.push({ item, value, heard: `${hit.name}${window}`.trim() });
+      matched.push({ item, value, heard: `${text.slice(from, to)}${window}`.trim() });
     }
-    i += hit.name.length;
   }
 
   return { matched, ambiguous, missingValue };

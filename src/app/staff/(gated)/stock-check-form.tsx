@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   SUFFICIENCY_CHOICES,
   SUFFICIENCY_LABEL,
@@ -10,7 +10,9 @@ import {
 } from "@/lib/staff/stocklist";
 import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
-import { VoiceCountSheet } from "./voice-count-sheet";
+import { MicButton } from "./mic-button";
+import { useDictation } from "./use-dictation";
+import { parseVoiceCounts } from "@/lib/staff/voice-count";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
 // the other opens a fridge: big tap targets, a thumb-sized drum instead of the
@@ -63,7 +65,10 @@ export function StockCheckForm({
   // could not name it.
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
-  const [voiceOpen, setVoiceOpen] = useState(false);
+  // What the last spoken pass did, shown as one line under the microphone.
+  // The filled numbers themselves land in the rows, which is where they are
+  // checked — a second confirmation screen would just be the same list twice.
+  const [heard, setHeard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,19 +108,41 @@ export function StockCheckForm({
   const walkIndex = pickedId === null ? -1 : dueItems.findIndex((i) => i.id === pickedId);
   const previousOf = (id: string) => previous?.counts[id] ?? null;
 
-  /** Writes what the voice sheet heard into the same draft the keypad uses,
-   *  so a spoken pass and a tapped pass are the same count. */
-  function applyVoice(values: Record<string, string>) {
-    setCounts((prev) => {
-      const next = { ...prev, ...values };
-      try {
-        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
-      } catch {
-        // Draft is a convenience; a storage failure must not lose the count.
-      }
-      return next;
-    });
-  }
+  /** Writes what was said into the same draft the keypad uses, so a spoken
+   *  pass and a tapped pass are one count. */
+  const applyVoice = useCallback((transcript: string) => {
+    const parse = parseVoiceCounts(transcript);
+    if (parse.matched.length > 0) {
+      setCounts((prev) => {
+        const next = { ...prev };
+        for (const m of parse.matched) next[m.item.id] = m.value;
+        try {
+          window.localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+        } catch {
+          // Draft is a convenience; a storage failure must not lose the count.
+        }
+        return next;
+      });
+    }
+    // One line, not a screen. The numbers themselves are visible in the rows.
+    const parts: string[] = [];
+    parts.push(
+      parse.matched.length > 0
+        ? `Filled ${parse.matched.length}: ${parse.matched.map((m) => `${m.item.name} ${m.value}`).join(", ")}`
+        : "Nothing matched an item on the list.",
+    );
+    if (parse.ambiguous.length > 0) {
+      parts.push(
+        `${parse.ambiguous.join(", ")} — there are two of each; say "syrup lemon" or tap it in.`,
+      );
+    }
+    if (parse.missingValue.length > 0) {
+      parts.push(`No number heard for ${parse.missingValue.join(", ")}.`);
+    }
+    setHeard(parts.join(" "));
+  }, []);
+
+  const dictation = useDictation({ onFinal: applyVoice });
 
   /**
    * Open at the first item still blank, so picking the count back up after a
@@ -222,6 +249,28 @@ export function StockCheckForm({
           <b>It&apos;s Tuesday.</b> The weekly items (marked{" "}
           <span className="font-semibold">weekly</span>) get reported today, so
           please count those too.
+        </div>
+      )}
+
+      {/* Counting out loud, in place. It fills the rows below — those rows are
+          the confirmation, so there is nothing extra to tap through and no
+          second screen showing the same list again. Anything it got wrong is
+          fixed the way everything else is: tap the row. */}
+      {dictation.supported && (
+        <div className="mt-5 flex flex-col items-center">
+          <MicButton
+            listening={dictation.listening}
+            onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+            idleLabel="Tap and count out loud"
+            busyLabel="Listening — tap to stop"
+          />
+          {/* The live transcript, small and close to the button, so a
+              mis-heard word is caught by the person who said it. */}
+          {(dictation.listening || heard) && (
+            <div className="mt-3 max-w-md rounded-2xl border border-zinc-200 px-3 py-2 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+              {dictation.listening ? dictation.interim || "Listening…" : heard}
+            </div>
+          )}
         </div>
       )}
 
@@ -366,24 +415,12 @@ export function StockCheckForm({
               whole count is meant to be one pass: open here, then number-Next
               all the way down without touching the list again. */}
           {remaining > 0 && (
-            <>
-              {/* Talking beats tapping when both hands are on a shelf, but it
-                  is the second option, not the first: the keypad walk is what
-                  works when the shop is loud, and this fills the same fields
-                  rather than replacing them. */}
-              <button
-                onClick={() => setVoiceOpen(true)}
-                className="ml-auto rounded-lg border px-4 py-3 font-semibold"
-              >
-                Count out loud
-              </button>
-              <button
-                onClick={startCounting}
-                className="rounded-lg border px-4 py-3 font-semibold"
-              >
-                {filled === 0 ? "Start counting" : "Continue"}
-              </button>
-            </>
+            <button
+              onClick={startCounting}
+              className="ml-auto rounded-lg border px-4 py-3 font-semibold"
+            >
+              {filled === 0 ? "Start counting" : "Continue"}
+            </button>
           )}
           <button
             onClick={submit}
@@ -396,10 +433,6 @@ export function StockCheckForm({
           </button>
         </div>
       </div>
-
-      {voiceOpen && (
-        <VoiceCountSheet onApply={applyVoice} onClose={() => setVoiceOpen(false)} />
-      )}
 
       {picking && (
         <CountKeypadSheet
