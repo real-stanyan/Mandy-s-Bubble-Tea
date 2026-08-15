@@ -7,6 +7,7 @@ import {
   type ClaudeMessage,
 } from "@/lib/staff-help/claude";
 import { STAFF_TOOLS, STAFF_SYSTEM_PROMPT } from "@/lib/staff-help/policy";
+import { detectLanguage, languageDirective } from "@/lib/staff-help/language";
 import { notifyStan } from "@/lib/staff-help/agent";
 import {
   checkPayments,
@@ -140,6 +141,19 @@ export async function POST(req: Request) {
     content: String(m.content ?? "").slice(0, 2000),
   }));
 
+  // Decided here, from what the staff member actually wrote, rather than left
+  // to the model. It is right most of the time on its own, and most of the
+  // time is a different standard once the answer is read out loud: a spoken
+  // reply in the wrong language cannot be skimmed past.
+  //
+  // Detected from the staff member's own messages only — never the
+  // assistant's, or one reply that slipped into the wrong language would keep
+  // itself there.
+  const language = detectLanguage(
+    incoming.filter((m) => m.role !== "assistant").map((m) => String(m.content ?? "")),
+  );
+  const system = STAFF_SYSTEM_PROMPT + languageDirective(language);
+
   // What actually happened, in the server's words. The reply the staff member
   // reads is the model's, but this is what Stan is told and what the UI shows
   // as the receipt — so a model that describes an action it did not take is
@@ -149,13 +163,13 @@ export async function POST(req: Request) {
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
       const reply = await callClaude(messages, {
-        system: STAFF_SYSTEM_PROMPT,
+        system,
         tools: [...STAFF_TOOLS],
       });
 
       if (reply.toolUses.length === 0) {
         await honourEmailClaim(reply.text, performed, incoming);
-        return NextResponse.json({ ok: true, reply: reply.text, performed });
+        return NextResponse.json({ ok: true, reply: reply.text, performed, language });
       }
 
       // Replayed exactly as returned. Reconstructing the assistant turn from
@@ -198,7 +212,7 @@ export async function POST(req: Request) {
     // than leaving the staff member with a spinner.
     const final = await callClaude(messages, { system: STAFF_SYSTEM_PROMPT });
     await honourEmailClaim(final.text, performed, incoming);
-    return NextResponse.json({ ok: true, reply: final.text, performed });
+    return NextResponse.json({ ok: true, reply: final.text, performed, language });
   } catch (err) {
     // The staff member gets a calm sentence; the reason goes to the server log,
     // because "it broke" from someone mid-service is not a bug report.
@@ -207,6 +221,6 @@ export async function POST(req: Request) {
       err instanceof ClaudeError
         ? "I could not think that through just now — try again in a moment. If it is urgent, call Stan."
         : "Something went wrong on my side. If it is urgent, call Stan.";
-    return NextResponse.json({ ok: true, reply: msg, performed });
+    return NextResponse.json({ ok: true, reply: msg, performed, language });
   }
 }
