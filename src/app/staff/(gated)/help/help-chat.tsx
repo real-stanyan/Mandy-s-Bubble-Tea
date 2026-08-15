@@ -68,7 +68,7 @@ export function HelpChat() {
       };
       const reply =
         data.reply ??
-        "I couldn't get through just now. Try again, or call Stan if it's urgent.";
+        "I couldn't get through just now. Try again, or call Rick if it's urgent.";
 
       // The server decided the language, so the voice follows it rather than
       // guessing again.
@@ -90,7 +90,7 @@ export function HelpChat() {
     } catch {
       append({
         role: "assistant",
-        content: "No connection. Check the shop wifi, or call Stan if it's urgent.",
+        content: "No connection. Check the shop wifi, or call Rick if it's urgent.",
       });
     } finally {
       busyRef.current = false;

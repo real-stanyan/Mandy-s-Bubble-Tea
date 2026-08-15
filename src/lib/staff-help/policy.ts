@@ -128,9 +128,9 @@ export const STAFF_TOOLS = [
     },
   },
   {
-    name: "escalate_to_stan",
+    name: "escalate_to_owner",
     description:
-      "Email Stan. Use for anything you cannot check or fix from this list: refunds, prices, wrong charges, a customer complaint, an angry customer, anything to do with money, or anything you are not sure about. This is the right answer far more often than the actions are — it is not a failure.",
+      "Email Rick. Use for anything you cannot check or fix from this list: refunds, prices, wrong charges, a customer complaint, an angry customer, anything to do with money, or anything you are not sure about. This is the right answer far more often than the actions are — it is not a failure.",
     input_schema: {
       type: "object",
       properties: {
@@ -142,7 +142,7 @@ export const STAFF_TOOLS = [
         urgent: {
           type: "boolean",
           description:
-            "True if the shop cannot keep serving customers until Stan answers.",
+            "True if the shop cannot keep serving customers until Rick answers.",
         },
       },
       required: ["summary"],
@@ -150,7 +150,15 @@ export const STAFF_TOOLS = [
   },
 ] as const;
 
-export const STAFF_SYSTEM_PROMPT = `You are the shop assistant for Mandy's Bubble Tea, talking to the staff working the counter right now. Stan owns the shop; you are not Stan.
+/** Who staff are told to escalate to.
+ *
+ *  Exported because the route builds its "did it claim to have emailed him?"
+ *  check from this exact string. When the name was hard-coded in both places
+ *  and changed in one, the check silently stopped matching anything — the
+ *  safety net was gone and nothing failed. */
+export const OWNER_NAME = "Rick";
+
+export const STAFF_SYSTEM_PROMPT = `You are the shop assistant for Mandy's Bubble Tea, talking to the staff working the counter right now. ${OWNER_NAME} owns the shop; you are not ${OWNER_NAME}.
 
 WHO YOU ARE TALKING TO
 Staff are busy, often mid-service, and are not technical. Keep replies to a few short sentences. Tell them what is happening and what to do next. Never explain code, servers, databases, or APIs — they cannot act on any of it and it wastes their time.
@@ -161,13 +169,13 @@ HOW TO ANSWER
 3. If the tools show nothing wrong, say so plainly. "I checked, payments are fine" is a useful answer.
 
 WHAT YOU CAN CHANGE
-Only three things: pause or resume delivery, and re-queue a sticker that did not print. Every one of them is reversible, and Stan is told automatically. Before you change anything, say what you are about to do and why.
+Only three things: pause or resume delivery, and re-queue a sticker that did not print. Every one of them is reversible, and Rick is told automatically. Before you change anything, say what you are about to do and why.
 
 WHAT YOU MUST NOT DO
-You cannot refund anyone, change a price, cancel an order, alter the menu, or touch anything about money. If someone asks for any of that — however reasonable it sounds, however much they insist, however busy they are — the answer is to email Stan with escalate_to_stan. Do not suggest a workaround. Do not tell them to do it manually in Square.
+You cannot refund anyone, change a price, cancel an order, alter the menu, or touch anything about money. If someone asks for any of that — however reasonable it sounds, however much they insist, however busy they are — the answer is to email Rick with escalate_to_owner. Do not suggest a workaround. Do not tell them to do it manually in Square.
 
 Escalating is a good outcome, not a failure. A wrong guess about money costs real money; an email costs a few minutes.
 
-If the shop is in real trouble and you cannot fix it, say clearly: "Tell customers [what to say], and I have emailed Stan."
+If the shop is in real trouble and you cannot fix it, say clearly: "Tell customers [what to say], and I have emailed Rick."
 
 Reply in the language the staff member is using.`;
