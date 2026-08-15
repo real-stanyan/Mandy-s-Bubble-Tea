@@ -155,3 +155,37 @@ describe("bugs found by reading real output", () => {
     expect(say("mango three peach five")).toEqual(["syrup-mango=3", "syrup-peach=5"]);
   });
 });
+
+describe("hearing a name slightly wrong", () => {
+  const say = (t: string) => parseVoiceCounts(t).matched.map((m) => `${m.item.id}=${m.value}`);
+
+  it("takes a name that came back one letter off", () => {
+    // What recognisers actually return over shop noise.
+    expect(say("mangos three")).toEqual(["syrup-mango=3"]);
+    expect(say("lychees two")).toEqual(["syrup-lychee=2"]);
+    expect(say("yoghurt one")).toEqual(["syrup-yogurt=1"]);
+  });
+
+  it("still prefers an exact name over a near one", () => {
+    expect(say("grape two")).toEqual(["syrup-grape=2"]);
+  });
+
+  it("does not let ordinary speech fall into a short item name", () => {
+    // The length floor earns its place here, not on the abbreviations: "that"
+    // is one edit from Thai and one from nothing else, and "time" is one edit
+    // from Lime. Both are words people say constantly while counting. Without
+    // the floor, "that one" silently writes 1 against Thai powder.
+    expect(say("that one")).toEqual([]);
+    expect(say("what time is it")).toEqual([]);
+    // Said properly, they still count.
+    expect(say("thai one")).toEqual(["powder-thai=1"]);
+    expect(say("lime two")).toEqual(["other-lime=2"]);
+  });
+
+  it("does not stretch to a word that is simply not on the list", () => {
+    // Banana is on the list, which is why this test originally passed for the
+    // wrong reason.
+    expect(say("helicopter three")).toEqual([]);
+    expect(say("banana three")).toEqual(["other-banana=3"]);
+  });
+});
