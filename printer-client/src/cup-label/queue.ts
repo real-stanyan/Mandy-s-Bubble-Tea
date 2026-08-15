@@ -3,7 +3,6 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 import { config } from "../config";
 import { maybeAlert } from "../alert";
-import { playOnlineOrderAlert } from "./online-order-alert";
 import { printCupLabelZPL, getCupLabelPrinterStatus } from "./printer";
 import { downloadRasterZPL } from "./storage";
 
@@ -55,33 +54,6 @@ type CupLabelJobRow = {
 };
 
 const TARGET_PRINTER_KIND = "zd410" as const;
-
-// Online orders (sticker "OL…") and Mandy Delivery orders ("DE…") get
-// one audible cue per ORDER, fired when the first cup of that order
-// prints. DE was added after DE837: a $0 delivery order's labels printed
-// but the shop stayed silent, so nobody knew the order existed. Other
-// prefixes (bare POS in-store numbers) stay silent — staff keyed those in
-// themselves. Driving it from the print flow (rather than a standalone
-// Realtime channel) means the cue rides the queue's realtime+poll
-// delivery and survives Realtime flapping. Dedup by sticker_number so a
-// multi-cup order beeps once; bounded so a long-running process can't
-// grow the set without limit.
-const AUDIBLE_STICKER_PREFIXES = ["OL", "DE"] as const;
-const alertedOrders = new Set<string>();
-const ALERTED_ORDERS_CAP = 500;
-function maybePlayOrderAlert(stickerNumber: string): void {
-  if (!AUDIBLE_STICKER_PREFIXES.some((p) => stickerNumber.startsWith(p))) return;
-  if (alertedOrders.has(stickerNumber)) return;
-  alertedOrders.add(stickerNumber);
-  if (alertedOrders.size > ALERTED_ORDERS_CAP) {
-    // Set preserves insertion order, so the first value is the oldest.
-    const oldest = alertedOrders.values().next().value;
-    if (oldest !== undefined) alertedOrders.delete(oldest);
-  }
-  playOnlineOrderAlert().catch(() => {
-    /* sound failure must never block printing */
-  });
-}
 
 /**
  * Runs once at start.
@@ -316,7 +288,6 @@ export async function handleJob(job: CupLabelJobRow): Promise<void> {
     console.log(
       `[cup-label/queue] printed ${claimed.sticker_number} cup ${claimed.cup_idx + 1} (${claimed.drink_name})`,
     );
-    maybePlayOrderAlert(claimed.sticker_number);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // claimById (RPC) already incremented attempts atomically and
