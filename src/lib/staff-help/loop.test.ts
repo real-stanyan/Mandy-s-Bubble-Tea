@@ -106,6 +106,32 @@ describe("the Claude tool loop", () => {
     expect(results.map((r) => r.tool_use_id)).toEqual(["toolu_a", "toolu_b"]);
   });
 
+  it("tells the model which language to answer in, from what was actually said", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)) as Body);
+      return reply([{ type: "text", text: "好的" }]);
+    });
+
+    await POST(post("有客人说刷卡一直失败"));
+    expect(calls[0].system).toMatch(/Write your reply in Chinese/);
+
+    calls.length = 0;
+    await POST(post("cards keep declining"));
+    expect(calls[0].system).toMatch(/Write your reply in English/);
+  });
+
+  it("says nothing about language when the message is only an order number", async () => {
+    // A directive here would be a guess, and the guess drives the microphone
+    // and the voice as well as the words.
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)) as Body);
+      return reply([{ type: "text", text: "ok" }]);
+    });
+
+    await POST(post("OL846"));
+    expect(calls[0].system).not.toMatch(/Write your reply in/);
+  });
+
   it("sends the system prompt as a field, never as a message", async () => {
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
       calls.push(JSON.parse(String(init.body)) as Body);
