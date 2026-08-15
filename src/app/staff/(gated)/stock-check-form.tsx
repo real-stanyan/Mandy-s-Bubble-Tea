@@ -326,7 +326,7 @@ export function StockCheckForm({
     // Deep bottom padding: the floating microphone and the bar below it take
     // the lower fifth of the screen, and the last row of the list has to stay
     // reachable under them.
-    <div className="mx-auto max-w-2xl px-4 pb-72 pt-6">
+    <div className="mx-auto max-w-2xl px-4 pb-56 pt-6">
       {/* Plain link rather than a button: the page behind it 404s for anyone
           without the owner passcode, so it costs nothing to show and saves the
           owner remembering a URL. */}
@@ -349,6 +349,32 @@ export function StockCheckForm({
           please count those too.
         </div>
       )}
+
+      {/* Progress and the keypad walk live at the top now.
+          They used to sit in a bar pinned across the bottom, which on a phone
+          wrapped to three lines and ate a fifth of the screen — below the
+          floating microphone, so between them there was barely a list left to
+          look at. Up here it is read once on the way in and scrolled past. */}
+      <div className="mt-4 flex items-center gap-3">
+        <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+          <span>
+            {filled}/{dueItems.length} counted
+          </span>
+          {remaining > 0 && (
+            <span className="ml-2 text-amber-700 dark:text-amber-500">
+              {remaining} blank
+            </span>
+          )}
+        </div>
+        {remaining > 0 && (
+          <button
+            onClick={startCounting}
+            className="ml-auto min-h-11 rounded-lg border px-4 font-semibold"
+          >
+            {filled === 0 ? "Start counting" : "Continue"}
+          </button>
+        )}
+      </div>
 
       <label className="mt-4 block text-sm">
         <span className="text-zinc-700 dark:text-zinc-300">Your name (optional)</span>
@@ -446,6 +472,26 @@ export function StockCheckForm({
         </section>
       )}
 
+      {/* Submit sits at the end of the list, where you arrive when the last
+          row is answered. Nothing is pinned to the bottom any more — that is
+          where the microphone lives, and a button underneath it was both
+          crowded and easy to hit by accident while reaching for the mic. */}
+      <div className="mt-8">
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="min-h-14 w-full rounded-lg bg-[#3579B8] text-base font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "Sending…" : "Submit & email"}
+        </button>
+        {remaining > 0 && (
+          <p className="mt-2 text-center text-sm text-amber-700 dark:text-amber-500">
+            {remaining} still blank — they are reported as &ldquo;not
+            counted&rdquo;, not as zero.
+          </p>
+        )}
+      </div>
+
       {/* Down here rather than in the sticky bar on purpose: clearing throws
           away a whole walk around the shop, so it should take scrolling past
           everything to reach, and it must never sit next to Submit.
@@ -505,7 +551,7 @@ export function StockCheckForm({
           the only confirmation there is. Only the circle carries a background
           now; the caption and the transcript sit on the page. */}
       {dictation.supported && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex flex-col items-center gap-2 px-4">
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex flex-col items-center gap-2 px-4">
           {(dictation.listening || heard) && (
             <div className="pointer-events-auto max-h-20 max-w-md overflow-y-auto rounded-2xl bg-zinc-900/85 px-3 py-1.5 text-center text-sm text-white shadow-lg backdrop-blur dark:bg-zinc-800/90">
               {dictation.listening
@@ -551,41 +597,6 @@ export function StockCheckForm({
           </div>
         </div>
       )}
-
-      <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
-            <span>
-              {filled}/{dueItems.length} counted
-            </span>
-            {remaining > 0 && (
-              <span className="ml-2 text-amber-700 dark:text-amber-500">
-                {remaining} blank
-              </span>
-            )}
-          </div>
-          {/* The main way in. Tapping individual rows still works, but the
-              whole count is meant to be one pass: open here, then number-Next
-              all the way down without touching the list again. */}
-          {remaining > 0 && (
-            <button
-              onClick={startCounting}
-              className="ml-auto rounded-lg border px-4 py-3 font-semibold"
-            >
-              {filled === 0 ? "Start counting" : "Continue"}
-            </button>
-          )}
-          <button
-            onClick={submit}
-            disabled={busy}
-            className={`rounded-lg bg-[#3B82C4] px-6 py-3 font-semibold text-white disabled:opacity-50 ${
-              remaining > 0 ? "" : "ml-auto"
-            }`}
-          >
-            {busy ? "Sending…" : "Submit & email"}
-          </button>
-        </div>
-      </div>
 
       {picking && (
         <CountKeypadSheet
