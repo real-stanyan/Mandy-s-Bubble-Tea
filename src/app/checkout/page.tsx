@@ -1557,8 +1557,64 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
             Checkout
           </h1>
         </div>
+        {/* Above the form, not beside the pay button: a customer who reads it
+            after their card is refused has already had the bad moment. */}
+        <PaymentIncidentNotice />
         {children}
       </main>
+    </div>
+  );
+}
+
+/**
+ * Temporary notice for the Mastercard declines that began 2026-08-15 ~04:00
+ * UTC (14:00 Brisbane).
+ *
+ * Measured from Square's own payment records that day: Mastercard's failure
+ * rate went from a 5% baseline to 60%, Visa from 2% to 15%, while Amex and
+ * EFTPOS stayed at zero. 59 declines across 21 cards, most of them the same
+ * customer trying again. Our payment code had not changed in seven days and
+ * the last deploy was 22 hours earlier, so this is the acquirer's side, not
+ * ours — but a customer whose card is refused has no way to know that, and
+ * "declined" reads as an accusation.
+ *
+ * SET TO false THE MOMENT SQUARE CONFIRMS IT IS FIXED. A stale apology is
+ * worse than none: it tells people the shop is still broken and sends them
+ * somewhere else. One line, then deploy.
+ */
+const PAYMENT_INCIDENT_ACTIVE = true;
+
+function PaymentIncidentNotice() {
+  if (!PAYMENT_INCIDENT_ACTIVE) return null;
+  // Pinned light, no dark: variants. Evening Mode here is driven by
+  // data-theme while Tailwind's dark: follows the OS, and today already
+  // produced two bugs from a surface and its text being governed by
+  // different mechanisms.
+  //
+  // The fill cannot do the work on the day theme: amber on the cream page is
+  // 1.1:1, because both are light warm colours that differ in hue rather than
+  // luminance. The border carries the separation instead — #B87514 is 3.1:1
+  // against the page, over the 3:1 a UI component needs to be seen at all.
+  return (
+    <div
+      role="status"
+      className="mb-6 rounded-card border-2 border-[#B87514] bg-[#FFF6E0] p-4 text-[#5A3A08]"
+    >
+      <p className="text-sm font-bold">
+        Mastercard payments are being declined by the bank
+      </p>
+      <p className="mt-1 text-sm leading-relaxed">
+        This is a problem at the bank&rsquo;s end, not with your card. Please
+        try Visa, Amex or EFTPOS, or pay in store — we&rsquo;re sorry for the
+        trouble.
+      </p>
+      {/* Both languages on purpose. The rest of the site is English, but this
+          is an apology during an outage and half the shop's regulars read
+          Chinese first — comprehension matters more here than consistency. */}
+      <p className="mt-2 text-sm leading-relaxed">
+        由于银行方面的问题，Mastercard 目前会被拒付。这不是您的卡的问题。
+        请改用 Visa、Amex 或 EFTPOS，也可以到店支付。非常抱歉给您带来不便。
+      </p>
     </div>
   );
 }
