@@ -252,28 +252,6 @@ export function StockCheckForm({
         </div>
       )}
 
-      {/* Counting out loud, in place. It fills the rows below — those rows are
-          the confirmation, so there is nothing extra to tap through and no
-          second screen showing the same list again. Anything it got wrong is
-          fixed the way everything else is: tap the row. */}
-      {dictation.supported && (
-        <div className="mt-5 flex flex-col items-center">
-          <MicButton
-            listening={dictation.listening}
-            onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
-            idleLabel="Tap and count out loud"
-            busyLabel="Listening — tap to stop"
-          />
-          {/* The live transcript, small and close to the button, so a
-              mis-heard word is caught by the person who said it. */}
-          {(dictation.listening || heard) && (
-            <div className="mt-3 max-w-md rounded-2xl border border-zinc-200 px-3 py-2 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
-              {dictation.listening ? dictation.interim || "Listening…" : heard}
-            </div>
-          )}
-        </div>
-      )}
-
       <label className="mt-4 block text-sm">
         <span className="text-zinc-700 dark:text-zinc-300">Your name (optional)</span>
         <input
@@ -400,6 +378,27 @@ export function StockCheckForm({
       )}
 
       <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
+        {/* Counting out loud lives here, docked to the bottom and centred,
+            because it is used walking the shop with a phone in one hand — a
+            control near the top means scrolling back to it between shelves.
+            It fills the rows above, and those rows are the confirmation. */}
+        {dictation.supported && (
+          <div className="mx-auto mb-3 flex max-w-2xl flex-col items-center">
+            {/* The live transcript sits above the button, so a mis-heard word
+                is seen by the person saying it without a thumb over it. */}
+            {(dictation.listening || heard) && (
+              <div className="mb-2 max-h-24 w-full overflow-y-auto rounded-2xl border border-zinc-200 px-3 py-2 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+                {dictation.listening ? dictation.interim || "Listening…" : heard}
+              </div>
+            )}
+            <MicButton
+              listening={dictation.listening}
+              onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+              idleLabel="Tap and count out loud"
+              busyLabel="Listening — say the next one"
+            />
+          </div>
+        )}
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
             <span>
