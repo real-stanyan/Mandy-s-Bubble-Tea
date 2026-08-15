@@ -115,7 +115,7 @@ export function HelpChat() {
                 key={o}
                 type="button"
                 onClick={() => void send(o)}
-                className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:border-[#3B82C4] hover:text-[#3B82C4] dark:border-zinc-700 dark:text-zinc-300"
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:border-[#3579B8] hover:text-[#3579B8] dark:border-zinc-700 dark:text-zinc-300"
               >
                 {o}
               </button>
@@ -128,7 +128,7 @@ export function HelpChat() {
             <div
               className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm ${
                 m.role === "user"
-                  ? "bg-[#3B82C4] text-white"
+                  ? "bg-[#3579B8] text-white"
                   : "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
               }`}
             >
@@ -146,7 +146,7 @@ export function HelpChat() {
             sentence is caught by the person who said it. */}
         {voice.listening && (
           <div className="text-right">
-            <div className="inline-block max-w-[85%] rounded-2xl border-2 border-dashed border-[#3B82C4] px-3 py-2 text-sm text-zinc-500">
+            <div className="inline-block max-w-[85%] rounded-2xl border-2 border-dashed border-[#3579B8] px-3 py-2 text-sm text-zinc-500">
               {voice.interim || "Listening…"}
             </div>
           </div>
@@ -169,9 +169,9 @@ export function HelpChat() {
             onClick={() => (voice.listening ? voice.stop() : voice.start())}
             aria-label={voice.listening ? "Stop listening" : "Speak"}
             aria-pressed={voice.listening}
-            className={`shrink-0 rounded-lg border px-3 py-2 text-lg ${
+            className={`min-h-11 shrink-0 rounded-lg border px-3 text-lg ${
               voice.listening
-                ? "animate-pulse border-[#3B82C4] bg-[#3B82C4] text-white"
+                ? "animate-pulse border-[#3579B8] bg-[#3579B8] text-white"
                 : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
             }`}
           >
@@ -182,46 +182,62 @@ export function HelpChat() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={voice.listening ? "Listening…" : "What's happening?"}
-          className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-base dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <button
           type="submit"
           disabled={busy || !input.trim()}
-          className="shrink-0 rounded-lg bg-[#3B82C4] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+          className="min-h-11 shrink-0 rounded-lg bg-[#3579B8] px-4 text-sm font-medium text-white disabled:opacity-40"
         >
           Send
         </button>
       </form>
 
-      <div className="mt-2 flex items-center gap-4 text-xs text-zinc-500">
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={readAloud}
-            onChange={(e) => setReadAloud(e.target.checked)}
-          />
-          Read answers aloud
-        </label>
-
-        {/* Which language the microphone expects. The server keeps this in
-            step from what is actually said, so it is a correction, not a
-            setting anyone has to maintain. */}
-        <span className="flex items-center gap-1">
-          Mic:
+      {/* Which language the microphone expects.
+          A segmented control rather than three small links: this is the one
+          setting staff actually reach for, mid-service, one-handed, and
+          getting it wrong is what turned "现在店里正常吗" into "Send down the
+          jump". Each button is a full 44px tap target — the size a thumb
+          needs — and the chosen one is filled rather than merely bolder, so
+          it reads at a glance from arm's length. */}
+      <div className="mt-3">
+        <div className="mb-1.5 text-xs text-zinc-500">Microphone language</div>
+        <div className="flex gap-2">
           {(Object.keys(LANGUAGE_LABEL) as StaffLanguage[]).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => voice.setLang(l)}
-              className={voice.lang === l ? "font-semibold text-[#3B82C4]" : "underline"}
+              aria-pressed={voice.lang === l}
+              className={`min-h-11 flex-1 rounded-lg border px-3 text-base font-medium transition-colors ${
+                voice.lang === l
+                  ? "border-[#3579B8] bg-[#3579B8] text-white"
+                  : "border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+              }`}
             >
               {LANGUAGE_LABEL[l]}
             </button>
           ))}
-        </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-4 text-sm text-zinc-500">
+        <label className="flex min-h-11 items-center gap-2">
+          <input
+            type="checkbox"
+            checked={readAloud}
+            onChange={(e) => setReadAloud(e.target.checked)}
+            className="h-5 w-5"
+          />
+          Read answers aloud
+        </label>
 
         {voice.speaking && (
-          <button type="button" onClick={voice.hush} className="underline">
+          <button
+            type="button"
+            onClick={voice.hush}
+            className="ml-auto min-h-11 rounded-lg border border-zinc-300 px-4 text-sm dark:border-zinc-600 dark:text-zinc-200"
+          >
             Stop talking
           </button>
         )}
