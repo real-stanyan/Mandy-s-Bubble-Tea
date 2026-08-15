@@ -40,7 +40,14 @@ const VALUES: Record<string, number> = {
   // have caught it — "siri" and "three" share no consonants — so it has to be
   // named.
   free: 3, tree: 3, thee: 3, tri: 3, siri: 3, sri: 3,
-  ate: 8, eat: 8, hate: 8,
+  // "hey" is reported from the shop, and it was worse than unheard: it is two
+  // edits from "ten" and four from "eight", so the near-miss pass was quietly
+  // writing a 10 every time somebody said eight. Distance was never going to
+  // fix that one — it has to be named, and the named table runs first.
+  // Not "eh": that is a hesitation, and a tag on the end of half the
+  // sentences spoken in this country. The others are the long-A sound of
+  // "eight" written down.
+  ate: 8, eat: 8, hate: 8, hey: 8, hay: 8, ay: 8,
   sicks: 6, sex: 6,
   fife: 5, hive: 5, faiv: 5,
   nein: 9, nain: 9, line: 9, no: 9, nope: 9, nah: 9, know: 9, noh: 9,
