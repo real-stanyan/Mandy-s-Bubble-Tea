@@ -1,24 +1,10 @@
 // printer-client/src/queue.ts
-import { spawn } from "node:child_process";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { config } from "./config";
 import { printZPL, getPrinterStatus } from "./printer";
 import { renderStickerZPL, type CupForZPL } from "./zpl";
 import { maybeAlert } from "./alert";
-
-function playOnlineOrderAlert(): void {
-  // Single spoken cue. say -r 180 ~1.5s stays audible on the store
-  // Soundbar (HDMI route from Mac mini, 2026-05-04 wiring confirmed).
-  try {
-    spawn("say", ["-v", "Samantha", "-r", "180", "new order"], {
-      detached: true,
-      stdio: "ignore",
-    }).unref();
-  } catch {
-    /* sound failure must never block printing */
-  }
-}
 
 type PrintJobRow = {
   id: string;
@@ -212,11 +198,6 @@ export async function handleJob(job: PrintJobRow): Promise<void> {
   // affects zero rows and .maybeSingle() returns null.
   const claimed = await claim(job.id);
   if (!claimed) return;
-
-  // Audible cue for online (app + web) orders. POS walk-ins are silent.
-  if (claimed.sticker_number.startsWith("OL")) {
-    playOnlineOrderAlert();
-  }
 
   // Gate on printer reachability. If offline, don't send the job
   // to CUPS — CUPS would silently queue it and flush a backlog the

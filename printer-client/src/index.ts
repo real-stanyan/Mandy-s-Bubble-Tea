@@ -3,11 +3,9 @@ import { replayOnStart, subscribePrintJobs, startPollFallback } from "./queue";
 import { startHeartbeat, startPendingAgeWatch } from "./heartbeat";
 import { startUi } from "./ui/server";
 import { maybeAlert } from "./alert";
-import { ensureAudioOutput } from "./audio";
 
 async function main() {
   console.log("[main] starting Mandy's printer client");
-  await ensureAudioOutput();
   await replayOnStart();
   const sub = subscribePrintJobs();
   const pollTimer = startPollFallback();
