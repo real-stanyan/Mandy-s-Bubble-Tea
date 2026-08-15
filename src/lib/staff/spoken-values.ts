@@ -43,9 +43,9 @@ const VALUES: Record<string, number> = {
   ate: 8, eat: 8, hate: 8,
   sicks: 6, sex: 6,
   fife: 5, hive: 5, faiv: 5,
-  nein: 9, nain: 9, line: 9,
+  nein: 9, nain: 9, line: 9, no: 9, nope: 9, nah: 9, know: 9, noh: 9,
   sven: 7, seaven: 7,
-  then: 10, tan: 10, tin: 10,
+  tan: 10, tin: 10,
 
   // Chinese. 两 as well as 二 — nobody counts bottles with 二.
   "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
@@ -60,11 +60,34 @@ const VALUES: Record<string, number> = {
   "육": 6, "칠": 7, "팔": 8, "구": 9, "십": 10,
 };
 
+/**
+ * Words that must never become a number, however close they sound.
+ *
+ * Pulling every stray word towards the nearest number is right — everything
+ * said here is meant to be one — but not for the words that hold a sentence
+ * together. "and" lands on one, "done" lands on one, and either of them
+ * inserted mid-count does not just add a wrong number: it shifts every value
+ * after it down a row, so a whole shelf ends up recorded against the wrong
+ * bottles.
+ *
+ * Found by printing what the near-miss pass did to forty ordinary words rather
+ * than by imagining what it might do.
+ */
+const NEVER_A_NUMBER = new Set([
+  "and", "the", "then", "than", "that", "this", "these", "those",
+  "done", "more", "less", "most", "but", "so", "now", "next", "here",
+  "there", "its", "it", "is", "was", "were", "are", "am", "be",
+  "ok", "okay", "right", "yes", "yeah", "yep", "well", "just", "like",
+  "got", "get", "have", "has", "had", "hold", "on", "off", "up", "down",
+  "wait", "stop", "start", "go", "come", "let", "make", "take", "put",
+  "same", "some", "any", "all", "of", "or", "if",
+]);
+
 /** For the cups-and-straws rows, which take an answer rather than a count. */
 const SUFFICIENCY: Array<[RegExp, "enough" | "maybe" | "short"]> = [
   [/^(not ?enough|out|empty|finished|none ?left|没了|不够|沒了|없어요?|없음)$/, "short"],
   [/^(maybe|might|borderline|barely|差不多|可能|아마)$/, "maybe"],
-  [/^(enough|plenty|fine|good|ok|okay|lots|full|够|夠|足够|충분|많아요?)$/, "enough"],
+  [/^(enough|plenty|fine|good|lots|full|够|夠|足够|충분|많아요?)$/, "enough"],
 ];
 
 /** Move on without answering — the item is not there to count, or somebody
@@ -102,6 +125,7 @@ export function parseSpokenValues(transcript: string): SpokenValue[] {
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
 
+
     // Phrases before single words, longest first, and joined both ways.
     //
     // Splitting Han characters is what lets 三二一 be read as three numbers,
@@ -131,9 +155,32 @@ export function parseSpokenValues(transcript: string): SpokenValue[] {
       continue;
     }
 
+    // After the phrases, so "not" can still be half of "not enough", and
+    // before every number lookup, so a word that holds a sentence together
+    // can never become a count.
+    if (NEVER_A_NUMBER.has(word)) continue;
+
     const digits = word.match(/^(\d+(?:\.\d+)?)$/);
     if (digits) {
       out.push({ kind: "number", value: tidy(digits[1]) });
+      continue;
+    }
+
+    // Anything else that sounds close enough to a number is treated as one.
+    //
+    // Everything said here is meant to be a number, so a word that is nearly
+    // one almost certainly is: "fine" and "mine" and "wine" are all a nine,
+    // "tan" is a ten, "sever" is a seven. Patching these one report at a time
+    // was never going to end — the shop found "too", "bun", "siri" and "no" in
+    // four days — and each one dropped a count on the floor until it was
+    // named.
+    //
+    // The named table above still comes first, because the ones that matter
+    // most are the ones this cannot reach: "siri" shares no letters with
+    // "three".
+    const near = word in VALUES ? null : nearestNumber(word);
+    if (near !== null) {
+      out.push({ kind: "number", value: tidy(String(near)) });
       continue;
     }
 
@@ -164,6 +211,56 @@ function fractionAfter(
   const digit = /^\d$/.test(next) ? Number(next) : VALUES[next];
   if (digit === undefined || digit > 9) return null;
   return { digit, consumedTo: i + 2 };
+}
+
+/** The spelled-out numbers a stray word can be pulled towards. Only these —
+ *  not the mishearings, or "too" would drag "to" and "toe" and "tow" along
+ *  with it and the threshold would stop meaning anything. */
+const SPELLED: Array<[string, number]> = [
+  ["zero", 0], ["one", 1], ["two", 2], ["three", 3], ["four", 4], ["five", 5],
+  ["six", 6], ["seven", 7], ["eight", 8], ["nine", 9], ["ten", 10],
+  ["eleven", 11], ["twelve", 12], ["fifteen", 15], ["twenty", 20],
+];
+
+/**
+ * The number a word is nearest to, or null if it is not near one.
+ *
+ * Two edits, and never on a word shorter than three letters: "a" and "um" and
+ * "uh" are within two of half the list and mean nothing. A tie is refused —
+ * a word equally close to two numbers is not evidence of either.
+ */
+function nearestNumber(word: string): number | null {
+  if (word.length < 3) return null;
+  let best: number | null = null;
+  let bestDistance = 3;
+  let tied = false;
+  for (const [name, value] of SPELLED) {
+    const d = editDistance(word, name);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = value;
+      tied = false;
+    } else if (d === bestDistance) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
+}
+
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i, ...new Array<number>(b.length).fill(0)];
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min(
+        prev[j] + 1,
+        row[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = row;
+  }
+  return prev[b.length];
 }
 
 /** Strips a leading zero, which the recogniser produces for "oh two" and which

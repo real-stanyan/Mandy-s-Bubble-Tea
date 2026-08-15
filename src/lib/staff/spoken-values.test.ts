@@ -134,3 +134,40 @@ describe("walking the list with what was heard", () => {
     expect(walk(list, "cups", "enough three two").counts).toEqual({ cups: "enough" });
   });
 });
+
+describe("pulling a stray word to the nearest number", () => {
+  it("takes words that are nearly a number", () => {
+    // Patching these one report at a time was never going to end: the shop
+    // found "too", "bun", "siri" and "no" in four days, and each dropped a
+    // count on the floor until it was named.
+    expect(vals("mine wine")).toEqual(["9", "9"]);
+    expect(vals("tan")).toEqual(["10"]);
+    expect(vals("sever")).toEqual(["7"]);
+  });
+
+  it("leaves the words that hold a sentence together alone", () => {
+    // The dangerous ones, found by printing what the pass did to forty
+    // ordinary words. "and" lands on one and "done" lands on one, and either
+    // inserted mid-count shifts every value after it down a row — a whole
+    // shelf recorded against the wrong bottles.
+    expect(vals("and")).toEqual([]);
+    expect(vals("done")).toEqual([]);
+    expect(vals("more")).toEqual([]);
+    expect(vals("then")).toEqual([]);
+    expect(vals("okay")).toEqual([]);
+  });
+
+  it("ignores noise rather than reaching for a number", () => {
+    expect(vals("um uh hmm sorry yeah what")).toEqual([]);
+  });
+
+  it("does not stretch to a word that is nothing like a number", () => {
+    expect(vals("mango")).toEqual([]);
+    expect(vals("strawberry")).toEqual([]);
+  });
+
+  it("refuses a word that is equally close to two numbers", () => {
+    // Equidistant is not evidence of either.
+    expect(vals("nan")).toEqual([]);
+  });
+});

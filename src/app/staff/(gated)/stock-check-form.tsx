@@ -135,7 +135,12 @@ export function StockCheckForm({
         return;
       }
 
-      const order = dueItemsRef.current;
+      // Cups and straws are left out of the spoken walk entirely: they take an
+      // answer rather than a count, and the three buttons are quicker to press
+      // than the word is to say. Skipping them here also means a stray "no" —
+      // which the recogniser writes for "nine" — can never land on one and
+      // record the opposite of what it means.
+      const order = dueItemsRef.current.filter((i) => i.rule.kind !== "sufficiency");
       let at = order.findIndex((i) => i.id === cursorRef.current);
       if (at === -1) at = 0;
 
@@ -144,26 +149,12 @@ export function StockCheckForm({
       for (const value of spoken) {
         const item = order[at];
         if (!item) break;
-        if (value.kind === "skip") {
+        if (value.kind === "skip" || value.kind === "sufficiency") {
           at += 1;
           continue;
         }
-        // A number said against cups or straws still means something: nobody
-        // says zero and means plenty.
-        const written =
-          item.rule.kind === "sufficiency"
-            ? value.kind === "sufficiency"
-              ? value.value
-              : Number(value.value) === 0
-                ? "short"
-                : "enough"
-            : value.kind === "number"
-              ? value.value
-              : "";
-        if (written !== "") {
-          next[item.id] = written;
-          filled.push(`${item.name} ${written}`);
-        }
+        next[item.id] = value.value;
+        filled.push(`${item.name} ${value.value}`);
         at += 1;
       }
 
@@ -202,9 +193,10 @@ export function StockCheckForm({
     row?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [cursorId]);
 
-  /** Light the first row that still needs an answer. */
+  /** Light the first counted row that still needs an answer. Cups and straws
+   *  are not in the spoken walk, so it never starts on one. */
   const startWalk = useCallback(() => {
-    const order = dueItemsRef.current;
+    const order = dueItemsRef.current.filter((i) => i.rule.kind !== "sufficiency");
     const firstBlank = order.findIndex((i) => (countsRef.current[i.id] ?? "").trim() === "");
     const id = order[firstBlank === -1 ? 0 : firstBlank]?.id ?? null;
     cursorRef.current = id;
@@ -350,10 +342,14 @@ export function StockCheckForm({
                 value={counts[item.id] ?? ""}
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
+                onSelect={() => {
+                  // Aiming the microphone: the light moves, nothing opens.
+                  cursorRef.current = item.id;
+                  setCursorId(item.id);
+                }}
                 onOpen={() => {
-                  // Tapping a row moves the cursor there as well as opening
-                  // the pad, so speaking straight afterwards carries on from
-                  // where the finger left off rather than somewhere else.
+                  // The number box. Opens the pad, and moves the light too, so
+                  // speaking straight after typing carries on from here.
                   cursorRef.current = item.id;
                   setCursorId(item.id);
                   setPickedId(item.id);
@@ -398,10 +394,14 @@ export function StockCheckForm({
                 value={counts[item.id] ?? ""}
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
+                onSelect={() => {
+                  // Aiming the microphone: the light moves, nothing opens.
+                  cursorRef.current = item.id;
+                  setCursorId(item.id);
+                }}
                 onOpen={() => {
-                  // Tapping a row moves the cursor there as well as opening
-                  // the pad, so speaking straight afterwards carries on from
-                  // where the finger left off rather than somewhere else.
+                  // The number box. Opens the pad, and moves the light too, so
+                  // speaking straight after typing carries on from here.
                   cursorRef.current = item.id;
                   setCursorId(item.id);
                   setPickedId(item.id);
@@ -581,6 +581,7 @@ function Row({
   previous,
   previousLabel,
   onOpen,
+  onSelect,
   onSet,
   isOrderDay,
   current,
@@ -590,7 +591,10 @@ function Row({
   /** What this item counted last time, or null if there is no reading. */
   previous: string | null;
   previousLabel: string | null;
+  /** Open the number pad. Only the number box does this. */
   onOpen: () => void;
+  /** Move the light here without opening anything. */
+  onSelect: () => void;
   onSet?: (value: string) => void;
   isOrderDay: boolean;
   /** Lit orange: the row a spoken number will land on. */
@@ -606,6 +610,7 @@ function Row({
         value={value}
         previous={previous}
         onSet={onSet}
+        onSelect={onSelect}
         current={current}
       />
     );
@@ -621,10 +626,11 @@ function Row({
   return (
     <li
       id={`stock-row-${item.id}`}
-      // The whole row is the target, not just the number box. Someone walking
-      // a shelf aims at the name they are reading, and a 20px-wide box beside
-      // it is a thing to miss.
-      onClick={onOpen}
+      // Two different things to want, so two different targets. Tapping the
+      // name moves the light here and nothing else — that is how you aim the
+      // microphone at a row you are about to speak for. Tapping the number
+      // opens the pad, because that is where you would tap to type one.
+      onClick={onSelect}
       className={`-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors ${
         // Orange, not the brand blue: this says "you are here", and it has to
         // be distinguishable at a glance from the red ORDER flag beside it and
@@ -660,7 +666,12 @@ function Row({
       )}
       <button
         type="button"
-        onClick={onOpen}
+        onClick={(e) => {
+          // Stopped, or the row's own handler would run too and the two would
+          // be racing to decide what a tap on the number means.
+          e.stopPropagation();
+          onOpen();
+        }}
         aria-label={`${item.name}${value ? `, ${value}` : ", not counted"}`}
         className={`w-20 shrink-0 rounded-lg border px-3 py-2 text-right text-lg tabular-nums transition-transform duration-150 ease-out active:scale-[0.97] ${
           low
@@ -687,12 +698,15 @@ function SufficiencyRow({
   value,
   previous,
   onSet,
+  onSelect,
   current,
 }: {
   item: StockItem;
   value: string;
   previous: string | null;
   onSet?: (value: string) => void;
+  /** Move the light here. The three answer buttons keep their own taps. */
+  onSelect: () => void;
   /** Lit orange, same as the counted rows: cups and straws are part of the
    *  same walk and a spoken "enough" lands on them. */
   current: boolean;
@@ -702,7 +716,10 @@ function SufficiencyRow({
   return (
     <li
       id={`stock-row-${item.id}`}
-      className={`-mx-2 rounded-lg px-2 py-3 transition-colors ${
+      // Same rule as the counted rows: the body aims the light, and the three
+      // answer buttons below keep their own taps.
+      onClick={onSelect}
+      className={`-mx-2 cursor-pointer rounded-lg px-2 py-3 transition-colors ${
         current ? "bg-amber-500/25 ring-1 ring-amber-500" : ""
       }`}
     >
@@ -723,7 +740,13 @@ function SufficiencyRow({
               key={o.key}
               type="button"
               aria-pressed={active}
-              onClick={() => onSet?.(active ? "" : o.key)}
+              onClick={(e) => {
+                // Answering also aims the light here, but the row's own
+                // handler must not run as well — one tap, one meaning.
+                e.stopPropagation();
+                onSelect();
+                onSet?.(active ? "" : o.key);
+              }}
               className={`rounded-lg border px-2 py-3 text-sm font-semibold transition-transform duration-150 ease-out active:scale-[0.97] ${
                 active
                   ? o.tone
