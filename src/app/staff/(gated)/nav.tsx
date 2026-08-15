@@ -11,6 +11,7 @@ export function StaffNav({ role }: { role: StaffRole }) {
   const pathname = usePathname();
   const links = [
     { href: "/staff", label: "Stock check" },
+    { href: "/staff/help", label: "Ask for help" },
     ...(role === "owner" ? [{ href: "/staff/roster", label: "Roster" }] : []),
   ];
 
