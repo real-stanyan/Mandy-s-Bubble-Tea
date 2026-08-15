@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoice } from "./use-voice";
+import { MicButton } from "../mic-button";
 import { LANGUAGE_LABEL, type StaffLanguage } from "@/lib/staff-help/language";
 
 type Msg = {
@@ -182,47 +183,13 @@ export function HelpChat() {
           page rather than a square wedged beside a text field. Someone holding
           a cup in one hand should be able to hit it without looking. */}
       {voice.supported && (
-        <div className="mt-4 flex flex-col items-center">
-          <button
-            type="button"
+        <div className="mt-4">
+          <MicButton
+            listening={voice.listening}
             onClick={() => (voice.listening ? voice.stop() : voice.start())}
-            aria-label={voice.listening ? "Stop listening" : "Speak"}
-            aria-pressed={voice.listening}
-            // Filled in both states. An outlined blue mic on the shop's dark
-            // page measured 3.5:1 — legible, but this is the control the whole
-            // page is for, and white on the fill is 4.59:1.
-            className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-[#3579B8] text-white transition-transform active:scale-95 ${
-              voice.listening ? "" : "shadow-lg"
-            }`}
-          >
-            {/* A drawn icon, not an emoji: 🎤 is a different picture on every
-                platform and renders at whatever size the font decides. */}
-            {voice.listening ? (
-              <span className="block h-6 w-6 rounded-sm bg-current" />
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                className="h-9 w-9"
-                aria-hidden="true"
-              >
-                <rect x="9" y="2" width="6" height="12" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0" />
-                <path d="M12 18v3" />
-              </svg>
-            )}
-            {/* The ring is outside the button's own box so it cannot nudge the
-                layout as it animates. */}
-            {voice.listening && (
-              <span className="pointer-events-none absolute -inset-2 animate-ping rounded-full border-2 border-[#3579B8] opacity-60" />
-            )}
-          </button>
-          <div className="mt-2 h-5 text-sm text-zinc-500">
-            {voice.listening ? "Listening — tap to stop" : "Tap and say what's wrong"}
-          </div>
+            idleLabel="Tap and say what&apos;s wrong"
+            busyLabel="Listening — tap to stop"
+          />
         </div>
       )}
 

@@ -13,6 +13,13 @@ const SRC = readFileSync(
   join(process.cwd(), "src/app/staff/(gated)/help/help-chat.tsx"),
   "utf8",
 );
+// The microphone moved into a shared component once the stock page grew one
+// too — two hand-copied versions of the control both pages exist for would
+// have drifted. The assertions follow it rather than staying put.
+const MIC = readFileSync(
+  join(process.cwd(), "src/app/staff/(gated)/mic-button.tsx"),
+  "utf8",
+);
 
 /** WCAG relative luminance. */
 function luminance(hex: string): number {
@@ -55,9 +62,9 @@ describe("staff help controls", () => {
     // Talking is the primary way in — someone holding a cup should be able to
     // hit it without looking. It started as a 44px square with a 🎤 emoji
     // wedged beside the text field.
-    const start = SRC.indexOf('aria-label={voice.listening ? "Stop listening"');
+    const start = MIC.indexOf('aria-label={listening ? "Stop listening"');
     expect(start, "mic button not found").toBeGreaterThan(-1);
-    const block = SRC.slice(start, SRC.indexOf("</button>", start));
+    const block = MIC.slice(start, MIC.indexOf("</button>", start));
     expect(block).toMatch(/h-20 w-20/);
     expect(block).toMatch(/rounded-full/);
   });
@@ -65,8 +72,8 @@ describe("staff help controls", () => {
   it("draws the microphone rather than borrowing an emoji", () => {
     // 🎤 is a different picture on every platform and renders at whatever size
     // the font decides, which is the opposite of a control you aim at.
-    const start = SRC.indexOf('aria-label={voice.listening ? "Stop listening"');
-    const block = SRC.slice(start, SRC.indexOf("</button>", start));
+    const start = MIC.indexOf('aria-label={listening ? "Stop listening"');
+    const block = MIC.slice(start, MIC.indexOf("</button>", start));
     expect(block).toMatch(/<svg/);
     // Comments stripped: the emoji is named in the comment that explains why
     // it is not used, and this assertion is about what renders.
