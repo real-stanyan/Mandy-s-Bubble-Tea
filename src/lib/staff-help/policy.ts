@@ -44,6 +44,42 @@ export const STAFF_TOOLS = [
     },
   },
   {
+    name: "check_devices",
+    description:
+      "Check whether the shop's printer machines are actually running and reachable. Use when nothing is printing at all, or before telling anyone the printer is broken — the machine lives under the bench and nobody can see it.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_menu_item",
+    description:
+      "Look up a drink on the menu: its sizes, prices, and whether it is marked sold out. Use when a customer asks what something costs, or when staff are unsure whether an item is still available.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Part of the drink's name, e.g. 'taro'." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "check_promotions",
+    description:
+      "List the deals that are actually running right now. Use whenever a customer claims a discount, or staff are unsure what to honour. Never promise a deal without checking this.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_stock",
+    description:
+      "Read the last stock count and what it flagged as running low. Use when someone asks whether the shop has enough of something, or what needs ordering.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_today",
+    description:
+      "How the day is going: how many orders have been paid for today and how much has been taken. Use when staff ask how busy it has been.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "look_up_customer",
     description:
       "Look up one customer by their phone number: whether they have an account, how many stars they have, and their last few orders. Use when staff are asked about a specific person — did my order go through, how many stars have I got, is my account working. Needs the full phone number; it cannot search by name.",

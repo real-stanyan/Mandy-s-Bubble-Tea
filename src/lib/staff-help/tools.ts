@@ -6,6 +6,11 @@ import { normalizePhone } from "@/lib/auth-format";
 import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
 import { getDeliveryPause } from "@/lib/store-status-server";
 import { assessPaymentHealth } from "@/lib/alerts/payment-health";
+import { getMenu } from "@/lib/catalog";
+import { getLivePromotions, buildPromotionsDigest } from "@/lib/chat/promotions";
+import { readLastCount } from "@/lib/staff/stock-history-store";
+import { readThresholds } from "@/lib/staff/threshold-store";
+import { applyThresholds, type ThresholdOverrides } from "@/lib/staff/stocklist";
 
 // What the staff assistant is allowed to look at, and the very short list of
 // things it is allowed to change.
@@ -254,6 +259,147 @@ export async function lookUpCustomer(phone: string): Promise<ToolResult> {
     return { text: parts.join(" ") };
   } catch {
     return { text: "Could not reach Square to look that customer up." };
+  }
+}
+
+/** Is the shop's own hardware alive? The question behind most "it's broken"
+ *  reports, and the one nobody at the counter can answer: the Mac mini runs
+ *  headless under the bench. */
+export async function checkDevices(): Promise<ToolResult> {
+  try {
+    const { data } = await getSupabaseAdmin()
+      .from("printer_heartbeats")
+      .select("device_id,last_seen_at,printer_status,pending_count")
+      .order("last_seen_at", { ascending: false })
+      .limit(5);
+    const rows = data ?? [];
+    if (rows.length === 0) {
+      return { text: "No printer machine has ever checked in. Tell Stan." };
+    }
+    const now = Date.now();
+    const lines = rows.map((r) => {
+      const seen = Date.parse(String(r.last_seen_at));
+      const mins = Number.isFinite(seen) ? Math.round((now - seen) / 60000) : null;
+      // A heartbeat is a promise to keep speaking. Silence is the signal, and
+      // "last seen 40 minutes ago" is a different problem from "printer is
+      // out of paper" — one needs the machine restarted, the other a roll.
+      const alive = mins !== null && mins < 5;
+      return `${r.device_id}: ${alive ? "running" : `LAST SEEN ${mins ?? "?"} min ago — probably not running`}, printer ${r.printer_status}, ${r.pending_count} jobs waiting`;
+    });
+    return { text: lines.join(". ") + "." };
+  } catch {
+    return { text: "Could not read the printer machines' status just now." };
+  }
+}
+
+/** A drink: what it costs, what sizes, and whether Square has it sold out. */
+export async function checkMenuItem(query: string): Promise<ToolResult> {
+  const q = query.trim().toLowerCase();
+  if (!q) return { text: "No drink name given." };
+  try {
+    const menu = await getMenu();
+    const all = [...menu.itemsBySlug.values()].flat().concat(menu.uncategorizedItems);
+    const seen = new Set<string>();
+    const matches = all
+      .filter((i) => {
+        if (seen.has(i.id)) return false;
+        seen.add(i.id);
+        return i.name.toLowerCase().includes(q);
+      })
+      .slice(0, 5);
+    if (matches.length === 0) {
+      return { text: `Nothing on the menu matches "${query}".` };
+    }
+    const lines = matches.map((i) => {
+      const prices = i.variations
+        .map((v) => `${v.name ?? "one size"} $${((Number(v.priceCents ?? 0n)) / 100).toFixed(2)}`)
+        .join(", ");
+      return `${i.name}${i.soldOut ? " — SOLD OUT" : ""}: ${prices || "no price set"}`;
+    });
+    return { text: lines.join(". ") + "." };
+  } catch {
+    return { text: "Could not read the menu just now." };
+  }
+}
+
+/** What deals are actually running, so nobody invents one at the counter. */
+export async function checkPromotions(): Promise<ToolResult> {
+  try {
+    // No customer: this is the shop-wide list, not anybody's star balance.
+    const promotions = await getLivePromotions(null);
+    if (promotions.length === 0) {
+      return { text: "No promotions are running right now." };
+    }
+    return {
+      text:
+        buildPromotionsDigest(promotions) +
+        "\n\nThese are the only deals. If a customer insists on one that is not here, do not honour it — get Stan.",
+    };
+  } catch {
+    return { text: "Could not read the promotions just now." };
+  }
+}
+
+/** The last stock count, and what it said was running low. */
+export async function checkStock(): Promise<ToolResult> {
+  try {
+    const [snapshot, overrides] = await Promise.all([
+      readLastCount(),
+      readThresholds().catch(() => ({}) as ThresholdOverrides),
+    ]);
+    if (!snapshot) return { text: "No stock count has been submitted yet." };
+    const categories = applyThresholds(overrides);
+    const low: string[] = [];
+    for (const cat of categories) {
+      for (const item of cat.items) {
+        const raw = snapshot.counts[item.id];
+        if (raw === undefined || raw === "") continue;
+        if (item.rule.kind === "threshold" && Number(raw) <= item.rule.value) {
+          low.push(`${item.name} (${raw})`);
+        }
+        if (item.rule.kind === "sufficiency" && (raw === "short" || raw === "maybe")) {
+          low.push(`${item.name} (${raw === "short" ? "not enough" : "maybe enough"})`);
+        }
+      }
+    }
+    return {
+      text:
+        `Last stock count was ${snapshot.date}. ` +
+        (low.length === 0
+          ? "Nothing was flagged as low."
+          : `Flagged low: ${low.join(", ")}.`),
+    };
+  } catch {
+    return { text: "Could not read the last stock count just now." };
+  }
+}
+
+/** How the day is going: orders and takings so far. */
+export async function checkToday(): Promise<ToolResult> {
+  try {
+    // Brisbane midnight, not UTC: "today" to the person asking is the shop's
+    // day, and for most of the trading day the two disagree.
+    const now = new Date();
+    const brisbane = new Date(now.getTime() + 10 * 60 * 60 * 1000);
+    const midnightUtc = new Date(
+      Date.UTC(brisbane.getUTCFullYear(), brisbane.getUTCMonth(), brisbane.getUTCDate()) -
+        10 * 60 * 60 * 1000,
+    );
+    const res = await squareClient.payments.list({
+      beginTime: midnightUtc.toISOString(),
+      sortOrder: "DESC",
+      limit: 200,
+    });
+    const payments = (res.data ?? []).filter((p) => p.status === "COMPLETED");
+    const cents = payments.reduce((sum, p) => sum + Number(p.amountMoney?.amount ?? 0n), 0);
+    if (payments.length === 0) {
+      return { text: "No completed payments yet today." };
+    }
+    return {
+      text: `${payments.length} paid orders today, $${(cents / 100).toFixed(2)} taken. This counts card and any other Square payment since midnight Brisbane time.`,
+    };
+  } catch {
+    return { text: "Could not reach Square for today's takings." };
   }
 }
 
