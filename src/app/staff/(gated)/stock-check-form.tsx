@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SUFFICIENCY_CHOICES,
   SUFFICIENCY_LABEL,
@@ -12,7 +12,7 @@ import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
 import { MicButton } from "./mic-button";
 import { useDictation } from "./use-dictation";
-import { parseVoiceCounts } from "@/lib/staff/voice-count";
+import { parseSpokenValues } from "@/lib/staff/spoken-values";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
 // the other opens a fridge: big tap targets, a thumb-sized drum instead of the
@@ -69,6 +69,15 @@ export function StockCheckForm({
   // The filled numbers themselves land in the rows, which is where they are
   // checked — a second confirmation screen would just be the same list twice.
   const [heard, setHeard] = useState<string | null>(null);
+  // The row lit orange: the one a spoken number lands on. Separate from
+  // pickedId, which is the keypad sheet — during a spoken pass the cursor
+  // moves down the list without any sheet opening.
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  // Read synchronously inside the speech callback, which does not re-render
+  // between one number and the next in the same breath.
+  const cursorRef = useRef<string | null>(null);
+  const countsRef = useRef<Record<string, string>>({});
+  const dueItemsRef = useRef<StockItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,41 +117,99 @@ export function StockCheckForm({
   const walkIndex = pickedId === null ? -1 : dueItems.findIndex((i) => i.id === pickedId);
   const previousOf = (id: string) => previous?.counts[id] ?? null;
 
-  /** Writes what was said into the same draft the keypad uses, so a spoken
-   *  pass and a tapped pass are one count. */
-  const applyVoice = useCallback((transcript: string) => {
-    const parse = parseVoiceCounts(transcript);
-    if (parse.matched.length > 0) {
-      setCounts((prev) => {
-        const next = { ...prev };
-        for (const m of parse.matched) next[m.item.id] = m.value;
-        try {
-          window.localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
-        } catch {
-          // Draft is a convenience; a storage failure must not lose the count.
+  /**
+   * Numbers spoken while walking the list, applied to whichever row is lit.
+   *
+   * The old way listened for item names as well, and misheard them: "lychee
+   * jelly" would come back near enough to "lychee" that a number landed on the
+   * syrup while the jelly stayed blank. Now the screen says which item is next
+   * and the only thing to hear is the number. There is nothing for a number to
+   * be confused with, which is also why every mishearing of "two" can simply
+   * be accepted.
+   */
+  const applyVoice = useCallback(
+    (transcript: string) => {
+      const spoken = parseSpokenValues(transcript);
+      if (spoken.length === 0) {
+        setHeard(`Heard "${transcript}" — no number in it.`);
+        return;
+      }
+
+      const order = dueItemsRef.current;
+      let at = order.findIndex((i) => i.id === cursorRef.current);
+      if (at === -1) at = 0;
+
+      const filled: string[] = [];
+      const next: Record<string, string> = { ...countsRef.current };
+      for (const value of spoken) {
+        const item = order[at];
+        if (!item) break;
+        if (value.kind === "skip") {
+          at += 1;
+          continue;
         }
-        return next;
-      });
-    }
-    // One line, not a screen. The numbers themselves are visible in the rows.
-    const parts: string[] = [];
-    parts.push(
-      parse.matched.length > 0
-        ? `Filled ${parse.matched.length}: ${parse.matched.map((m) => `${m.item.name} ${m.value}`).join(", ")}`
-        : "Nothing matched an item on the list.",
-    );
-    if (parse.ambiguous.length > 0) {
-      parts.push(
-        `${parse.ambiguous.join(", ")} — there are two of each; say "syrup lemon" or tap it in.`,
-      );
-    }
-    if (parse.missingValue.length > 0) {
-      parts.push(`No number heard for ${parse.missingValue.join(", ")}.`);
-    }
-    setHeard(parts.join(" "));
-  }, []);
+        // A number said against cups or straws still means something: nobody
+        // says zero and means plenty.
+        const written =
+          item.rule.kind === "sufficiency"
+            ? value.kind === "sufficiency"
+              ? value.value
+              : Number(value.value) === 0
+                ? "short"
+                : "enough"
+            : value.kind === "number"
+              ? value.value
+              : "";
+        if (written !== "") {
+          next[item.id] = written;
+          filled.push(`${item.name} ${written}`);
+        }
+        at += 1;
+      }
+
+      countsRef.current = next;
+      setCounts(next);
+      try {
+        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      } catch {
+        // Draft is a convenience; a storage failure must not lose the count.
+      }
+      // Park on the next row so the lit one is always the one being asked for.
+      const landed = order[Math.min(at, order.length - 1)]?.id ?? null;
+      cursorRef.current = landed;
+      setCursorId(landed);
+      setHeard(filled.length > 0 ? filled.join(" · ") : `Heard "${transcript}".`);
+    },
+    [],
+  );
 
   const dictation = useDictation({ onFinal: applyVoice, holdToTalk: true });
+
+  // Kept in step for the speech callback, which reads them without waiting for
+  // a render.
+  useEffect(() => {
+    countsRef.current = counts;
+    dueItemsRef.current = dueItems;
+    cursorRef.current = cursorId;
+  }, [counts, dueItems, cursorId]);
+
+  // Keep the lit row on screen. Four numbers into a shelf the cursor has
+  // walked past the fold, and a highlight nobody can see is worse than none —
+  // it says "you are here" about somewhere else.
+  useEffect(() => {
+    if (!cursorId) return;
+    const row = document.getElementById(`stock-row-${cursorId}`);
+    row?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [cursorId]);
+
+  /** Light the first row that still needs an answer. */
+  const startWalk = useCallback(() => {
+    const order = dueItemsRef.current;
+    const firstBlank = order.findIndex((i) => (countsRef.current[i.id] ?? "").trim() === "");
+    const id = order[firstBlank === -1 ? 0 : firstBlank]?.id ?? null;
+    cursorRef.current = id;
+    setCursorId(id);
+  }, []);
 
   /**
    * Open at the first item still blank, so picking the count back up after a
@@ -150,7 +217,12 @@ export function StockCheckForm({
    */
   function startCounting() {
     const firstBlank = dueItems.findIndex((i) => (counts[i.id] ?? "").trim() === "");
-    setPickedId(dueItems[firstBlank === -1 ? 0 : firstBlank]?.id ?? null);
+    const id = dueItems[firstBlank === -1 ? 0 : firstBlank]?.id ?? null;
+    // Cursor and keypad together: whichever way the count is being taken, the
+    // lit row and the open pad are the same item.
+    cursorRef.current = id;
+    setCursorId(id);
+    setPickedId(id);
   }
 
   function set(id: string, value: string) {
@@ -278,9 +350,17 @@ export function StockCheckForm({
                 value={counts[item.id] ?? ""}
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
-                onOpen={() => setPickedId(item.id)}
+                onOpen={() => {
+                  // Tapping a row moves the cursor there as well as opening
+                  // the pad, so speaking straight afterwards carries on from
+                  // where the finger left off rather than somewhere else.
+                  cursorRef.current = item.id;
+                  setCursorId(item.id);
+                  setPickedId(item.id);
+                }}
                 onSet={(v) => set(item.id, v)}
                 isOrderDay={isOrderDay}
+                current={cursorId === item.id}
               />
             ))}
           </ul>
@@ -318,9 +398,17 @@ export function StockCheckForm({
                 value={counts[item.id] ?? ""}
                 previous={previousOf(item.id)}
                 previousLabel={previousLabel}
-                onOpen={() => setPickedId(item.id)}
+                onOpen={() => {
+                  // Tapping a row moves the cursor there as well as opening
+                  // the pad, so speaking straight afterwards carries on from
+                  // where the finger left off rather than somewhere else.
+                  cursorRef.current = item.id;
+                  setCursorId(item.id);
+                  setPickedId(item.id);
+                }}
                 onSet={(v) => set(item.id, v)}
                 isOrderDay={isOrderDay}
+                current={cursorId === item.id}
               />
             ))}
           </ul>
@@ -397,7 +485,12 @@ export function StockCheckForm({
           <div className="pointer-events-auto">
             <MicButton
               listening={dictation.listening}
-              onHoldStart={dictation.start}
+              onHoldStart={() => {
+                // Light the first unanswered row before the first word, so
+                // there is never a number looking for somewhere to go.
+                if (cursorRef.current === null) startWalk();
+                dictation.start();
+              }}
               onHoldEnd={dictation.stop}
               idleLabel=""
               busyLabel=""
@@ -464,9 +557,16 @@ export function StockCheckForm({
             // Running off either end closes rather than wrapping: wrapping
             // back to Mango after the last item would read as "nothing
             // happened" and quietly restart the count.
-            setPickedId(
-              next < 0 || next >= dueItems.length ? null : (dueItems[next]?.id ?? null),
-            );
+            const id =
+              next < 0 || next >= dueItems.length ? null : (dueItems[next]?.id ?? null);
+            setPickedId(id);
+            // The lit row follows the pad. Closing the pad on the last item
+            // leaves the cursor where it was, so speaking carries on from
+            // there rather than jumping back to the top.
+            if (id) {
+              cursorRef.current = id;
+              setCursorId(id);
+            }
           }}
           onClose={() => setPickedId(null)}
         />
@@ -483,6 +583,7 @@ function Row({
   onOpen,
   onSet,
   isOrderDay,
+  current,
 }: {
   item: StockItem;
   value: string;
@@ -492,13 +593,21 @@ function Row({
   onOpen: () => void;
   onSet?: (value: string) => void;
   isOrderDay: boolean;
+  /** Lit orange: the row a spoken number will land on. */
+  current: boolean;
 }) {
   // Cups and straws are answered, not counted — three buttons instead of the
   // number pad, because nobody tallies a stack of 1,400 cups and a number
   // typed here would be invented.
   if (item.rule.kind === "sufficiency") {
     return (
-      <SufficiencyRow item={item} value={value} previous={previous} onSet={onSet} />
+      <SufficiencyRow
+        item={item}
+        value={value}
+        previous={previous}
+        onSet={onSet}
+        current={current}
+      />
     );
   }
 
@@ -510,7 +619,19 @@ function Row({
     parsed <= item.rule.value;
 
   return (
-    <li className="flex items-center gap-3 py-2">
+    <li
+      id={`stock-row-${item.id}`}
+      // The whole row is the target, not just the number box. Someone walking
+      // a shelf aims at the name they are reading, and a 20px-wide box beside
+      // it is a thing to miss.
+      onClick={onOpen}
+      className={`-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors ${
+        // Orange, not the brand blue: this says "you are here", and it has to
+        // be distinguishable at a glance from the red ORDER flag beside it and
+        // from the blue that means a button.
+        current ? "bg-amber-500/25 ring-1 ring-amber-500" : ""
+      }`}
+    >
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{item.name}</div>
         <div className="text-xs text-zinc-500">
@@ -566,16 +687,25 @@ function SufficiencyRow({
   value,
   previous,
   onSet,
+  current,
 }: {
   item: StockItem;
   value: string;
   previous: string | null;
   onSet?: (value: string) => void;
+  /** Lit orange, same as the counted rows: cups and straws are part of the
+   *  same walk and a spoken "enough" lands on them. */
+  current: boolean;
 }) {
   const options = SUFFICIENCY_CHOICES;
 
   return (
-    <li className="py-3">
+    <li
+      id={`stock-row-${item.id}`}
+      className={`-mx-2 rounded-lg px-2 py-3 transition-colors ${
+        current ? "bg-amber-500/25 ring-1 ring-amber-500" : ""
+      }`}
+    >
       <div className="flex items-baseline gap-2">
         <span className="font-medium">{item.name}</span>
         <span className="text-xs text-zinc-500">enough for today?</span>
