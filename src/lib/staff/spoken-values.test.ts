@@ -19,11 +19,23 @@ describe("reading a spoken count", () => {
     expect(vals("for free ate")).toEqual(["4", "3", "8"]);
   });
 
-it("hears the iPhone wake word as three", () => {
+  it("hears the iPhone wake word as three", () => {
     // Reported from the shop: the phone hears its own name in "three".
     // Nothing phonetic catches this — "siri" and "three" share no consonants.
     expect(vals("siri")).toEqual(["3"]);
     expect(vals("too siri bun")).toEqual(["2", "3", "1"]);
+  });
+
+  it('hears "hey" as eight, which distance alone got wrong', () => {
+    // Also from the shop, and worse than unheard: "hey" is two edits from
+    // "ten" and four from "eight", so the near-miss pass was quietly writing a
+    // 10 every time somebody said eight.
+    expect(vals("hey")).toEqual(["8"]);
+    expect(vals("hay")).toEqual(["8"]);
+    // Still a hesitation, not a number — half the sentences here end in it.
+    expect(vals("eh")).toEqual([]);
+    // And the real tens are untouched.
+    expect(vals("ten tan tin")).toEqual(["10", "10", "10"]);
   });
 
   it("strips the leading zero that showed up as 02 in a row", () => {
