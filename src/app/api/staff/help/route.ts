@@ -14,6 +14,7 @@ import {
   checkPrinting,
   checkStoreStatus,
   lookUpOrder,
+  lookUpCustomer,
   pauseDelivery,
   resumeDelivery,
   reprintOrder,
@@ -51,6 +52,16 @@ async function runTool(
         ...(await lookUpOrder(String(args.reference ?? ""))),
         label: `looked up ${String(args.reference ?? "")}`,
       };
+    case "look_up_customer": {
+      const phone = String(args.phone ?? "");
+      return {
+        ...(await lookUpCustomer(phone)),
+        // The receipt names the number that was looked up. Reading a
+        // customer's records is not reversible the way pausing delivery is —
+        // the only honest control is that it leaves a mark on the page.
+        label: `looked up customer ${phone}`,
+      };
+    }
     case "pause_delivery":
       return {
         ...(await pauseDelivery(

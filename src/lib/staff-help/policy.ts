@@ -44,6 +44,21 @@ export const STAFF_TOOLS = [
     },
   },
   {
+    name: "look_up_customer",
+    description:
+      "Look up one customer by their phone number: whether they have an account, how many stars they have, and their last few orders. Use when staff are asked about a specific person — did my order go through, how many stars have I got, is my account working. Needs the full phone number; it cannot search by name.",
+    input_schema: {
+      type: "object",
+      properties: {
+        phone: {
+          type: "string",
+          description: "The customer's phone number, e.g. 0404978238.",
+        },
+      },
+      required: ["phone"],
+    },
+  },
+  {
     name: "pause_delivery",
     description:
       "Pause delivery orders for a few hours. Use only when the shop genuinely cannot deliver — the driver is gone, the weather is dangerous, the kitchen is overwhelmed. Pickup keeps working. It turns itself back on.",
