@@ -156,6 +156,28 @@ export function HelpChat() {
         <div ref={endRef} />
       </div>
 
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send(input);
+        }}
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={voice.listening ? "Listening…" : "What's happening?"}
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        />
+        <button
+          type="submit"
+          disabled={busy || !input.trim()}
+          className="min-h-11 shrink-0 rounded-lg bg-[#3579B8] px-4 text-sm font-medium text-white disabled:opacity-40"
+        >
+          Send
+        </button>
+      </form>
+
       {/* Talking is the primary way in, so it gets the biggest target on the
           page rather than a square wedged beside a text field. Someone holding
           a cup in one hand should be able to hit it without looking. */}
@@ -203,28 +225,6 @@ export function HelpChat() {
           </div>
         </div>
       )}
-
-      <form
-        className="mt-3 flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(input);
-        }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={voice.listening ? "Listening…" : "…or type it here"}
-          className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="min-h-11 shrink-0 rounded-lg bg-[#3579B8] px-4 text-sm font-medium text-white disabled:opacity-40"
-        >
-          Send
-        </button>
-      </form>
 
       {/* Which language the microphone expects.
           A segmented control rather than three small links: this is the one
