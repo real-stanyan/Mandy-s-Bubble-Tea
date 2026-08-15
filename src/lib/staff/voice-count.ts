@@ -38,6 +38,30 @@ const NUMBER_WORDS: Record<string, number> = {
   none: 0, nil: 0, oh: 0,
 };
 
+/**
+ * What the recogniser writes when someone says a number.
+ *
+ * "Aloe Vera two" came back as "aloe vera to" and the count was silently
+ * dropped: the name matched, no number was found, and the row stayed blank.
+ * Counting is almost entirely small numbers, and these are the words they are
+ * most often mistaken for.
+ *
+ * Kept apart from the real number words and only consulted when no real one
+ * was found, because "to" and "for" are ordinary English. In "no number for
+ * mango" the "for" must not become a 4 — but in "mango for" there is nothing
+ * else it can be.
+ */
+const NUMBER_HOMOPHONES: Record<string, number> = {
+  to: 2, too: 2, tu: 2,
+  for: 4, fore: 4,
+  won: 1, wan: 1,
+  free: 3, tree: 3,
+  ate: 8,
+  sicks: 6, sex: 6,
+  nein: 9,
+  then: 10,
+};
+
 /** Spoken answers for the enough/maybe/short items. Deliberately generous on
  *  the two ends and narrow in the middle: "maybe" has to be said on purpose. */
 const SUFFICIENCY_WORDS: Array<[RegExp, string]> = [
@@ -146,12 +170,17 @@ function searchOrder(): Array<{ name: string; items: StockItem[] }> {
 }
 
 /** A number written as digits or as a word, at the start of `text`. */
-function leadingValue(text: string): { value: string; length: number } | null {
+function leadingValue(
+  text: string,
+  allowHomophones: boolean,
+): { value: string; length: number } | null {
   const digits = text.match(/^(\d+(?:\.\d+)?)/);
   if (digits) return withFraction(text, digits[1], digits[1].length);
   const word = text.match(/^([a-z]+)/);
-  if (word && word[1] in NUMBER_WORDS) {
-    return withFraction(text, String(NUMBER_WORDS[word[1]]), word[1].length);
+  if (!word) return null;
+  const table = allowHomophones ? NUMBER_HOMOPHONES : NUMBER_WORDS;
+  if (word[1] in table) {
+    return withFraction(text, String(table[word[1]]), word[1].length);
   }
   return null;
 }
@@ -265,23 +294,22 @@ export function parseVoiceCounts(transcript: string): VoiceParse {
   const hits: Array<{ hit: NameHit; from: number; to: number; fuzzy: boolean }> = [];
   for (let w = 0; w < words.length; ) {
     let found: { hit: NameHit; span: number; fuzzy: boolean } | null = null;
+    // Longest phrase first, and at each length exact before near-miss. Doing
+    // all the exact lengths before any near-miss let a one-word exact beat a
+    // two-word near-miss: "mango jelli two" matched the plain Mango syrup,
+    // because "mango" is exactly a name and "mango jelli" was only nearly one.
     for (let n = Math.min(longestName, words.length - w); n >= 1 && !found; n--) {
       const phrase = words
         .slice(w, w + n)
         .map((x) => x.word)
         .join(" ");
       const exact = names.find((x) => x.name === phrase);
-      if (exact) found = { hit: exact, span: n, fuzzy: false };
-    }
-    if (!found) {
-      for (let n = Math.min(longestName, words.length - w); n >= 1 && !found; n--) {
-        const phrase = words
-          .slice(w, w + n)
-          .map((x) => x.word)
-          .join(" ");
-        const near = fuzzyFind(phrase, names);
-        if (near) found = { hit: near, span: n, fuzzy: true };
+      if (exact) {
+        found = { hit: exact, span: n, fuzzy: false };
+        break;
       }
+      const near = fuzzyFind(phrase, names);
+      if (near) found = { hit: near, span: n, fuzzy: true };
     }
     if (!found) {
       w += 1;
@@ -328,6 +356,41 @@ export function parseVoiceCounts(transcript: string): VoiceParse {
 
     if (taken.has(item.id)) continue;
 
+    // Refuse to answer for the short name when a longer one starts with it and
+    // the next word is not a value.
+    //
+    // The list is full of these: Lychee and Lychee Jelly, Mango and Mango
+    // Jelly, Grapefruit and Grapefruit Sacs. Say "lychee jelly two" and the
+    // pair matches exactly. But let the recogniser return "leechee jelly" —
+    // two edits from "lychee jelly", too far for the near-miss pass — and the
+    // scan drops to the single word "leechee", fills the SYRUP, and moves on.
+    // The jelly stays blank and a number lands on a bottle nobody counted.
+    //
+    // So a trailing word that is not a number is treated as the start of a
+    // longer name that was misheard, and the whole thing is handed back.
+    // Checked against the item's own name as well as the words that matched:
+    // "leechee" is an alias for the Lychee syrup, and nothing starts with
+    // "leechee ", so looking only at what was said would miss Lychee Jelly
+    // entirely — which is the exact case this guard was written for.
+    const prefixes = new Set([hit.name, normalise(item.name)]);
+    const longer = names.filter(
+      (n) => !prefixes.has(n.name) && [...prefixes].some((p) => n.name.startsWith(`${p} `)),
+    );
+    if (longer.length > 0) {
+      const nextWord = window.trim().split(" ")[0] ?? "";
+      const looksLikeValue =
+        nextWord === "" ||
+        leadingValue(nextWord, false) !== null ||
+        leadingValue(nextWord, true) !== null ||
+        SUFFICIENCY_WORDS.some(([pattern]) => pattern.test(nextWord));
+      if (!looksLikeValue) {
+        const options = [item.name, ...longer.map((n) => n.items[0]?.name ?? n.name)];
+        const label = options.join(" / ");
+        if (!ambiguous.includes(label)) ambiguous.push(label);
+        continue;
+      }
+    }
+
     const value = valueIn(window, item);
     if (value === null) {
       if (!missingValue.includes(item.name)) missingValue.push(item.name);
@@ -356,11 +419,15 @@ function valueIn(window: string, item: StockItem): string | null {
 }
 
 function firstNumber(window: string): string | null {
-  for (let i = 0; i < window.length; i++) {
-    if (!/[a-z0-9]/.test(window.charAt(i))) continue;
-    if (i > 0 && /[a-z0-9]/.test(window.charAt(i - 1))) continue;
-    const found = leadingValue(window.slice(i));
-    if (found) return found.value;
+  // Two passes. A real number anywhere in the window beats a homophone, so
+  // "for mango three" is a three and not a four.
+  for (const allowHomophones of [false, true]) {
+    for (let i = 0; i < window.length; i++) {
+      if (!/[a-z0-9]/.test(window.charAt(i))) continue;
+      if (i > 0 && /[a-z0-9]/.test(window.charAt(i - 1))) continue;
+      const found = leadingValue(window.slice(i), allowHomophones);
+      if (found) return found.value;
+    }
   }
   return null;
 }
