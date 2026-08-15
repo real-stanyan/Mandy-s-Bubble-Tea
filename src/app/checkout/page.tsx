@@ -1578,11 +1578,19 @@ function CheckoutFrame({ children }: { children: React.ReactNode }) {
  * ours — but a customer whose card is refused has no way to know that, and
  * "declined" reads as an accusation.
  *
- * SET TO false THE MOMENT SQUARE CONFIRMS IT IS FIXED. A stale apology is
- * worse than none: it tells people the shop is still broken and sends them
- * somewhere else. One line, then deploy.
+ * Square confirmed the fix and the payments bear it out: Mastercard ran at
+ * near-total failure from 04:10 to 05:25 UTC and the 05:30 window came back
+ * clean. Switched off at that point.
+ *
+ * Kept rather than deleted. The next outage is a flag and a deploy instead of
+ * writing this again under pressure, and the wording has already been through
+ * one real incident. Flip it back on, change the card brand in the copy if it
+ * is a different one, and ship.
+ *
+ * Turn it OFF the moment an outage ends. A stale apology is worse than none:
+ * it tells people the shop is still broken and sends them somewhere else.
  */
-const PAYMENT_INCIDENT_ACTIVE = true;
+const PAYMENT_INCIDENT_ACTIVE = false;
 
 function PaymentIncidentNotice() {
   if (!PAYMENT_INCIDENT_ACTIVE) return null;
