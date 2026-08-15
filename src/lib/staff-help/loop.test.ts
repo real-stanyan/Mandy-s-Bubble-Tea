@@ -208,6 +208,52 @@ describe("the Claude tool loop", () => {
     expect(json.performed).not.toContain("emailed Rick");
   });
 
+  it("never shows an empty bubble when the model runs out of rounds", async () => {
+    // Seen during a real payments outage: with 13 tools the model works in
+    // small steps, hit the round cap mid-plan, and the wrap-up call returned
+    // no text at all. The counter got a blank reply while cards were down.
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Body;
+      calls.push(body);
+      // Always wants another tool; the wrap-up call has none to offer.
+      if (body.tools && body.tools.length > 0) {
+        return reply([
+          { type: "tool_use", id: `t${calls.length}`, name: "check_payments", input: {} },
+        ]);
+      }
+      return reply([]);
+    });
+
+    const res = await POST(post("cards are declining"));
+    const json = (await res.json()) as { reply: string; performed: string[] };
+
+    expect(json.reply).not.toBe("");
+    expect(json.reply).toMatch(/checked payments/);
+    expect(json.reply).toMatch(/Rick/);
+  });
+
+  it("keeps the language directive on the wrap-up call", async () => {
+    // The wrap-up used the bare prompt, so the reply most likely to be reached
+    // for during a real problem was the one most likely to come back in the
+    // wrong language.
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Body;
+      calls.push(body);
+      if (body.tools && body.tools.length > 0) {
+        return reply([
+          { type: "tool_use", id: `t${calls.length}`, name: "check_payments", input: {} },
+        ]);
+      }
+      return reply([{ type: "text", text: "好的" }]);
+    });
+
+    await POST(post("刷卡一直失败"));
+
+    const wrapUp = calls[calls.length - 1];
+    expect(wrapUp.tools ?? []).toHaveLength(0);
+    expect(wrapUp.system).toMatch(/Write your reply in Chinese/);
+  });
+
   it("degrades to a calm sentence when the API is down, and changes nothing", async () => {
     vi.stubGlobal("fetch", async () => {
       throw new Error("connect ECONNREFUSED");

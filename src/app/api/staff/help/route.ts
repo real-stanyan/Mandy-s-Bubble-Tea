@@ -29,9 +29,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// Two rounds is enough for check-then-answer, and it bounds what one message
-// can cost. A model that wants a third round has usually lost the thread.
-const MAX_ROUNDS = 2;
+// Four, not two. Two was set when there were eight tools and the model
+// batched its checks into one round; with thirteen it works in smaller steps —
+// payments, then takings, then escalate. Cut off mid-plan, the wrap-up call
+// came back with no text at all and the counter got an empty bubble during a
+// payments outage. Each round is still bounded, and the model stops on its own
+// well before this.
+const MAX_ROUNDS = 4;
 const MAX_HISTORY = 12;
 
 type Body = { messages?: Array<{ role: string; content: string }> };
@@ -164,6 +168,16 @@ async function honourEmailClaim(
   performed.push(sent ? `emailed ${OWNER_NAME}` : "EMAIL FAILED");
 }
 
+/** What to show when the model returns nothing at all. Observed on a real
+ *  payments outage: cut off mid-plan, it produced an empty response, and an
+ *  empty bubble tells the person at the counter less than nothing. */
+function fallbackReply(performed: string[]): string {
+  const done = performed.filter((p) => p !== "refused");
+  return done.length > 0
+    ? `I ${done.join(", ")} but could not finish the answer. Ask me again, or ring ${OWNER_NAME} if it is urgent.`
+    : `I could not work that one out. Ask me again, or ring ${OWNER_NAME} if it is urgent.`;
+}
+
 export async function POST(req: Request) {
   const role = await currentRole();
   if (!role) return NextResponse.json({ ok: false, error: "not signed in" }, { status: 401 });
@@ -248,10 +262,28 @@ export async function POST(req: Request) {
     }
 
     // Out of rounds with tools still pending: answer from what we have rather
-    // than leaving the staff member with a spinner.
-    const final = await callClaude(messages, { system: STAFF_SYSTEM_PROMPT });
+    // than leaving the staff member with a spinner. Asked in words, because
+    // dropping the tools and hoping for prose is what produced the empty
+    // reply — the model was still mid-plan and simply said nothing.
+    //
+    // `system`, not the bare prompt: this call was missing the language
+    // directive, so the one reply most likely to be reached for during a real
+    // problem was also the one most likely to come back in the wrong language.
+    messages.push({
+      role: "user",
+      content:
+        "Stop checking and answer now, in words. Say what you found and what they should do.",
+    });
+    const final = await callClaude(messages, { system });
     await honourEmailClaim(final.text, performed, incoming);
-    return NextResponse.json({ ok: true, reply: final.text, performed, language });
+    return NextResponse.json({
+      ok: true,
+      // Never an empty bubble. If it still has nothing to say, what it checked
+      // beats silence for someone holding a queue.
+      reply: final.text || fallbackReply(performed),
+      performed,
+      language,
+    });
   } catch (err) {
     // The staff member gets a calm sentence; the reason goes to the server log,
     // because "it broke" from someone mid-service is not a bug report.

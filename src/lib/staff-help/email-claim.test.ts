@@ -32,6 +32,40 @@ describe("detecting an email that was claimed but not sent", () => {
     }
   });
 
+  it("catches it in the present tense", () => {
+    // Verbatim from the shop on 15 August, during a payments outage. The
+    // receipt showed only the three checks it had run; the escalation tool was
+    // never called, and the old pattern's \bemail\b could not match "emailing".
+    expect(
+      claims("I can't fix card payments, so I'm emailing Rick now."),
+    ).toBe(true);
+    expect(claims("I'll email Rick straight away.")).toBe(true);
+    expect(claims("I will let Rick know.")).toBe(true);
+  });
+
+  it("catches it in Chinese, which is what the counter actually speaks", () => {
+    // The detector was English-only for its whole life, so in the language
+    // staff use it had never once fired. Also verbatim from the shop.
+    for (const s of [
+      "已经发紧急邮件给 Rick 了，他会安排。",
+      "我马上发邮件给 Rick。",
+      "这个我处理不了，已经通知 Rick 了。",
+      "我帮你告诉 Rick，他会尽快回复。",
+    ]) {
+      expect(claims(s), s).toBe(true);
+    }
+  });
+
+  it("does not fire on Chinese that promises nothing", () => {
+    for (const s of [
+      "刷卡看起来正常，过去 30 分钟 34 笔只有 1 笔失败。",
+      "退款只有 Rick 能处理。",
+      "外送已经暂停 4 小时了，自助取餐照常。",
+    ]) {
+      expect(claims(s), s).toBe(false);
+    }
+  });
+
   it("does not fire on replies that make no promise", () => {
     // A false positive sends an email nobody meant to send. Cheap, but not
     // free — an assistant that cries wolf gets ignored.
