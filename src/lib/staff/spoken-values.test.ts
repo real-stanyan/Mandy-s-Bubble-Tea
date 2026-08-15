@@ -19,6 +19,13 @@ describe("reading a spoken count", () => {
     expect(vals("for free ate")).toEqual(["4", "3", "8"]);
   });
 
+it("hears the iPhone wake word as three", () => {
+    // Reported from the shop: the phone hears its own name in "three".
+    // Nothing phonetic catches this — "siri" and "three" share no consonants.
+    expect(vals("siri")).toEqual(["3"]);
+    expect(vals("too siri bun")).toEqual(["2", "3", "1"]);
+  });
+
   it("strips the leading zero that showed up as 02 in a row", () => {
     expect(vals("02")).toEqual(["2"]);
     expect(vals("007")).toEqual(["7"]);
