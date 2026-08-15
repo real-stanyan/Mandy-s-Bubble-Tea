@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { getMenu } from "@/lib/catalog";
 import { serializeSquareResponse } from "@/lib/utils";
@@ -112,7 +113,8 @@ export async function GET(request: Request) {
       if (o.state === "CANCELED") return true;
       const total = o.totalMoney?.amount ?? 0n;
       const due = o.netAmountDueMoney?.amount ?? total;
-      return due === 0n;
+      if (due !== 0n) return false;
+      return !isCustomAmountOnly(o);
     });
 
     // Which delivery orders have actually been delivered (driver app marked
