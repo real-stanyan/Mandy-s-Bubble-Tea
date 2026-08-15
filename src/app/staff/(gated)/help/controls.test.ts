@@ -51,6 +51,29 @@ describe("staff help controls", () => {
     }
   });
 
+  it("keeps the microphone the biggest thing on the page", () => {
+    // Talking is the primary way in — someone holding a cup should be able to
+    // hit it without looking. It started as a 44px square with a 🎤 emoji
+    // wedged beside the text field.
+    const start = SRC.indexOf('aria-label={voice.listening ? "Stop listening"');
+    expect(start, "mic button not found").toBeGreaterThan(-1);
+    const block = SRC.slice(start, SRC.indexOf("</button>", start));
+    expect(block).toMatch(/h-20 w-20/);
+    expect(block).toMatch(/rounded-full/);
+  });
+
+  it("draws the microphone rather than borrowing an emoji", () => {
+    // 🎤 is a different picture on every platform and renders at whatever size
+    // the font decides, which is the opposite of a control you aim at.
+    const start = SRC.indexOf('aria-label={voice.listening ? "Stop listening"');
+    const block = SRC.slice(start, SRC.indexOf("</button>", start));
+    expect(block).toMatch(/<svg/);
+    // Comments stripped: the emoji is named in the comment that explains why
+    // it is not used, and this assertion is about what renders.
+    const rendered = block.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(rendered).not.toMatch(/🎤/);
+  });
+
   it("makes every language button a real tap target", () => {
     // 44px is the size a thumb needs. Picking the wrong language is what
     // turned "现在店里正常吗" into "Send down the jump", so this is the
