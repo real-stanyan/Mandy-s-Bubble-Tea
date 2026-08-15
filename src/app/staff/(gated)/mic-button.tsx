@@ -57,9 +57,14 @@ export function MicButton({
           <span className="pointer-events-none absolute -inset-2 animate-ping rounded-full border-2 border-[#3579B8] opacity-60" />
         )}
       </button>
-      <div className="mt-2 h-5 text-sm text-zinc-500">
-        {listening ? busyLabel : idleLabel}
-      </div>
+      {/* Skipped entirely when there is no caption, rather than reserving a
+          blank line. The stock page floats this over the list and every
+          pixel of empty backdrop there covers a row. */}
+      {(idleLabel || busyLabel) && (
+        <div className="mt-2 h-5 text-sm text-zinc-500">
+          {listening ? busyLabel : idleLabel}
+        </div>
+      )}
     </div>
   );
 }

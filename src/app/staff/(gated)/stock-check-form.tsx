@@ -228,7 +228,10 @@ export function StockCheckForm({
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-32 pt-6">
+    // Deep bottom padding: the floating microphone and the bar below it take
+    // the lower fifth of the screen, and the last row of the list has to stay
+    // reachable under them.
+    <div className="mx-auto max-w-2xl px-4 pb-56 pt-6">
       {/* Plain link rather than a button: the page behind it 404s for anyone
           without the owner passcode, so it costs nothing to show and saves the
           owner remembering a URL. */}
@@ -377,28 +380,30 @@ export function StockCheckForm({
         </div>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
-        {/* Counting out loud lives here, docked to the bottom and centred,
-            because it is used walking the shop with a phone in one hand — a
-            control near the top means scrolling back to it between shelves.
-            It fills the rows above, and those rows are the confirmation. */}
-        {dictation.supported && (
-          <div className="mx-auto mb-3 flex max-w-2xl flex-col items-center">
-            {/* The live transcript sits above the button, so a mis-heard word
-                is seen by the person saying it without a thumb over it. */}
-            {(dictation.listening || heard) && (
-              <div className="mb-2 max-h-24 w-full overflow-y-auto rounded-2xl border border-zinc-200 px-3 py-2 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
-                {dictation.listening ? dictation.interim || "Listening…" : heard}
-              </div>
-            )}
+      {/* The microphone floats above the bar rather than sitting inside it.
+          Inside, it turned the bar into a black slab a third of the screen
+          tall, hiding the rows it is meant to be filling — and the rows are
+          the only confirmation there is. Only the circle carries a background
+          now; the caption and the transcript sit on the page. */}
+      {dictation.supported && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex flex-col items-center gap-2 px-4">
+          {(dictation.listening || heard) && (
+            <div className="pointer-events-auto max-h-20 max-w-md overflow-y-auto rounded-2xl bg-zinc-900/85 px-3 py-1.5 text-center text-sm text-white shadow-lg backdrop-blur dark:bg-zinc-800/90">
+              {dictation.listening ? dictation.interim || "Listening…" : heard}
+            </div>
+          )}
+          <div className="pointer-events-auto">
             <MicButton
               listening={dictation.listening}
               onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
-              idleLabel="Tap and count out loud"
-              busyLabel="Listening — say the next one"
+              idleLabel=""
+              busyLabel=""
             />
           </div>
-        )}
+        </div>
+      )}
+
+      <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <div className="text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
             <span>
