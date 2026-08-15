@@ -76,7 +76,7 @@ export const STAFF_TOOLS = [
   {
     name: "check_today",
     description:
-      "How the day is going: how many orders have been paid for today and how much has been taken. Use when staff ask how busy it has been.",
+      "How busy the day has been: how many orders have been paid for today. Use when staff ask how it is going. It returns takings only for the owner — do not promise a figure before you have called it, and never guess one.",
     input_schema: { type: "object", properties: {} },
   },
   {
