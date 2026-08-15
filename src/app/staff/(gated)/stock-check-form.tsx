@@ -34,6 +34,26 @@ type Result = {
 };
 
 const DRAFT_KEY = "mandys-stock-draft";
+const LANG_KEY = "mandys-stock-lang";
+
+/**
+ * What the microphone listens for.
+ *
+ * No browser works this out from the audio, so somebody has to say it. Kept
+ * here rather than shared with the help assistant: that one remembers a
+ * language of its own to answer in, and a stock count switching it would
+ * change what language the shop assistant replies in, which is not what
+ * anybody pressing this meant.
+ *
+ * Cantonese is zh-HK. It hands back the same characters as Mandarin, so the
+ * numbers already read — only the recogniser has to be told.
+ */
+const COUNT_LANGUAGES = [
+  { key: "en", label: "EN", locale: "en-AU" },
+  { key: "zh", label: "中文", locale: "zh-CN" },
+  { key: "yue", label: "粵語", locale: "zh-HK" },
+  { key: "ko", label: "한국어", locale: "ko-KR" },
+] as const;
 
 export function StockCheckForm({
   categories,
@@ -73,6 +93,7 @@ export function StockCheckForm({
   // pickedId, which is the keypad sheet — during a spoken pass the cursor
   // moves down the list without any sheet opening.
   const [cursorId, setCursorId] = useState<string | null>(null);
+  const [langKey, setLangKey] = useState<string>("en");
   // Read synchronously inside the speech callback, which does not re-render
   // between one number and the next in the same breath.
   const cursorRef = useRef<string | null>(null);
@@ -174,7 +195,17 @@ export function StockCheckForm({
     [],
   );
 
-  const dictation = useDictation({ onFinal: applyVoice, holdToTalk: true });
+  const locale =
+    COUNT_LANGUAGES.find((l) => l.key === langKey)?.locale ?? "en-AU";
+  const dictation = useDictation({ onFinal: applyVoice, holdToTalk: true, lang: locale });
+
+  // Whoever counts tends to count in the same language every night, so the
+  // choice is remembered. Read after mount rather than during render, since
+  // the server has no localStorage to agree with.
+  useEffect(() => {
+    const saved = window.localStorage.getItem(LANG_KEY);
+    if (saved && COUNT_LANGUAGES.some((l) => l.key === saved)) setLangKey(saved);
+  }, []);
 
   // Kept in step for the speech callback, which reads them without waiting for
   // a render.
@@ -295,7 +326,7 @@ export function StockCheckForm({
     // Deep bottom padding: the floating microphone and the bar below it take
     // the lower fifth of the screen, and the last row of the list has to stay
     // reachable under them.
-    <div className="mx-auto max-w-2xl px-4 pb-56 pt-6">
+    <div className="mx-auto max-w-2xl px-4 pb-72 pt-6">
       {/* Plain link rather than a button: the page behind it 404s for anyone
           without the owner passcode, so it costs nothing to show and saves the
           owner remembering a URL. */}
@@ -482,6 +513,28 @@ export function StockCheckForm({
                 : heard}
             </div>
           )}
+          {/* Which language the microphone is listening for. No browser works
+              that out from the audio, so it is a choice — small, above the
+              button, and remembered, because whoever counts tends to count in
+              the same language every night. */}
+          <div className="pointer-events-auto flex gap-1 rounded-full bg-zinc-900/85 p-1 shadow-lg backdrop-blur dark:bg-zinc-800/90">
+            {COUNT_LANGUAGES.map((l) => (
+              <button
+                key={l.key}
+                type="button"
+                onClick={() => {
+                  setLangKey(l.key);
+                  window.localStorage.setItem(LANG_KEY, l.key);
+                }}
+                aria-pressed={langKey === l.key}
+                className={`min-h-9 rounded-full px-3 text-sm ${
+                  langKey === l.key ? "bg-[#3579B8] font-semibold text-white" : "text-zinc-300"
+                }`}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
           <div className="pointer-events-auto">
             <MicButton
               listening={dictation.listening}

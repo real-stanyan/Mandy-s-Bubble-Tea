@@ -54,9 +54,14 @@ const VALUES: Record<string, number> = {
   sven: 7, seaven: 7,
   tan: 10, tin: 10,
 
-  // Chinese. 两 as well as 二 — nobody counts bottles with 二.
-  "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-  "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "半": 0.5,
+  // Chinese, and Cantonese with it: a Cantonese recogniser writes the same
+  // characters, so the only additions it needs are the traditional 兩 and the
+  // 廿 and 卅 that get said for twenty and thirty.
+  //
+  // 两 as well as 二, because nobody counts bottles with 二.
+  "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "兩": 2, "三": 3, "四": 4,
+  "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "半": 0.5,
+  "廿": 20, "卅": 30,
 
   // Korean. Native numbers are what someone counting says; the Sino ones are
   // what a recogniser often writes.
@@ -92,9 +97,14 @@ const NEVER_A_NUMBER = new Set([
 
 /** For the cups-and-straws rows, which take an answer rather than a count. */
 const SUFFICIENCY: Array<[RegExp, "enough" | "maybe" | "short"]> = [
-  [/^(not ?enough|out|empty|finished|none ?left|没了|不够|沒了|없어요?|없음)$/, "short"],
-  [/^(maybe|might|borderline|barely|差不多|可能|아마)$/, "maybe"],
-  [/^(enough|plenty|fine|good|lots|full|够|夠|足够|충분|많아요?)$/, "enough"],
+  // 唔夠 and 冇 are the Cantonese ones; 冇 on its own is how somebody says
+  // there is none left.
+  [
+    /^(not ?enough|out|empty|finished|none ?left|没了|沒了|不够|不夠|唔够|唔夠|冇|冇晒|없어요?|없음)$/,
+    "short",
+  ],
+  [/^(maybe|might|borderline|barely|差不多|可能|唔知|아마)$/, "maybe"],
+  [/^(enough|plenty|fine|good|lots|full|够|夠|足够|足夠|够晒|夠晒|충분|많아요?)$/, "enough"],
 ];
 
 /** Move on without answering — the item is not there to count, or somebody
