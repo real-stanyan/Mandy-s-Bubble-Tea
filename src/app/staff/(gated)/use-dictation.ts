@@ -47,6 +47,18 @@ export function useDictation(opts: { onFinal: (text: string) => void }) {
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const finalRef = useRef("");
   const interimRef = useRef("");
+  // Whether the person still wants to be listened to.
+  //
+  // A count is not one sentence. Somebody says "mango three, peach five",
+  // walks to the next shelf, and says the next two — and the recogniser had
+  // already closed after the first pause, so everything between shelves was
+  // spoken to a microphone that was not on. Nothing said it had stopped
+  // either; the words simply did not arrive.
+  //
+  // So a pause now ends an utterance, not the session. Each utterance is
+  // parsed and filled as it lands, and listening picks straight back up until
+  // the button is pressed again.
+  const wantedRef = useRef(false);
   const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onFinalRef = useRef(opts.onFinal);

@@ -104,8 +104,11 @@ describe("the abbreviations on the shelf labels", () => {
     // LYMT lychee milk tea. Nobody says "P F" at a shelf.
     expect(say("passion fruit three")).toEqual(["syrup-pf=3"]);
     expect(say("green apple two")).toEqual(["syrup-ga=2"]);
-    expect(say("grapefruit one")).toEqual(["syrup-gf=1"]);
     expect(say("lychee milk tea four")).toEqual(["syrup-lymt=4"]);
+    // Not grapefruit: the list has an item of that name too, so it asks
+    // rather than picking. See voice-aliases.test.ts — this assertion used to
+    // require the wrong bottle.
+    expect(say("syrup grapefruit one")).toEqual(["syrup-gf=1"]);
   });
 
   it("still takes the letters, since the labels say the letters", () => {

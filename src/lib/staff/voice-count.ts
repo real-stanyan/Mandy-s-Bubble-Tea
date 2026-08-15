@@ -65,6 +65,19 @@ const ALIASES: Array<[string, string]> = [
   ["pineapple", "syrup-pa"],
   ["pine apple", "syrup-pa"],
   ["lychee milk tea", "syrup-lymt"],
+  // Lychee came back from the shop as unrecognised. The near-miss pass cannot
+  // help: the spellings a recogniser reaches for are 2 to 4 edits away, not
+  // one — leechee 2, lichi 3, litchi 4 — and widening the pass that far would
+  // start pulling unrelated names together. Naming the variants is the narrow
+  // fix. The transcript bubble now shows the raw words, so any spelling still
+  // missing can be added by reading it off the screen.
+  ["leechee", "syrup-lychee"],
+  ["lichee", "syrup-lychee"],
+  ["litchi", "syrup-lychee"],
+  ["lichi", "syrup-lychee"],
+  ["lee chee", "syrup-lychee"],
+  ["lee chi", "syrup-lychee"],
+  ["liches", "syrup-lychee"],
 ];
 
 /** Which category a word names, for disambiguating the two Lemons. */
@@ -113,7 +126,19 @@ function searchOrder(): Array<{ name: string; items: StockItem[] }> {
     // A typo in the table would otherwise become a name that matches nothing
     // and fails silently, which is the failure mode this whole file avoids.
     if (!item) throw new Error(`voice-count: alias "${spoken}" points at unknown item ${id}`);
-    byName.set(normalise(spoken), [item]);
+    const key = normalise(spoken);
+    const existing = byName.get(key) ?? [];
+    // Added to whatever is already under that name, never replacing it.
+    //
+    // Replacing was a real bug: the list already contains an item called
+    // Grapefruit, and registering "grapefruit" as an alias for the GF syrup
+    // quietly took the name off it. Saying "grapefruit three" would have put
+    // the number against the wrong bottle without a word — the exact failure
+    // this file is built to refuse, introduced by the table meant to help.
+    //
+    // Two things really are called grapefruit here, so it becomes ambiguous
+    // and asks, the same as the two Lemons.
+    if (!existing.some((i) => i.id === item.id)) byName.set(key, [...existing, item]);
   }
   return [...byName.entries()]
     .map(([name, items]) => ({ name, items }))
