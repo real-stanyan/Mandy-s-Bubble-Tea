@@ -10,6 +10,7 @@ import {
 } from "@/lib/staff/stocklist";
 import { describeAge, type StockSnapshot } from "@/lib/staff/stock-history";
 import { CountKeypadSheet } from "./count-keypad";
+import { VoiceCountSheet } from "./voice-count-sheet";
 
 // The staff-facing count sheet. Designed for a phone held in one hand while
 // the other opens a fridge: big tap targets, a thumb-sized drum instead of the
@@ -62,6 +63,7 @@ export function StockCheckForm({
   // could not name it.
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +102,20 @@ export function StockCheckForm({
   // -1 means "open, but not part of today's walk" — edit it and close.
   const walkIndex = pickedId === null ? -1 : dueItems.findIndex((i) => i.id === pickedId);
   const previousOf = (id: string) => previous?.counts[id] ?? null;
+
+  /** Writes what the voice sheet heard into the same draft the keypad uses,
+   *  so a spoken pass and a tapped pass are the same count. */
+  function applyVoice(values: Record<string, string>) {
+    setCounts((prev) => {
+      const next = { ...prev, ...values };
+      try {
+        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      } catch {
+        // Draft is a convenience; a storage failure must not lose the count.
+      }
+      return next;
+    });
+  }
 
   /**
    * Open at the first item still blank, so picking the count back up after a
@@ -350,12 +366,24 @@ export function StockCheckForm({
               whole count is meant to be one pass: open here, then number-Next
               all the way down without touching the list again. */}
           {remaining > 0 && (
-            <button
-              onClick={startCounting}
-              className="ml-auto rounded-lg border px-4 py-3 font-semibold"
-            >
-              {filled === 0 ? "Start counting" : "Continue"}
-            </button>
+            <>
+              {/* Talking beats tapping when both hands are on a shelf, but it
+                  is the second option, not the first: the keypad walk is what
+                  works when the shop is loud, and this fills the same fields
+                  rather than replacing them. */}
+              <button
+                onClick={() => setVoiceOpen(true)}
+                className="ml-auto rounded-lg border px-4 py-3 font-semibold"
+              >
+                Count out loud
+              </button>
+              <button
+                onClick={startCounting}
+                className="rounded-lg border px-4 py-3 font-semibold"
+              >
+                {filled === 0 ? "Start counting" : "Continue"}
+              </button>
+            </>
           )}
           <button
             onClick={submit}
@@ -368,6 +396,10 @@ export function StockCheckForm({
           </button>
         </div>
       </div>
+
+      {voiceOpen && (
+        <VoiceCountSheet onApply={applyVoice} onClose={() => setVoiceOpen(false)} />
+      )}
 
       {picking && (
         <CountKeypadSheet
