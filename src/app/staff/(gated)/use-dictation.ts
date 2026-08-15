@@ -39,7 +39,17 @@ function recognitionCtor(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-export function useDictation(opts: { onFinal: (text: string) => void }) {
+export function useDictation(opts: {
+  onFinal: (text: string) => void;
+  /**
+   * Press and hold, rather than tap to start and wait for a pause.
+   *
+   * The finger is the signal, so no pause ends the session: someone can stop
+   * mid-shelf to read a label without the microphone deciding they have
+   * finished. Releasing ends it, which also means nothing has to guess.
+   */
+  holdToTalk?: boolean;
+}) {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
   const [supported, setSupported] = useState(false);
@@ -47,20 +57,12 @@ export function useDictation(opts: { onFinal: (text: string) => void }) {
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const finalRef = useRef("");
   const interimRef = useRef("");
-  // Whether the person still wants to be listened to.
-  //
-  // A count is not one sentence. Somebody says "mango three, peach five",
-  // walks to the next shelf, and says the next two — and the recogniser had
-  // already closed after the first pause, so everything between shelves was
-  // spoken to a microphone that was not on. Nothing said it had stopped
-  // either; the words simply did not arrive.
-  //
-  // So a pause now ends an utterance, not the session. Each utterance is
-  // parsed and filled as it lands, and listening picks straight back up until
-  // the button is pressed again.
-  const wantedRef = useRef(false);
   const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdRef = useRef(opts.holdToTalk === true);
+  useEffect(() => {
+    holdRef.current = opts.holdToTalk === true;
+  }, [opts.holdToTalk]);
   const onFinalRef = useRef(opts.onFinal);
 
   useEffect(() => {
@@ -123,7 +125,7 @@ export function useDictation(opts: { onFinal: (text: string) => void }) {
       }
       interimRef.current = text;
       setInterim(text);
-      armSilence();
+      if (!holdRef.current) armSilence();
     };
     rec.onerror = () => setListening(false);
     rec.onend = () => {
@@ -142,7 +144,13 @@ export function useDictation(opts: { onFinal: (text: string) => void }) {
       rec.start();
       // Armed from the start, not from the first word: a microphone opened by
       // accident against shop noise would otherwise never close.
-      armSilence();
+      //
+      // Skipped while a finger is holding the button. A pause there is someone
+      // reading a label, not someone finished, and cutting them off mid-shelf
+      // is the thing holding was meant to stop. Release ends it instead — and
+      // the thirty-second cap below still applies, in case a pointer event is
+      // lost and the release never arrives.
+      if (!holdRef.current) armSilence();
       maxRef.current = setTimeout(() => {
         try {
           rec.stop();
