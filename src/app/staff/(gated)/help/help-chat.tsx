@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoice } from "./use-voice";
-import type { StaffLanguage } from "@/lib/staff-help/language";
+import { LANGUAGE_LABEL, type StaffLanguage } from "@/lib/staff-help/language";
 
 type Msg = {
   role: "user" | "assistant";
@@ -70,11 +70,17 @@ export function HelpChat() {
         data.reply ??
         "I couldn't get through just now. Try again, or call Stan if it's urgent.";
 
-      // The server decided the language from what was actually said, so the
-      // recogniser and the voice follow it rather than guessing again. One
-      // decision, made once, in the place that has the whole conversation.
+      // The server decided the language, so the voice follows it rather than
+      // guessing again.
+      //
+      // But the microphone is only re-aimed from a TYPED message. A voice
+      // transcript was produced by the current microphone setting, so using it
+      // to pick that setting is circular: speak Chinese while the mic is on
+      // English, get English nonsense back, and the nonsense would confirm
+      // English and pin it there. Someone who reaches for the toggle stays
+      // corrected.
       const voice = voiceRef.current;
-      if (data.language) voice?.setLang(data.language);
+      if (data.language && !spokenByUser) voice?.setLang(data.language);
 
       // Spoken back when the staff member spoke, or when they asked for it.
       // Their hands are in a cup either way.
@@ -202,14 +208,14 @@ export function HelpChat() {
             setting anyone has to maintain. */}
         <span className="flex items-center gap-1">
           Mic:
-          {(["en", "zh"] as const).map((l) => (
+          {(Object.keys(LANGUAGE_LABEL) as StaffLanguage[]).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => voice.setLang(l)}
               className={voice.lang === l ? "font-semibold text-[#3B82C4]" : "underline"}
             >
-              {l === "en" ? "English" : "中文"}
+              {LANGUAGE_LABEL[l]}
             </button>
           ))}
         </span>

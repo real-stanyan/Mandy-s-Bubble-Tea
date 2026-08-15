@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SPEECH_LOCALE, type StaffLanguage } from "@/lib/staff-help/language";
+import { chooseTranscript } from "@/lib/staff-help/transcript";
 
 // Speech in and speech out, both from the browser.
 //
@@ -51,6 +52,12 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
 
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const finalRef = useRef("");
+  // The last interim transcript. iOS Safari frequently ends a session without
+  // ever marking a result final, and everything said is then thrown away —
+  // observed in the shop on 15 August: "现在店里正常吗" sat correctly in the
+  // live transcript and was never sent. What was heard is what gets used,
+  // whether or not the browser got around to blessing it.
+  const interimRef = useRef("");
   // The callback changes identity every render; the recogniser is built once.
   const onFinalRef = useRef(opts.onFinal);
   useEffect(() => {
@@ -60,7 +67,9 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
   useEffect(() => {
     setSupported(recognitionCtor() !== null);
     const saved = window.localStorage.getItem(LANG_KEY);
-    if (saved === "zh" || saved === "en") setLangState(saved);
+    // Checked against the locale table rather than a hand-written list, so
+    // adding a language cannot leave a stale check that silently discards it.
+    if (saved && Object.hasOwn(SPEECH_LOCALE, saved)) setLangState(saved as StaffLanguage);
   }, []);
 
   const setLang = useCallback((next: StaffLanguage) => {
@@ -86,6 +95,7 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
     rec.continuous = false;
     rec.interimResults = true;
     finalRef.current = "";
+    interimRef.current = "";
 
     rec.onresult = (e) => {
       let interimText = "";
@@ -94,14 +104,16 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
         if (e.results[i].isFinal) finalRef.current += chunk;
         else interimText += chunk;
       }
+      interimRef.current = interimText;
       setInterim(interimText);
     };
     rec.onerror = () => setListening(false);
     rec.onend = () => {
       setListening(false);
       setInterim("");
-      const said = finalRef.current.trim();
+      const said = chooseTranscript(finalRef.current, interimRef.current);
       finalRef.current = "";
+      interimRef.current = "";
       // Sent only on a real utterance. A mic opened by accident in a noisy
       // shop ends with nothing, and nothing is the right thing to send.
       if (said) onFinalRef.current(said);
@@ -141,7 +153,9 @@ export function useVoice(opts: { onFinal: (text: string) => void }) {
 
     const u = new SpeechSynthesisUtterance(text);
     u.lang = SPEECH_LOCALE[spokenLang];
-    const prefix = spokenLang === "zh" ? "zh" : "en";
+    // Derived, not listed: a hand-written pair here is how a third language
+    // ends up being read out by an English voice.
+    const prefix = SPEECH_LOCALE[spokenLang].split("-")[0].toLowerCase();
     const match =
       // An exact locale first (zh-CN over zh-TW: the shop speaks Mandarin),
       // then any voice of that language.

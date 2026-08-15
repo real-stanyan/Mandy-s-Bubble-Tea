@@ -1,11 +1,14 @@
-/** Han (incl. extension A), kana, Hangul. */
-const CJK = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+/** Hangul syllables plus the jamo blocks, checked before Han: Korean text
+ *  rarely contains hanja, but when it does the Hangul is still the signal. */
+const HANGUL = /[가-힣ᄀ-ᇿㄱ-ㆎ]/;
+/** Han (incl. extension A) and kana. */
+const CJK = /[぀-ヿ㐀-䶿一-鿿]/;
 /** Two or more Latin letters standing alone as a word. The boundary checks
  *  are what keep sticker numbers out: "OL" in "OL846" is glued to digits, and
  *  staff type those far more often than they type English. */
 const LATIN_WORD = /(?<![A-Za-z0-9])[A-Za-z]{2,}(?![A-Za-z0-9])/;
 
-export type StaffLanguage = "zh" | "en";
+export type StaffLanguage = "zh" | "en" | "ko";
 
 /**
  * Which language the person at the counter is speaking.
@@ -29,6 +32,7 @@ export type StaffLanguage = "zh" | "en";
 export function detectLanguage(texts: string[]): StaffLanguage | null {
   for (let i = texts.length - 1; i >= 0; i--) {
     const t = texts[i] ?? "";
+    if (HANGUL.test(t)) return "ko";
     if (CJK.test(t)) return "zh";
     if (LATIN_WORD.test(t)) return "en";
   }
@@ -43,11 +47,16 @@ export function detectLanguage(texts: string[]): StaffLanguage | null {
  * the wrong language cannot be skimmed past, and the staff member has both
  * hands in a cup.
  */
+const LANGUAGE_NAME: Record<StaffLanguage, string> = {
+  zh: "Chinese",
+  en: "English",
+  ko: "Korean",
+};
+
 export function languageDirective(lang: StaffLanguage | null): string {
   if (!lang) return "";
-  return lang === "zh"
-    ? "\n\nThe staff member is writing in Chinese. Write your reply in Chinese."
-    : "\n\nThe staff member is writing in English. Write your reply in English.";
+  const name = LANGUAGE_NAME[lang];
+  return `\n\nThe staff member is writing in ${name}. Write your reply in ${name}.`;
 }
 
 /** BCP-47 tags for the browser's speech recogniser and speech synthesis.
@@ -56,4 +65,13 @@ export function languageDirective(lang: StaffLanguage | null): string {
 export const SPEECH_LOCALE: Record<StaffLanguage, string> = {
   zh: "zh-CN",
   en: "en-AU",
+  ko: "ko-KR",
+};
+
+/** What the mic toggle shows, each in its own language — the person choosing
+ *  it is the person who reads it. */
+export const LANGUAGE_LABEL: Record<StaffLanguage, string> = {
+  en: "English",
+  zh: "中文",
+  ko: "한국어",
 };
