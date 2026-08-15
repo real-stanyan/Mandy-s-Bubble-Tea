@@ -1,6 +1,9 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
-import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
+import { squareClient, SQUARE_LOCATION_ID, findCustomerByPhone } from "@/lib/square";
+import { findLoyaltyAccountByPhone } from "@/lib/loyalty";
+import { normalizePhone } from "@/lib/auth-format";
+import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
 import { getDeliveryPause } from "@/lib/store-status-server";
 import { assessPaymentHealth } from "@/lib/alerts/payment-health";
 
@@ -172,6 +175,85 @@ export async function lookUpOrder(reference: string): Promise<ToolResult> {
     };
   } catch {
     return { text: "Could not reach Square to look that order up." };
+  }
+}
+
+/** One customer, by the phone number they gave at the counter: whether they
+ *  have an account, their stars, and what they have ordered recently.
+ *
+ *  This is the one tool that reads a real person's records rather than the
+ *  shop's, so it is deliberately narrow. It answers the questions actually
+ *  asked across a counter — is this the right person, did their order go
+ *  through, how many stars have they got — and returns nothing else. No email
+ *  address, no street address, no card details: none of that helps make a
+ *  drink, and all of it is worth more to whoever might be standing there
+ *  asking.
+ *
+ *  The lookup is by exact phone number, so it cannot be used to browse. */
+export async function lookUpCustomer(phone: string): Promise<ToolResult> {
+  const e164 = normalizePhone(phone.trim());
+  if (!e164) {
+    return { text: `"${phone}" is not a phone number I can look up.` };
+  }
+  if (!SQUARE_LOCATION_ID) return { text: "Square location is not configured." };
+
+  try {
+    const [customer, loyalty] = await Promise.all([
+      findCustomerByPhone(e164),
+      findLoyaltyAccountByPhone(e164).catch(() => null),
+    ]);
+
+    const parts: string[] = [];
+    const name = [customer?.givenName, customer?.familyName].filter(Boolean).join(" ").trim();
+    parts.push(
+      customer
+        ? `${name || "No name on file"} — account found for ${phone}.`
+        : `No account for ${phone}. They may have ordered as a guest, which still works; it just means no stars.`,
+    );
+    if (loyalty) {
+      parts.push(`${loyalty.balance} stars.`);
+    } else if (customer) {
+      parts.push("No stars yet.");
+    }
+
+    if (customer?.id) {
+      const res = await squareClient.orders.search({
+        locationIds: [SQUARE_LOCATION_ID],
+        limit: 5,
+        query: {
+          filter: {
+            customerFilter: { customerIds: [customer.id] },
+            stateFilter: { states: ["OPEN", "COMPLETED", "CANCELED"] },
+          },
+          sort: { sortField: "CREATED_AT", sortOrder: "DESC" },
+        },
+      });
+      const orders = (res.orders ?? []).filter((o) => !isCustomAmountOnly(o));
+      if (orders.length === 0) {
+        parts.push("No orders on this account yet.");
+      } else {
+        parts.push(
+          `Last ${orders.length} order${orders.length === 1 ? "" : "s"}: ` +
+            orders
+              .map((o) => {
+                const items = (o.lineItems ?? [])
+                  .map((li) => `${li.quantity}× ${li.name ?? "item"}`)
+                  .join(", ");
+                const ref = o.referenceId ?? o.ticketName ?? "no sticker";
+                const paid = (o.netAmountDueMoney?.amount ?? 0n) === 0n;
+                return `${ref} (${o.createdAt}, ${o.state}${paid ? ", paid" : ", NOT paid"}) ${items}`;
+              })
+              .join(" | "),
+        );
+      }
+    }
+
+    parts.push(
+      "Anything beyond this — changing the account, refunding an order, adding stars by hand — is Stan's.",
+    );
+    return { text: parts.join(" ") };
+  } catch {
+    return { text: "Could not reach Square to look that customer up." };
   }
 }
 

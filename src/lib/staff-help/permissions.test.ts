@@ -77,6 +77,40 @@ describe("staff assistant permissions", () => {
     }
   });
 
+  it("lets nothing else mutate, whatever it is called", () => {
+    // The action check above classifies by name prefix, so a writing tool
+    // named look_up_something would slip past it. This is the same rule read
+    // from the other end: whatever the name, only the approved three may set
+    // `mutated`, and only they can therefore trigger the email to Stan.
+    const approvedFns = APPROVED_ACTIONS.map((a) =>
+      a.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
+    );
+    const exported = [...TOOLS_SRC.matchAll(/export async function (\w+)\(/g)].map((m) => m[1]);
+    for (const fn of exported) {
+      if (approvedFns.includes(fn)) continue;
+      const start = TOOLS_SRC.indexOf(`export async function ${fn}(`);
+      const next = TOOLS_SRC.indexOf("\nexport async function", start + 1);
+      const body = TOOLS_SRC.slice(start, next === -1 ? undefined : next);
+      expect(body, `${fn} mutates but is not an approved action`).not.toMatch(/mutated: true/);
+    }
+  });
+
+  it("does not hand a customer's contact details to the counter", () => {
+    // The customer lookup answers "is this the right person, did their order
+    // go through, how many stars" and nothing else. An email or street address
+    // does not help make a drink, and is worth something to whoever might be
+    // standing there asking for it.
+    const start = TOOLS_SRC.indexOf("export async function lookUpCustomer(");
+    expect(start, "lookUpCustomer not found").toBeGreaterThan(-1);
+    const next = TOOLS_SRC.indexOf("\nexport async function", start + 1);
+    const body = TOOLS_SRC.slice(start, next === -1 ? undefined : next);
+    for (const field of ["emailAddress", "address", "birthday", "note", "cards"]) {
+      expect(body, `lookUpCustomer reads ${field}`).not.toMatch(
+        new RegExp(`\\.${field}\\b`),
+      );
+    }
+  });
+
   it("tells the model that escalating is a success, not a fallback", () => {
     // The failure mode this guards is a helpful model inventing a workaround
     // for a refund because refusing felt unhelpful.
