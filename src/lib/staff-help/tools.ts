@@ -375,7 +375,7 @@ export async function checkStock(): Promise<ToolResult> {
 }
 
 /** How the day is going: orders and takings so far. */
-export async function checkToday(): Promise<ToolResult> {
+export async function checkToday(includeTakings: boolean): Promise<ToolResult> {
   try {
     // Brisbane midnight, not UTC: "today" to the person asking is the shop's
     // day, and for most of the trading day the two disagree.
@@ -391,15 +391,24 @@ export async function checkToday(): Promise<ToolResult> {
       limit: 200,
     });
     const payments = (res.data ?? []).filter((p) => p.status === "COMPLETED");
-    const cents = payments.reduce((sum, p) => sum + Number(p.amountMoney?.amount ?? 0n), 0);
     if (payments.length === 0) {
       return { text: "No completed payments yet today." };
     }
+    // How busy it has been is useful at the counter; what the shop took is
+    // not, and the passcode is shared. So the money is composed in only for
+    // the owner, rather than being written and then hopefully left unsaid —
+    // a number that never reaches the model cannot be repeated by it.
+    if (!includeTakings) {
+      return {
+        text: `${payments.length} paid orders today, since midnight Brisbane time. You do not have the takings — that is Rick's to look at.`,
+      };
+    }
+    const cents = payments.reduce((sum, p) => sum + Number(p.amountMoney?.amount ?? 0n), 0);
     return {
       text: `${payments.length} paid orders today, $${(cents / 100).toFixed(2)} taken. This counts card and any other Square payment since midnight Brisbane time.`,
     };
   } catch {
-    return { text: "Could not reach Square for today's takings." };
+    return { text: "Could not reach Square for today's orders." };
   }
 }
 

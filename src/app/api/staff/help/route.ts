@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentRole } from "@/lib/staff/auth";
+import { currentRole, type StaffRole } from "@/lib/staff/auth";
 import {
   callClaude,
   ClaudeError,
@@ -46,6 +46,8 @@ type Body = { messages?: Array<{ role: string; content: string }> };
 async function runTool(
   name: string,
   args: Record<string, unknown>,
+  /** Who is asking. Only the owner sees money. */
+  role: StaffRole,
 ): Promise<ToolResult & { label: string }> {
   switch (name) {
     case "check_payments":
@@ -74,7 +76,12 @@ async function runTool(
     case "check_stock":
       return { ...(await checkStock()), label: "checked stock" };
     case "check_today":
-      return { ...(await checkToday()), label: "checked today's takings" };
+      return {
+        // Decided here, from the passcode that was used, rather than from
+        // anything the model can be talked into.
+        ...(await checkToday(role === "owner")),
+        label: role === "owner" ? "checked today's takings" : "checked how busy today has been",
+      };
     case "look_up_customer": {
       const phone = String(args.phone ?? "");
       return {
@@ -232,7 +239,7 @@ export async function POST(req: Request) {
 
       const results: ClaudeBlock[] = [];
       for (const tc of reply.toolUses) {
-        const result = await runTool(tc.name, tc.input ?? {});
+        const result = await runTool(tc.name, tc.input ?? {}, role);
         performed.push(result.label);
 
         // Any change tells Rick, whether or not the model chose to. Staff have
