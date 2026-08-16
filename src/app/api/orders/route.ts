@@ -29,6 +29,10 @@ import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 import { computeOrderPricing, drinksSubtotalFor } from "@/lib/order-quote";
 import { isValidOrderBody } from "@/lib/order-request";
+import {
+  isValidPickupOffset,
+  toScheduledOrderNumber,
+} from "@/lib/pickup-schedule";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -230,9 +234,38 @@ export async function POST(request: Request) {
     );
   }
 
-  // Pickup ASAP — pickupAt is required by Square even for ASAP orders,
-  // so we use "now" as a reasonable approximation.
-  const pickupAt = new Date().toISOString();
+  // Scheduled pickup: the customer picked a "collect in N minutes" pill.
+  // Server re-validates against the live clock — the pills disappear
+  // client-side as closing approaches, but a stale tab could still send
+  // one whose pickup time now lands after close.
+  const pickupOffsetMinutes = body.pickupOffsetMinutes ?? 0;
+  const isScheduled = !isDelivery && pickupOffsetMinutes > 0;
+  if (pickupOffsetMinutes !== 0) {
+    if (isDelivery) {
+      return NextResponse.json(
+        { ok: false, error: "Scheduled pickup is not available for delivery" },
+        { status: 400 },
+      );
+    }
+    if (!isValidPickupOffset(pickupOffsetMinutes)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "That pickup time is no longer available — please choose again.",
+          pickupOffsetInvalid: true,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  // pickupAt is required by Square even for ASAP orders ("now" is the
+  // honest approximation); a scheduled order carries the real time and
+  // is what the print queue later derives its hold from.
+  const pickupAt = new Date(
+    Date.now() + pickupOffsetMinutes * 60 * 1000,
+  ).toISOString();
 
   // Daily online order number (OL800, OL801, …) shown to the customer
   // on the confirmation page AND written to Square's ticketName so
@@ -245,6 +278,9 @@ export async function POST(request: Request) {
     // more robust than an emoji, which Register hardware can garble. Same
     // atomic counter, just a relabelled prefix.
     if (isDelivery) pickupNumber = pickupNumber.replace(/^OL/, "DE");
+    // Scheduled pickups wear OL7xx the same way (Stan, 2026-08-16): staff
+    // see "make later" vs "make now" at a glance.
+    if (isScheduled) pickupNumber = toScheduledOrderNumber(pickupNumber);
   } catch {
     return NextResponse.json(
       { ok: false, error: "Failed to generate order number" },
@@ -352,7 +388,12 @@ export async function POST(request: Request) {
             type: "PICKUP" as const,
             state: "PROPOSED" as const,
             pickupDetails: {
-              scheduleType: "ASAP" as const,
+              // SCHEDULED tells Square (and our own print queue, which reads
+              // it back) that pickupAt is a real appointment, not the "now"
+              // approximation an ASAP order carries.
+              scheduleType: isScheduled
+                ? ("SCHEDULED" as const)
+                : ("ASAP" as const),
               pickupAt,
               recipient: {
                 customerId,

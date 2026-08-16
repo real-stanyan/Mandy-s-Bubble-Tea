@@ -61,12 +61,26 @@ export type OrderRequestBody = {
    *  dedupe order creation so a retry of the same order doesn't make a second
    *  order + charge. Namespaced by customer server-side before hitting Square. */
   idempotencyKey?: string;
+  /** Scheduled pickup: minutes from now until collection. 0/absent = ASAP.
+   *  Only the fixed pills (see pickup-schedule.ts) validate, and only for
+   *  PICKUP — a delivery order's timing belongs to the driver, not a pill.
+   *  The route re-checks the value against the closing time server-side;
+   *  this validator only guards the shape. */
+  pickupOffsetMinutes?: number;
 };
 
 export function isValidOrderBody(body: unknown): body is OrderRequestBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Partial<OrderRequestBody>;
   if (b.idempotencyKey !== undefined && typeof b.idempotencyKey !== "string") {
+    return false;
+  }
+  if (
+    b.pickupOffsetMinutes !== undefined &&
+    (typeof b.pickupOffsetMinutes !== "number" ||
+      !Number.isInteger(b.pickupOffsetMinutes) ||
+      b.pickupOffsetMinutes < 0)
+  ) {
     return false;
   }
   if (!Array.isArray(b.lines) || b.lines.length === 0) return false;

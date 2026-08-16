@@ -12,6 +12,7 @@ import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
 import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
+import { ScheduledPickupCard } from "./ScheduledPickupCard";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,23 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     order.metadata?.fulfillment_type === "DELIVERY" ||
     fulfillment?.type === "DELIVERY";
   const deliveryAddress = order.metadata?.delivery_address ?? null;
+
+  // Scheduled pickup — the customer chose a collection time, so the page
+  // shows it plus the "I'm here" early-release button. Label is Brisbane
+  // wall clock (UTC+10, no DST), same arithmetic the checkout pills use.
+  const scheduledPickupLabel = (() => {
+    const details = fulfillment?.pickupDetails;
+    if (isDelivery || details?.scheduleType !== "SCHEDULED" || !details.pickupAt) {
+      return null;
+    }
+    const ms = Date.parse(details.pickupAt);
+    if (!Number.isFinite(ms)) return null;
+    const bne = new Date(ms + 10 * 60 * 60 * 1000);
+    const h24 = bne.getUTCHours();
+    const m = bne.getUTCMinutes();
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return `${h12}:${String(m).padStart(2, "0")}${h24 < 12 ? "am" : "pm"}`;
+  })();
 
   // For delivery, the progress stepper is driven by the dispatch lifecycle, not
   // the Square fulfillment state — fetch the current dispatch status so the
@@ -263,6 +281,13 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             deliveryAddress={deliveryAddress}
             etaText={waitText}
           />
+
+          {scheduledPickupLabel ? (
+            <ScheduledPickupCard
+              orderId={orderId}
+              pickupLabel={scheduledPickupLabel}
+            />
+          ) : null}
 
           {/* Items */}
           <div className="rounded-card border border-line bg-card p-2 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">

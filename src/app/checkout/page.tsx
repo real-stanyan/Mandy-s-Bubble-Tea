@@ -15,6 +15,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { PickupTimeSelector } from "@/components/checkout/PickupTimeSelector";
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
 import { getOrCreateOrderNonce, clearOrderNonce } from "@/lib/checkout-nonce";
@@ -149,6 +150,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // wouldn't help (see classifyOrderBlock).
   const [orderBlock, setOrderBlock] = useState<OrderBlock | null>(null);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("PICKUP");
+  // Scheduled pickup: minutes until collection. 0 = now. Pickup-only —
+  // the order body sends it only for PICKUP, so a delivery order can
+  // never carry a stale pill.
+  const [pickupOffset, setPickupOffset] = useState(0);
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddress>({
     address: "",
     lat: 0,
@@ -768,6 +773,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         applyLoyaltyReward: rewardCount > 0,
         loyaltyRewardCount: rewardCount,
         fulfillmentType: fulfillment,
+        pickupOffsetMinutes:
+          fulfillment === "PICKUP" && pickupOffset > 0 ? pickupOffset : undefined,
         delivery:
           fulfillment === "DELIVERY" && quoteState.kind === "ok"
             ? {
@@ -1061,6 +1068,18 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 deliveryPause={deliveryPause}
               />
             </div>
+
+            {fulfillment === "PICKUP" && (
+              <div className="mt-4">
+                <SectionLabel>Pickup time</SectionLabel>
+                <div className="mt-2.5">
+                  <PickupTimeSelector
+                    value={pickupOffset}
+                    onChange={setPickupOffset}
+                  />
+                </div>
+              </div>
+            )}
 
             {fulfillment === "DELIVERY" && (
               <div className="mt-4 space-y-3">
