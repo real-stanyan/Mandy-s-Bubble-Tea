@@ -79,6 +79,28 @@ describe("lookupOrderStatusForChat", () => {
     expect(report).toContain("Do not invent one");
   });
 
+  it("lists recent past orders when today is empty, so history questions get real answers", async () => {
+    // Stan's 3:31am test (2026-08-17): 17 past orders in My Orders, but the
+    // report only spoke of "today", so Mandy answered "之前的订单" with
+    // "查不到" twice. The search already fetched the history — surface it.
+    const friday = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+    search.mockResolvedValue({
+      orders: [
+        order({ id: "PAST1", referenceId: "OL878", createdAt: friday }),
+        // Unpaid and canceled history must stay invisible.
+        order({ id: "PAST2", referenceId: "OL879", createdAt: friday, netAmountDueMoney: { amount: 500n } }),
+        order({ id: "PAST3", referenceId: "OL880", createdAt: friday, state: "CANCELED" }),
+      ],
+    });
+    const { report } = await lookupOrderStatusForChat(req());
+    expect(report).toContain("NO orders placed today");
+    expect(report).toContain("PAST orders");
+    expect(report).toContain("Order #OL878");
+    expect(report).toContain("My Orders page");
+    expect(report).not.toContain("OL879");
+    expect(report).not.toContain("OL880");
+  });
+
   it("reports a PREPARED pickup order as READY with its reference and items", async () => {
     search.mockResolvedValue({
       orders: [order({ fulfillments: [{ type: "PICKUP", state: "PREPARED" }] })],
