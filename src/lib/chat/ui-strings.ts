@@ -30,6 +30,9 @@ export type ChatUiStrings = {
   checkoutEmptyCart: string;
   checkoutFeesNote: (cups: number) => string;
   goToCheckout: string;
+  signInTitle: string;
+  signInBody: string;
+  signInCta: string;
 };
 
 const ZH: ChatUiStrings = {
@@ -56,6 +59,9 @@ const ZH: ChatUiStrings = {
   checkoutEmptyCart: "购物车还是空的——先挑一杯，或者直接跟我说想喝什么。",
   checkoutFeesNote: (cups) => `共 ${cups} 杯 · 优惠和费用在结账页计算`,
   goToCheckout: "去结账",
+  signInTitle: "登录后可以查订单",
+  signInBody: "登录你的账户，我就能帮你查订单状态、会员星星和专属优惠。",
+  signInCta: "去登录",
 };
 
 const EN: ChatUiStrings = {
@@ -82,6 +88,9 @@ const EN: ChatUiStrings = {
   checkoutEmptyCart: "Your cart is still empty — pick a drink, or just tell me what you feel like.",
   checkoutFeesNote: (cups) => `${cups} cup${cups === 1 ? "" : "s"} · discounts and fees are worked out at checkout`,
   goToCheckout: "Checkout",
+  signInTitle: "Sign in to check your order",
+  signInBody: "Once you're signed in I can look up your order status, loyalty stars and member offers.",
+  signInCta: "Sign in",
 };
 
 export function chatUiStrings(): ChatUiStrings {

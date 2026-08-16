@@ -58,21 +58,23 @@ afterEach(() => {
 describe("lookupOrderStatusForChat", () => {
   it("tells the model the customer is signed out — and never to claim readiness", async () => {
     getAuthedUser.mockResolvedValue(null);
-    const report = await lookupOrderStatusForChat(req());
-    expect(report).toContain("NOT signed in");
-    expect(report).toContain("Do NOT claim the order is ready");
+    const lookup = await lookupOrderStatusForChat(req());
+    expect(lookup.report).toContain("NOT signed in");
+    expect(lookup.report).toContain("Do NOT claim the order is ready");
+    // The flag the route turns into a sign-in card under the reply.
+    expect(lookup.signedOut).toBe(true);
     expect(search).not.toHaveBeenCalled();
   });
 
   it("treats a profile without a Square customer id as signed out", async () => {
     getAuthedUser.mockResolvedValue({ ...USER, profile: null });
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("NOT signed in");
     expect(search).not.toHaveBeenCalled();
   });
 
   it("says there are no orders today rather than inventing one", async () => {
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("NO orders placed today");
     expect(report).toContain("Do not invent one");
   });
@@ -81,7 +83,10 @@ describe("lookupOrderStatusForChat", () => {
     search.mockResolvedValue({
       orders: [order({ fulfillments: [{ type: "PICKUP", state: "PREPARED" }] })],
     });
-    const report = await lookupOrderStatusForChat(req());
+    const lookup = await lookupOrderStatusForChat(req());
+    // Signed-in paths must never trigger the sign-in card.
+    expect(lookup.signedOut).toBe(false);
+    const report = lookup.report;
     expect(report).toContain("Order #A17");
     expect(report).toContain("2x Taro Milk Tea");
     expect(report).toContain("READY — waiting at the counter");
@@ -90,7 +95,7 @@ describe("lookupOrderStatusForChat", () => {
 
   it("reports an unfulfilled OPEN pickup order as still being made", async () => {
     search.mockResolvedValue({ orders: [order()] });
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("still being made");
   });
 
@@ -104,7 +109,7 @@ describe("lookupOrderStatusForChat", () => {
         order({ id: "UNPAID", netAmountDueMoney: { amount: 750n } }),
       ],
     });
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("NO orders placed today");
   });
 
@@ -118,14 +123,14 @@ describe("lookupOrderStatusForChat", () => {
       ],
     });
     getDeliveredOrderIds.mockResolvedValue(new Set(["ORDER_1"]));
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("DELIVERED");
     expect(getDeliveredOrderIds).toHaveBeenCalledWith(["ORDER_1"]);
   });
 
   it("degrades to an honest 'unavailable' when Square throws — never a 500, never a guess", async () => {
     search.mockRejectedValue(new Error("square down"));
-    const report = await lookupOrderStatusForChat(req());
+    const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("unavailable");
     expect(report).toContain("Do NOT claim the order is ready");
     expect(consoleErrorSpy).toHaveBeenCalled();

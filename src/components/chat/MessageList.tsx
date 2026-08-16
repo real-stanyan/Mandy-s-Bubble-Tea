@@ -6,6 +6,7 @@ import { useChat } from "@/store/chat";
 import { DrinkProposalCard } from "@/components/chat/DrinkProposalCard";
 import { CheckoutCard } from "@/components/chat/CheckoutCard";
 import { PromotionCard } from "@/components/chat/PromotionCard";
+import { SignInCard } from "@/components/chat/SignInCard";
 import { VOICE_ENABLED } from "@/components/chat/ChatGate";
 import { chatUiStrings } from "@/lib/chat/ui-strings";
 
@@ -163,6 +164,12 @@ export function MessageList() {
           {m.checkoutCard ? (
             <div className="mt-2 w-full max-w-[90%]">
               <CheckoutCard />
+            </div>
+          ) : null}
+
+          {m.signInCard ? (
+            <div className="mt-2 w-full max-w-[90%]">
+              <SignInCard />
             </div>
           ) : null}
 
