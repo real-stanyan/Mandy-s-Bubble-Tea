@@ -141,6 +141,15 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "check_my_order",
+      description:
+        "Look up the customer's own most recent order and how far along it is. Call this whenever they ask about an order they have already placed — where it is, whether anyone has picked it up, how much longer, or why it is taking a while. Do not answer those from memory: call this first. It takes no arguments and can only ever return the order of the person you are talking to.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "go_checkout",
       description:
         "Send the customer to checkout. Call this only when they have asked to pay or check out.",

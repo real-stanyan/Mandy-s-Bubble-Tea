@@ -21,13 +21,29 @@ function ok(body: unknown) {
 }
 
 describe("CHAT_TOOLS", () => {
-  it("exposes exactly propose_drink, show_promotion, file_complaint, and go_checkout", () => {
+  it("exposes exactly the five tools the customer chat is allowed", () => {
+    // check_my_order joined the list on 17 August. A customer who had already
+    // ordered asked three times whether anyone had picked it up and was sent
+    // to the phone three times, because nothing here could look.
+    //
+    // It reads the session rather than an argument, so it can only ever return
+    // the order of the person being spoken to — which is why widening the list
+    // by one is safe. Anything that took a customer id would not be.
     expect(CHAT_TOOLS.map((t) => t.function.name).sort()).toEqual([
+      "check_my_order",
       "file_complaint",
       "go_checkout",
       "propose_drink",
       "show_promotion",
     ]);
+  });
+
+  it("lets check_my_order take no arguments at all", () => {
+    // The whole safety property. An argument would be a way to name somebody
+    // else's order, and the model would eventually be talked into filling it.
+    const tool = CHAT_TOOLS.find((t) => t.function.name === "check_my_order");
+    expect(tool?.function.parameters.properties).toEqual({});
+    expect(tool?.function.parameters.additionalProperties).toBe(false);
   });
 });
 
@@ -42,7 +58,9 @@ describe("callDeepSeek", () => {
     expect(url).toBe("https://api.deepseek.com/chat/completions");
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.model).toBe("deepseek-v4-flash");
-    expect(body.tools).toHaveLength(4);
+    // Counted from the list rather than written out, so adding a tool changes
+    // it in the one place above that is meant to be argued about.
+    expect(body.tools).toHaveLength(CHAT_TOOLS.length);
   });
 
   it("sends the API key as a bearer token", async () => {

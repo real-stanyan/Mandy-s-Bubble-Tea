@@ -21,6 +21,8 @@ import {
   type Promotion,
 } from "@/lib/chat/promotions";
 import { readCustomerPromoState } from "@/lib/chat/customer-state";
+import { readOrderStatus } from "@/lib/chat/order-status";
+import { describeOrderStatus } from "@/lib/chat/order-status-text";
 import { guardComplaint } from "@/lib/chat/complaint-guard";
 import {
   recordChatTurns,
@@ -459,6 +461,33 @@ export async function POST(request: Request): Promise<Response> {
         action: null,
         suggestions: [],
       });
+    }
+
+    // "Where is my order" gets looked up rather than deflected.
+    //
+    // Below the complaint branch on purpose: somebody who says their drink was
+    // wrong AND asks where the next one is deserves the complaint filed first.
+    // Above the drink proposals, because an answer about an order they have
+    // already placed is what they came for.
+    //
+    // The lookup reads the session, never an argument, so the model can ask
+    // about the customer it is talking to and has no way to name anybody else.
+    const orderCall = findToolCall(result.toolCalls, "check_my_order");
+    if (orderCall) {
+      const status = describeOrderStatus(await readOrderStatus(request));
+      messages.push({
+        role: "assistant",
+        content: result.content ?? "",
+        tool_calls: [
+          {
+            id: orderCall.id,
+            type: "function",
+            function: { name: orderCall.name, arguments: orderCall.argumentsJson },
+          },
+        ],
+      });
+      messages.push({ role: "tool", tool_call_id: orderCall.id, content: status });
+      continue;
     }
 
     // Promotion cards. The model picks a key; the card's words and numbers
