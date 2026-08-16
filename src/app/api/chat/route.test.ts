@@ -89,9 +89,11 @@ beforeEach(() => {
   // rather than let it print, and silence it by default so passing tests
   // stay quiet; individual tests assert on calls where the log matters.
   lookupOrderStatusForChat.mockReset();
-  lookupOrderStatusForChat.mockResolvedValue(
-    "Today's orders for this signed-in customer (1 total, newest first):\n- Order #A17 — 2x Taro Milk Tea — status: READY — waiting at the counter",
-  );
+  lookupOrderStatusForChat.mockResolvedValue({
+    signedOut: false,
+    report:
+      "Today's orders for this signed-in customer (1 total, newest first):\n- Order #A17 — 2x Taro Milk Tea — status: READY — waiting at the counter",
+  });
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -796,6 +798,37 @@ describe("POST /api/chat — check_order_status", () => {
     const body = await (await POST(req(askTaro))).json();
     expect(callDeepSeek).toHaveBeenCalledTimes(3);
     expect(body.proposal.itemId).toBe("ITEM_TARO");
+  });
+
+  it("attaches the sign-in card when the lookup finds a signed-out asker", async () => {
+    lookupOrderStatusForChat.mockResolvedValue({
+      signedOut: true,
+      report: "The customer is NOT signed in …",
+    });
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      return n === 1
+        ? statusCall()
+        : { content: "I can't see your order from here — sign in and I'll check.", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+    expect(body.signIn).toBe(true);
+    expect(body.reply).toContain("sign in");
+  });
+
+  it("sends no sign-in card for a signed-in asker", async () => {
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      return n === 1
+        ? statusCall()
+        : { content: "Order #A17 is ready!", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+    expect(body.signIn).toBeUndefined();
   });
 
   it("files the complaint first when both tools arrive in one turn", async () => {

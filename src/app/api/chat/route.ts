@@ -310,6 +310,9 @@ export async function POST(request: Request): Promise<Response> {
     suggestions: unknown[];
     /** Server-authored promotion cards; the model only picks which key. */
     promotions?: Promotion[];
+    /** True when the reply should carry a sign-in card — set by the
+     *  order-status path when the asker turned out to be signed out. */
+    signIn?: boolean;
   }): Response {
     void recordChatTurns([
       {
@@ -358,6 +361,10 @@ export async function POST(request: Request): Promise<Response> {
   // needs an extra round-trip (call → tool result → composed answer) and
   // must not eat the validation loop's only retry.
   let orderStatusReport: string | null = null;
+  // Sticky across attempts: once the lookup says "signed out", every later
+  // answer in this request carries the sign-in card, no matter which loop
+  // branch finally replies.
+  let offerSignIn = false;
   let maxAttempts = MAX_ATTEMPTS;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -479,7 +486,9 @@ export async function POST(request: Request): Promise<Response> {
     const orderStatusCall = findToolCall(result.toolCalls, "check_order_status");
     if (orderStatusCall) {
       if (orderStatusReport === null) {
-        orderStatusReport = await lookupOrderStatusForChat(request);
+        const lookup = await lookupOrderStatusForChat(request);
+        orderStatusReport = lookup.report;
+        offerSignIn = lookup.signedOut;
         maxAttempts += 1;
       }
       messages.push({
@@ -555,12 +564,17 @@ export async function POST(request: Request): Promise<Response> {
       // Same scrub-first-then-fallback shape as above; this site had no
       // fallback at all before, so a price-only reply reached the
       // customer as a silently blank bubble.
+      //
+      // This is also where the order-status round lands one attempt later,
+      // so the sign-in card rides here: words from the model, button from
+      // the server.
       return answer({
         reply: scrubPrices(result.content) || t.emptyReplyFallback,
         proposal: null,
         proposals: [],
         action: null,
         suggestions: [],
+        signIn: offerSignIn || undefined,
       });
     }
 
@@ -658,9 +672,12 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return answer(degraded(
-    t.noMatchWithSuggestions,
-    t.noMatchNoSuggestions,
-    fallbackMatch(menu, lastUserText),
-  ));
+  return answer({
+    ...degraded(
+      t.noMatchWithSuggestions,
+      t.noMatchNoSuggestions,
+      fallbackMatch(menu, lastUserText),
+    ),
+    signIn: offerSignIn || undefined,
+  });
 }

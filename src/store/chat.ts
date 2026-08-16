@@ -20,6 +20,9 @@ export type ChatMessage = {
   promotions?: ApiPromotion[];
   /** Set on assistant turns that should render the go-to-checkout card. */
   checkoutCard?: boolean;
+  /** Set when the server answered a signed-out customer's order question —
+   *  renders the sign-in card under the reply. */
+  signInCard?: boolean;
   /** Menu links offered when the model was unreachable or unconfident. */
   suggestions?: { itemId: string; itemName: string; categorySlug: string }[];
   /** Set once the customer has pressed Add — the card locks after that.

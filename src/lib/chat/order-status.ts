@@ -29,17 +29,34 @@ import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
  * Never throws: a lookup failure must degrade to an honest "I can't check
  * right now", not 500 the chat turn.
  */
-export async function lookupOrderStatusForChat(request: Request): Promise<string> {
-  const signedOut =
-    "The customer is NOT signed in, so their orders cannot be looked up from here. " +
-    "Say honestly that you cannot see their order from the chat. Do NOT claim the order is ready or waiting. " +
-    "Reassure them with the pickup holding policy in STORE FACTS, and suggest checking the order status " +
-    "in their account page on the website or app (signing in if needed).";
+export type OrderStatusLookup = {
+  /** The tool-message text the model answers from. */
+  report: string;
+  /** True when the report is the signed-out variant — the route uses it to
+   *  attach a sign-in card to the reply, so the customer gets a button
+   *  where the model's words say "sign in". */
+  signedOut: boolean;
+};
 
-  const unavailable =
-    "Order lookup is unavailable right now. Say honestly that you cannot check their order at the moment. " +
-    "Do NOT claim the order is ready or waiting. Reassure them with the pickup holding policy in STORE FACTS, " +
-    "and point them at their account's order page or the store phone.";
+export async function lookupOrderStatusForChat(
+  request: Request,
+): Promise<OrderStatusLookup> {
+  const signedOut = {
+    signedOut: true,
+    report:
+      "The customer is NOT signed in, so their orders cannot be looked up from here. " +
+      "Say honestly that you cannot see their order from the chat. Do NOT claim the order is ready or waiting. " +
+      "Reassure them with the pickup holding policy in STORE FACTS, and mention the sign-in card shown under " +
+      "your reply — one tap and you can check their order for them.",
+  };
+
+  const unavailable = {
+    signedOut: false,
+    report:
+      "Order lookup is unavailable right now. Say honestly that you cannot check their order at the moment. " +
+      "Do NOT claim the order is ready or waiting. Reassure them with the pickup holding policy in STORE FACTS, " +
+      "and point them at their account's order page or the store phone.",
+  };
 
   try {
     const user = await getAuthedUser(request);
@@ -74,11 +91,13 @@ export async function lookupOrderStatusForChat(request: Request): Promise<string
     });
 
     if (todays.length === 0) {
-      return (
-        "This customer is signed in but has NO orders placed today. Do not invent one. " +
-        "If they believe they ordered, it may have been under a different account or by phone — " +
-        "point them at their account's order page or the store phone."
-      );
+      return {
+        signedOut: false,
+        report:
+          "This customer is signed in but has NO orders placed today. Do not invent one. " +
+          "If they believe they ordered, it may have been under a different account or by phone — " +
+          "point them at their account's order page or the store phone.",
+      };
     }
 
     const deliveryIds = todays
@@ -124,12 +143,14 @@ export async function lookupOrderStatusForChat(request: Request): Promise<string
       return `- ${ref ? `Order #${ref}` : "Order"}${placed} — ${items || "no line detail"} — status: ${status}`;
     });
 
-    return (
-      `Today's orders for this signed-in customer (${todays.length} total, newest first):\n` +
-      lines.join("\n") +
-      "\nAnswer from these facts ONLY — never invent an order or a status. " +
-      "If an order is READY and they are running late, reassure them with the pickup holding policy in STORE FACTS."
-    );
+    return {
+      signedOut: false,
+      report:
+        `Today's orders for this signed-in customer (${todays.length} total, newest first):\n` +
+        lines.join("\n") +
+        "\nAnswer from these facts ONLY — never invent an order or a status. " +
+        "If an order is READY and they are running late, reassure them with the pickup holding policy in STORE FACTS.",
+    };
   } catch (err) {
     console.error(
       "[chat] order status lookup failed; telling the model it is unavailable:",

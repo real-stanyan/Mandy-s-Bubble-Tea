@@ -98,6 +98,7 @@ export function ChatDrawer() {
         // reviews what's in the cart and taps 去结账 themselves — being
         // yanked to a payment page mid-sentence reads as a malfunction.
         checkoutCard: body.action === "checkout" || undefined,
+        signInCard: body.signIn === true || undefined,
       };
       push(reply);
     } catch {
@@ -115,9 +116,13 @@ export function ChatDrawer() {
     // dvh, not vh: vh ignores the iOS keyboard/toolbar, so the drawer's
     // bottom row could sit under browser chrome; dvh tracks the dynamic
     // viewport and keeps the input row visible when the keyboard is up.
-    <div className="fixed inset-x-0 bottom-0 z-50 flex h-[70dvh] flex-col rounded-t-3xl bg-card shadow-card sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[32rem] sm:w-96 sm:rounded-card">
+    // The one surface that opts OUT of the site-wide Shantell handwriting:
+    // this box speaks for the shop (order status, sign-in, complaints), and
+    // Stan wants that voice formal (2026-08-17). Inter cascades to every
+    // bubble, card and input inside; the site around it stays handwritten.
+    <div className="fixed inset-x-0 bottom-0 z-50 flex h-[70dvh] flex-col rounded-t-3xl bg-card shadow-card [font-family:var(--font-inter),system-ui,sans-serif] sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[32rem] sm:w-96 sm:rounded-card">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="font-serif text-[15px] font-semibold text-ink">{t.drawerTitle}</p>
+        <p className="text-[15px] font-semibold text-ink">{t.drawerTitle}</p>
         <button
           type="button"
           onClick={close}
