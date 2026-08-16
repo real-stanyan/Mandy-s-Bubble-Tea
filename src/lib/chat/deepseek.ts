@@ -141,6 +141,15 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "check_order_status",
+      description:
+        "Look up the signed-in customer's OWN orders from today: order number, items, and live status (being made / ready / picked up / delivered). Call it whenever they ask if their order is ready, say the app shows it ready, say they are on their way to collect, or worry about being late. Answer from its result only — never guess or promise what the counter is doing. Takes no arguments; it always looks at the asking customer's own account.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "go_checkout",
       description:
         "Send the customer to checkout. Call this only when they have asked to pay or check out.",

@@ -21,6 +21,7 @@ import {
   type Promotion,
 } from "@/lib/chat/promotions";
 import { readCustomerPromoState } from "@/lib/chat/customer-state";
+import { lookupOrderStatusForChat } from "@/lib/chat/order-status";
 import { guardComplaint } from "@/lib/chat/complaint-guard";
 import {
   recordChatTurns,
@@ -351,7 +352,15 @@ export async function POST(request: Request): Promise<Response> {
     ...history.map((m) => ({ role: m.role, content: m.content })),
   ];
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // check_order_status bookkeeping. The report is cached so a model that
+  // repeats the call cannot hit Square twice in one request; the budget is
+  // raised by exactly one the first time, because a status turn legitimately
+  // needs an extra round-trip (call → tool result → composed answer) and
+  // must not eat the validation loop's only retry.
+  let orderStatusReport: string | null = null;
+  let maxAttempts = MAX_ATTEMPTS;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let result: Awaited<ReturnType<typeof callDeepSeek>>;
     try {
       result = await callDeepSeek(messages);
@@ -384,7 +393,7 @@ export async function POST(request: Request): Promise<Response> {
     if (
       result.toolCalls.length === 0 &&
       violatesScriptHint(script, result.content) &&
-      attempt < MAX_ATTEMPTS
+      attempt < maxAttempts
     ) {
       messages[0] = {
         role: "system",
@@ -459,6 +468,40 @@ export async function POST(request: Request): Promise<Response> {
         action: null,
         suggestions: [],
       });
+    }
+
+    // Order status. The model may only relay what the lookup reports — it
+    // has no other window onto the counter, and before this tool existed it
+    // answered "It shows it's ready" by inventing an order that was waiting
+    // (2026-08-16). Same feedback shape as the complaint guard: echo the
+    // call, hand back the report as a tool message, let the model compose
+    // the customer-facing sentence from it on the next round.
+    const orderStatusCall = findToolCall(result.toolCalls, "check_order_status");
+    if (orderStatusCall) {
+      if (orderStatusReport === null) {
+        orderStatusReport = await lookupOrderStatusForChat(request);
+        maxAttempts += 1;
+      }
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: orderStatusCall.id,
+            type: "function",
+            function: {
+              name: orderStatusCall.name,
+              arguments: orderStatusCall.argumentsJson,
+            },
+          },
+        ],
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: orderStatusCall.id,
+        content: orderStatusReport,
+      });
+      continue;
     }
 
     // Promotion cards. The model picks a key; the card's words and numbers
