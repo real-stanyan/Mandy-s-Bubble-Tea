@@ -5,7 +5,13 @@ import {
   LOYALTY,
   LOYALTY_CATEGORIES,
 } from "@/lib/constants";
-import { OPEN_MIN, CLOSE_MIN, ORDER_CUTOFF_MIN, formatClock } from "@/lib/store-status";
+import {
+  OPEN_MIN,
+  CLOSE_MIN,
+  ORDER_CUTOFF_MIN,
+  formatClock,
+  getStoreStatus,
+} from "@/lib/store-status";
 import { WEEKLY_SPECIALS } from "@/lib/menu/weekly-specials";
 
 /** Decimal Brisbane hour → "10:30"-style label. */
@@ -33,8 +39,21 @@ export function buildStoreDigest(
    *  API will refuse — the same "promised what we can't deliver" failure
    *  preference-check.ts exists to stop. */
   deliveryPause: { until: string; reason: string } | null = null,
+  /** Injectable for tests; production always uses the real clock. */
+  now: Date = new Date(),
 ): string {
   const specials = WEEKLY_SPECIALS.map((s) => s.name).join(", ");
+
+  // "Are you open NOW?" — asked at 3:47am, Mandy recited the opening hours
+  // and then asked what the customer wanted to drink (probe, 2026-08-17).
+  // Hours alone make the reader do the clock math; this line does it for
+  // her. Cache note: the store digest sits in the cached prompt prefix, and
+  // this line changes it — but only twice a day (open/close boundary), not
+  // per customer, which is the same cost profile as a delivery pause.
+  const status = getStoreStatus(now);
+  const rightNow = status.open
+    ? `- RIGHT NOW the store is OPEN (${status.nextLabel}; online ordering closes ${formatClock(ORDER_CUTOFF_MIN)}). "Are you open / can I order now?" — yes.`
+    : `- RIGHT NOW the store is CLOSED — opens ${status.nextLabel}. Online ordering starts then too: the customer CANNOT place an order at this moment, so never take one "for when you open". Answer "are you open now" with this line first, then the hours.`;
   // While paused, the delivery facts are REPLACED, not annotated. A warning
   // line above "we deliver to 4211, 4214, …, daily 10:30–22:30" loses to the
   // concrete list every time — the model answered "yes, 4217 is in our
@@ -66,6 +85,9 @@ export function buildStoreDigest(
 - Store: ${BUSINESS.name}, ${BUSINESS.address}. Phone ${BUSINESS.phone}. Website ${BUSINESS.domain}.
 - Opening hours: ${formatClock(OPEN_MIN)}–${formatClock(CLOSE_MIN)} Brisbane time, every day.
 - Online ordering closes at ${formatClock(ORDER_CUTOFF_MIN)} — the last ${(CLOSE_MIN - ORDER_CUTOFF_MIN)} minutes before closing are walk-in only, so the counter can finish the queue.
+${rightNow}
+- No advance or scheduled orders: an online order is started the moment it is placed and is ready about 10 minutes later — there is NO way to book a pickup time ("tomorrow 3pm", "in two hours"), and the checkout page has no time picker. A customer who wants drinks for later should simply order shortly before they come. Never claim a pickup time can be chosen or confirmed at checkout.
+- Paying online: card or Apple Pay, at checkout. Whether the counter takes cash for walk-ins is not stated here — point that one question at the store phone.
 ${deliveryFacts.join("\n")}
 - Pickup holding: when an order is marked Ready it waits at the counter. If nobody collects it within about 5 minutes, staff move the drinks into the fridge to keep them fresh — a customer running late just asks at the counter and gets their order. Being late never means a wasted drink, so reassure them.
 - Loyalty: buy drinks from the ${LOYALTY_CATEGORIES.join("/")} categories to earn 1 star each; ${LOYALTY.starsPerReward} stars = ${LOYALTY.rewardLabel}. Stars and rewards are used at checkout.
