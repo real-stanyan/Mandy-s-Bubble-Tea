@@ -40,6 +40,9 @@ vi.mock("@/lib/store-status-server", () => ({ getDeliveryPause }));
 // route only ever needs the report string, so stub the whole lookup.
 const lookupOrderStatusForChat = vi.fn();
 vi.mock("@/lib/chat/order-status", () => ({ lookupOrderStatusForChat }));
+// bulk-inquiry pulls in the resend client at module scope, same as complaint.
+const sendBulkInquiry = vi.fn();
+vi.mock("@/lib/chat/bulk-inquiry", () => ({ sendBulkInquiry }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -88,6 +91,8 @@ beforeEach(() => {
   // Every degrade/failure path is expected to log now (Finding 3) — spy
   // rather than let it print, and silence it by default so passing tests
   // stay quiet; individual tests assert on calls where the log matters.
+  sendBulkInquiry.mockReset();
+  sendBulkInquiry.mockResolvedValue({ emailed: true });
   lookupOrderStatusForChat.mockReset();
   lookupOrderStatusForChat.mockResolvedValue({
     signedOut: false,
@@ -742,6 +747,52 @@ describe("POST /api/chat — promotions, not complaints", () => {
     ).json();
 
     expect(body.promotions ?? []).toEqual([]);
+  });
+});
+
+describe("POST /api/chat — record_bulk_inquiry", () => {
+  const askBulk = {
+    messages: [{ role: "user", content: "我要订30杯，明天下午3点取，电话0400000123" }],
+  };
+  const goodArgsJson = JSON.stringify({
+    cups: 30,
+    when: "tomorrow 3pm",
+    delivery: false,
+    contact: "0400000123",
+  });
+
+  it("emails the inquiry and answers with the model's own acknowledgement", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "已经帮你把信息发给店里啦，他们会联系你确认细节。",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: goodArgsJson }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    expect(sendBulkInquiry).toHaveBeenCalledWith(
+      expect.objectContaining({ cups: 30, contact: "0400000123" }),
+    );
+    expect(body.reply).toContain("发给店里");
+  });
+
+  it("hands out the store phone when the email did NOT go — never a hollow callback promise", async () => {
+    sendBulkInquiry.mockResolvedValue({ emailed: false });
+    callDeepSeek.mockResolvedValue({
+      content: "已经发给店里啦！",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: goodArgsJson }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    // The model's optimistic sentence must be REPLACED by the honest copy.
+    expect(body.reply).toContain("0404 978 238");
+    expect(body.reply).not.toContain("发给店里啦");
+  });
+
+  it("treats malformed tool arguments as a failed send", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "好的！",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: "{not json" }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    expect(sendBulkInquiry).not.toHaveBeenCalled();
+    expect(body.reply).toContain("0404 978 238");
   });
 });
 

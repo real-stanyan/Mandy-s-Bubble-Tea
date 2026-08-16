@@ -29,6 +29,7 @@ import {
   fallbackConversationId,
 } from "@/lib/chat/log";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
+import { sendBulkInquiry, type BulkInquiry } from "@/lib/chat/bulk-inquiry";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
@@ -65,6 +66,8 @@ const STRINGS = {
     emptyReplyFallback: "抱歉，我刚才没说清楚——能再说一次吗？",
     checkoutFallback: "好的，这就带你去结账。",
     complaintAck: "已经记下了，我马上通知店长，他会在 24 小时内联系你处理。",
+    bulkInquiryAck: "大单信息已经发给店里了，会尽快联系你确认饮品、时间和价格。",
+    bulkInquiryFailed: "抱歉，刚才没能把信息发给店里——麻烦直接打门店电话 0404 978 238，说一下杯数和时间就行。",
   },
   en: {
     unreachableWithSuggestions: "Sorry, the assistant is unreachable right now. You might like one of these:",
@@ -74,6 +77,8 @@ const STRINGS = {
     emptyReplyFallback: "Sorry, I didn't put that well — could you say it again?",
     checkoutFallback: "Sure — taking you to checkout.",
     complaintAck: "I've noted it down and notified the store manager — they'll contact you within 24 hours.",
+    bulkInquiryAck: "Your bulk order details are with the store — they'll be in touch soon to confirm drinks, timing and price.",
+    bulkInquiryFailed: "Sorry — that didn't reach the store just now. Please ring 0404 978 238 with your cup count and timing instead.",
   },
 } as const;
 
@@ -470,6 +475,41 @@ export async function POST(request: Request): Promise<Response> {
       }
       return answer({
         reply: scrubPrices(result.content) || t.complaintAck,
+        proposal: null,
+        proposals: [],
+        action: null,
+        suggestions: [],
+      });
+    }
+
+    // Bulk inquiry — the handoff to Rick for orders self-serve can't take
+    // (future pickup, or 50+ cups). Terminal like a complaint: the model's
+    // own sentence acknowledges; the fixed ack covers an empty one. When
+    // the email did NOT go out, the customer gets the honest failure copy
+    // with the store phone — never a callback promise nobody will make.
+    const bulkCall = findToolCall(result.toolCalls, "record_bulk_inquiry");
+    if (bulkCall) {
+      let inquiry: BulkInquiry | null = null;
+      try {
+        inquiry = JSON.parse(bulkCall.argumentsJson) as BulkInquiry;
+      } catch {
+        // Malformed arguments — fall through to the failure copy below.
+      }
+      const { emailed } = inquiry
+        ? await sendBulkInquiry(inquiry)
+        : { emailed: false };
+      if (!emailed) {
+        console.error("[chat] bulk inquiry not emailed — handing out the store phone");
+        return answer({
+          reply: t.bulkInquiryFailed,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+        });
+      }
+      return answer({
+        reply: scrubPrices(result.content) || t.bulkInquiryAck,
         proposal: null,
         proposals: [],
         action: null,

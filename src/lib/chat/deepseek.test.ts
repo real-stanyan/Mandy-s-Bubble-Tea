@@ -21,12 +21,13 @@ function ok(body: unknown) {
 }
 
 describe("CHAT_TOOLS", () => {
-  it("exposes exactly propose_drink, show_promotion, file_complaint, check_order_status, and go_checkout", () => {
+  it("exposes exactly the six tools", () => {
     expect(CHAT_TOOLS.map((t) => t.function.name).sort()).toEqual([
       "check_order_status",
       "file_complaint",
       "go_checkout",
       "propose_drink",
+      "record_bulk_inquiry",
       "show_promotion",
     ]);
   });
@@ -43,7 +44,7 @@ describe("callDeepSeek", () => {
     expect(url).toBe("https://api.deepseek.com/chat/completions");
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.model).toBe("deepseek-v4-flash");
-    expect(body.tools).toHaveLength(5);
+    expect(body.tools).toHaveLength(6);
   });
 
   it("sends the API key as a bearer token", async () => {
