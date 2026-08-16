@@ -36,6 +36,10 @@ vi.mock("@/lib/chat/complaint", () => ({ fileChatComplaint }));
 // store-status-server pulls in supabase-server at module scope.
 const getDeliveryPause = vi.fn();
 vi.mock("@/lib/store-status-server", () => ({ getDeliveryPause }));
+// order-status.ts pulls in auth/square/driver-tokens at module scope; the
+// route only ever needs the report string, so stub the whole lookup.
+const lookupOrderStatusForChat = vi.fn();
+vi.mock("@/lib/chat/order-status", () => ({ lookupOrderStatusForChat }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -84,6 +88,10 @@ beforeEach(() => {
   // Every degrade/failure path is expected to log now (Finding 3) — spy
   // rather than let it print, and silence it by default so passing tests
   // stay quiet; individual tests assert on calls where the log matters.
+  lookupOrderStatusForChat.mockReset();
+  lookupOrderStatusForChat.mockResolvedValue(
+    "Today's orders for this signed-in customer (1 total, newest first):\n- Order #A17 — 2x Taro Milk Tea — status: READY — waiting at the counter",
+  );
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -732,5 +740,83 @@ describe("POST /api/chat — promotions, not complaints", () => {
     ).json();
 
     expect(body.promotions ?? []).toEqual([]);
+  });
+});
+
+describe("POST /api/chat — check_order_status", () => {
+  const askReady = { messages: [{ role: "user", content: "It shows it's ready" }] };
+
+  function statusCall() {
+    return {
+      content: "",
+      toolCalls: [{ id: "os1", name: "check_order_status", argumentsJson: "{}" }],
+    };
+  }
+
+  it("feeds the lookup report back and answers from the second round", async () => {
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? statusCall()
+        : { content: "Yes — order #A17 is ready at the counter!", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+
+    expect(lookupOrderStatusForChat).toHaveBeenCalledTimes(1);
+    expect(body.reply).toContain("#A17");
+    // The second round must carry the report as a proper tool message —
+    // that is the model's only window onto the counter.
+    const retry = seen[1] as { role: string; content: string | null }[];
+    const toolMsg = retry.find((m) => m.role === "tool");
+    expect(toolMsg?.content).toContain("READY — waiting at the counter");
+  });
+
+  it("looks up once even when the model repeats the call, then degrades honestly", async () => {
+    callDeepSeek.mockResolvedValue(statusCall());
+    const body = await (await POST(req(askReady))).json();
+
+    // One Square lookup per request no matter how often the model loops.
+    expect(lookupOrderStatusForChat).toHaveBeenCalledTimes(1);
+    expect(body.proposal).toBeNull();
+  });
+
+  it("leaves the validation loop its retry after a status round", async () => {
+    // A status turn costs a round-trip; the budget grows by one so a drink
+    // proposed AFTER a status check still gets its correction cycle.
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      if (n === 1) return statusCall();
+      if (n === 2) return proposeCall({ ...goodArgs, itemId: "ITEM_NOPE" });
+      return proposeCall(goodArgs);
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(callDeepSeek).toHaveBeenCalledTimes(3);
+    expect(body.proposal.itemId).toBe("ITEM_TARO");
+  });
+
+  it("files the complaint first when both tools arrive in one turn", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "非常抱歉！",
+      toolCalls: [
+        {
+          id: "c1",
+          name: "file_complaint",
+          argumentsJson: JSON.stringify({ summary: "饮品洒了" }),
+        },
+        { id: "os1", name: "check_order_status", argumentsJson: "{}" },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "我的奶茶洒了一半" }] }))
+    ).json();
+
+    expect(fileChatComplaint).toHaveBeenCalledTimes(1);
+    expect(lookupOrderStatusForChat).not.toHaveBeenCalled();
+    expect(body.reply).toContain("抱歉");
   });
 });
