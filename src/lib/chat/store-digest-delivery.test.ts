@@ -24,7 +24,11 @@ describe("what the assistant knows about delivery", () => {
     // above it every time. Adding facts must not reopen that.
     const paused = buildStoreDigest({ until: "2026-08-17T12:00:00Z", reason: "maintenance" });
     expect(paused).not.toMatch(/delivers its own orders/);
-    expect(paused).not.toMatch(/10 minutes/);
+    // Anchored to the delivery acceptance-wait phrase (the same one the
+    // positive test above asserts), not bare "10 minutes" — the pickup
+    // readiness fact ("ready about 10 minutes later") legitimately stays
+    // in the digest while delivery is paused.
+    expect(paused).not.toMatch(/within about 10 minutes/);
     expect(paused).toMatch(/DELIVERY IS PAUSED/);
   });
 });
