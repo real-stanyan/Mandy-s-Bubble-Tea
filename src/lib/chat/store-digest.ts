@@ -49,6 +49,18 @@ export function buildStoreDigest(
         `- Ordering: pickup at the store, or delivery to postcodes ${DELIVERABLE_POSTCODES.join(", ")} (minimum order applies; the delivery fee depends on distance and order size and is shown at checkout).`,
         `- How a delivery order is placed: exactly like pickup — choose the drinks first, then enter the address on the CHECKOUT page, which is what confirms the area and calculates the fee. Do not ask the customer which postcode they are in and do not try to map a street address to one yourself.`,
         `- Delivery hours: ${hourLabel(DELIVERY.hoursOpen)}–${hourLabel(DELIVERY.hoursClose)} Brisbane time daily.`,
+        // A customer asked three times how long it takes to "find a driver"
+        // and was told three times to ring the shop (16 August). Nothing here
+        // said who delivers, so the last rule in this block — say you are not
+        // sure — was the only one that applied, and it applied correctly. The
+        // question was not unanswerable; the answer was simply absent.
+        //
+        // And the question has a false premise. There is no pool of drivers
+        // waiting to be matched: the shop delivers its own orders. "I can't
+        // see live driver availability" left that customer waiting on
+        // something that does not exist.
+        `- Who delivers: the shop delivers its own orders. There is no third-party driver app, no pool of drivers, and nothing to be matched with — nobody ever has to "find a driver" and there is no driver availability to check. If a customer asks how long finding a driver takes, or worries that no driver has picked their order up, correct it plainly: the shop delivers it itself.`,
+        `- After a delivery order is placed: someone accepts it within about 10 minutes, and it is made and driven out from there. That 10 minutes is the answer to "how long until someone picks up my order" — give the number. It is the normal wait, not a sign anything is wrong.`,
       ];
   return `STORE FACTS
 - Store: ${BUSINESS.name}, ${BUSINESS.address}. Phone ${BUSINESS.phone}. Website ${BUSINESS.domain}.
