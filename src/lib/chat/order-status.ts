@@ -1,7 +1,7 @@
 import "server-only";
 import { getAuthedUser } from "@/lib/auth";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
-import { isBrisbaneToday, brisbaneClock } from "@/lib/brisbane-date";
+import { isBrisbaneToday, brisbaneClock, brisbaneYmd } from "@/lib/brisbane-date";
 import { getDeliveredOrderIds } from "@/lib/driver-tokens";
 import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
 
@@ -91,12 +91,41 @@ export async function lookupOrderStatusForChat(
     });
 
     if (todays.length === 0) {
+      // No orders today, but "查不到订单" is the wrong answer to someone
+      // asking about their PAST orders (Stan's 3:31am test, 2026-08-17:
+      // 17 orders in My Orders, Mandy claimed none twice). The search
+      // already fetched the recent history — hand the model the newest few
+      // so a history question gets a real answer and a pointer, not a
+      // dead end. Same paid/custom-amount filters as the today list.
+      const recentPast = (response.orders ?? [])
+        .filter((o) => {
+          if (isCustomAmountOnly(o)) return false;
+          if (o.state === "CANCELED") return false;
+          const total = o.totalMoney?.amount ?? 0n;
+          const due = o.netAmountDueMoney?.amount ?? total;
+          return due === 0n;
+        })
+        .slice(0, 3)
+        .map((o) => {
+          const ref = o.referenceId ?? o.ticketName ?? null;
+          const items = (o.lineItems ?? [])
+            .map((li) => `${li.quantity ?? "1"}x ${li.name ?? "item"}`)
+            .join(", ");
+          const placed = o.createdAt
+            ? ` on ${brisbaneYmd(new Date(o.createdAt))} at ${brisbaneClock(o.createdAt)}`
+            : "";
+          return `- ${ref ? `Order #${ref}` : "Order"}${placed} — ${items || "no line detail"}`;
+        });
+
       return {
         signedOut: false,
         report:
           "This customer is signed in but has NO orders placed today. Do not invent one. " +
-          "If they believe they ordered, it may have been under a different account or by phone — " +
-          "point them at their account's order page or the store phone.",
+          "If they believe they ordered TODAY, it may have been under a different account or by phone — " +
+          "point them at their account's order page or the store phone." +
+          (recentPast.length > 0
+            ? `\nTheir most recent PAST orders (already collected/finished — answer from these if they ask about previous orders, and point them at the My Orders page for the full history):\n${recentPast.join("\n")}`
+            : ""),
       };
     }
 
