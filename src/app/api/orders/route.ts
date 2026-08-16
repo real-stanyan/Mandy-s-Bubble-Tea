@@ -29,6 +29,11 @@ import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
 import { computeOrderPricing, drinksSubtotalFor } from "@/lib/order-quote";
 import { isValidOrderBody } from "@/lib/order-request";
+import {
+  cupCountFor,
+  BULK_SELF_SERVE_MAX_CUPS,
+  BULK_TOO_LARGE_MESSAGE,
+} from "@/lib/bulk-order";
 
 // Creates a Square order from the client cart. Identity is derived
 // entirely from the Supabase session — the client does NOT send a
@@ -112,6 +117,16 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+  }
+
+  // Bulk ceiling: past 50 cups this is a catering job, not a checkout —
+  // Rick arranges those by hand (see bulk-order.ts). Refused before any
+  // pricing or Square work; the client turns this message into a dialog.
+  if (cupCountFor(body.lines) > BULK_SELF_SERVE_MAX_CUPS) {
+    return NextResponse.json(
+      { ok: false, error: BULK_TOO_LARGE_MESSAGE, bulkTooLarge: true },
+      { status: 409 },
+    );
   }
 
   // Sold-out gate. Client UI already disables sold-out items/modifiers,

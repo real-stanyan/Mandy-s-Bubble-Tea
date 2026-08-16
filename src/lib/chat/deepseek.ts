@@ -141,6 +141,38 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "record_bulk_inquiry",
+      description:
+        "Send the store a bulk-order inquiry (10+ cups) that self-serve checkout cannot take: a FUTURE pickup time, or more than 50 cups. Call it only AFTER you have the cup count, when they want the drinks, whether they need delivery, and a phone or email to reach them — ask for whatever is missing first. Do NOT call it for a bulk order they want right now and under 50 cups: build that order normally; the bulk discount applies at checkout by itself.",
+      parameters: {
+        type: "object",
+        properties: {
+          cups: { type: "integer", minimum: 1, description: "How many cups they want." },
+          when: {
+            type: "string",
+            description: "When they want the drinks, in their own words (e.g. 'tomorrow 3pm').",
+          },
+          delivery: {
+            type: "boolean",
+            description: "True if they asked for delivery, false for pickup.",
+          },
+          contact: {
+            type: "string",
+            description: "Phone or email to reach them — required, ask if missing.",
+          },
+          notes: {
+            type: "string",
+            description: "Anything else useful: drink preferences, company name, budget.",
+          },
+        },
+        required: ["cups", "when", "contact"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "check_order_status",
       description:
         "Look up the signed-in customer's OWN orders from today: order number, items, and live status (being made / ready / picked up / delivered). Call it whenever they ask if their order is ready, say the app shows it ready, say they are on their way to collect, or worry about being late. Answer from its result only — never guess or promise what the counter is doing. Takes no arguments; it always looks at the asking customer's own account.",

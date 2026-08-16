@@ -513,3 +513,63 @@ describe("computeOrderPricing — tasting promo", () => {
     spy.mockRestore();
   });
 });
+
+describe("computeOrderPricing — bulk order brackets (exclusive by policy)", () => {
+  /** N cups at A$7.00. */
+  const cups = (n: number): QuoteLine[] => [
+    { variationId: VARIATION, variationPriceCents: 700, modifiers: [], quantity: n },
+  ];
+
+  it("attaches the bracket discount on 10+ cups", async () => {
+    const p = await computeOrderPricing({ ...base, lines: cups(10) });
+    expect(uids(p.discounts)).toEqual(["bulk-order-discount"]);
+    // 10 × $7.00 = $70.00 → 10% = $7.00
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(700n);
+    expect(p.discounts[0].name).toContain("10% Off");
+    expect(p.discounts[0].name).toContain("10 cups");
+  });
+
+  it("steps the brackets at 20 and 30 cups", async () => {
+    const p20 = await computeOrderPricing({ ...base, lines: cups(20) });
+    expect(amountOf(p20.discounts, "bulk-order-discount")).toBe(2100n); // 15% of $140
+    const p30 = await computeOrderPricing({ ...base, lines: cups(30) });
+    expect(amountOf(p30.discounts, "bulk-order-discount")).toBe(4200n); // 20% of $210
+  });
+
+  it("gives nothing at 9 cups and nothing above the self-serve ceiling", async () => {
+    const p9 = await computeOrderPricing({ ...base, lines: cups(9) });
+    expect(p9.discounts).toEqual([]);
+    // 51+ never reaches pricing in production (/api/orders refuses first);
+    // if it does, no bracket applies rather than a wrong one.
+    const p51 = await computeOrderPricing({ ...base, lines: cups(51) });
+    expect(p51.discounts).toEqual([]);
+  });
+
+  it("replaces a flash promo even when the flash would be worth more — policy, not better-of", async () => {
+    vi.mocked(getFlashPromoStatus).mockResolvedValue({
+      available: true,
+      percentage: 25,
+      key: "flash-today",
+    });
+    const p = await computeOrderPricing({ ...base, lines: cups(10) });
+    // Flash 25% ($17.50) beats bulk 10% ($7.00) on money, and loses anyway:
+    // the bulk buyer's bracket is the whole deal (Stan, 2026-08-17).
+    expect(uids(p.discounts)).toEqual(["bulk-order-discount"]);
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(700n);
+  });
+
+  it("takes loyalty-reward cups off the bulk base — a free cup is never also 10%-off", async () => {
+    const p = await computeOrderPricing({
+      ...base,
+      lines: cups(10),
+      loyaltyRewardCount: 2,
+    });
+    // Base = $70 − 2×$7 = $56 → 10% = $5.60
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(560n);
+  });
+
+  it("skips the bulk discount when the menu cache is down", async () => {
+    const p = await computeOrderPricing({ ...base, lines: cups(10), priceMaps: null });
+    expect(p.discounts).toEqual([]);
+  });
+});

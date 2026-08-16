@@ -58,6 +58,15 @@ describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", 
     const digest = buildStoreDigest();
     expect(digest).toContain("card or Apple Pay");
   });
+
+  it("carries the bulk-order brackets and the over-50 handoff", () => {
+    const digest = buildStoreDigest();
+    expect(digest).toContain("10-19 cups 10% off");
+    expect(digest).toContain("20-29 cups 15% off");
+    expect(digest).toContain("30-50 cups 20% off");
+    expect(digest).toContain("Over 50 cups");
+    expect(digest).toContain("record_bulk_inquiry");
+  });
 });
 
 describe("buildStoreDigest — hours and the delivery flow", () => {

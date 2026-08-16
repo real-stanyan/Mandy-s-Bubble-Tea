@@ -38,6 +38,7 @@ import {
 } from "@/lib/tier-toppings";
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { reportDegraded } from "@/lib/degraded";
+import { cupCountFor, bulkDiscountPercent } from "@/lib/bulk-order";
 import {
   deliveryFeeCents,
   freeDeliverySubtotalCents,
@@ -615,6 +616,54 @@ export async function computeOrderPricing(
     }
   }
 
+  // ---- Bulk order discount (10+ cups, tiered — see bulk-order.ts).
+  // EXCLUSIVE by POLICY, not better-of: when the cart hits a bracket, the
+  // bracket is the deal and every other percentage promo above is replaced,
+  // even one that would have been worth more (Stan, 2026-08-17 — a bulk
+  // buyer must never stack 20% onto a flash sale). Loyalty-reward cups are
+  // earned stars, not a discount: they come off the base so a free cup is
+  // never also 20%-off, same as every lane above. priceMaps required for
+  // the same reason as the others — real money never sizes off client
+  // prices. Carts past the self-serve maximum never reach this code:
+  // /api/orders refuses them outright (BULK_TOO_LARGE_MESSAGE), and
+  // bulkDiscountPercent returns 0 above 50 anyway.
+  let bulkDiscounts: OrderDiscount[] | undefined;
+
+  if (priceMaps) {
+    const cupCount = cupCountFor(lines);
+    const bulkPercent = bulkDiscountPercent(cupCount);
+    if (bulkPercent > 0) {
+      let base = drinksSubtotalCents - rewardCupsSumCents;
+      if (base < 0n) base = 0n;
+      const amount = (base * BigInt(bulkPercent)) / 100n;
+      if (amount > 0n) {
+        bulkDiscounts = [
+          {
+            uid: "bulk-order-discount",
+            name: `Bulk Order ${bulkPercent}% Off (${cupCount} cups)`,
+            type: "FIXED_AMOUNT",
+            amountMoney: {
+              amount,
+              currency: BUSINESS.currency as Currency,
+            },
+            scope: "ORDER",
+          },
+        ];
+        // Exclusive: replace everything. Zero the covered counts too so the
+        // order metadata never claims a discount that isn't attached.
+        welcomeDiscounts = undefined;
+        igFollowDiscounts = undefined;
+        tierDiscounts = undefined;
+        flashDiscounts = undefined;
+        appDownloadDiscounts = undefined;
+        tastingDiscounts = undefined;
+        welcomeDrinksCovered = 0;
+        igFollowDrinksCovered = 0;
+        tierToppingsCovered = 0;
+      }
+    }
+  }
+
   const discounts = [
     ...(welcomeDiscounts ?? []),
     ...(igFollowDiscounts ?? []),
@@ -622,6 +671,7 @@ export async function computeOrderPricing(
     ...(flashDiscounts ?? []),
     ...(appDownloadDiscounts ?? []),
     ...(tastingDiscounts ?? []),
+    ...(bulkDiscounts ?? []),
   ];
 
   // Annotate off the SURVIVING discounts, not off the branch that computed
