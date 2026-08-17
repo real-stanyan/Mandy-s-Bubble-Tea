@@ -617,6 +617,36 @@ describe("computeOrderPricing — mystery-box coupon lane", () => {
     expect(amountOf(p.discounts, "mystery-coupon.c-drink")).toBe(700n);
   });
 
+  it("a gift prize STACKS on the winning bundle instead of fighting it", async () => {
+    // The bug Stan hit (2026-08-17): a Diamond member's free-topping prize
+    // lost better-of to their own tier bundle every time — unusable. Gifts
+    // now ride on top: welcome discount stays AND the free drink applies.
+    vi.mocked(getWelcomeDiscountStatus).mockResolvedValue({
+      available: true,
+      percentage: 30,
+      drinksRemaining: 8,
+    });
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-drink", prize: "free_drink", percentage: null }),
+    ]);
+    const p = await computeOrderPricing({ ...base, applyWelcomeDiscount: true });
+    expect(uids(p.discounts)).toEqual(["welcome-discount", "mystery-coupon.c-drink"]);
+    expect(amountOf(p.discounts, "welcome-discount")).toBe(1680n);
+    expect(amountOf(p.discounts, "mystery-coupon.c-drink")).toBe(700n);
+    expect(p.welcomeDrinksCovered).toBe(8); // the bundle survived intact
+  });
+
+  it("an applicable gift outranks a pct coupon for the one-coupon slot", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-big", prize: "pct15", percentage: 15 }),
+      coupon({ id: "c-drink", prize: "free_drink", percentage: null }),
+    ]);
+    const p = await computeOrderPricing(base);
+    // The gift stacks (pure upside); only ONE coupon may apply per order
+    // because the burn path parses a single uid.
+    expect(uids(p.discounts)).toEqual(["mystery-coupon.c-drink"]);
+  });
+
   it("a free-topping coupon on a cart with no paid toppings stays in the pocket", async () => {
     vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
       coupon({ id: "c-top", prize: "free_topping", percentage: null }),

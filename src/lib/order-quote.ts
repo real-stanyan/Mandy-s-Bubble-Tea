@@ -618,15 +618,23 @@ export async function computeOrderPricing(
   }
 
   // ---- Mystery-box coupon (chat prize draw — see mystery-box.ts).
-  // Same EXCLUSIVE + better-of lane as flash/app-download/tasting: the
-  // customer's best live coupon competes with whatever survived above, and
-  // wins only when worth more. Valued per prize kind: pct → % of the
-  // (reward-cup-adjusted) drinks base; free_topping → the priciest PAID
-  // topping unit in the cart (tier-topping precedent); free_drink → the
-  // cheapest cup (pickPromoCups precedent — a documented assumption, one
-  // line to flip if Stan wants generous-side). A coupon worth $0 for THIS
-  // cart (no paid toppings, say) simply doesn't apply and stays live for a
-  // later order. The uid carries the coupon id for the burn paths.
+  // Two kinds with DIFFERENT stacking rules, one coupon per order:
+  //
+  // GIFT prizes (free topping / free drink) are ADDITIVE — a won prize sits
+  // on top of whatever bundle the ladder above chose. They started in the
+  // better-of lane and were unusable in practice: a Diamond member's tier
+  // bundle beat a $1 topping every time, so the prize never applied
+  // (Stan's report, 2026-08-17). Values: free_topping = priciest PAID
+  // topping unit not already covered by a surviving Diamond allowance;
+  // free_drink = cheapest non-reward cup (pickPromoCups precedent).
+  //
+  // PERCENTAGE prizes stay EXCLUSIVE + better-of like flash/app-download:
+  // they're an alternative whole-order deal, not a gift on top, and apply
+  // only when worth more than the surviving bundle.
+  //
+  // A coupon worth $0 for THIS cart (no paid toppings, say) doesn't apply
+  // and stays live for a later order. The uid carries the coupon id for
+  // the burn paths — which parse a single id, hence one coupon per order.
   let mysteryDiscounts: OrderDiscount[] | undefined;
 
   if (priceMaps) {
@@ -650,60 +658,75 @@ export async function computeOrderPricing(
             cupsForToppings.push({ unitPrice, toppingPrices });
           }
         }
+        // Toppings the Diamond allowance already made free must not be
+        // "given" again: coverFreeToppings covers the most expensive units
+        // first, so drop that many off the top of the (descending) pool.
         const toppingPool = collectPaidToppingUnits(
           cupsForToppings,
           loyaltyRewardCount,
-        );
-        const priciestTopping = toppingPool.reduce(
-          (max, p) => (p > max ? p : max),
-          0n,
-        );
+        )
+          .sort((a, b) => (a > b ? -1 : a < b ? 1 : 0))
+          .slice(tierDiscounts ? tierToppingsCovered : 0);
+        const priciestTopping = toppingPool[0] ?? 0n;
 
-        const valued = coupons
+        const toDiscount = (couponId: string, label: string, amount: bigint): OrderDiscount => ({
+          uid: mysteryCouponUid(couponId),
+          name: `Mystery Box: ${label}`,
+          type: "FIXED_AMOUNT",
+          amountMoney: { amount, currency: BUSINESS.currency as Currency },
+          scope: "ORDER",
+        });
+
+        // Gifts first — an applicable gift wins the one-coupon slot because
+        // it stacks (pure customer upside), where a pct coupon must fight
+        // the bundle and usually loses.
+        const gifts = coupons
+          .filter((c) => c.percentage == null)
           .map((c) => ({
             coupon: c,
-            amount:
-              c.percentage != null
-                ? (couponBase * BigInt(c.percentage)) / 100n
-                : c.prize === "free_topping"
-                  ? priciestTopping
-                  : cheapestCup,
+            amount: c.prize === "free_topping" ? priciestTopping : cheapestCup,
           }))
           .filter((v) => v.amount > 0n)
           .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0));
 
-        const best = valued[0];
-        const otherDiscountsCents = [
-          ...(welcomeDiscounts ?? []),
-          ...(igFollowDiscounts ?? []),
-          ...(tierDiscounts ?? []),
-          ...(flashDiscounts ?? []),
-          ...(appDownloadDiscounts ?? []),
-          ...(tastingDiscounts ?? []),
-        ].reduce((s, d) => s + d.amountMoney.amount, 0n);
-
-        if (best && best.amount > otherDiscountsCents) {
+        if (gifts.length > 0) {
+          const best = gifts[0];
           mysteryDiscounts = [
-            {
-              uid: mysteryCouponUid(best.coupon.id),
-              name: `Mystery Box: ${best.coupon.label}`,
-              type: "FIXED_AMOUNT",
-              amountMoney: {
-                amount: best.amount,
-                currency: BUSINESS.currency as Currency,
-              },
-              scope: "ORDER",
-            },
+            toDiscount(best.coupon.id, best.coupon.label, best.amount),
           ];
-          welcomeDiscounts = undefined;
-          igFollowDiscounts = undefined;
-          tierDiscounts = undefined;
-          flashDiscounts = undefined;
-          appDownloadDiscounts = undefined;
-          tastingDiscounts = undefined;
-          welcomeDrinksCovered = 0;
-          igFollowDrinksCovered = 0;
-          tierToppingsCovered = 0;
+        } else {
+          const pcts = coupons
+            .filter((c) => c.percentage != null)
+            .map((c) => ({
+              coupon: c,
+              amount: (couponBase * BigInt(c.percentage!)) / 100n,
+            }))
+            .filter((v) => v.amount > 0n)
+            .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0));
+          const best = pcts[0];
+          const otherDiscountsCents = [
+            ...(welcomeDiscounts ?? []),
+            ...(igFollowDiscounts ?? []),
+            ...(tierDiscounts ?? []),
+            ...(flashDiscounts ?? []),
+            ...(appDownloadDiscounts ?? []),
+            ...(tastingDiscounts ?? []),
+          ].reduce((s, d) => s + d.amountMoney.amount, 0n);
+
+          if (best && best.amount > otherDiscountsCents) {
+            mysteryDiscounts = [
+              toDiscount(best.coupon.id, best.coupon.label, best.amount),
+            ];
+            welcomeDiscounts = undefined;
+            igFollowDiscounts = undefined;
+            tierDiscounts = undefined;
+            flashDiscounts = undefined;
+            appDownloadDiscounts = undefined;
+            tastingDiscounts = undefined;
+            welcomeDrinksCovered = 0;
+            igFollowDrinksCovered = 0;
+            tierToppingsCovered = 0;
+          }
         }
       }
     } catch (mysteryError) {

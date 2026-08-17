@@ -19,6 +19,7 @@ import { AddToWalletButton } from "@/components/account/AddToWalletButton";
 import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
 import { WelcomeDiscountCard } from "@/components/account/WelcomeDiscountCard";
 import { PromotionsCard } from "@/components/account/PromotionsCard";
+import { MysteryCouponsCard } from "@/components/account/MysteryCouponsCard";
 import { OrderHistory } from "@/components/account/OrderHistory";
 import { ActivityHistory } from "@/components/account/ActivityHistory";
 import { SignOutBtn } from "@/components/account/SignOutBtn";
@@ -152,6 +153,9 @@ export function AccountView(props: AccountViewProps) {
         </Flush>
         <Flush>
           <IgFollowPromoCard />
+        </Flush>
+        <Flush>
+          <MysteryCouponsCard />
         </Flush>
         <Flush>
           <PromotionsCard rewardsCount={rewardsAvailable} />
