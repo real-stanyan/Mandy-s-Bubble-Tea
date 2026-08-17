@@ -62,21 +62,57 @@ export function drawMysteryPrize(roll: number = Math.random()): MysteryPrize {
   return MYSTERY_ODDS[MYSTERY_ODDS.length - 1].prize;
 }
 
+/** Codes are compared case-insensitively with surrounding space ignored —
+ *  a customer typing an IG code from memory gets no pedantry. */
+export function normalizeMysteryCode(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/** Is this an ACTIVE secret code (posted on Instagram)? Missing table or a
+ *  dead lookup reads as "no" — a box must never open on an unverifiable
+ *  code. */
+export async function isActiveMysteryCode(raw: string): Promise<boolean> {
+  const code = normalizeMysteryCode(raw);
+  if (!code) return false;
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from("mystery_box_codes")
+      .select("code")
+      .eq("code", code)
+      .eq("active", true)
+      .maybeSingle();
+    if (error) throw error;
+    return data != null;
+  } catch (err) {
+    if (!isMissingTableError(err as { code?: string | null; message?: string })) {
+      console.error("[mystery-box] code lookup failed:", err);
+    }
+    return false;
+  }
+}
+
 export type OpenBoxResult =
   | { opened: true; couponId: string; prize: MysteryPrize; label: string; expiresAt: string }
-  | { opened: false; reason: "already-today" | "unavailable" };
+  | { opened: false; reason: "already-used" | "invalid-code" | "unavailable" };
 
 /**
- * Open today's box for a signed-in customer: roll, store, return the prize.
- * The one-a-day rule is the DATABASE's unique index on (phone, Brisbane
- * day) — a double-tap or parallel request comes back 23505 and simply never
- * drew. Table missing (migration not applied yet) degrades to "unavailable"
- * rather than a 500: the chat tells the customer the box is napping.
+ * Open the box a secret code unlocks: validate the code, roll, store,
+ * return the prize. One box per (customer, code) is the DATABASE's unique
+ * index — a double-tap, a retry, or "我今天没有开过" (Stan's screenshot: the
+ * model believed it) comes back 23505 and simply never drew. A new code on
+ * Instagram starts the next round. Table missing degrades to "unavailable"
+ * rather than a 500.
  */
 export async function openMysteryBox(
   phoneE164: string,
   customerId: string | null,
+  rawCode: string,
 ): Promise<OpenBoxResult> {
+  const code = normalizeMysteryCode(rawCode);
+  if (!(await isActiveMysteryCode(code))) {
+    return { opened: false, reason: "invalid-code" };
+  }
+
   const prize = drawMysteryPrize();
   const spec = MYSTERY_ODDS.find((o) => o.prize === prize)!;
   const expiresAt = new Date(
@@ -92,6 +128,7 @@ export async function openMysteryBox(
         prize,
         percentage: spec.percentage,
         expires_at: expiresAt,
+        code,
       })
       .select("id")
       .single();
@@ -105,7 +142,7 @@ export async function openMysteryBox(
     };
   } catch (err) {
     const pgErr = err as { code?: string | null; message?: string };
-    if (pgErr?.code === "23505") return { opened: false, reason: "already-today" };
+    if (pgErr?.code === "23505") return { opened: false, reason: "already-used" };
     if (isMissingTableError(pgErr)) {
       console.error("[mystery-box] table missing — migration not applied yet");
       return { opened: false, reason: "unavailable" };

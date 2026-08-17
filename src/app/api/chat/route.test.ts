@@ -48,6 +48,10 @@ vi.mock("@/lib/chat/bulk-inquiry", () => ({ sendBulkInquiry }));
 // the mock's default matches production-for-a-stranger exactly.
 const readCustomerPromoState = vi.fn();
 vi.mock("@/lib/chat/customer-state", () => ({ readCustomerPromoState }));
+// mystery-box pulls in supabase-server at module scope; the route only
+// needs the code check here.
+const isActiveMysteryCode = vi.fn();
+vi.mock("@/lib/mystery-box", () => ({ isActiveMysteryCode }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -100,6 +104,8 @@ beforeEach(() => {
   sendBulkInquiry.mockResolvedValue({ emailed: true });
   readCustomerPromoState.mockReset();
   readCustomerPromoState.mockResolvedValue(null);
+  isActiveMysteryCode.mockReset();
+  isActiveMysteryCode.mockResolvedValue(true);
   lookupOrderStatusForChat.mockReset();
   lookupOrderStatusForChat.mockResolvedValue({
     signedOut: false,
@@ -758,10 +764,46 @@ describe("POST /api/chat — promotions, not complaints", () => {
 });
 
 describe("POST /api/chat — offer_mystery_box", () => {
-  const askSurprise = { messages: [{ role: "user", content: "给我惊喜" }] };
+  const askSurprise = { messages: [{ role: "user", content: "暗号：芋头星人" }] };
   const boxCall = () => ({
-    content: "给你变一个盲盒！",
-    toolCalls: [{ id: "mb1", name: "offer_mystery_box", argumentsJson: "{}" }],
+    content: "接头成功！给你变一个盲盒！",
+    toolCalls: [
+      {
+        id: "mb1",
+        name: "offer_mystery_box",
+        argumentsJson: JSON.stringify({ code: "芋头星人" }),
+      },
+    ],
+  });
+
+  it("hands an invalid code back to the model instead of rendering a box", async () => {
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 3,
+      starsPerReward: 9,
+      lifetimePoints: 3,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    isActiveMysteryCode.mockResolvedValue(false);
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? boxCall()
+        : { content: "这个暗号不对哦——去我们 Instagram 最新帖子找找！", toolCalls: [] };
+    });
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBeUndefined();
+    expect(body.reply).toContain("Instagram");
+    // The verdict reached the model as a tool message.
+    const retry = seen[1] as { role: string; content: string | null }[];
+    expect(retry.some((m) => m.role === "tool")).toBe(true);
   });
 
   it("renders the box for a signed-in customer", async () => {
@@ -781,6 +823,8 @@ describe("POST /api/chat — offer_mystery_box", () => {
     callDeepSeek.mockResolvedValue(boxCall());
     const body = await (await POST(req(askSurprise))).json();
     expect(body.mysteryBox).toBe(true);
+    // The validated code rides along so the open call can carry it back.
+    expect(body.mysteryBoxCode).toBe("芋头星人");
     expect(body.reply).toContain("盲盒");
   });
 

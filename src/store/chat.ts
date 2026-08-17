@@ -25,6 +25,8 @@ export type ChatMessage = {
   signInCard?: boolean;
   /** Set on turns that offered the mystery box — renders the closed box. */
   mysteryBox?: boolean;
+  /** The validated secret code that unlocked the offer; sent back on open. */
+  mysteryBoxCode?: string;
   /** Menu links offered when the model was unreachable or unconfident. */
   suggestions?: { itemId: string; itemName: string; categorySlug: string }[];
   /** Set once the customer has pressed Add — the card locks after that.

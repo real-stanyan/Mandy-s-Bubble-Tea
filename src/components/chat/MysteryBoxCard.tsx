@@ -19,7 +19,7 @@ type Prize = { label: string; expiresAt: string };
 
 const CONFETTI = ["🎉", "✨", "🧋", "⭐", "🎊", "✨"];
 
-export function MysteryBoxCard() {
+export function MysteryBoxCard({ code }: { code: string }) {
   const t = chatUiStrings();
   const [phase, setPhase] = useState<Phase>("closed");
   const [prize, setPrize] = useState<Prize | null>(null);
@@ -28,7 +28,11 @@ export function MysteryBoxCard() {
     if (phase !== "closed" && phase !== "error") return;
     setPhase("opening");
     try {
-      const res = await fetch("/api/chat/mystery-box/open", { method: "POST" });
+      const res = await fetch("/api/chat/mystery-box/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
       const body = (await res.json().catch(() => null)) as {
         ok?: boolean;
         label?: string;
@@ -50,7 +54,9 @@ export function MysteryBoxCard() {
         setPhase("won");
         return;
       }
-      if (body?.reason === "already-today") {
+      if (body?.reason === "already-used" || body?.reason === "invalid-code") {
+        // invalid-code here means the code was retired between offer and
+        // tap — same customer answer: watch the Instagram for the next one.
         setPhase("already");
         return;
       }

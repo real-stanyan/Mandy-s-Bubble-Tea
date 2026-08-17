@@ -75,7 +75,7 @@ const ZH: ChatUiStrings = {
   mysteryOpening: "开盒中…",
   mysteryInRewards: "已放进你的 Rewards",
   mysteryExpires: (date) => `${date} 前有效`,
-  mysteryAlready: "今天已经开过啦，明天再来！",
+  mysteryAlready: "这个暗号的盲盒你已经开过啦——关注我们 Instagram 等下一个暗号！",
   mysterySignIn: "登录后就能开今天的盲盒啦",
   mysteryError: "没开出来…再点一下试试",
 };
@@ -112,7 +112,7 @@ const EN: ChatUiStrings = {
   mysteryOpening: "Opening…",
   mysteryInRewards: "Added to your Rewards",
   mysteryExpires: (date) => `valid until ${date}`,
-  mysteryAlready: "Already opened today — come back tomorrow!",
+  mysteryAlready: "You've opened this code's box — watch our Instagram for the next code!",
   mysterySignIn: "Sign in to open today's box",
   mysteryError: "It didn't open… tap to try again",
 };
