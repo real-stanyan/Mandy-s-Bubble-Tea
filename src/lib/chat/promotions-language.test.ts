@@ -13,6 +13,7 @@ const CUSTOMER: CustomerPromoState = {
   starBalance: 7,
   starsPerReward: 9,
   lifetimePoints: 34,
+  mysteryCouponLabels: [],
   welcomeAvailable: true,
   igFollowAvailable: true,
   igFollowPercentage: 10,

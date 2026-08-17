@@ -29,6 +29,46 @@ describe("buildStoreDigest", () => {
   });
 });
 
+describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", () => {
+  /** A Date at the given Brisbane wall-clock time (UTC+10, no DST). */
+  const brisbane = (h: number, m: number) => new Date(Date.UTC(2026, 7, 17, h - 10, m));
+
+  it("says CLOSED at 3:47am and forbids taking an order for later", () => {
+    // Probe 2026-08-17 03:47: "现在开门吗？我想现在下单" got the opening
+    // hours and "想喝点什么" — hours alone make the reader do the clock math.
+    const digest = buildStoreDigest(null, brisbane(3, 47));
+    expect(digest).toContain("RIGHT NOW the store is CLOSED");
+    expect(digest).toContain("CANNOT place an order at this moment");
+  });
+
+  it("says OPEN mid-afternoon", () => {
+    const digest = buildStoreDigest(null, brisbane(15, 0));
+    expect(digest).toContain("RIGHT NOW the store is OPEN");
+  });
+
+  it("denies scheduled pickups — the checkout has no time picker to promise", () => {
+    // Probe: "能预约明天下午3点取吗" → "可以的～结账页面上会确认自取时间"
+    // — pure invention; nothing in the product can honour it.
+    const digest = buildStoreDigest();
+    expect(digest).toContain("No advance or scheduled orders");
+    expect(digest).toContain("no time picker");
+  });
+
+  it("states the online payment methods", () => {
+    const digest = buildStoreDigest();
+    expect(digest).toContain("card or Apple Pay");
+  });
+
+  it("carries the bulk-order brackets and the over-50 handoff", () => {
+    const digest = buildStoreDigest();
+    expect(digest).toContain("10-19 cups 10% off");
+    expect(digest).toContain("20-29 cups 15% off");
+    expect(digest).toContain("30-50 cups 20% off");
+    expect(digest).toContain("Over 50 cups");
+    expect(digest).toContain("record_bulk_inquiry");
+  });
+});
+
 describe("buildStoreDigest — hours and the delivery flow", () => {
   const digest = buildStoreDigest();
 

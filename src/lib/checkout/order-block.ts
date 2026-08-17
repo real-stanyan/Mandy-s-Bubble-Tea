@@ -36,6 +36,17 @@ export function classifyOrderBlock(
   if (!message) return null;
   const m = message.toLowerCase();
 
+  if (m.includes("over 50 cups")) {
+    // Matches BULK_TOO_LARGE_MESSAGE from /api/orders (bulk-order.ts): a
+    // 50+ cup cart is arranged by a human, not a checkout.
+    return {
+      title: "That's a big order!",
+      body: "Orders over 50 cups are arranged personally — tell Mandy in the chat, or ring the store on 0404 978 238, and Rick will be in touch to sort drinks, timing and a price.",
+      canAddItems: false,
+      canSwitchToPickup: false,
+    };
+  }
+
   if (m.includes("below minimum order")) {
     const min = DELIVERY.minimumSubtotalCents;
     const shortfall =

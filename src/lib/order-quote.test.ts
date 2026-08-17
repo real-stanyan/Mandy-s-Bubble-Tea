@@ -30,6 +30,12 @@ vi.mock("@/lib/tier-toppings-store", () => ({
   getToppingAllowanceStatus: vi.fn(),
 }));
 vi.mock("@/lib/holiday", () => ({ getActivePublicHoliday: vi.fn() }));
+// Fully stubbed (no importActual): the real module pulls in supabase-server
+// at module scope, which this test file deliberately runs without.
+vi.mock("@/lib/mystery-box", () => ({
+  getLiveMysteryCoupons: vi.fn().mockResolvedValue([]),
+  mysteryCouponUid: (id: string) => `mystery-coupon.${id}`,
+}));
 
 import { getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
@@ -39,6 +45,7 @@ import { getActiveTastingPromo } from "@/lib/tasting-promo";
 import { findLoyaltyAccountByPhone } from "@/lib/loyalty";
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { getActivePublicHoliday } from "@/lib/holiday";
+import { getLiveMysteryCoupons } from "@/lib/mystery-box";
 import { computeOrderPricing, type QuoteLine } from "./order-quote";
 import type { AuthoritativePriceMaps } from "./order-pricing";
 
@@ -108,6 +115,7 @@ beforeEach(() => {
     monthKey: "2026-07",
   });
   vi.mocked(getActivePublicHoliday).mockReturnValue(null);
+  vi.mocked(getLiveMysteryCoupons).mockResolvedValue([]);
 });
 
 describe("computeOrderPricing — discount ladder", () => {
@@ -511,5 +519,163 @@ describe("computeOrderPricing — tasting promo", () => {
     expect(p.discounts).toEqual([]);
     expect(p.drinksSubtotalCents).toBe(1550n);
     spy.mockRestore();
+  });
+});
+
+describe("computeOrderPricing — bulk order brackets (exclusive by policy)", () => {
+  /** N cups at A$7.00. */
+  const cups = (n: number): QuoteLine[] => [
+    { variationId: VARIATION, variationPriceCents: 700, modifiers: [], quantity: n },
+  ];
+
+  it("attaches the bracket discount on 10+ cups", async () => {
+    const p = await computeOrderPricing({ ...base, lines: cups(10) });
+    expect(uids(p.discounts)).toEqual(["bulk-order-discount"]);
+    // 10 × $7.00 = $70.00 → 10% = $7.00
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(700n);
+    expect(p.discounts[0].name).toContain("10% Off");
+    expect(p.discounts[0].name).toContain("10 cups");
+  });
+
+  it("steps the brackets at 20 and 30 cups", async () => {
+    const p20 = await computeOrderPricing({ ...base, lines: cups(20) });
+    expect(amountOf(p20.discounts, "bulk-order-discount")).toBe(2100n); // 15% of $140
+    const p30 = await computeOrderPricing({ ...base, lines: cups(30) });
+    expect(amountOf(p30.discounts, "bulk-order-discount")).toBe(4200n); // 20% of $210
+  });
+
+  it("gives nothing at 9 cups and nothing above the self-serve ceiling", async () => {
+    const p9 = await computeOrderPricing({ ...base, lines: cups(9) });
+    expect(p9.discounts).toEqual([]);
+    // 51+ never reaches pricing in production (/api/orders refuses first);
+    // if it does, no bracket applies rather than a wrong one.
+    const p51 = await computeOrderPricing({ ...base, lines: cups(51) });
+    expect(p51.discounts).toEqual([]);
+  });
+
+  it("replaces a flash promo even when the flash would be worth more — policy, not better-of", async () => {
+    vi.mocked(getFlashPromoStatus).mockResolvedValue({
+      available: true,
+      percentage: 25,
+      key: "flash-today",
+    });
+    const p = await computeOrderPricing({ ...base, lines: cups(10) });
+    // Flash 25% ($17.50) beats bulk 10% ($7.00) on money, and loses anyway:
+    // the bulk buyer's bracket is the whole deal (Stan, 2026-08-17).
+    expect(uids(p.discounts)).toEqual(["bulk-order-discount"]);
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(700n);
+  });
+
+  it("takes loyalty-reward cups off the bulk base — a free cup is never also 10%-off", async () => {
+    const p = await computeOrderPricing({
+      ...base,
+      lines: cups(10),
+      loyaltyRewardCount: 2,
+    });
+    // Base = $70 − 2×$7 = $56 → 10% = $5.60
+    expect(amountOf(p.discounts, "bulk-order-discount")).toBe(560n);
+  });
+
+  it("skips the bulk discount when the menu cache is down", async () => {
+    const p = await computeOrderPricing({ ...base, lines: cups(10), priceMaps: null });
+    expect(p.discounts).toEqual([]);
+  });
+});
+
+describe("computeOrderPricing — mystery-box coupon lane", () => {
+  const coupon = (over: Record<string, unknown> = {}) => ({
+    id: "c-1",
+    prize: "pct10" as const,
+    percentage: 10,
+    label: "10% Off Your Order",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    ...over,
+  });
+
+  it("applies the best live coupon as a whole-order discount with the id in the uid", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([coupon()]);
+    const p = await computeOrderPricing(base); // 8 × $7 = $56
+    expect(uids(p.discounts)).toEqual(["mystery-coupon.c-1"]);
+    expect(amountOf(p.discounts, "mystery-coupon.c-1")).toBe(560n); // 10%
+    expect(p.discounts[0].name).toContain("Mystery Box");
+  });
+
+  it("picks the coupon worth most for THIS cart when several are live", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-small", prize: "pct5", percentage: 5 }),
+      coupon({ id: "c-big", prize: "pct15", percentage: 15 }),
+    ]);
+    const p = await computeOrderPricing(base);
+    expect(uids(p.discounts)).toEqual(["mystery-coupon.c-big"]);
+  });
+
+  it("values a free drink at the cheapest non-reward cup", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-drink", prize: "free_drink", percentage: null }),
+    ]);
+    const p = await computeOrderPricing(base);
+    expect(amountOf(p.discounts, "mystery-coupon.c-drink")).toBe(700n);
+  });
+
+  it("a gift prize STACKS on the winning bundle instead of fighting it", async () => {
+    // The bug Stan hit (2026-08-17): a Diamond member's free-topping prize
+    // lost better-of to their own tier bundle every time — unusable. Gifts
+    // now ride on top: welcome discount stays AND the free drink applies.
+    vi.mocked(getWelcomeDiscountStatus).mockResolvedValue({
+      available: true,
+      percentage: 30,
+      drinksRemaining: 8,
+    });
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-drink", prize: "free_drink", percentage: null }),
+    ]);
+    const p = await computeOrderPricing({ ...base, applyWelcomeDiscount: true });
+    expect(uids(p.discounts)).toEqual(["welcome-discount", "mystery-coupon.c-drink"]);
+    expect(amountOf(p.discounts, "welcome-discount")).toBe(1680n);
+    expect(amountOf(p.discounts, "mystery-coupon.c-drink")).toBe(700n);
+    expect(p.welcomeDrinksCovered).toBe(8); // the bundle survived intact
+  });
+
+  it("an applicable gift outranks a pct coupon for the one-coupon slot", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-big", prize: "pct15", percentage: 15 }),
+      coupon({ id: "c-drink", prize: "free_drink", percentage: null }),
+    ]);
+    const p = await computeOrderPricing(base);
+    // The gift stacks (pure upside); only ONE coupon may apply per order
+    // because the burn path parses a single uid.
+    expect(uids(p.discounts)).toEqual(["mystery-coupon.c-drink"]);
+  });
+
+  it("a free-topping coupon on a cart with no paid toppings stays in the pocket", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-top", prize: "free_topping", percentage: null }),
+    ]);
+    const p = await computeOrderPricing(base); // no modifiers in the cart
+    expect(p.discounts).toEqual([]);
+  });
+
+  it("loses to a flash promo worth more — better-of, unlike the bulk lane", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([coupon()]); // 10% = $5.60
+    vi.mocked(getFlashPromoStatus).mockResolvedValue({
+      available: true,
+      percentage: 20,
+      key: "flash-today",
+    }); // 20% = $11.20
+    const p = await computeOrderPricing(base);
+    expect(uids(p.discounts)).toEqual(["flash-promo.flash-today"]);
+  });
+
+  it("is itself replaced by the bulk bracket — policy beats prize", async () => {
+    vi.mocked(getLiveMysteryCoupons).mockResolvedValue([
+      coupon({ id: "c-big", prize: "pct15", percentage: 15 }),
+    ]);
+    const p = await computeOrderPricing({
+      ...base,
+      lines: [
+        { variationId: VARIATION, variationPriceCents: 700, modifiers: [], quantity: 10 },
+      ],
+    });
+    expect(uids(p.discounts)).toEqual(["bulk-order-discount"]);
   });
 });

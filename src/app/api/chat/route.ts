@@ -21,6 +21,7 @@ import {
   type Promotion,
 } from "@/lib/chat/promotions";
 import { readCustomerPromoState } from "@/lib/chat/customer-state";
+import { lookupOrderStatusForChat } from "@/lib/chat/order-status";
 import { guardComplaint } from "@/lib/chat/complaint-guard";
 import {
   recordChatTurns,
@@ -28,6 +29,8 @@ import {
   fallbackConversationId,
 } from "@/lib/chat/log";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
+import { sendBulkInquiry, type BulkInquiry } from "@/lib/chat/bulk-inquiry";
+import { isActiveMysteryCode } from "@/lib/mystery-box";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
@@ -64,6 +67,10 @@ const STRINGS = {
     emptyReplyFallback: "抱歉，我刚才没说清楚——能再说一次吗？",
     checkoutFallback: "好的，这就带你去结账。",
     complaintAck: "已经记下了，我马上通知店长，他会在 24 小时内联系你处理。",
+    bulkInquiryAck: "大单信息已经发给店里了，会尽快联系你确认饮品、时间和价格。",
+    bulkInquiryFailed: "抱歉，刚才没能把信息发给店里——麻烦直接打门店电话 0404 978 238，说一下杯数和时间就行。",
+    mysteryBoxOffer: "给你变一个今日盲盒——点开看看是什么！",
+    mysteryBoxSignIn: "盲盒要登录才能开（奖品得放进你的 Rewards 里）——登录后再来找我说「给我惊喜」！",
   },
   en: {
     unreachableWithSuggestions: "Sorry, the assistant is unreachable right now. You might like one of these:",
@@ -73,6 +80,10 @@ const STRINGS = {
     emptyReplyFallback: "Sorry, I didn't put that well — could you say it again?",
     checkoutFallback: "Sure — taking you to checkout.",
     complaintAck: "I've noted it down and notified the store manager — they'll contact you within 24 hours.",
+    bulkInquiryAck: "Your bulk order details are with the store — they'll be in touch soon to confirm drinks, timing and price.",
+    bulkInquiryFailed: "Sorry — that didn't reach the store just now. Please ring 0404 978 238 with your cup count and timing instead.",
+    mysteryBoxOffer: "Here's today's mystery box — tap it and see what's inside!",
+    mysteryBoxSignIn: "The mystery box needs you signed in (the prize goes into your Rewards) — sign in and ask me for a surprise again!",
   },
 } as const;
 
@@ -309,6 +320,14 @@ export async function POST(request: Request): Promise<Response> {
     suggestions: unknown[];
     /** Server-authored promotion cards; the model only picks which key. */
     promotions?: Promotion[];
+    /** True when the reply should carry a sign-in card — set by the
+     *  order-status path when the asker turned out to be signed out. */
+    signIn?: boolean;
+    /** True when the reply should render the mystery box card. */
+    mysteryBox?: boolean;
+    /** The validated secret code the box was unlocked with — the client
+     *  sends it back on open. */
+    mysteryBoxCode?: string;
   }): Response {
     void recordChatTurns([
       {
@@ -351,7 +370,22 @@ export async function POST(request: Request): Promise<Response> {
     ...history.map((m) => ({ role: m.role, content: m.content })),
   ];
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // check_order_status bookkeeping. The report is cached so a model that
+  // repeats the call cannot hit Square twice in one request; the budget is
+  // raised by exactly one the first time, because a status turn legitimately
+  // needs an extra round-trip (call → tool result → composed answer) and
+  // must not eat the validation loop's only retry.
+  let orderStatusReport: string | null = null;
+  // Sticky across attempts: once the lookup says "signed out", every later
+  // answer in this request carries the sign-in card, no matter which loop
+  // branch finally replies.
+  let offerSignIn = false;
+  // One budget bump per request for an invalid mystery code, mirroring the
+  // order-status round.
+  let mysteryBudgetSpent = false;
+  let maxAttempts = MAX_ATTEMPTS;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let result: Awaited<ReturnType<typeof callDeepSeek>>;
     try {
       result = await callDeepSeek(messages);
@@ -384,7 +418,7 @@ export async function POST(request: Request): Promise<Response> {
     if (
       result.toolCalls.length === 0 &&
       violatesScriptHint(script, result.content) &&
-      attempt < MAX_ATTEMPTS
+      attempt < maxAttempts
     ) {
       messages[0] = {
         role: "system",
@@ -461,6 +495,142 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
+    // Mystery box — unlocked by an Instagram secret code, and the SERVER
+    // judges the code (the model was told to pass anything password-shaped
+    // through). Valid → terminal offer like a promotion card: the client
+    // renders a CLOSED box carrying the code; the prize doesn't exist until
+    // the tap (the open endpoint re-validates and draws). Invalid → the
+    // verdict goes back as a tool message so the model can sell the
+    // treasure hunt in the customer's language. Signed-out gets the
+    // sign-in card with FIXED copy, because the model's own sentence may
+    // already be promising a box we're not rendering.
+    const mysteryCall = findToolCall(result.toolCalls, "offer_mystery_box");
+    if (mysteryCall) {
+      if (!customer) {
+        return answer({
+          reply: t.mysteryBoxSignIn,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+          signIn: true,
+        });
+      }
+      let code = "";
+      try {
+        const parsed = JSON.parse(mysteryCall.argumentsJson) as { code?: unknown };
+        if (typeof parsed.code === "string") code = parsed.code;
+      } catch {
+        // malformed → treated as an invalid code below
+      }
+      if (code && (await isActiveMysteryCode(code))) {
+        return answer({
+          reply: scrubPrices(result.content) || t.mysteryBoxOffer,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+          mysteryBox: true,
+          mysteryBoxCode: code,
+        });
+      }
+      // Wrong code: one extra round so the model can answer properly —
+      // same budget treatment as an order-status lookup.
+      if (!mysteryBudgetSpent) {
+        mysteryBudgetSpent = true;
+        maxAttempts += 1;
+      }
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: mysteryCall.id,
+            type: "function",
+            function: { name: mysteryCall.name, arguments: mysteryCall.argumentsJson },
+          },
+        ],
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: mysteryCall.id,
+        content:
+          "That code is not valid right now. Tell the customer (in their language) it didn't match the current code, and that the live code is posted on our Instagram (instagram.com/mandysbubbletea) — follow the account and check the latest posts. Do not reveal or guess any code, and do not offer a box without one.",
+      });
+      continue;
+    }
+
+    // Bulk inquiry — the handoff to Rick for orders self-serve can't take
+    // (future pickup, or 50+ cups). Terminal like a complaint: the model's
+    // own sentence acknowledges; the fixed ack covers an empty one. When
+    // the email did NOT go out, the customer gets the honest failure copy
+    // with the store phone — never a callback promise nobody will make.
+    const bulkCall = findToolCall(result.toolCalls, "record_bulk_inquiry");
+    if (bulkCall) {
+      let inquiry: BulkInquiry | null = null;
+      try {
+        inquiry = JSON.parse(bulkCall.argumentsJson) as BulkInquiry;
+      } catch {
+        // Malformed arguments — fall through to the failure copy below.
+      }
+      const { emailed } = inquiry
+        ? await sendBulkInquiry(inquiry)
+        : { emailed: false };
+      if (!emailed) {
+        console.error("[chat] bulk inquiry not emailed — handing out the store phone");
+        return answer({
+          reply: t.bulkInquiryFailed,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+        });
+      }
+      return answer({
+        reply: scrubPrices(result.content) || t.bulkInquiryAck,
+        proposal: null,
+        proposals: [],
+        action: null,
+        suggestions: [],
+      });
+    }
+
+    // Order status. The model may only relay what the lookup reports — it
+    // has no other window onto the counter, and before this tool existed it
+    // answered "It shows it's ready" by inventing an order that was waiting
+    // (2026-08-16). Same feedback shape as the complaint guard: echo the
+    // call, hand back the report as a tool message, let the model compose
+    // the customer-facing sentence from it on the next round.
+    const orderStatusCall = findToolCall(result.toolCalls, "check_order_status");
+    if (orderStatusCall) {
+      if (orderStatusReport === null) {
+        const lookup = await lookupOrderStatusForChat(request);
+        orderStatusReport = lookup.report;
+        offerSignIn = lookup.signedOut;
+        maxAttempts += 1;
+      }
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: orderStatusCall.id,
+            type: "function",
+            function: {
+              name: orderStatusCall.name,
+              arguments: orderStatusCall.argumentsJson,
+            },
+          },
+        ],
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: orderStatusCall.id,
+        content: orderStatusReport,
+      });
+      continue;
+    }
+
     // Promotion cards. The model picks a key; the card's words and numbers
     // are the server's, from the same helpers the account page renders —
     // a model-authored discount is a promise checkout won't keep. An
@@ -512,12 +682,17 @@ export async function POST(request: Request): Promise<Response> {
       // Same scrub-first-then-fallback shape as above; this site had no
       // fallback at all before, so a price-only reply reached the
       // customer as a silently blank bubble.
+      //
+      // This is also where the order-status round lands one attempt later,
+      // so the sign-in card rides here: words from the model, button from
+      // the server.
       return answer({
         reply: scrubPrices(result.content) || t.emptyReplyFallback,
         proposal: null,
         proposals: [],
         action: null,
         suggestions: [],
+        signIn: offerSignIn || undefined,
       });
     }
 
@@ -615,9 +790,12 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return answer(degraded(
-    t.noMatchWithSuggestions,
-    t.noMatchNoSuggestions,
-    fallbackMatch(menu, lastUserText),
-  ));
+  return answer({
+    ...degraded(
+      t.noMatchWithSuggestions,
+      t.noMatchNoSuggestions,
+      fallbackMatch(menu, lastUserText),
+    ),
+    signIn: offerSignIn || undefined,
+  });
 }

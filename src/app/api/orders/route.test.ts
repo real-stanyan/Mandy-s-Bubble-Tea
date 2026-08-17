@@ -64,6 +64,51 @@ const DELIVERY_BODY = {
   },
 };
 
+describe("POST /api/orders — bulk ceiling", () => {
+  beforeEach(() => {
+    ordersCreate.mockReset();
+    vi.mocked(getAuthedUser).mockResolvedValue({
+      profile: { square_customer_id: "C1", phone_e164: "+61400000000" },
+    } as Awaited<ReturnType<typeof getAuthedUser>>);
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+  });
+
+  it("refuses a 51-cup cart with the arranged-by-Rick message, before any Square work", async () => {
+    const res = await POST(
+      orderRequest({
+        lines: [
+          { variationId: "VAR1", variationPriceCents: 600, quantity: 30, modifiers: [] },
+          { variationId: "VAR1", variationPriceCents: 600, quantity: 21, modifiers: [] },
+        ],
+        fulfillmentType: "PICKUP",
+      }),
+    );
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.bulkTooLarge).toBe(true);
+    expect(json.error).toContain("over 50 cups");
+    expect(ordersCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets exactly 50 cups through the ceiling", async () => {
+    const res = await POST(
+      orderRequest({
+        lines: [
+          { variationId: "VAR1", variationPriceCents: 600, quantity: 50, modifiers: [] },
+        ],
+        fulfillmentType: "PICKUP",
+      }),
+    );
+    const json = await res.json().catch(() => ({}));
+    // May fail later for unrelated reasons (test env has no Square) — only
+    // the ceiling's own refusal must not fire.
+    expect(json.bulkTooLarge).toBeUndefined();
+  });
+});
+
 describe("POST /api/orders — delivery toggle gate", () => {
   beforeEach(() => {
     ordersCreate.mockReset();

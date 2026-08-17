@@ -141,6 +141,66 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "offer_mystery_box",
+      description:
+        "Unlock the mystery box with the secret code from our Instagram. Call it ONLY when the customer has actually said a code word — never for a bare 'surprise me' (answer that by pointing them at the Instagram for the current code). The server checks the code; the app renders a closed box; the PRIZE is drawn server-side only when they tap it — never announce, promise, or guess what's inside. Each code opens one box per customer; prizes land in their Rewards and apply at checkout automatically.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description: "The secret code the customer said, exactly as they wrote it.",
+          },
+        },
+        required: ["code"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "record_bulk_inquiry",
+      description:
+        "Send the store a bulk-order inquiry (10+ cups) that self-serve checkout cannot take: a FUTURE pickup time, or more than 50 cups. Call it only AFTER you have the cup count, when they want the drinks, whether they need delivery, and a phone or email to reach them — ask for whatever is missing first. Do NOT call it for a bulk order they want right now and under 50 cups: build that order normally; the bulk discount applies at checkout by itself.",
+      parameters: {
+        type: "object",
+        properties: {
+          cups: { type: "integer", minimum: 1, description: "How many cups they want." },
+          when: {
+            type: "string",
+            description: "When they want the drinks, in their own words (e.g. 'tomorrow 3pm').",
+          },
+          delivery: {
+            type: "boolean",
+            description: "True if they asked for delivery, false for pickup.",
+          },
+          contact: {
+            type: "string",
+            description: "Phone or email to reach them — required, ask if missing.",
+          },
+          notes: {
+            type: "string",
+            description: "Anything else useful: drink preferences, company name, budget.",
+          },
+        },
+        required: ["cups", "when", "contact"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "check_order_status",
+      description:
+        "Look up the signed-in customer's OWN orders from today: order number, items, and live status (being made / ready / picked up / delivered). Call it whenever they ask if their order is ready, say the app shows it ready, say they are on their way to collect, or worry about being late. Answer from its result only — never guess or promise what the counter is doing. Takes no arguments; it always looks at the asking customer's own account.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "go_checkout",
       description:
         "Send the customer to checkout. Call this only when they have asked to pay or check out.",

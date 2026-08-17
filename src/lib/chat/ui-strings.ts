@@ -30,6 +30,17 @@ export type ChatUiStrings = {
   checkoutEmptyCart: string;
   checkoutFeesNote: (cups: number) => string;
   goToCheckout: string;
+  signInTitle: string;
+  signInBody: string;
+  signInCta: string;
+  mysteryTap: string;
+  mysteryTapAria: string;
+  mysteryOpening: string;
+  mysteryInRewards: string;
+  mysteryExpires: (date: string) => string;
+  mysteryAlready: string;
+  mysterySignIn: string;
+  mysteryError: string;
 };
 
 const ZH: ChatUiStrings = {
@@ -56,6 +67,17 @@ const ZH: ChatUiStrings = {
   checkoutEmptyCart: "购物车还是空的——先挑一杯，或者直接跟我说想喝什么。",
   checkoutFeesNote: (cups) => `共 ${cups} 杯 · 优惠和费用在结账页计算`,
   goToCheckout: "去结账",
+  signInTitle: "登录后可以查订单",
+  signInBody: "登录你的账户，我就能帮你查订单状态、会员星星和专属优惠。",
+  signInCta: "去登录",
+  mysteryTap: "点我开盒 🎁",
+  mysteryTapAria: "打开今天的盲盒",
+  mysteryOpening: "开盒中…",
+  mysteryInRewards: "已放进你的 Rewards",
+  mysteryExpires: (date) => `${date} 前有效`,
+  mysteryAlready: "这个暗号的盲盒你已经开过啦——关注我们 Instagram 等下一个暗号！",
+  mysterySignIn: "登录后就能开今天的盲盒啦",
+  mysteryError: "没开出来…再点一下试试",
 };
 
 const EN: ChatUiStrings = {
@@ -82,6 +104,17 @@ const EN: ChatUiStrings = {
   checkoutEmptyCart: "Your cart is still empty — pick a drink, or just tell me what you feel like.",
   checkoutFeesNote: (cups) => `${cups} cup${cups === 1 ? "" : "s"} · discounts and fees are worked out at checkout`,
   goToCheckout: "Checkout",
+  signInTitle: "Sign in to check your order",
+  signInBody: "Once you're signed in I can look up your order status, loyalty stars and member offers.",
+  signInCta: "Sign in",
+  mysteryTap: "Tap to open 🎁",
+  mysteryTapAria: "Open today's mystery box",
+  mysteryOpening: "Opening…",
+  mysteryInRewards: "Added to your Rewards",
+  mysteryExpires: (date) => `valid until ${date}`,
+  mysteryAlready: "You've opened this code's box — watch our Instagram for the next code!",
+  mysterySignIn: "Sign in to open today's box",
+  mysteryError: "It didn't open… tap to try again",
 };
 
 export function chatUiStrings(): ChatUiStrings {

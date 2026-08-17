@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import {
   ShoppingBag,
   Star,
@@ -178,21 +179,38 @@ export function RewardStatsRow({
     ["Rewards", rewards],
     ["Stars", stars],
   ];
+  const tileClass =
+    "rounded-card border border-line bg-card px-2 py-3.5 text-center shadow-[0_2px_8px_rgba(42,30,20,0.05)]";
   return (
     <div className="grid grid-cols-3 gap-2.5">
-      {items.map(([label, val]) => (
-        <div
-          key={label}
-          className="rounded-card border border-line bg-card px-2 py-3.5 text-center shadow-[0_2px_8px_rgba(42,30,20,0.05)]"
-        >
-          <div className="font-serif text-[24px] font-semibold text-brand">
-            {val}
+      {items.map(([label, val]) => {
+        const inner = (
+          <>
+            <div className="font-serif text-[24px] font-semibold text-brand">
+              {val}
+            </div>
+            <div className="mt-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-ink3">
+              {label}
+            </div>
+          </>
+        );
+        // The Rewards number IS a question ("what can I redeem?") — the
+        // answer lives on /account/promotions, so the tile takes you there
+        // (Stan, 2026-08-17: it read as tappable and did nothing).
+        return label === "Rewards" ? (
+          <Link
+            key={label}
+            href="/account/promotions"
+            className={`${tileClass} block transition active:opacity-75 hover:bg-cream`}
+          >
+            {inner}
+          </Link>
+        ) : (
+          <div key={label} className={tileClass}>
+            {inner}
           </div>
-          <div className="mt-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-ink3">
-            {label}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

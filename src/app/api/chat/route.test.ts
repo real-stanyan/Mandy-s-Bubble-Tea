@@ -36,6 +36,22 @@ vi.mock("@/lib/chat/complaint", () => ({ fileChatComplaint }));
 // store-status-server pulls in supabase-server at module scope.
 const getDeliveryPause = vi.fn();
 vi.mock("@/lib/store-status-server", () => ({ getDeliveryPause }));
+// order-status.ts pulls in auth/square/driver-tokens at module scope; the
+// route only ever needs the report string, so stub the whole lookup.
+const lookupOrderStatusForChat = vi.fn();
+vi.mock("@/lib/chat/order-status", () => ({ lookupOrderStatusForChat }));
+// bulk-inquiry pulls in the resend client at module scope, same as complaint.
+const sendBulkInquiry = vi.fn();
+vi.mock("@/lib/chat/bulk-inquiry", () => ({ sendBulkInquiry }));
+// customer-state reaches for supabase/loyalty at module scope; the real
+// function returns null in this env anyway (no session on the request), so
+// the mock's default matches production-for-a-stranger exactly.
+const readCustomerPromoState = vi.fn();
+vi.mock("@/lib/chat/customer-state", () => ({ readCustomerPromoState }));
+// mystery-box pulls in supabase-server at module scope; the route only
+// needs the code check here.
+const isActiveMysteryCode = vi.fn();
+vi.mock("@/lib/mystery-box", () => ({ isActiveMysteryCode }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -84,6 +100,18 @@ beforeEach(() => {
   // Every degrade/failure path is expected to log now (Finding 3) — spy
   // rather than let it print, and silence it by default so passing tests
   // stay quiet; individual tests assert on calls where the log matters.
+  sendBulkInquiry.mockReset();
+  sendBulkInquiry.mockResolvedValue({ emailed: true });
+  readCustomerPromoState.mockReset();
+  readCustomerPromoState.mockResolvedValue(null);
+  isActiveMysteryCode.mockReset();
+  isActiveMysteryCode.mockResolvedValue(true);
+  lookupOrderStatusForChat.mockReset();
+  lookupOrderStatusForChat.mockResolvedValue({
+    signedOut: false,
+    report:
+      "Today's orders for this signed-in customer (1 total, newest first):\n- Order #A17 — 2x Taro Milk Tea — status: READY — waiting at the counter",
+  });
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -732,5 +760,236 @@ describe("POST /api/chat — promotions, not complaints", () => {
     ).json();
 
     expect(body.promotions ?? []).toEqual([]);
+  });
+});
+
+describe("POST /api/chat — offer_mystery_box", () => {
+  const askSurprise = { messages: [{ role: "user", content: "暗号：芋头星人" }] };
+  const boxCall = () => ({
+    content: "接头成功！给你变一个盲盒！",
+    toolCalls: [
+      {
+        id: "mb1",
+        name: "offer_mystery_box",
+        argumentsJson: JSON.stringify({ code: "芋头星人" }),
+      },
+    ],
+  });
+
+  it("hands an invalid code back to the model instead of rendering a box", async () => {
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 3,
+      starsPerReward: 9,
+      lifetimePoints: 3,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    isActiveMysteryCode.mockResolvedValue(false);
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? boxCall()
+        : { content: "这个暗号不对哦——去我们 Instagram 最新帖子找找！", toolCalls: [] };
+    });
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBeUndefined();
+    expect(body.reply).toContain("Instagram");
+    // The verdict reached the model as a tool message.
+    const retry = seen[1] as { role: string; content: string | null }[];
+    expect(retry.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("renders the box for a signed-in customer", async () => {
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 3,
+      starsPerReward: 9,
+      lifetimePoints: 3,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    callDeepSeek.mockResolvedValue(boxCall());
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBe(true);
+    // The validated code rides along so the open call can carry it back.
+    expect(body.mysteryBoxCode).toBe("芋头星人");
+    expect(body.reply).toContain("盲盒");
+  });
+
+  it("swaps the box for a sign-in card when the asker is signed out — fixed copy, not the model's promise", async () => {
+    callDeepSeek.mockResolvedValue(boxCall());
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBeUndefined();
+    expect(body.signIn).toBe(true);
+    // The model's "给你变一个盲盒" must NOT survive — there is no box to tap.
+    expect(body.reply).toContain("登录");
+    expect(body.reply).not.toContain("变一个盲盒");
+  });
+});
+
+describe("POST /api/chat — record_bulk_inquiry", () => {
+  const askBulk = {
+    messages: [{ role: "user", content: "我要订30杯，明天下午3点取，电话0400000123" }],
+  };
+  const goodArgsJson = JSON.stringify({
+    cups: 30,
+    when: "tomorrow 3pm",
+    delivery: false,
+    contact: "0400000123",
+  });
+
+  it("emails the inquiry and answers with the model's own acknowledgement", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "已经帮你把信息发给店里啦，他们会联系你确认细节。",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: goodArgsJson }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    expect(sendBulkInquiry).toHaveBeenCalledWith(
+      expect.objectContaining({ cups: 30, contact: "0400000123" }),
+    );
+    expect(body.reply).toContain("发给店里");
+  });
+
+  it("hands out the store phone when the email did NOT go — never a hollow callback promise", async () => {
+    sendBulkInquiry.mockResolvedValue({ emailed: false });
+    callDeepSeek.mockResolvedValue({
+      content: "已经发给店里啦！",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: goodArgsJson }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    // The model's optimistic sentence must be REPLACED by the honest copy.
+    expect(body.reply).toContain("0404 978 238");
+    expect(body.reply).not.toContain("发给店里啦");
+  });
+
+  it("treats malformed tool arguments as a failed send", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "好的！",
+      toolCalls: [{ id: "b1", name: "record_bulk_inquiry", argumentsJson: "{not json" }],
+    });
+    const body = await (await POST(req(askBulk))).json();
+    expect(sendBulkInquiry).not.toHaveBeenCalled();
+    expect(body.reply).toContain("0404 978 238");
+  });
+});
+
+describe("POST /api/chat — check_order_status", () => {
+  const askReady = { messages: [{ role: "user", content: "It shows it's ready" }] };
+
+  function statusCall() {
+    return {
+      content: "",
+      toolCalls: [{ id: "os1", name: "check_order_status", argumentsJson: "{}" }],
+    };
+  }
+
+  it("feeds the lookup report back and answers from the second round", async () => {
+    const seen: unknown[] = [];
+    callDeepSeek.mockImplementation(async (messages: unknown) => {
+      seen.push(JSON.parse(JSON.stringify(messages)));
+      return seen.length === 1
+        ? statusCall()
+        : { content: "Yes — order #A17 is ready at the counter!", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+
+    expect(lookupOrderStatusForChat).toHaveBeenCalledTimes(1);
+    expect(body.reply).toContain("#A17");
+    // The second round must carry the report as a proper tool message —
+    // that is the model's only window onto the counter.
+    const retry = seen[1] as { role: string; content: string | null }[];
+    const toolMsg = retry.find((m) => m.role === "tool");
+    expect(toolMsg?.content).toContain("READY — waiting at the counter");
+  });
+
+  it("looks up once even when the model repeats the call, then degrades honestly", async () => {
+    callDeepSeek.mockResolvedValue(statusCall());
+    const body = await (await POST(req(askReady))).json();
+
+    // One Square lookup per request no matter how often the model loops.
+    expect(lookupOrderStatusForChat).toHaveBeenCalledTimes(1);
+    expect(body.proposal).toBeNull();
+  });
+
+  it("leaves the validation loop its retry after a status round", async () => {
+    // A status turn costs a round-trip; the budget grows by one so a drink
+    // proposed AFTER a status check still gets its correction cycle.
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      if (n === 1) return statusCall();
+      if (n === 2) return proposeCall({ ...goodArgs, itemId: "ITEM_NOPE" });
+      return proposeCall(goodArgs);
+    });
+
+    const body = await (await POST(req(askTaro))).json();
+    expect(callDeepSeek).toHaveBeenCalledTimes(3);
+    expect(body.proposal.itemId).toBe("ITEM_TARO");
+  });
+
+  it("attaches the sign-in card when the lookup finds a signed-out asker", async () => {
+    lookupOrderStatusForChat.mockResolvedValue({
+      signedOut: true,
+      report: "The customer is NOT signed in …",
+    });
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      return n === 1
+        ? statusCall()
+        : { content: "I can't see your order from here — sign in and I'll check.", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+    expect(body.signIn).toBe(true);
+    expect(body.reply).toContain("sign in");
+  });
+
+  it("sends no sign-in card for a signed-in asker", async () => {
+    let n = 0;
+    callDeepSeek.mockImplementation(async () => {
+      n += 1;
+      return n === 1
+        ? statusCall()
+        : { content: "Order #A17 is ready!", toolCalls: [] };
+    });
+
+    const body = await (await POST(req(askReady))).json();
+    expect(body.signIn).toBeUndefined();
+  });
+
+  it("files the complaint first when both tools arrive in one turn", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "非常抱歉！",
+      toolCalls: [
+        {
+          id: "c1",
+          name: "file_complaint",
+          argumentsJson: JSON.stringify({ summary: "饮品洒了" }),
+        },
+        { id: "os1", name: "check_order_status", argumentsJson: "{}" },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "我的奶茶洒了一半" }] }))
+    ).json();
+
+    expect(fileChatComplaint).toHaveBeenCalledTimes(1);
+    expect(lookupOrderStatusForChat).not.toHaveBeenCalled();
+    expect(body.reply).toContain("抱歉");
   });
 });

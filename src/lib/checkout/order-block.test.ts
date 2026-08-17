@@ -9,6 +9,16 @@ describe("classifyOrderBlock", () => {
     expect(classifyOrderBlock("")).toBeNull();
   });
 
+  it("classifies the bulk ceiling as a talk-to-a-human dialog with no cart actions", () => {
+    const block = classifyOrderBlock(
+      "Bulk orders over 50 cups can't be placed online — tell Mandy in the chat (or ring the store) and Rick will be in touch to arrange it.",
+    );
+    expect(block?.title).toContain("big order");
+    expect(block?.body).toContain("Rick");
+    expect(block?.canAddItems).toBe(false);
+    expect(block?.canSwitchToPickup).toBe(false);
+  });
+
   it("classifies below-minimum with a shortfall and both actions", () => {
     // $9.60 subtotal vs $12 minimum → $2.40 short
     const block = classifyOrderBlock("Below minimum order for delivery", 960n);
