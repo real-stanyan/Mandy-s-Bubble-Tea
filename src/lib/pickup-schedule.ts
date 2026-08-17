@@ -68,3 +68,25 @@ export function toScheduledOrderNumber(pickupNumber: string): string {
 export function printDueAt(pickupAt: Date): Date {
   return new Date(pickupAt.getTime() - MAKE_LEAD_MINUTES * 60 * 1000);
 }
+
+/**
+ * Brisbane wall-clock label ("5:21pm") for a moment. Brisbane is UTC+10
+ * with no DST, so the offset is arithmetic — deliberately not
+ * Intl.DateTimeFormat, which differs between V8 and Hermes (the same call
+ * the delivery-pause copy makes).
+ *
+ * Lives here because three surfaces need the identical string: the pickup
+ * pills, the checkout hint under them, and the confirmation card.
+ */
+export function brisbaneClockLabel(at: Date): string {
+  const bne = new Date(at.getTime() + 10 * 60 * 60 * 1000);
+  const h24 = bne.getUTCHours();
+  const m = bne.getUTCMinutes();
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(m).padStart(2, "0")}${h24 < 12 ? "am" : "pm"}`;
+}
+
+/** The clock time a pickup this many minutes from `now` lands on. */
+export function pickupClockLabel(offsetMinutes: number, now: Date): string {
+  return brisbaneClockLabel(new Date(now.getTime() + offsetMinutes * 60 * 1000));
+}

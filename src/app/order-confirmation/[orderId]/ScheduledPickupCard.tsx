@@ -46,10 +46,10 @@ export function ScheduledPickupCard({ orderId, pickupLabel }: Props) {
   return (
     <div className="rounded-card border border-line bg-card p-4 shadow-[0_2px_8px_rgba(42,30,20,0.05)] sm:p-5">
       <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
-        Scheduled pickup
+        Pickup time you chose
       </p>
       <p className="mt-1.5 text-[15px] font-semibold text-ink">
-        Ready for you around {pickupLabel}
+        Ready at the counter around {pickupLabel}
       </p>
 
       {phase === "released" ? (

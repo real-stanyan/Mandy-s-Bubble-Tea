@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  brisbaneClockLabel,
+  pickupClockLabel,
   availablePickupOffsets,
   isValidPickupOffset,
   toScheduledOrderNumber,
@@ -67,5 +69,23 @@ describe("printDueAt", () => {
     const pickup = new Date("2026-08-16T06:15:00.000Z");
     const due = printDueAt(pickup);
     expect(pickup.getTime() - due.getTime()).toBe(MAKE_LEAD_MINUTES * 60 * 1000);
+  });
+});
+
+describe("clock labels — one string, three surfaces", () => {
+  it("renders Brisbane wall time in 12-hour form", () => {
+    // 5:21pm Brisbane = 07:21 UTC.
+    expect(brisbaneClockLabel(new Date("2026-08-17T07:21:00.000Z"))).toBe("5:21pm");
+    // Midnight and noon are the am/pm edges 12-hour clocks get wrong.
+    expect(brisbaneClockLabel(new Date("2026-08-17T14:00:00.000Z"))).toBe("12:00am");
+    expect(brisbaneClockLabel(new Date("2026-08-17T02:00:00.000Z"))).toBe("12:00pm");
+  });
+
+  it("labels a pill with the time the customer would actually arrive", () => {
+    // The pills print this instead of a bare "10 min", which read as a
+    // wait rather than an arrival time (Stan, 2026-08-17).
+    const now = new Date("2026-08-17T06:51:00.000Z"); // 4:51pm Brisbane
+    expect(pickupClockLabel(10, now)).toBe("5:01pm");
+    expect(pickupClockLabel(30, now)).toBe("5:21pm");
   });
 });
