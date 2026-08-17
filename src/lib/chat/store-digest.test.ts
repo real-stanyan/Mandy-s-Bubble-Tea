@@ -46,12 +46,15 @@ describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", 
     expect(digest).toContain("RIGHT NOW the store is OPEN");
   });
 
-  it("denies scheduled pickups — the checkout has no time picker to promise", () => {
-    // Probe: "能预约明天下午3点取吗" → "可以的～结账页面上会确认自取时间"
-    // — pure invention; nothing in the product can honour it.
+  it("offers the pickup window and still refuses anything beyond it", () => {
+    // The digest used to deny scheduling outright, because nothing could
+    // honour it (probe 2026-08-17: "能预约明天下午3点取吗" was answered with
+    // an invented checkout time picker). The window now exists — but it
+    // stops at 30 minutes, and "tomorrow 3pm" must still be refused.
     const digest = buildStoreDigest();
-    expect(digest).toContain("No advance or scheduled orders");
-    expect(digest).toContain("no time picker");
+    expect(digest).toContain("10 / 15 / 20 / 30 minutes");
+    expect(digest).toMatch(/NO booking for later today, tomorrow/);
+    expect(digest).toContain("Delivery orders cannot be scheduled");
   });
 
   it("states the online payment methods", () => {
