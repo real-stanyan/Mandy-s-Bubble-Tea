@@ -18,6 +18,7 @@ import { WEEKLY_SPECIALS } from "@/lib/menu/weekly-specials";
  */
 export type PromotionKey =
   | "loyalty"
+  | "mystery-coupons"
   | "weekly-specials"
   | "tasting"
   | "flash"
@@ -63,6 +64,9 @@ export type CustomerPromoState = {
   flashPercentage: number;
   appDownloadAvailable: boolean;
   appDownloadPercentage: number;
+  /** Unredeemed, unexpired mystery-box coupons (labels only — the digest
+   *  never needs ids). */
+  mysteryCouponLabels: string[];
 };
 
 function money(cents: number): string {
@@ -122,6 +126,19 @@ export async function getLivePromotions(
       promptDetail: `One star per drink bought; ${perReward} stars earns a free drink of any flavour and size. Signing in shows them their own balance — you do not know it.`,
       href: "/account",
       cta: "查看我的星星",
+    });
+  }
+
+  // --- Mystery-box coupons this customer is holding ---
+  if (customer && customer.mysteryCouponLabels.length > 0) {
+    const list = customer.mysteryCouponLabels.join("、");
+    out.push({
+      key: "mystery-coupons",
+      title: `你有 ${customer.mysteryCouponLabels.length} 张盲盒券`,
+      detail: `盲盒开出的奖励：${list}。结账时自动使用当前订单里最划算的一张，不用手动选。`,
+      promptDetail: `They hold ${customer.mysteryCouponLabels.length} mystery-box coupon(s): ${customer.mysteryCouponLabels.join(", ")}. The best one for their cart applies automatically at checkout — nothing to enter.`,
+      href: "/menu",
+      cta: "去点单",
     });
   }
 

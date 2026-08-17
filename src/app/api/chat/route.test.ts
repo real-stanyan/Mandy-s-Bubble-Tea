@@ -43,6 +43,11 @@ vi.mock("@/lib/chat/order-status", () => ({ lookupOrderStatusForChat }));
 // bulk-inquiry pulls in the resend client at module scope, same as complaint.
 const sendBulkInquiry = vi.fn();
 vi.mock("@/lib/chat/bulk-inquiry", () => ({ sendBulkInquiry }));
+// customer-state reaches for supabase/loyalty at module scope; the real
+// function returns null in this env anyway (no session on the request), so
+// the mock's default matches production-for-a-stranger exactly.
+const readCustomerPromoState = vi.fn();
+vi.mock("@/lib/chat/customer-state", () => ({ readCustomerPromoState }));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -93,6 +98,8 @@ beforeEach(() => {
   // stay quiet; individual tests assert on calls where the log matters.
   sendBulkInquiry.mockReset();
   sendBulkInquiry.mockResolvedValue({ emailed: true });
+  readCustomerPromoState.mockReset();
+  readCustomerPromoState.mockResolvedValue(null);
   lookupOrderStatusForChat.mockReset();
   lookupOrderStatusForChat.mockResolvedValue({
     signedOut: false,
@@ -747,6 +754,44 @@ describe("POST /api/chat — promotions, not complaints", () => {
     ).json();
 
     expect(body.promotions ?? []).toEqual([]);
+  });
+});
+
+describe("POST /api/chat — offer_mystery_box", () => {
+  const askSurprise = { messages: [{ role: "user", content: "给我惊喜" }] };
+  const boxCall = () => ({
+    content: "给你变一个盲盒！",
+    toolCalls: [{ id: "mb1", name: "offer_mystery_box", argumentsJson: "{}" }],
+  });
+
+  it("renders the box for a signed-in customer", async () => {
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 3,
+      starsPerReward: 9,
+      lifetimePoints: 3,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    callDeepSeek.mockResolvedValue(boxCall());
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBe(true);
+    expect(body.reply).toContain("盲盒");
+  });
+
+  it("swaps the box for a sign-in card when the asker is signed out — fixed copy, not the model's promise", async () => {
+    callDeepSeek.mockResolvedValue(boxCall());
+    const body = await (await POST(req(askSurprise))).json();
+    expect(body.mysteryBox).toBeUndefined();
+    expect(body.signIn).toBe(true);
+    // The model's "给你变一个盲盒" must NOT survive — there is no box to tap.
+    expect(body.reply).toContain("登录");
+    expect(body.reply).not.toContain("变一个盲盒");
   });
 });
 

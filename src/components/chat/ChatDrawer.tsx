@@ -99,6 +99,7 @@ export function ChatDrawer() {
         // yanked to a payment page mid-sentence reads as a malfunction.
         checkoutCard: body.action === "checkout" || undefined,
         signInCard: body.signIn === true || undefined,
+        mysteryBox: body.mysteryBox === true || undefined,
       };
       push(reply);
     } catch {

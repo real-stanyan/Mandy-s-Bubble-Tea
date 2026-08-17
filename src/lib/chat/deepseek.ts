@@ -141,6 +141,15 @@ export const CHAT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "offer_mystery_box",
+      description:
+        "Show the customer today's mystery box when they ask for a surprise ('给我惊喜', 'surprise me', '盲盒', 'random treat'). The app renders a closed box; the PRIZE is drawn server-side only when they tap it — so never announce, promise, or guess what's inside, and never invent discount numbers. One box per customer per day; prizes land in their Rewards and apply at checkout automatically.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "record_bulk_inquiry",
       description:
         "Send the store a bulk-order inquiry (10+ cups) that self-serve checkout cannot take: a FUTURE pickup time, or more than 50 cups. Call it only AFTER you have the cup count, when they want the drinks, whether they need delivery, and a phone or email to reach them — ask for whatever is missing first. Do NOT call it for a bulk order they want right now and under 50 cups: build that order normally; the bulk discount applies at checkout by itself.",

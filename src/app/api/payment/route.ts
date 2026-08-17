@@ -15,6 +15,10 @@ import {
   consumeAppDownloadDiscount,
   appDownloadPhoneFromOrder,
 } from "@/lib/app-download-discount";
+import {
+  consumeMysteryCoupon,
+  mysteryCouponIdFromDiscounts,
+} from "@/lib/mystery-box";
 import { getAuthedUser } from "@/lib/auth";
 import { enqueuePrintJob } from "@/lib/print-jobs";
 import { notifyOwnersPrinterAlert } from "@/lib/printer-alert";
@@ -598,6 +602,17 @@ export async function POST(request: Request) {
           customerId,
         );
         appDownloadConsumed = result.consumedCount > 0;
+      }
+    }
+
+    // Mystery-box coupon: one-shot burn by the coupon id carried in the
+    // discount uid, settled-only like every other burn here. Phone-keyed,
+    // same anchor as the app-download grant.
+    const mysteryCouponId = mysteryCouponIdFromDiscounts(order.discounts);
+    if (paymentSettled && mysteryCouponId) {
+      const phone = appDownloadPhoneFromOrder(order);
+      if (phone) {
+        await consumeMysteryCoupon(mysteryCouponId, phone, body.orderId, customerId);
       }
     }
 

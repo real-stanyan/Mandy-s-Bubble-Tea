@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { IgFollowPromoCard } from "@/components/account/IgFollowPromoCard";
@@ -16,6 +16,28 @@ type PromotionItem = {
 
 export default function PromotionsPage() {
   const { profile, loyalty, welcomeDiscount, starsPerReward, loading } = useAuth();
+
+  // Mystery-box coupons come from their own endpoint (they live in
+  // Supabase, not the auth context). Empty until fetched — the rest of the
+  // page renders without waiting.
+  const [mysteryCoupons, setMysteryCoupons] = useState<
+    Array<{ label: string; expiresAt: string }>
+  >([]);
+  useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
+    fetch("/api/me/mystery-coupons")
+      .then((r) => r.json())
+      .then((body: { coupons?: Array<{ label: string; expiresAt: string }> }) => {
+        if (!cancelled && body?.coupons) setMysteryCoupons(body.coupons);
+      })
+      .catch(() => {
+        /* the section just stays absent */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
 
   const promotions = useMemo<PromotionItem[]>(() => {
     if (!profile) return getGuestPromotions();
@@ -36,9 +58,23 @@ export default function PromotionsPage() {
         tag: "ACTIVE",
       });
     }
+    for (const c of mysteryCoupons) {
+      const until = new Date(c.expiresAt).toLocaleDateString("en-AU", {
+        day: "numeric",
+        month: "short",
+        timeZone: "Australia/Brisbane",
+      });
+      list.push({
+        id: `mystery-${c.label}-${c.expiresAt}`,
+        title: `🎁 ${c.label}`,
+        description: `From Mandy's mystery box — auto-applied at checkout, valid until ${until}.`,
+        available: true,
+        tag: "ACTIVE",
+      });
+    }
     list.push(...buildPromotions(balance, perReward, rewardsAvailable));
     return list;
-  }, [profile, loyalty, welcomeDiscount, starsPerReward]);
+  }, [profile, loyalty, welcomeDiscount, starsPerReward, mysteryCoupons]);
 
   return (
     <div className="flex min-h-screen flex-col bg-bg">
