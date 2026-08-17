@@ -46,6 +46,18 @@ describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", 
     expect(digest).toContain("RIGHT NOW the store is OPEN");
   });
 
+  it("tells an APP customer the picker lives on the website, not their screen", () => {
+    // The picker shipped web-first (App issue #276). "Choose a time at
+    // checkout" would send an app customer hunting for a control that
+    // isn't there — the same promise-what-we-can't-keep failure the
+    // delivery-pause facts exist to prevent.
+    const digest = buildStoreDigest(null, new Date(), "app");
+    expect(digest).toMatch(/not in this app yet/);
+    expect(digest).toMatch(/never tell an app customer to pick a time at checkout/);
+    // And the bulk flow must not send them to a checkout time picker either.
+    expect(digest).not.toContain("they choose the pickup time on the checkout page");
+  });
+
   it("offers the pickup window and still refuses anything beyond it", () => {
     // The digest used to deny scheduling outright, because nothing could
     // honour it (probe 2026-08-17: "能预约明天下午3点取吗" was answered with
