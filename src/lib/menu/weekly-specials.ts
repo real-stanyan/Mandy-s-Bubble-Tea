@@ -16,23 +16,32 @@ export type WeeklySpecial = {
   originalPriceCents: number;
 };
 
-// Names must match the Square catalog item name EXACTLY (case-insensitive) —
-// a mismatch fails silently (the item just won't show as a special), so
-// double-check against Square Dashboard > Items, not the poster copy. E.g.
-// the poster says "Grapefruit Green Tea" / "Blueberry Iced Tea" but the real
-// catalog names are "Grapefruit Iced Green Tea" / "Blueberry Iced Green Tea".
+// Names must match the Square catalog item name (case-insensitive, and
+// runs of whitespace count as one — see normalizeItemName). A mismatch
+// fails silently (the item just won't show as a special), so double-check
+// against Square Dashboard > Items, not the poster copy. E.g. the poster
+// says "Grapefruit Green Tea" / "Blueberry Iced Tea" but the real catalog
+// names are "Grapefruit Iced Green Tea" / "Blueberry Iced Green Tea".
 export const WEEKLY_SPECIALS: WeeklySpecial[] = [
-  { name: "Grapefruit Black Tea", originalPriceCents: 620 },
-  { name: "Grapefruit Iced Green Tea", originalPriceCents: 620 },
-  { name: "Blueberry Iced Green Tea", originalPriceCents: 620 },
+  { name: "Pineapple Green Tea", originalPriceCents: 620 },
+  { name: "Pineapple Black Tea", originalPriceCents: 620 },
+  { name: "Orange Iced Green Tea", originalPriceCents: 620 },
   { name: "Honeydew Milk Tea", originalPriceCents: 620 },
   { name: "Blueberry Slushy", originalPriceCents: 620 },
   { name: "Blueberry Cheese", originalPriceCents: 750 },
 ];
 
-function norm(s: string): string {
-  return s.trim().toLowerCase();
+/**
+ * Match key for an item name. Lowercases, trims, and collapses internal
+ * whitespace — the catalog has at least one item typed with a double space
+ * ("Pineapple  Black Tea"), which a trim-only key silently fails to match.
+ * Every producer and consumer of a specials key must go through this.
+ */
+export function normalizeItemName(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
+
+const norm = normalizeItemName;
 
 /**
  * The original (pre-discount) price for this item, or null if it isn't

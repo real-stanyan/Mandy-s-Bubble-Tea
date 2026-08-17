@@ -7,6 +7,7 @@ import {
   WEEKLY_SPECIALS_CATEGORY_SLUG,
   WEEKLY_SPECIALS_CATEGORY_NAME,
   orderedWeeklySpecialNames,
+  normalizeItemName,
 } from "@/lib/menu/weekly-specials";
 
 // Catalog data layer. Fetches raw Square objects once, then builds
@@ -517,12 +518,12 @@ function collectWeeklySpecialItems(
   const byName = new Map<string, MenuItem>();
   for (const bucket of itemsBySlug.values()) {
     for (const item of bucket) {
-      const key = item.name.trim().toLowerCase();
+      const key = normalizeItemName(item.name);
       if (!byName.has(key)) byName.set(key, item);
     }
   }
   for (const item of uncategorizedItems) {
-    const key = item.name.trim().toLowerCase();
+    const key = normalizeItemName(item.name);
     if (!byName.has(key)) byName.set(key, item);
   }
 
