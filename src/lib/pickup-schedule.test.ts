@@ -7,6 +7,7 @@ import {
   toScheduledOrderNumber,
   printDueAt,
   MAKE_LEAD_MINUTES,
+  printTimingFor,
 } from "./pickup-schedule";
 
 /** A Date at the given Brisbane wall-clock time (UTC+10, no DST). */
@@ -87,5 +88,63 @@ describe("clock labels — one string, three surfaces", () => {
     const now = new Date("2026-08-17T06:51:00.000Z"); // 4:51pm Brisbane
     expect(pickupClockLabel(10, now)).toBe("5:01pm");
     expect(pickupClockLabel(30, now)).toBe("5:21pm");
+  });
+});
+
+describe("printTimingFor", () => {
+  const now = new Date("2026-08-17T07:00:00Z"); // 5:00pm Brisbane
+
+  it("an ASAP order holds nothing", () => {
+    expect(printTimingFor({ scheduleType: "ASAP" }, now)).toEqual({
+      printDueAt: null,
+      pickupAt: null,
+    });
+  });
+
+  it("a missing / unknown fulfillment holds nothing", () => {
+    expect(printTimingFor(undefined, now).printDueAt).toBeNull();
+    expect(printTimingFor(null, now).printDueAt).toBeNull();
+    expect(printTimingFor({ scheduleType: "SCHEDULED" }, now).printDueAt).toBeNull();
+    expect(
+      printTimingFor({ scheduleType: "SOMETHING_NEW", pickupAt: "2026-08-17T07:20:00Z" }, now)
+        .printDueAt,
+    ).toBeNull();
+  });
+
+  it("a scheduled order is due at pickup minus the make lead", () => {
+    const timing = printTimingFor(
+      { scheduleType: "SCHEDULED", pickupAt: "2026-08-17T07:20:00Z" },
+      now,
+    );
+    expect(timing.pickupAt).toBe("2026-08-17T07:20:00.000Z");
+    expect(timing.printDueAt).toBe("2026-08-17T07:15:00.000Z");
+    expect(
+      new Date(timing.pickupAt!).getTime() - new Date(timing.printDueAt!).getTime(),
+    ).toBe(MAKE_LEAD_MINUTES * 60 * 1000);
+  });
+
+  it("a pickup already inside the lead window is due now, not in the past", () => {
+    // 3 minutes out with a 5-minute lead — the due time would be 2 minutes ago.
+    const timing = printTimingFor(
+      { scheduleType: "SCHEDULED", pickupAt: "2026-08-17T07:03:00Z" },
+      now,
+    );
+    expect(timing.printDueAt).toBe(now.toISOString());
+  });
+
+  it("a backfill of a long-past scheduled order prints immediately", () => {
+    const timing = printTimingFor(
+      { scheduleType: "SCHEDULED", pickupAt: "2026-08-16T07:20:00Z" },
+      now,
+    );
+    expect(timing.printDueAt).toBe(now.toISOString());
+    expect(timing.pickupAt).toBe("2026-08-16T07:20:00.000Z");
+  });
+
+  it("an unparseable pickupAt holds nothing rather than throwing", () => {
+    expect(printTimingFor({ scheduleType: "SCHEDULED", pickupAt: "nope" }, now)).toEqual({
+      printDueAt: null,
+      pickupAt: null,
+    });
   });
 });

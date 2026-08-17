@@ -3,7 +3,7 @@ import "server-only";
 import type { Order, OrderLineItem, OrderLineItemModifier } from "square";
 import { getSupabaseAdmin } from "./supabase-server";
 import { isUsableOrderTicketName } from "./sticker-number";
-import { printDueAt } from "./pickup-schedule";
+import { printTimingFor } from "./pickup-schedule";
 import type { ModifierBucket } from "./modifier-buckets";
 
 type CupRow = {
@@ -132,21 +132,10 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   // Scheduled pickup: hold the sticker until pickup-time minus the make
   // lead, so the drinks aren't made 20 minutes before anyone arrives.
   // Derived from the order's own fulfillment rather than a parameter, so
-  // every enqueue path (payment route, webhook, backfill) agrees — an ASAP
-  // order (scheduleType "ASAP", or anything unexpected) holds nothing.
-  // Guarded against a pickupAt already inside the lead window: a due time
-  // in the past is just "now", not an error.
-  const pickup = order.fulfillments?.[0]?.pickupDetails;
-  let printDue: string | null = null;
-  let pickupTimeIso: string | null = null;
-  if (pickup?.scheduleType === "SCHEDULED" && pickup.pickupAt) {
-    const at = new Date(pickup.pickupAt);
-    if (!Number.isNaN(at.getTime())) {
-      pickupTimeIso = at.toISOString();
-      const due = printDueAt(at);
-      printDue = (due.getTime() > Date.now() ? due : new Date()).toISOString();
-    }
-  }
+  // every enqueue path agrees — see printTimingFor.
+  const { printDueAt: printDue, pickupAt: pickupTimeIso } = printTimingFor(
+    order.fulfillments?.[0]?.pickupDetails,
+  );
 
   // Dev guard: skip the prod-Supabase insert that would cause the store's
   // Mac mini printer-client to print a real Zebra sticker. We still return
