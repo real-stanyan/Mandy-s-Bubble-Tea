@@ -46,18 +46,6 @@ describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", 
     expect(digest).toContain("RIGHT NOW the store is OPEN");
   });
 
-  it("tells an APP customer the picker lives on the website, not their screen", () => {
-    // The picker shipped web-first (App issue #276). "Choose a time at
-    // checkout" would send an app customer hunting for a control that
-    // isn't there — the same promise-what-we-can't-keep failure the
-    // delivery-pause facts exist to prevent.
-    const digest = buildStoreDigest(null, new Date(), "app");
-    expect(digest).toMatch(/not in this app yet/);
-    expect(digest).toMatch(/never tell an app customer to pick a time at checkout/);
-    // And the bulk flow must not send them to a checkout time picker either.
-    expect(digest).not.toContain("they choose the pickup time on the checkout page");
-  });
-
   it("offers the pickup window and still refuses anything beyond it", () => {
     // The digest used to deny scheduling outright, because nothing could
     // honour it (probe 2026-08-17: "能预约明天下午3点取吗" was answered with
@@ -65,6 +53,8 @@ describe("buildStoreDigest — the RIGHT NOW line and the no-scheduling facts", 
     // stops at 30 minutes, and "tomorrow 3pm" must still be refused.
     const digest = buildStoreDigest();
     expect(digest).toContain("10 / 15 / 20 / 30 minutes");
+    // Both clients hear the same fact since App #90 shipped the pills.
+    expect(digest).toContain("website and app");
     expect(digest).toMatch(/NO booking for later today, tomorrow/);
     expect(digest).toContain("Delivery orders cannot be scheduled");
   });
@@ -107,7 +97,7 @@ describe("buildStoreDigest — hours and the delivery flow", () => {
 
 describe("buildStoreDigest — the mystery box's two rounds", () => {
   it("launch round: tells the model to hand out a box on a bare ask", () => {
-    const digest = buildStoreDigest(null, new Date(), "web", true);
+    const digest = buildStoreDigest(null, new Date(), true);
     expect(digest).toContain("OPEN TO EVERYONE right now");
     expect(digest).toContain("no code");
     // The code hunt must not be mentioned while it isn't in force — that's
@@ -117,7 +107,7 @@ describe("buildStoreDigest — the mystery box's two rounds", () => {
   });
 
   it("code round: the Instagram hunt, and no box without a code", () => {
-    const digest = buildStoreDigest(null, new Date(), "web", false);
+    const digest = buildStoreDigest(null, new Date(), false);
     expect(digest).toContain("SECRET CODE");
     expect(digest).toContain("never offer a box without a code");
     expect(digest).not.toContain("OPEN TO EVERYONE");

@@ -41,13 +41,6 @@ export function buildStoreDigest(
   deliveryPause: { until: string; reason: string } | null = null,
   /** Injectable for tests; production always uses the real clock. */
   now: Date = new Date(),
-  /** Which client is asking. The pickup-time picker shipped on the website
-   *  first, so telling an APP customer to "choose a time at checkout" is a
-   *  promise their screen cannot keep — exactly the failure this digest
-   *  exists to prevent. Resolved server-side from request headers
-   *  (client-platform.ts), never from the body. Cache note: this splits the
-   *  cached prefix into two buckets (web / app), not one per customer. */
-  clientPlatform: "web" | "app" = "web",
   /** True during the launch round, when the box needs no Instagram code.
    *  Read from the DB by the caller (mystery-box.ts's sentinel row). */
   mysteryBoxOpenAccess = false,
@@ -60,15 +53,9 @@ export function buildStoreDigest(
   // her. Cache note: the store digest sits in the cached prompt prefix, and
   // this line changes it — but only twice a day (open/close boundary), not
   // per customer, which is the same cost profile as a delivery pause.
-  // The pickup-time picker is a WEBSITE checkout feature today (App issue
-  // #276 tracks the port). An app customer told to "choose a time at
-  // checkout" would go looking for a control that isn't on their screen —
-  // so they get the honest version instead: order when you're close, or
-  // use the website to book the window.
-  const pickupWindowFact =
-    clientPlatform === "app"
-      ? `- Scheduled pickup: choosing a collection time (now / 10 / 15 / 20 / 30 minutes ahead) is available on the WEBSITE checkout at ${BUSINESS.domain}, not in this app yet — never tell an app customer to pick a time at checkout, because there is no such control here. In the app, an order is started as soon as it is placed and takes about 10 minutes, so someone arriving later should either order when they are closer, or place it on the website to book the window. There is NO booking for later today, tomorrow, or a set hour anywhere, and delivery cannot be scheduled at all.`
-      : `- Scheduled pickup (website checkout): a pickup order can be collected NOW or in 10 / 15 / 20 / 30 minutes — the customer picks on the checkout page, and the counter starts making the drinks a few minutes before that time so they are fresh on arrival. Arriving early is fine: the order page has an "I'm here" button that starts the drinks immediately. Options whose pickup time would fall after closing are not offered, and the furthest ahead anyone can book is 30 minutes — there is NO booking for later today, tomorrow, or "in two hours". Delivery orders cannot be scheduled at all.`;
+  // Unified since App PR #90 shipped the pills via OTA (2026-08-17) — both
+  // checkouts now have the picker, so both clients hear the same fact.
+  const pickupWindowFact = `- Scheduled pickup: a pickup order can be collected NOW or in 10 / 15 / 20 / 30 minutes — the customer picks on the checkout page (website and app), and the counter starts making the drinks a few minutes before that time so they are fresh on arrival. Arriving early is fine: the order page has an "I'm here" button that starts the drinks immediately. Options whose pickup time would fall after closing are not offered, and the furthest ahead anyone can book is 30 minutes — there is NO booking for later today, tomorrow, or "in two hours". Delivery orders cannot be scheduled at all.`;
 
   // Launch week gives the box away to anyone who asks; after that it's the
   // Instagram code hunt (Stan, 2026-08-17). The mode is a DB row, so this
@@ -119,7 +106,7 @@ ${pickupWindowFact}
 - Paying online: card or Apple Pay, at checkout. Whether the counter takes cash for walk-ins is not stated here — point that one question at the store phone.
 ${mysteryBoxFact}
 - Bulk orders (10+ cups) get a tiered discount, applied AUTOMATICALLY at checkout: 10-19 cups 10% off, 20-29 cups 15% off, 30-50 cups 20% off. It replaces every other percentage promo (never stacks). Over 50 cups cannot be ordered online at all — those are arranged personally by Rick.
-- Bulk flow: when someone wants 10+ cups, FIRST ask when they want the drinks and whether they need delivery. Collecting now, or within the 30-minute pickup window → build the order normally (the discount shows up at checkout by itself — never quote discounted prices in your message${clientPlatform === "app" ? "" : "; they choose the pickup time on the checkout page"}). Wanting them FURTHER ahead than that (later today, tomorrow, a set hour), or over 50 cups → do NOT build the order: get a phone or email, call record_bulk_inquiry, and say the store will be in touch to confirm drinks, timing and price.
+- Bulk flow: when someone wants 10+ cups, FIRST ask when they want the drinks and whether they need delivery. Collecting now, or within the 30-minute pickup window → build the order normally (the discount shows up at checkout by itself — never quote discounted prices in your message; they choose the pickup time on the checkout page). Wanting them FURTHER ahead than that (later today, tomorrow, a set hour), or over 50 cups → do NOT build the order: get a phone or email, call record_bulk_inquiry, and say the store will be in touch to confirm drinks, timing and price.
 ${deliveryFacts.join("\n")}
 - Pickup holding: when an order is marked Ready it waits at the counter. If nobody collects it within about 5 minutes, staff move the drinks into the fridge to keep them fresh — a customer running late just asks at the counter and gets their order. Being late never means a wasted drink, so reassure them.
 - Loyalty: buy drinks from the ${LOYALTY_CATEGORIES.join("/")} categories to earn 1 star each; ${LOYALTY.starsPerReward} stars = ${LOYALTY.rewardLabel}. Stars and rewards are used at checkout.
