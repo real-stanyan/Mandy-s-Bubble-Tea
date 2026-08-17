@@ -28,7 +28,27 @@ type PrintJobRow = {
   claimed_by: string | null;
   printed_cup_count: number;
   created_at: string;
+  /** Scheduled pickup: don't print before this. NULL (and every row from
+   *  before the column existed) = due immediately. */
+  print_due_at?: string | null;
+  /** The customer's chosen collection time, for the sticker. */
+  pickup_at?: string | null;
 };
+
+/** Due filter shared by every pending-jobs SELECT: a held job is invisible
+ *  until its print_due_at passes. PostgREST needs the timestamp inline —
+ *  there is no server-side now() in a filter string. */
+function dueFilter(): string {
+  return `print_due_at.is.null,print_due_at.lte.${new Date().toISOString()}`;
+}
+
+/** Belt to the SELECTs' braces: claims can arrive via Realtime or a replay
+ *  list built moments ago, so the job is re-checked at handling time. */
+function isDue(job: PrintJobRow): boolean {
+  if (!job.print_due_at) return true;
+  const due = Date.parse(job.print_due_at);
+  return Number.isNaN(due) || due <= Date.now();
+}
 
 /**
  * Runs once at start. Jobs older than the stale window are marked
@@ -57,6 +77,7 @@ export async function replayOnStart(): Promise<void> {
     .from("print_jobs")
     .select("*")
     .eq("status", "pending")
+    .or(dueFilter())
     .order("created_at", { ascending: true });
   if (error) {
     console.error("[queue] replay select failed:", error.message);
@@ -84,6 +105,7 @@ async function runPollOnce(reason: "tick" | "realtime-drop"): Promise<void> {
       .from("print_jobs")
       .select("*")
       .eq("status", "pending")
+      .or(dueFilter())
       .order("created_at", { ascending: true })
       .limit(20);
     if (error) {
@@ -126,6 +148,11 @@ export function subscribePrintJobs(): { close: () => void } {
         async (payload) => {
           const row = payload.new as PrintJobRow;
           if (row.status !== "pending") return;
+          // A held job's INSERT arrives the moment the order is paid, long
+          // before it's due — leave it for the fallback poll, which is the
+          // component that actually keeps time here (8s granularity against
+          // a 5-minute lead).
+          if (!isDue(row)) return;
           await handleJob(row);
         },
       )
@@ -193,6 +220,11 @@ async function claim(jobId: string): Promise<PrintJobRow | null> {
 }
 
 export async function handleJob(job: PrintJobRow): Promise<void> {
+  // Not due yet — never claim it. Every delivery path filters already;
+  // this is the guard that makes a missed filter a delay, not an early
+  // print.
+  if (!isDue(job)) return;
+
   // Atomic claim. If somebody else already picked it up (or it's
   // already printed/failed/stale), UPDATE ... WHERE status='pending'
   // affects zero rows and .maybeSingle() returns null.
@@ -220,7 +252,12 @@ export async function handleJob(job: PrintJobRow): Promise<void> {
   const startFrom = claimed.printed_cup_count ?? 0;
   const remaining = claimed.cups.slice(startFrom);
   try {
-    const orderTime = formatLocalTime(claimed.created_at);
+    // A scheduled order's sticker shows the PICKUP time, not the order
+    // time — the counter's question about a waiting cup is "when will they
+    // come", and the OL7xx number already says it was scheduled.
+    const orderTime = claimed.pickup_at
+      ? `PU ${formatLocalTime(claimed.pickup_at)}`
+      : formatLocalTime(claimed.created_at);
     // Batch every remaining cup into a single `lp` invocation. Each
     // lp→CUPS→USB round trip carries ~6s of fixed overhead regardless
     // of payload, so batching drops a 4-cup order from ~28s to ~11s.
