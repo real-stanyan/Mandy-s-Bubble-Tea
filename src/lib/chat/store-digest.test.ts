@@ -104,3 +104,22 @@ describe("buildStoreDigest — hours and the delivery flow", () => {
     expect(digest).toMatch(/do not.*map a street address/i);
   });
 });
+
+describe("buildStoreDigest — the mystery box's two rounds", () => {
+  it("launch round: tells the model to hand out a box on a bare ask", () => {
+    const digest = buildStoreDigest(null, new Date(), "web", true);
+    expect(digest).toContain("OPEN TO EVERYONE right now");
+    expect(digest).toContain("no code");
+    // The code hunt must not be mentioned while it isn't in force — that's
+    // how you send launch-week customers looking for a code that doesn't
+    // exist (Stan, 2026-08-17).
+    expect(digest).not.toMatch(/check the latest posts for the current code/);
+  });
+
+  it("code round: the Instagram hunt, and no box without a code", () => {
+    const digest = buildStoreDigest(null, new Date(), "web", false);
+    expect(digest).toContain("SECRET CODE");
+    expect(digest).toContain("never offer a box without a code");
+    expect(digest).not.toContain("OPEN TO EVERYONE");
+  });
+});

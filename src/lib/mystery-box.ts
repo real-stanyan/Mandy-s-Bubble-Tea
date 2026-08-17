@@ -68,6 +68,27 @@ export function normalizeMysteryCode(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+/**
+ * The launch-week sentinel: while a row with this code is active, the box
+ * opens for ANY customer who asks — no Instagram code needed (Stan,
+ * 2026-08-17: give it away for the first week, start the code hunt after).
+ *
+ * A sentinel row rather than a feature flag because it makes the
+ * one-box-per-round rule fall out for free: coupons minted in the open week
+ * carry code '*', so the (phone, code) unique index gives each customer
+ * exactly one box for the whole week, and the first real code starts a
+ * fresh round. Switching over is two SQL statements, no deploy:
+ *   update mystery_box_codes set active = false where code = '*';
+ *   insert into mystery_box_codes (code) values ('<the word>');
+ */
+export const OPEN_ACCESS_CODE = "*";
+
+/** Is the box currently open to everyone (launch week)? Any failure reads
+ *  as "no" — the code gate is the safe default. */
+export async function isMysteryBoxOpenAccess(): Promise<boolean> {
+  return isActiveMysteryCode(OPEN_ACCESS_CODE);
+}
+
 /** Is this an ACTIVE secret code (posted on Instagram)? Missing table or a
  *  dead lookup reads as "no" — a box must never open on an unverifiable
  *  code. */
@@ -108,8 +129,16 @@ export async function openMysteryBox(
   customerId: string | null,
   rawCode: string,
 ): Promise<OpenBoxResult> {
-  const code = normalizeMysteryCode(rawCode);
-  if (!(await isActiveMysteryCode(code))) {
+  // Which round this coupon belongs to. A customer's own code wins when it
+  // is live; otherwise the open week (if running) lets a bare ask through
+  // and files the coupon under the '*' round.
+  const given = normalizeMysteryCode(rawCode);
+  const code = given && (await isActiveMysteryCode(given))
+    ? given
+    : (await isMysteryBoxOpenAccess())
+      ? OPEN_ACCESS_CODE
+      : null;
+  if (!code) {
     return { opened: false, reason: "invalid-code" };
   }
 

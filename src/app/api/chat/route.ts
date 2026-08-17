@@ -30,7 +30,10 @@ import {
 } from "@/lib/chat/log";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
 import { sendBulkInquiry, type BulkInquiry } from "@/lib/chat/bulk-inquiry";
-import { isActiveMysteryCode } from "@/lib/mystery-box";
+import {
+  isActiveMysteryCode,
+  isMysteryBoxOpenAccess,
+} from "@/lib/mystery-box";
 import { clientPlatformFrom } from "@/lib/client-platform";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
@@ -292,12 +295,17 @@ export async function POST(request: Request): Promise<Response> {
   // on who is asking, so they belong in this batch rather than in a second
   // await after it — the model call is expensive enough without adding a
   // serialized Supabase hop in front of it.
-  const [menu, deliveryPause, customer, campaigns] = await Promise.all([
-    getMenu(),
-    getDeliveryPause(),
-    readCustomerPromoState(request),
-    fetchPromoCampaigns(),
-  ]);
+  const [menu, deliveryPause, customer, campaigns, mysteryBoxOpen] =
+    await Promise.all([
+      getMenu(),
+      getDeliveryPause(),
+      readCustomerPromoState(request),
+      fetchPromoCampaigns(),
+      // Launch round or code hunt? One indexed lookup, in the batch that
+      // was already running — the digest must not describe a code
+      // requirement that isn't in force.
+      isMysteryBoxOpenAccess(),
+    ]);
   const promotions = await getLivePromotions(customer, campaigns);
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const t = stringsFor(lastUserText);
@@ -375,6 +383,7 @@ export async function POST(request: Request): Promise<Response> {
         nearRewardNudge(customer),
         script,
         clientPlatform,
+        mysteryBoxOpen,
       ),
     },
     ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -533,7 +542,9 @@ export async function POST(request: Request): Promise<Response> {
       } catch {
         // malformed → treated as an invalid code below
       }
-      if (code && (await isActiveMysteryCode(code))) {
+      // Open round: a bare ask is enough, and the card sends no code back
+      // (the open endpoint resolves it to the launch round itself).
+      if (mysteryBoxOpen || (code && (await isActiveMysteryCode(code)))) {
         return answer({
           reply: scrubPrices(result.content) || t.mysteryBoxOffer,
           proposal: null,
@@ -541,7 +552,9 @@ export async function POST(request: Request): Promise<Response> {
           action: null,
           suggestions: [],
           mysteryBox: true,
-          mysteryBoxCode: code,
+          // Omitted in the launch round: an empty string is not a code, and
+          // the open endpoint resolves the round on its own.
+          mysteryBoxCode: code || undefined,
         });
       }
       // Wrong code: one extra round so the model can answer properly —
