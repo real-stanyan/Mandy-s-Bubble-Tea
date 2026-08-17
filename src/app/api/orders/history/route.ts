@@ -189,6 +189,12 @@ export async function GET(request: Request) {
         state: order.state ?? null,
         fulfillmentState: fulfillment?.state ?? null,
         active,
+        // Scheduled pickup's chosen collection time — the App renders the
+        // pickup-time card + "I'm here" button from this. Null for ASAP.
+        scheduledPickupAt:
+          fulfillment?.pickupDetails?.scheduleType === "SCHEDULED"
+            ? (fulfillment.pickupDetails.pickupAt ?? null)
+            : null,
         // Self-delivery orders carry a PICKUP fulfillment but record the truth
         // in metadata.fulfillment_type — prefer that so the UI shows "Delivery".
         fulfillmentType:
