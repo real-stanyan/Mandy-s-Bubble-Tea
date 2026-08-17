@@ -8,6 +8,7 @@ import { pathsJsonToSvg, type SvgPath } from "../doodle/render-svg";
 import { loadUserDoodleUpload, loadAiDoodleUpload } from "../doodle/upload-store";
 import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
+import { printTimingFor } from "../pickup-schedule";
 import { formatModifiersForLabel } from "./format-modifiers";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
@@ -173,6 +174,13 @@ type Row = {
   // keeps (same artwork, drink name + modifiers omitted). Discriminator
   // for the (square_order_id, line_id, cup_idx, copy_idx) unique key.
   copy_idx: number;
+  // Scheduled pickup. The printer-client won't claim the row until
+  // print_due_at passes (NULL = due now, i.e. every ASAP order), and
+  // pickup_at is stamped on the label for the counter. Every row of an
+  // order — cup, keepsake, free-drink ticket — carries the same pair, so a
+  // held order surfaces as one batch at make time.
+  print_due_at: string | null;
+  pickup_at: string | null;
 };
 
 /** Resolve a preset sticker's 1-bit print buffer. Built-ins live on disk
@@ -209,6 +217,16 @@ export async function enqueueCupLabelJobs({
   const sb = getSupabaseAdmin();
   const lineItems = order.lineItems ?? [];
   const rows: Row[] = [];
+
+  // Scheduled pickup: hold every label of this order until pickup-time minus
+  // the make lead, so the drinks aren't sitting on the bench melting. Derived
+  // from the order's own fulfillment (not a parameter) so the payment route,
+  // the webhook, the backfill and the driver re-enqueue can't disagree — the
+  // receipt queue derives the identical pair from the same helper.
+  const { printDueAt: printDue, pickupAt: pickupAtIso } = printTimingFor(
+    order.fulfillments?.[0]?.pickupDetails,
+  );
+  const pickupAtDate = pickupAtIso ? new Date(pickupAtIso) : null;
 
   // Scan the lucky-cat deck once per order — the random fallback for every
   // cup that needs one. Two cases use it:
@@ -499,6 +517,7 @@ export async function enqueueCupLabelJobs({
         doodleSvg,
         doodlePngBuffer,
         customerFirstName: customerFirstName ?? null,
+        pickupAt: pickupAtDate,
       });
 
       rows.push({
@@ -517,6 +536,8 @@ export async function enqueueCupLabelJobs({
         original_image_path: originalImagePath,
         ai_job_id: aiJobId,
         copy_idx: 0,
+        print_due_at: printDue,
+        pickup_at: pickupAtIso,
       });
 
       // Keepsake copy — a second label of this same cup (drink name +
@@ -531,6 +552,7 @@ export async function enqueueCupLabelJobs({
           doodleSvg,
           doodlePngBuffer,
           customerFirstName: customerFirstName ?? null,
+          pickupAt: pickupAtDate,
           keepsake: true,
         });
         rows.push({
@@ -549,6 +571,8 @@ export async function enqueueCupLabelJobs({
           original_image_path: null,
           ai_job_id: null,
           copy_idx: 1,
+          print_due_at: printDue,
+          pickup_at: pickupAtIso,
         });
       }
 
@@ -567,6 +591,7 @@ export async function enqueueCupLabelJobs({
           doodleSvg,
           doodlePngBuffer,
           customerFirstName: customerFirstName ?? null,
+          pickupAt: pickupAtDate,
         });
         rows.push({
           square_order_id: orderId,
@@ -584,6 +609,8 @@ export async function enqueueCupLabelJobs({
           original_image_path: originalImagePath,
           ai_job_id: null,
           copy_idx: 2,
+          print_due_at: printDue,
+          pickup_at: pickupAtIso,
         });
       }
     }

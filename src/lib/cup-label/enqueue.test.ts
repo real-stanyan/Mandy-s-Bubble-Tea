@@ -485,3 +485,62 @@ describe("enqueueCupLabelJobs (keepsake copies)", () => {
     );
   });
 });
+
+describe("enqueueCupLabelJobs scheduled pickup", () => {
+  const scheduledOrder = () => ({
+    ...buildOrder(),
+    fulfillments: [
+      {
+        type: "PICKUP",
+        pickupDetails: { scheduleType: "SCHEDULED", pickupAt: "2036-08-17T07:45:00Z" },
+      },
+    ],
+  });
+
+  it("stamps print_due_at + pickup_at on every row of a scheduled order", async () => {
+    await enqueueCupLabelJobs({
+      order: scheduledOrder() as never,
+      stickerNumber: "OL745",
+    });
+
+    const rows = upsertMock.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.pickup_at).toBe("2036-08-17T07:45:00.000Z");
+      // Five-minute make lead ahead of the pickup.
+      expect(row.print_due_at).toBe("2036-08-17T07:40:00.000Z");
+    }
+  });
+
+  it("passes the pickup time to the renderer so the label carries the stamp", async () => {
+    await enqueueCupLabelJobs({
+      order: scheduledOrder() as never,
+      stickerNumber: "OL745",
+    });
+
+    const calls = (renderCupLabel as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [args] of calls) {
+      expect((args as { pickupAt?: Date | null }).pickupAt).toEqual(
+        new Date("2036-08-17T07:45:00Z"),
+      );
+    }
+  });
+
+  it("an ASAP order leaves both columns null and the renderer unstamped", async () => {
+    await enqueueCupLabelJobs({
+      order: buildOrder() as never,
+      stickerNumber: "OL845",
+    });
+
+    const rows = upsertMock.mock.calls[0][0] as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      expect(row.print_due_at).toBeNull();
+      expect(row.pickup_at).toBeNull();
+    }
+    const calls = (renderCupLabel as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    for (const [args] of calls) {
+      expect((args as { pickupAt?: Date | null }).pickupAt).toBeNull();
+    }
+  });
+});

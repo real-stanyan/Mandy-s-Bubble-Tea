@@ -1,6 +1,7 @@
 import "server-only";
 import sharp from "sharp";
 import { renderSvgToPng } from "../doodle/render-svg";
+import { brisbaneClockLabel } from "../pickup-schedule";
 import {
   getMandyLogoZpl,
   MANDY_LOGO_HEIGHT,
@@ -55,6 +56,13 @@ const TOP_RIGHT_WIDTH = LABEL_WIDTH_DOTS - TOP_RIGHT_X - 20;
 // use the 42pt center y=24, smaller fonts sit slightly above-center but
 // the visual difference is within ~9 dots.
 const TOP_STICKER_Y = 22;
+// Scheduled pickup only: the right column carries a second line ("PU 5:45pm")
+// under the sticker number, so both drop to 36pt to fit the 90-dot band —
+// line 1 spans y 6..42, line 2 y 48..84. An ASAP order never takes this
+// branch and its label stays dot-for-dot what it was.
+const TOP_RIGHT_TWO_LINE_FONT = 36;
+const TOP_STICKER_TWO_LINE_Y = 6;
+const TOP_PICKUP_Y = 48;
 // (Modifier list now lives in the bottom band — see BOTTOM_MODIFIER_Y_REL.)
 
 // Drink name now lives in the bottom band (full-width, large) — see
@@ -132,11 +140,27 @@ export type CupLabelInput = {
    * fonts can't render CJK without a separate font-download step.
    */
   fortuneText?: string;
+  /**
+   * The customer's chosen collection time, for a scheduled-pickup order.
+   * Printed in the top band as "PU 5:45pm" — the counter's question about a
+   * cup waiting on the bench is "when do they come for it". Null/undefined
+   * (every ASAP order) prints the band exactly as before.
+   */
+  pickupAt?: Date | string | null;
 };
 
 function formatGreeting(name: string | null): string {
   const trimmed = name?.trim();
   return trimmed && trimmed.length > 0 ? `Hi, ${trimmed}` : "Hi, Soul";
+}
+
+/** "PU 5:45pm" for a scheduled pickup, "" for an ASAP order (or an
+ *  unparseable timestamp — a missing line beats a label reading "PU NaN"). */
+export function formatPickupStamp(at: Date | string | null | undefined): string {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  return `PU ${brisbaneClockLabel(d)}`;
 }
 
 export type CupLabelOutput = {
@@ -159,6 +183,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
       drinkName: input.drinkName,
       greeting: formatGreeting(input.customerFirstName ?? null),
       modifiers: input.modifiersText,
+      pickupStamp: formatPickupStamp(input.pickupAt),
       fortuneText: input.fortuneText,
       keepsake: input.keepsake,
       logoHex: logo.hex,
@@ -200,6 +225,7 @@ export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutp
     drinkName: input.drinkName,
     greeting: formatGreeting(input.customerFirstName ?? null),
     modifiers: input.modifiersText,
+    pickupStamp: formatPickupStamp(input.pickupAt),
     keepsake: input.keepsake,
     doodleHex,
     doodleTotalBytes,
@@ -220,6 +246,8 @@ function buildZpl(args: {
   drinkName: string;
   greeting: string;
   modifiers: string;
+  /** "PU 5:45pm", or "" for an ASAP order. */
+  pickupStamp: string;
   keepsake?: boolean;
   doodleHex?: string;
   doodleTotalBytes?: number;
@@ -258,10 +286,21 @@ function buildZpl(args: {
   parts.push(
     `^FO${TOP_GREETING_X},${TOP_GREETING_Y}^A0N,${greetingFont},${greetingFont}^FR^FB${TOP_GREETING_WIDTH},1,0,L,0^FD${escapeZpl(args.greeting)}^FS`,
   );
-  // Right column: sticker number + cup fraction (large, right-aligned).
-  parts.push(
-    `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
-  );
+  // Right column: sticker number + cup fraction (large, right-aligned). A
+  // scheduled order stacks its pickup time underneath, both a size down.
+  if (args.pickupStamp) {
+    const fs = TOP_RIGHT_TWO_LINE_FONT;
+    parts.push(
+      `^FO${TOP_RIGHT_X},${TOP_STICKER_TWO_LINE_Y}^A0N,${fs},${fs}^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
+    );
+    parts.push(
+      `^FO${TOP_RIGHT_X},${TOP_PICKUP_Y}^A0N,${fs},${fs}^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.pickupStamp)}^FS`,
+    );
+  } else {
+    parts.push(
+      `^FO${TOP_RIGHT_X},${TOP_STICKER_Y}^A0N,46,46^FR^FB${TOP_RIGHT_WIDTH},1,0,R,0^FD${escapeZpl(args.sticker)} · ${escapeZpl(args.cupFrac)}^FS`,
+    );
+  }
 
   // Middle band: either a fortune-cookie sentence (POS / in-store path)
   // or the doodle raster (web/app path). Mutually exclusive — the
@@ -362,15 +401,27 @@ async function renderTopBandPng(input: CupLabelInput): Promise<Buffer> {
   const greeting = formatGreeting(customerFirstName ?? null);
   const rightEdge = LABEL_WIDTH_DOTS - 20;
   const greetingFs = greetingFontSizeFor(greeting);
+  const pickupStamp = formatPickupStamp(input.pickupAt);
+
+  // Mirrors the ZPL branch above: scheduled orders stack sticker + pickup
+  // time in the right column at a smaller size, ASAP orders keep one line.
+  const rightColumn = pickupStamp
+    ? `<text x="${rightEdge}" y="40" text-anchor="end" font-family="sans-serif" font-size="${TOP_RIGHT_TWO_LINE_FONT}" font-weight="700" fill="white">
+      ${escapeXml(stickerNumber)} · ${idx}/${total}
+    </text>
+    <text x="${rightEdge}" y="82" text-anchor="end" font-family="sans-serif" font-size="${TOP_RIGHT_TWO_LINE_FONT}" font-weight="700" fill="white">
+      ${escapeXml(pickupStamp)}
+    </text>`
+    : `<text x="${rightEdge}" y="55" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
+      ${escapeXml(stickerNumber)} · ${idx}/${total}
+    </text>`;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${TOP_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="black"/>
     <text x="${TOP_GREETING_X}" y="60" font-family="sans-serif" font-size="${greetingFs}" font-weight="700" fill="white">
       ${escapeXml(greeting)}
     </text>
-    <text x="${rightEdge}" y="55" text-anchor="end" font-family="sans-serif" font-size="40" font-weight="700" fill="white">
-      ${escapeXml(stickerNumber)} · ${idx}/${total}
-    </text>
+    ${rightColumn}
   </svg>`;
   return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: TOP_BAND_HEIGHT });
 }

@@ -100,6 +100,52 @@ describe("Zebra cup-label compositor", () => {
     expect(out.zpl).not.toMatch(/\^FR\^GFA,/);
   });
 
+  it("scheduled pickup: stamps PU <time> under the sticker number in the top band", async () => {
+    // 2026-08-17T07:45:00Z = 5:45pm Brisbane (UTC+10, no DST).
+    const out = await renderCupLabel({
+      stickerNumber: "OL745",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Pearl Milk Tea",
+      modifiersText: "Pearls",
+      doodleSvg: POOL[0].svg,
+      pickupAt: new Date("2026-08-17T07:45:00Z"),
+    });
+    const pickupField = out.zpl.split("\n").find((l) => l.includes("PU 5:45pm"));
+    expect(pickupField).toBeDefined();
+    // White-on-black in the top band, right-aligned, same column as the number.
+    expect(pickupField).toContain("^FR");
+    expect(pickupField).toContain(",1,0,R,0");
+    // Both lines drop a size so the pair fits the 90-dot band.
+    const stickerField = out.zpl.split("\n").find((l) => l.includes("· 1/1"))!;
+    expect(stickerField).toContain("^A0N,36,36");
+  });
+
+  it("an ASAP order's top band is untouched: one line, original 46pt", async () => {
+    const out = await renderCupLabel({
+      stickerNumber: "OL845",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Pearl Milk Tea",
+      modifiersText: "Pearls",
+      doodleSvg: POOL[0].svg,
+    });
+    expect(out.zpl).not.toContain("PU ");
+    const stickerField = out.zpl.split("\n").find((l) => l.includes("· 1/1"))!;
+    expect(stickerField).toContain("^A0N,46,46");
+  });
+
+  it("an unparseable pickup time prints no stamp rather than 'PU NaN'", async () => {
+    const out = await renderCupLabel({
+      stickerNumber: "OL745",
+      cupIdxOf: { idx: 1, total: 1 },
+      drinkName: "Pearl Milk Tea",
+      modifiersText: "Pearls",
+      doodleSvg: POOL[0].svg,
+      pickupAt: "clearly-not-a-date",
+    });
+    expect(out.zpl).not.toContain("PU ");
+    expect(out.zpl).not.toContain("NaN");
+  });
+
   it("produces a preview PNG of the right pixel size", async () => {
     const out = await renderCupLabel({
       stickerNumber: "OL000",
