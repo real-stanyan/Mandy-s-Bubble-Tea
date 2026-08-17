@@ -51,14 +51,39 @@ type CupLabelJobRow = {
   printer_token: string | null;
   created_at: string;
   printed_at: string | null;
+  /** Scheduled pickup: don't print before this. NULL (and every row from
+   *  before the column existed) = due immediately. */
+  print_due_at?: string | null;
+  /** The customer's chosen collection time. Already baked into `zpl_body`
+   *  by the web renderer; kept on the row for the admin views and logs. */
+  pickup_at?: string | null;
 };
 
 const TARGET_PRINTER_KIND = "zd410" as const;
+
+/** Due filter shared by every pending-row query in this pipeline (replay,
+ *  poll, heartbeat count, age watch): a held row is invisible until its
+ *  print_due_at passes. PostgREST has no server-side now() inside a filter
+ *  string, so the timestamp goes in inline. Mirrors ../queue.ts. */
+export function dueFilter(): string {
+  return `print_due_at.is.null,print_due_at.lte.${new Date().toISOString()}`;
+}
+
+/** Belt to the SELECTs' braces: a row can also arrive straight off the
+ *  Realtime INSERT (which fires at enqueue time, long before due), so it is
+ *  re-checked at handling time. */
+export function isDue(job: CupLabelJobRow): boolean {
+  if (!job.print_due_at) return true;
+  const due = Date.parse(job.print_due_at);
+  return Number.isNaN(due) || due <= Date.now();
+}
 
 /**
  * Runs once at start.
  *   1. Jobs older than the stale window (default 2h) are marked
  *      'failed' with last_error='stale: created_at older than window'.
+ *      A row still waiting on its print_due_at is exempt — an order placed
+ *      for a later pickup is deliberately old, not abandoned.
  *      cup_label_jobs has no 'stale' status (only pending/printing/
  *      printed/failed); doodle is a keepsake feature so age-bound jobs
  *      are deliberately dropped rather than printed late.
@@ -75,6 +100,7 @@ export async function replayOnStart(): Promise<void> {
     .from("cup_label_jobs")
     .update({ status: "failed", last_error: "stale: row older than CUP_LABEL_STALE_WINDOW_MS" })
     .lt("created_at", cutoff)
+    .or(dueFilter())
     .eq("target_printer_kind", TARGET_PRINTER_KIND)
     .in("status", ["pending", "printing"]);
   if (staleErr) console.error("[cup-label/queue] stale mark failed:", staleErr.message);
@@ -91,6 +117,7 @@ export async function replayOnStart(): Promise<void> {
     .select("*")
     .eq("target_printer_kind", TARGET_PRINTER_KIND)
     .eq("status", "pending")
+    .or(dueFilter())
     .order("created_at", { ascending: true });
   if (error) {
     console.error("[cup-label/queue] replay select failed:", error.message);
@@ -111,6 +138,7 @@ async function runPollOnce(reason: "tick" | "realtime-drop"): Promise<void> {
       .select("*")
       .eq("target_printer_kind", TARGET_PRINTER_KIND)
       .eq("status", "pending")
+      .or(dueFilter())
       .order("created_at", { ascending: true })
       .limit(20);
     if (error) {
@@ -162,6 +190,15 @@ export function subscribeCupLabelJobs(): { close: () => void } {
           const row = payload.new as CupLabelJobRow;
           if (row.status !== "pending") return;
           if (row.target_printer_kind !== TARGET_PRINTER_KIND) return;
+          // Scheduled pickup: the INSERT lands at checkout, minutes before
+          // the drinks should be made. Drop it here — the poll tick picks
+          // the row up on its own once print_due_at has passed.
+          if (!isDue(row)) {
+            console.log(
+              `[cup-label/queue] holding ${row.sticker_number}#${row.cup_idx} until ${row.print_due_at}`,
+            );
+            return;
+          }
           await runSerial(row);
         },
       )
@@ -255,6 +292,9 @@ export async function claimById(jobId: string): Promise<CupLabelJobRow | null> {
  *      On failure: mark 'failed' with last_error; alert on 3rd attempt.
  */
 export async function handleJob(job: CupLabelJobRow): Promise<void> {
+  // Re-check before claiming: a replay list or Realtime payload built a
+  // moment ago can carry a row whose hold hasn't expired.
+  if (!isDue(job)) return;
   const claimed = await claimById(job.id);
   if (!claimed) return;
 

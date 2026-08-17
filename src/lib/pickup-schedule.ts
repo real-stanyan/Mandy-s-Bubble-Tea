@@ -69,6 +69,42 @@ export function printDueAt(pickupAt: Date): Date {
   return new Date(pickupAt.getTime() - MAKE_LEAD_MINUTES * 60 * 1000);
 }
 
+/** The two timestamps a print row carries for scheduled pickup. Both null on
+ *  an ASAP order — the consumers read a null `printDueAt` as "due now". */
+export type PrintTiming = {
+  printDueAt: string | null;
+  pickupAt: string | null;
+};
+
+/**
+ * Derive a print row's hold from the order's own pickup fulfillment. Every
+ * enqueue path (payment route, webhook, backfill, driver re-enqueue) calls
+ * this rather than reading `pickupDetails` itself, so the cup-label queue and
+ * the receipt queue can never disagree about when an order is due.
+ *
+ * ASAP — `scheduleType` "ASAP", missing, or anything unexpected — holds
+ * nothing. A pickup already inside the make-lead window (or in the past, as a
+ * backfill of an old order sees) is due now, not an error.
+ */
+export function printTimingFor(
+  pickup:
+    | { scheduleType?: string | null; pickupAt?: string | null }
+    | null
+    | undefined,
+  now: Date = new Date(),
+): PrintTiming {
+  if (pickup?.scheduleType !== "SCHEDULED" || !pickup.pickupAt) {
+    return { printDueAt: null, pickupAt: null };
+  }
+  const at = new Date(pickup.pickupAt);
+  if (Number.isNaN(at.getTime())) return { printDueAt: null, pickupAt: null };
+  const due = printDueAt(at);
+  return {
+    printDueAt: (due.getTime() > now.getTime() ? due : now).toISOString(),
+    pickupAt: at.toISOString(),
+  };
+}
+
 /**
  * Brisbane wall-clock label ("5:21pm") for a moment. Brisbane is UTC+10
  * with no DST, so the offset is arithmetic — deliberately not

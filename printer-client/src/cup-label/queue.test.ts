@@ -11,7 +11,7 @@ vi.mock("../supabase", () => {
     const chain: string[] = [table];
     const proxy: Record<string, (..._args: unknown[]) => unknown> = {};
     let lastPatch: Record<string, unknown> | null = null;
-    const methods = ["update", "select", "eq", "in", "lt", "order", "limit"];
+    const methods = ["update", "select", "eq", "in", "lt", "or", "order", "limit"];
     for (const m of methods) {
       proxy[m] = (...args: unknown[]) => {
         if (m === "update") lastPatch = args[0] as Record<string, unknown>;
@@ -66,7 +66,7 @@ vi.mock("../config", () => ({
   },
 }));
 
-import { handleJob } from "./queue";
+import { handleJob, isDue, dueFilter, replayOnStart } from "./queue";
 import { supabase } from "../supabase";
 import { printCupLabelZPL, getCupLabelPrinterStatus } from "./printer";
 import { downloadRasterZPL } from "./storage";
@@ -209,5 +209,61 @@ describe("cup-label queue.handleJob", () => {
     const patches = (supabase as SupabaseMock).__updateCalls.map((c) => c.patch);
     const finalPatch = patches.find((p) => p.last_error?.toString().includes("paper out"));
     expect(finalPatch?.status).toBe("failed");
+  });
+});
+
+describe("cup-label scheduled-pickup hold", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (supabase as SupabaseMock).__updateCalls.length = 0;
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = null;
+  });
+
+  it("isDue: null print_due_at (ASAP, and every pre-column row) is due now", () => {
+    expect(isDue({ ...baseRow, print_due_at: null })).toBe(true);
+    expect(isDue(baseRow)).toBe(true);
+  });
+
+  it("isDue: a future print_due_at is held, a past one is due", () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const past = new Date(Date.now() - 60 * 1000).toISOString();
+    expect(isDue({ ...baseRow, print_due_at: future })).toBe(false);
+    expect(isDue({ ...baseRow, print_due_at: past })).toBe(true);
+  });
+
+  it("isDue: an unparseable print_due_at prints rather than stranding the cup", () => {
+    expect(isDue({ ...baseRow, print_due_at: "not-a-timestamp" })).toBe(true);
+  });
+
+  it("handleJob refuses to claim a held row", async () => {
+    (globalThis as Record<string, unknown>).__cupLabelClaimRow = {
+      ...baseRow,
+      status: "printing",
+      attempts: 1,
+    };
+    vi.mocked(getCupLabelPrinterStatus).mockResolvedValue("idle");
+
+    await handleJob({
+      ...baseRow,
+      print_due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(printCupLabelZPL).not.toHaveBeenCalled();
+  });
+
+  it("dueFilter names both branches PostgREST needs", () => {
+    const filter = dueFilter();
+    expect(filter).toMatch(/^print_due_at\.is\.null,print_due_at\.lte\./);
+  });
+
+  it("replayOnStart's stale sweep and pending select both carry the due filter", async () => {
+    await replayOnStart();
+
+    const chains = (supabase as SupabaseMock).__updateCalls.map((c) => c.chain.join("|"));
+    const staleSweep = chains.find((c) => c.includes("stale: row older than"));
+    expect(staleSweep).toBeDefined();
+    // A held row is deliberately old; the sweep must not mark it failed.
+    expect(staleSweep).toContain("or([\"print_due_at.is.null");
   });
 });

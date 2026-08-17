@@ -9,6 +9,7 @@
 import { supabase } from "../supabase";
 import { config } from "../config";
 import { getCupLabelPrinterStatus } from "./printer";
+import { dueFilter } from "./queue";
 import { maybeAlert } from "../alert";
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
@@ -19,10 +20,14 @@ export function startCupLabelHeartbeat(): NodeJS.Timeout {
     try {
       const [printerStatus, pendingResult] = await Promise.all([
         getCupLabelPrinterStatus(),
+        // "pending" here means work the printer owes right now. A row still
+        // waiting on its scheduled-pickup hold is not backlog — counting it
+        // would show the admin a queue that nobody is failing to print.
         supabase
           .from("cup_label_jobs")
           .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
+          .eq("status", "pending")
+          .or(dueFilter()),
       ]);
       const pendingCount = pendingResult.count ?? 0;
       await supabase.from("printer_heartbeats").upsert({
@@ -45,14 +50,22 @@ export function startCupLabelPendingAgeWatch(): NodeJS.Timeout {
     try {
       const { data, error } = await supabase
         .from("cup_label_jobs")
-        .select("id, created_at, sticker_number, cup_idx")
+        .select("id, created_at, print_due_at, sticker_number, cup_idx")
         .eq("status", "pending")
+        .or(dueFilter())
         .order("created_at", { ascending: true })
         .limit(1);
       if (error) return;
       const row = (data ?? [])[0];
       if (!row) return;
-      const ageMs = Date.now() - new Date(row.created_at).getTime();
+      // Age from when the row became printable, not when it was ordered — a
+      // scheduled order sat in the queue on purpose, and dating the alert
+      // from checkout would report a 20-minute backlog the moment it's due.
+      const dueAt = row.print_due_at ? Date.parse(row.print_due_at) : NaN;
+      const startedAt = Number.isNaN(dueAt)
+        ? new Date(row.created_at).getTime()
+        : Math.max(dueAt, new Date(row.created_at).getTime());
+      const ageMs = Date.now() - startedAt;
       if (ageMs >= PENDING_AGE_ALERT_MS) {
         await maybeAlert(
           `cup-label oldest pending ${row.sticker_number}#${row.cup_idx} aged ${Math.round(ageMs / 1000)}s`,
