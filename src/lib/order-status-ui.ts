@@ -48,10 +48,15 @@ export function deriveStatusUi({
   state,
   isDelivery,
   dispatchStatus = null,
+  held = false,
 }: {
   state: FulfillmentState | null;
   isDelivery: boolean;
   dispatchStatus?: DispatchStatus | null;
+  /** Scheduled pickup whose cup sticker hasn't printed yet — nobody is
+   *  making the drinks, so "Preparing" would be a lie (Stan, 2026-08-17).
+   *  Only ever true for pickup, from the print queue via the status API. */
+  held?: boolean;
 }): StatusUi {
   const steps = isDelivery ? DELIVERY_STEPS : PICKUP_STEPS;
 
@@ -119,6 +124,23 @@ export function deriveStatusUi({
           steps,
         };
     }
+  }
+
+  // Pickup — a HELD scheduled order outranks the fulfillment state: Square
+  // says PROPOSED either way, but until the ticket prints the counter
+  // hasn't started, so only "Received" is true. The step advances to
+  // Preparing when the hold lapses (or "I'm here" releases it).
+  // (COMPLETED/CANCELED already returned above, so only PREPARED can
+  // still outrank the hold here.)
+  if (!isDelivery && held && state !== "PREPARED") {
+    return {
+      kind: "active",
+      heading: "Order received",
+      body: "We've got it — your drinks will be made just before your pickup time, so they're fresh when you arrive.",
+      tone: "amber",
+      step: 0,
+      steps,
+    };
   }
 
   // Pickup — driven by the Square fulfillment state.

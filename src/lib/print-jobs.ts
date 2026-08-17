@@ -173,6 +173,36 @@ export async function enqueuePrintJob({ order, assumeSettled = false }: EnqueueA
   return { queued: true, stickerNumber };
 }
 
+/**
+ * Is this order's cup sticker still HELD (scheduled, not yet due)? The
+ * status page uses it to show "Received" instead of "Preparing" — nobody is
+ * making the drinks while the ticket hasn't printed (Stan, 2026-08-17).
+ *
+ * Held = pending AND due in the future. Past-due-but-unprinted reads as
+ * NOT held: the ticket should be printing, so "Preparing" is the honest
+ * message. Fail-safe false — a dead lookup shows the ordinary flow.
+ */
+export async function isStickerHeld(squareOrderId: string): Promise<boolean> {
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from("print_jobs")
+      .select("status, print_due_at")
+      .eq("square_order_id", squareOrderId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return false;
+    const row = data as { status: string; print_due_at: string | null };
+    return (
+      row.status === "pending" &&
+      !!row.print_due_at &&
+      Date.parse(row.print_due_at) > Date.now()
+    );
+  } catch (err) {
+    console.error("[print-jobs] hold lookup failed:", err);
+    return false;
+  }
+}
+
 function cupFromLineItem(line: OrderLineItem): CupRow {
   // Aggregate same-name toppings into a count. A customer who taps +3
   // Pearl sends either 3 separate modifier entries OR a single entry

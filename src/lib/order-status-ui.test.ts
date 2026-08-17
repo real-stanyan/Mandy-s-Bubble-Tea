@@ -131,3 +131,30 @@ describe("deriveStatusUi — delivery, driven by dispatch status", () => {
     expect(ui.steps).toEqual(DELIVERY_STEPS);
   });
 });
+
+describe("held scheduled pickup — Received only, until the ticket prints", () => {
+  it("shows step 0 'Order received' while the sticker is held", () => {
+    // Stan's spec (2026-08-17): before the print happens, only Received —
+    // "Preparing" claimed tea masters were crafting a ticket nobody had.
+    const ui = deriveStatusUi({ state: "PROPOSED", isDelivery: false, held: true });
+    expect(ui.heading).toBe("Order received");
+    expect(ui.step).toBe(0);
+    expect(ui.kind).toBe("active");
+  });
+
+  it("held never overrides Ready or Completed", () => {
+    // A stale held flag racing the fulfillment must lose to reality.
+    expect(
+      deriveStatusUi({ state: "PREPARED", isDelivery: false, held: true }).heading,
+    ).toBe("Ready for Pickup!");
+    expect(
+      deriveStatusUi({ state: "COMPLETED", isDelivery: false, held: true }).kind,
+    ).toBe("completed");
+  });
+
+  it("without the flag the ordinary Preparing flow is untouched", () => {
+    const ui = deriveStatusUi({ state: "PROPOSED", isDelivery: false });
+    expect(ui.heading).toBe("Preparing your order");
+    expect(ui.step).toBe(1);
+  });
+});
