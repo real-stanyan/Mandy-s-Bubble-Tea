@@ -34,7 +34,6 @@ import {
   isActiveMysteryCode,
   isMysteryBoxOpenAccess,
 } from "@/lib/mystery-box";
-import { clientPlatformFrom } from "@/lib/client-platform";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
@@ -319,14 +318,6 @@ export async function POST(request: Request): Promise<Response> {
     normalizeConversationId((raw as { conversationId?: unknown }).conversationId) ??
     fallbackConversationId(ipHash, new Date());
   const surface = parseSurface((raw as { surface?: unknown }).surface);
-  // Which client is asking, for the store digest's pickup-window wording.
-  // Header/User-Agent, never the body: the app has always sent
-  // x-client-platform (and its UA is classifiable anyway), so this needs no
-  // app release — see client-platform.ts.
-  const clientPlatform = clientPlatformFrom(
-    request.headers.get("x-client-platform"),
-    request.headers.get("user-agent"),
-  );
   const userTurnIndex = history.length - 1;
 
   function answer(body: {
@@ -382,7 +373,6 @@ export async function POST(request: Request): Promise<Response> {
         promotions,
         nearRewardNudge(customer),
         script,
-        clientPlatform,
         mysteryBoxOpen,
       ),
     },
