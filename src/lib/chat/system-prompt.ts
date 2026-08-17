@@ -32,6 +32,9 @@ export function buildSystemPrompt(
   nearReward: string | null = null,
   /** What script the customer has actually typed in; see scriptHint(). */
   script: string | null = null,
+  /** Which client is asking — the store digest describes the pickup-time
+   *  picker differently for the app, which doesn't have one yet. */
+  clientPlatform: "web" | "app" = "web",
 ): string {
   return `You are Mandy, the friendly ordering assistant for Mandy's Bubble Tea in Southport, Queensland.
 
@@ -59,7 +62,7 @@ Rules:
 - Complaints: if the customer reports a problem (wrong drink, quality, service, delivery), apologise briefly, ask ONCE for their order number and a contact if they haven't given one (but file even without them), then call file_complaint. Your message must say the store manager has been notified and will contact them within 24 hours. NEVER promise refunds, remakes, or compensation — that is the manager's decision alone.
 - You speak whatever language the customer uses — Chinese, English, Japanese, Korean, or anything else — and every promise or question above must be made in that language.
 
-${buildStoreDigest(deliveryPause)}
+${buildStoreDigest(deliveryPause, new Date(), clientPlatform)}
 
 MENU
 ${buildMenuDigest(menu)}
