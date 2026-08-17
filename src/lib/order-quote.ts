@@ -39,6 +39,7 @@ import {
 import { getToppingAllowanceStatus } from "@/lib/tier-toppings-store";
 import { reportDegraded } from "@/lib/degraded";
 import { cupCountFor, bulkDiscountPercent } from "@/lib/bulk-order";
+import { getLiveMysteryCoupons, mysteryCouponUid } from "@/lib/mystery-box";
 import {
   deliveryFeeCents,
   freeDeliverySubtotalCents,
@@ -616,6 +617,103 @@ export async function computeOrderPricing(
     }
   }
 
+  // ---- Mystery-box coupon (chat prize draw — see mystery-box.ts).
+  // Same EXCLUSIVE + better-of lane as flash/app-download/tasting: the
+  // customer's best live coupon competes with whatever survived above, and
+  // wins only when worth more. Valued per prize kind: pct → % of the
+  // (reward-cup-adjusted) drinks base; free_topping → the priciest PAID
+  // topping unit in the cart (tier-topping precedent); free_drink → the
+  // cheapest cup (pickPromoCups precedent — a documented assumption, one
+  // line to flip if Stan wants generous-side). A coupon worth $0 for THIS
+  // cart (no paid toppings, say) simply doesn't apply and stays live for a
+  // later order. The uid carries the coupon id for the burn paths.
+  let mysteryDiscounts: OrderDiscount[] | undefined;
+
+  if (priceMaps) {
+    try {
+      const coupons = await getLiveMysteryCoupons(recipientPhone);
+      if (coupons.length > 0) {
+        let couponBase = drinksSubtotalCents - rewardCupsSumCents;
+        if (couponBase < 0n) couponBase = 0n;
+        const cheapestCup =
+          unitPricesAsc.length > loyaltyRewardCount
+            ? unitPricesAsc[loyaltyRewardCount]
+            : 0n;
+        const cupsForToppings: CupRecord[] = [];
+        for (const line of lines) {
+          const unitPrice = authoritativeUnitPrice(line, priceMaps);
+          const toppingPrices = line.modifiers.map(
+            (m) => priceMaps.modifierPriceById.get(m.id) ?? 0n,
+          );
+          const qty = Math.max(1, Math.floor(line.quantity));
+          for (let i = 0; i < qty; i++) {
+            cupsForToppings.push({ unitPrice, toppingPrices });
+          }
+        }
+        const toppingPool = collectPaidToppingUnits(
+          cupsForToppings,
+          loyaltyRewardCount,
+        );
+        const priciestTopping = toppingPool.reduce(
+          (max, p) => (p > max ? p : max),
+          0n,
+        );
+
+        const valued = coupons
+          .map((c) => ({
+            coupon: c,
+            amount:
+              c.percentage != null
+                ? (couponBase * BigInt(c.percentage)) / 100n
+                : c.prize === "free_topping"
+                  ? priciestTopping
+                  : cheapestCup,
+          }))
+          .filter((v) => v.amount > 0n)
+          .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0));
+
+        const best = valued[0];
+        const otherDiscountsCents = [
+          ...(welcomeDiscounts ?? []),
+          ...(igFollowDiscounts ?? []),
+          ...(tierDiscounts ?? []),
+          ...(flashDiscounts ?? []),
+          ...(appDownloadDiscounts ?? []),
+          ...(tastingDiscounts ?? []),
+        ].reduce((s, d) => s + d.amountMoney.amount, 0n);
+
+        if (best && best.amount > otherDiscountsCents) {
+          mysteryDiscounts = [
+            {
+              uid: mysteryCouponUid(best.coupon.id),
+              name: `Mystery Box: ${best.coupon.label}`,
+              type: "FIXED_AMOUNT",
+              amountMoney: {
+                amount: best.amount,
+                currency: BUSINESS.currency as Currency,
+              },
+              scope: "ORDER",
+            },
+          ];
+          welcomeDiscounts = undefined;
+          igFollowDiscounts = undefined;
+          tierDiscounts = undefined;
+          flashDiscounts = undefined;
+          appDownloadDiscounts = undefined;
+          tastingDiscounts = undefined;
+          welcomeDrinksCovered = 0;
+          igFollowDrinksCovered = 0;
+          tierToppingsCovered = 0;
+        }
+      }
+    } catch (mysteryError) {
+      console.error(
+        "[order-quote] mystery coupon skipped:",
+        mysteryError instanceof Error ? mysteryError.message : mysteryError,
+      );
+    }
+  }
+
   // ---- Bulk order discount (10+ cups, tiered — see bulk-order.ts).
   // EXCLUSIVE by POLICY, not better-of: when the cart hits a bracket, the
   // bracket is the deal and every other percentage promo above is replaced,
@@ -657,6 +755,7 @@ export async function computeOrderPricing(
         flashDiscounts = undefined;
         appDownloadDiscounts = undefined;
         tastingDiscounts = undefined;
+        mysteryDiscounts = undefined;
         welcomeDrinksCovered = 0;
         igFollowDrinksCovered = 0;
         tierToppingsCovered = 0;
@@ -671,6 +770,7 @@ export async function computeOrderPricing(
     ...(flashDiscounts ?? []),
     ...(appDownloadDiscounts ?? []),
     ...(tastingDiscounts ?? []),
+    ...(mysteryDiscounts ?? []),
     ...(bulkDiscounts ?? []),
   ];
 

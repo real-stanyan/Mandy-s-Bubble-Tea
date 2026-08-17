@@ -68,6 +68,8 @@ const STRINGS = {
     complaintAck: "已经记下了，我马上通知店长，他会在 24 小时内联系你处理。",
     bulkInquiryAck: "大单信息已经发给店里了，会尽快联系你确认饮品、时间和价格。",
     bulkInquiryFailed: "抱歉，刚才没能把信息发给店里——麻烦直接打门店电话 0404 978 238，说一下杯数和时间就行。",
+    mysteryBoxOffer: "给你变一个今日盲盒——点开看看是什么！",
+    mysteryBoxSignIn: "盲盒要登录才能开（奖品得放进你的 Rewards 里）——登录后再来找我说「给我惊喜」！",
   },
   en: {
     unreachableWithSuggestions: "Sorry, the assistant is unreachable right now. You might like one of these:",
@@ -79,6 +81,8 @@ const STRINGS = {
     complaintAck: "I've noted it down and notified the store manager — they'll contact you within 24 hours.",
     bulkInquiryAck: "Your bulk order details are with the store — they'll be in touch soon to confirm drinks, timing and price.",
     bulkInquiryFailed: "Sorry — that didn't reach the store just now. Please ring 0404 978 238 with your cup count and timing instead.",
+    mysteryBoxOffer: "Here's today's mystery box — tap it and see what's inside!",
+    mysteryBoxSignIn: "The mystery box needs you signed in (the prize goes into your Rewards) — sign in and ask me for a surprise again!",
   },
 } as const;
 
@@ -318,6 +322,8 @@ export async function POST(request: Request): Promise<Response> {
     /** True when the reply should carry a sign-in card — set by the
      *  order-status path when the asker turned out to be signed out. */
     signIn?: boolean;
+    /** True when the reply should render the mystery box card. */
+    mysteryBox?: boolean;
   }): Response {
     void recordChatTurns([
       {
@@ -479,6 +485,33 @@ export async function POST(request: Request): Promise<Response> {
         proposals: [],
         action: null,
         suggestions: [],
+      });
+    }
+
+    // Mystery box. The offer is terminal like a promotion card: the client
+    // renders a CLOSED box and the prize doesn't exist until the customer
+    // taps it (the open endpoint draws server-side). Signed-out gets the
+    // sign-in card instead of a box they couldn't open — with a FIXED
+    // string, because the model's own sentence may already be promising
+    // the box we're not rendering.
+    if (findToolCall(result.toolCalls, "offer_mystery_box")) {
+      if (!customer) {
+        return answer({
+          reply: t.mysteryBoxSignIn,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+          signIn: true,
+        });
+      }
+      return answer({
+        reply: scrubPrices(result.content) || t.mysteryBoxOffer,
+        proposal: null,
+        proposals: [],
+        action: null,
+        suggestions: [],
+        mysteryBox: true,
       });
     }
 

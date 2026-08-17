@@ -11,6 +11,10 @@ import {
 } from "@/lib/app-download-discount";
 import { consumeToppingAllowance } from "@/lib/tier-toppings-store";
 import { brisbaneMonthKey } from "@/lib/membership-tier";
+import {
+  consumeMysteryCoupon,
+  mysteryCouponIdFromDiscounts,
+} from "@/lib/mystery-box";
 
 /**
  * Burn any welcome / IG-follow discount applied to this order — now that its
@@ -57,5 +61,13 @@ export async function consumeOrderDiscounts(order: Square.Order): Promise<void> 
   if (discounts.some((d) => d.uid === "app-download-discount")) {
     const phone = appDownloadPhoneFromOrder(order);
     if (phone) await consumeAppDownloadDiscount(phone, orderId, customerId);
+  }
+  // Mystery-box coupon: id parsed from the uid, phone-keyed like the
+  // app-download grant. Idempotent one-shot — safe if the payment route
+  // already burned it on an order that later re-runs here.
+  const mysteryCouponId = mysteryCouponIdFromDiscounts(discounts);
+  if (mysteryCouponId) {
+    const phone = appDownloadPhoneFromOrder(order);
+    if (phone) await consumeMysteryCoupon(mysteryCouponId, phone, orderId, customerId);
   }
 }

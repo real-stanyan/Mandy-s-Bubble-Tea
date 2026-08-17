@@ -7,6 +7,7 @@ function customer(starBalance: number, starsPerReward = 9): CustomerPromoState {
     starBalance,
     starsPerReward,
     lifetimePoints: starBalance,
+    mysteryCouponLabels: [],
     welcomeAvailable: false,
     igFollowAvailable: false,
     igFollowPercentage: 0,

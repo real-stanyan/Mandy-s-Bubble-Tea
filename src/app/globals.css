@@ -524,3 +524,29 @@ body[data-scroll-locked] {
   .home-marquee-track { animation: none !important; }
   .home-float { animation: none !important; }
 }
+
+/* Chat mystery box: shake to invite the tap, pop the reveal, rain a little
+   confetti. Motion-reduced users get the reveal with no theatrics. */
+@keyframes mystery-shake {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-6deg); }
+  40% { transform: rotate(5deg); }
+  60% { transform: rotate(-4deg); }
+  80% { transform: rotate(3deg); }
+}
+.mystery-shake { animation: mystery-shake 1.6s ease-in-out infinite; transform-origin: 50% 80%; }
+@keyframes mystery-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  60% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.mystery-pop { animation: mystery-pop 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes mystery-confetti {
+  0% { transform: translateY(-4px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(64px) rotate(240deg); opacity: 0; }
+}
+.mystery-confetti { animation: mystery-confetti 1.1s ease-in both; }
+@media (prefers-reduced-motion: reduce) {
+  .mystery-shake, .mystery-confetti { animation: none !important; }
+  .mystery-pop { animation-duration: 0.01s !important; }
+}

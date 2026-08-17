@@ -5,6 +5,7 @@ import { getWelcomeDiscountStatus } from "@/lib/supabase";
 import { getIgFollowDiscountStatus } from "@/lib/ig-follow-discount";
 import { getFlashPromoStatus } from "@/lib/flash-promo";
 import { getAppDownloadDiscountStatus } from "@/lib/app-download-discount";
+import { getLiveMysteryCoupons } from "@/lib/mystery-box";
 import type { CustomerPromoState } from "@/lib/chat/promotions";
 
 /**
@@ -31,9 +32,14 @@ export async function readCustomerPromoState(
       getAppDownloadDiscountStatus(user.userId).catch(() => null),
     ]);
 
-    const account = user.phone
-      ? await findLoyaltyAccountByPhone(user.phone).catch(() => null)
-      : null;
+    const [account, mysteryCoupons] = await Promise.all([
+      user.phone
+        ? findLoyaltyAccountByPhone(user.phone).catch(() => null)
+        : Promise.resolve(null),
+      user.profile?.phone_e164
+        ? getLiveMysteryCoupons(user.profile.phone_e164).catch(() => [])
+        : Promise.resolve([]),
+    ]);
 
     return {
       starBalance: account?.balance ?? 0,
@@ -46,6 +52,7 @@ export async function readCustomerPromoState(
       flashPercentage: flash?.percentage ?? 0,
       appDownloadAvailable: appDownload?.available === true,
       appDownloadPercentage: appDownload?.percentage ?? 0,
+      mysteryCouponLabels: mysteryCoupons.map((c) => c.label),
     };
   } catch {
     return null;
