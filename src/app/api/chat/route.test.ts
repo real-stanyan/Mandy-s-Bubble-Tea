@@ -51,7 +51,11 @@ vi.mock("@/lib/chat/customer-state", () => ({ readCustomerPromoState }));
 // mystery-box pulls in supabase-server at module scope; the route only
 // needs the code check here.
 const isActiveMysteryCode = vi.fn();
-vi.mock("@/lib/mystery-box", () => ({ isActiveMysteryCode }));
+const isMysteryBoxOpenAccess = vi.fn();
+vi.mock("@/lib/mystery-box", () => ({
+  isActiveMysteryCode,
+  isMysteryBoxOpenAccess,
+}));
 
 const { POST, scrubPrices } = await import("@/app/api/chat/route");
 
@@ -106,6 +110,9 @@ beforeEach(() => {
   readCustomerPromoState.mockResolvedValue(null);
   isActiveMysteryCode.mockReset();
   isActiveMysteryCode.mockResolvedValue(true);
+  isMysteryBoxOpenAccess.mockReset();
+  // Default to the code-gated round; the launch-round test opts in.
+  isMysteryBoxOpenAccess.mockResolvedValue(false);
   lookupOrderStatusForChat.mockReset();
   lookupOrderStatusForChat.mockResolvedValue({
     signedOut: false,
@@ -804,6 +811,34 @@ describe("POST /api/chat — offer_mystery_box", () => {
     // The verdict reached the model as a tool message.
     const retry = seen[1] as { role: string; content: string | null }[];
     expect(retry.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("launch round: renders a box with no code at all", async () => {
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 0,
+      starsPerReward: 9,
+      lifetimePoints: 0,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    isMysteryBoxOpenAccess.mockResolvedValue(true);
+    isActiveMysteryCode.mockResolvedValue(false);
+    callDeepSeek.mockResolvedValue({
+      content: "给你变一个盲盒！",
+      toolCalls: [{ id: "mb1", name: "offer_mystery_box", argumentsJson: "{}" }],
+    });
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "给我个惊喜" }] }))
+    ).json();
+    expect(body.mysteryBox).toBe(true);
+    // No code to carry — the open endpoint resolves the launch round itself.
+    expect(body.mysteryBoxCode).toBeUndefined();
   });
 
   it("renders the box for a signed-in customer", async () => {
