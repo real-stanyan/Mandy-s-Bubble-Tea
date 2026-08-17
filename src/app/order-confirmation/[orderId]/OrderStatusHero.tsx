@@ -29,6 +29,10 @@ type Props = {
   orderNumber?: string | null;
   deliveryAddress?: string | null;
   etaText?: string | null;
+  /** Scheduled pickup whose sticker hasn't printed yet — shows "Received"
+   *  instead of "Preparing". Server-computed initially, kept fresh by the
+   *  poll. */
+  initialHeld?: boolean;
 };
 
 const POLL_MS = 5000;
@@ -47,12 +51,14 @@ export function OrderStatusHero({
   orderNumber,
   deliveryAddress,
   etaText,
+  initialHeld = false,
 }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
   const [dispatchStatus, setDispatchStatus] = useState<DispatchStatus | null>(
     initialDispatchStatus,
   );
   const [tracking, setTracking] = useState<Tracking | null>(null);
+  const [held, setHeld] = useState(initialHeld);
 
   useEffect(() => {
     // Delivery isn't done until it's delivered (fulfillment COMPLETED) — the
@@ -73,6 +79,7 @@ export function OrderStatusHero({
           state: FulfillmentState | null;
           dispatchStatus?: DispatchStatus | null;
           tracking: Tracking | null;
+          held?: boolean;
         };
         if (cancelled) return;
         if (data.ok && data.state && data.state !== state) {
@@ -81,6 +88,9 @@ export function OrderStatusHero({
         if (data.ok) setDispatchStatus(data.dispatchStatus ?? null);
         // tracking is only populated for delivery orders that are PREPARED.
         if (data.ok) setTracking(data.tracking ?? null);
+        // held flips false when the sticker prints (or "I'm here" releases
+        // it) — the stepper advances to Preparing on the next tick.
+        if (data.ok) setHeld(data.held === true);
       } catch {
         // Ignore transient network errors — next tick will retry.
       }
@@ -129,7 +139,11 @@ export function OrderStatusHero({
       isDelivery={isDelivery}
       dispatchStatus={dispatchStatus}
       orderNumber={orderNumber}
-      etaText={etaText}
+      // A held order's ETA would be the prep estimate — meaningless while
+      // nothing is being prepped; the pickup-time card below already says
+      // when.
+      etaText={held ? null : etaText}
+      held={held}
     />
   );
 }
@@ -161,16 +175,29 @@ function CardShell({
       }
       style={active ? { background: "linear-gradient(180deg,#FFF7EC,#FFF1DE)" } : undefined}
     >
+      {/* The active shell's gradient is a pinned-light poster face, so its
+          ink must be pinned day values too — evening flips the text tokens
+          light, which made OL758 white-on-cream (Stan's screenshot,
+          2026-08-17; same disease as issue #191). The muted shell uses
+          bg-card, which flips WITH the tokens, so tokens stay correct there. */}
       <div className="flex items-center justify-between gap-4 px-6 pb-5 pt-6">
         <div className="min-w-0">
           <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
             {isDelivery ? "Order number" : "Pickup number"}
           </p>
-          <p className="mt-2 whitespace-nowrap font-mono text-[clamp(36px,6vw,52px)] font-bold leading-none tracking-[2px] text-ink">
+          <p
+            className={`mt-2 whitespace-nowrap font-mono text-[clamp(36px,6vw,52px)] font-bold leading-none tracking-[2px] ${
+              active ? "text-[#2A1E14]" : "text-ink"
+            }`}
+          >
             {orderNumber || "—"}
           </p>
         </div>
-        <span className="max-w-[130px] shrink-0 text-right text-[12.5px] font-semibold leading-snug text-ink3">
+        <span
+          className={`max-w-[130px] shrink-0 text-right text-[12.5px] font-semibold leading-snug ${
+            active ? "text-[#8A7160]" : "text-ink3"
+          }`}
+        >
           {isDelivery
             ? "Quote this on delivery"
             : "Show this at the counter to collect"}
@@ -196,14 +223,16 @@ function StatusCard({
   dispatchStatus,
   orderNumber,
   etaText,
+  held = false,
 }: {
   state: FulfillmentState | null;
   isDelivery: boolean;
   dispatchStatus: DispatchStatus | null;
   orderNumber?: string | null;
   etaText?: string | null;
+  held?: boolean;
 }) {
-  const ui = deriveStatusUi({ state, isDelivery, dispatchStatus });
+  const ui = deriveStatusUi({ state, isDelivery, dispatchStatus, held });
   // A prep-time ETA ("5–7 mins") is misleading while a delivery order is still
   // placed/awaiting a driver, so only show it once the order is out for delivery
   // (step ≥ 2 now that "Placed" leads the delivery stepper). Pickup keeps its ETA
@@ -246,8 +275,10 @@ function StatusCard({
   return (
     <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="active">
     <div role="status" aria-live="polite">
+      {/* Everything inside the active poster face is pinned day ink — see
+          CardShell's note. */}
       <div className="flex items-center justify-between gap-3">
-        <span className="inline-flex items-center gap-2 rounded-full border border-line bg-white py-1.5 pl-3 pr-3.5">
+        <span className="inline-flex items-center gap-2 rounded-full border border-[#EADFCE] bg-white py-1.5 pl-3 pr-3.5">
           <span
             className="h-2.5 w-2.5 rounded-full"
             style={{
@@ -272,7 +303,7 @@ function StatusCard({
         )}
       </div>
 
-      <p className="mt-3 text-[13.5px] leading-relaxed text-ink2">{ui.body}</p>
+      <p className="mt-3 text-[13.5px] leading-relaxed text-[#5A4330]">{ui.body}</p>
 
       <div className="mt-5 flex items-center gap-2">
         {ui.steps.map((label, i) => {
@@ -283,7 +314,7 @@ function StatusCard({
                 <span
                   className={
                     "grid h-6 w-6 place-items-center rounded-full text-white " +
-                    (done ? "bg-brand" : "border-[1.5px] border-line bg-white")
+                    (done ? "bg-brand" : "border-[1.5px] border-[#EADFCE] bg-white")
                   }
                 >
                   {done && <Check size={14} />}
@@ -291,7 +322,7 @@ function StatusCard({
                 <span
                   className={
                     "text-[11.5px] font-semibold " +
-                    (done ? "text-ink" : "text-ink4")
+                    (done ? "text-[#2A1E14]" : "text-[#B9A89A]")
                   }
                 >
                   {label}
@@ -301,7 +332,7 @@ function StatusCard({
                 <span
                   className={
                     "mb-[18px] h-[2.5px] flex-1 rounded " +
-                    (i < ui.step ? "bg-brand" : "bg-line")
+                    (i < ui.step ? "bg-brand" : "bg-[#EADFCE]")
                   }
                 />
               )}

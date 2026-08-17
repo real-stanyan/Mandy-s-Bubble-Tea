@@ -550,3 +550,13 @@ body[data-scroll-locked] {
   .mystery-shake, .mystery-confetti { animation: none !important; }
   .mystery-pop { animation-duration: 0.01s !important; }
 }
+
+/* Payment buttons: Apple/Google both specify WHITE buttons on dark
+   surfaces. The checkout button pins its brand-black inline (correct by
+   day); evening flips it to the white variant. !important because it must
+   beat that inline style. */
+:root[data-theme="evening"] .mbt-pay-apple,
+:root[data-theme="evening"] .mbt-pay-google {
+  background-color: #ffffff !important;
+  color: #111111 !important;
+}

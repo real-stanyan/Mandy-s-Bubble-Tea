@@ -1423,7 +1423,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
               cartHasBlockedItems
             }
-            className="mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+              // Evening flips these to the WHITE wallet-button variant (see
+              // globals.css) — a black button on the espresso background was
+              // a hole in the page (Stan's screenshot, 2026-08-17).
+              payMethod === "apple"
+                ? "mbt-pay-apple"
+                : payMethod === "google"
+                  ? "mbt-pay-google"
+                  : ""
+            }`}
             style={
               storeClosed
                 ? { backgroundColor: "#a1a1aa" }

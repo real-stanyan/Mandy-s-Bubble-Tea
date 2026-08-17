@@ -14,6 +14,7 @@ import { OrderComplaintSection } from "@/components/account/OrderComplaintSectio
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 import { ScheduledPickupCard } from "./ScheduledPickupCard";
 import { brisbaneClockLabel } from "@/lib/pickup-schedule";
+import { isStickerHeld } from "@/lib/print-jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,13 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     if (!Number.isFinite(ms)) return null;
     return brisbaneClockLabel(new Date(ms));
   })();
+
+  // Is the scheduled order's sticker still held? First paint must not say
+  // "Preparing" while nobody is making the drinks — the poll keeps it
+  // fresh from there.
+  const initialHeld = scheduledPickupLabel
+    ? await isStickerHeld(order.id ?? orderId)
+    : false;
 
   // For delivery, the progress stepper is driven by the dispatch lifecycle, not
   // the Square fulfillment state — fetch the current dispatch status so the
@@ -277,6 +285,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             orderNumber={pickupNumber}
             deliveryAddress={deliveryAddress}
             etaText={waitText}
+            initialHeld={initialHeld}
           />
 
           {scheduledPickupLabel ? (

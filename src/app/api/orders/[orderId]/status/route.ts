@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { squareClient } from "@/lib/square";
 import { getAuthedUser } from "@/lib/auth";
 import { ownsOrder } from "@/lib/order-complaint";
+import { isStickerHeld } from "@/lib/print-jobs";
 import { STORE_LAT, STORE_LNG } from "@/lib/constants";
 import {
   getDispatchTracking,
@@ -151,8 +152,20 @@ export async function GET(
       }
     }
 
+    // Scheduled pickup: is the cup sticker still held? While it is, nobody
+    // is making the drinks, and the stepper must say "Received", not
+    // "Preparing" (Stan, 2026-08-17). Only worth a lookup for a pickup
+    // order that isn't done yet.
+    let held = false;
+    if (!isDelivery && state !== "COMPLETED" && state !== "PREPARED") {
+      held =
+        fulfillment?.pickupDetails?.scheduleType === "SCHEDULED"
+          ? await isStickerHeld(orderId)
+          : false;
+    }
+
     return NextResponse.json(
-      { ok: true, state, dispatchStatus, tracking },
+      { ok: true, state, dispatchStatus, tracking, held },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
