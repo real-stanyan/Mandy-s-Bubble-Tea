@@ -176,7 +176,7 @@ export function MessageList() {
 
           {m.mysteryBox ? (
             <div className="mt-2 w-full max-w-[90%]">
-              <MysteryBoxCard />
+              <MysteryBoxCard code={m.mysteryBoxCode ?? ""} />
             </div>
           ) : null}
 

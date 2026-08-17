@@ -62,3 +62,12 @@ describe("labels and lifetime", () => {
     expect(COUPON_LIFETIME_DAYS).toBe(14);
   });
 });
+
+describe("normalizeMysteryCode", () => {
+  it("ignores case and surrounding space — no pedantry on an IG code", async () => {
+    const { normalizeMysteryCode } = await import("./mystery-box");
+    expect(normalizeMysteryCode("  TaroStar  ")).toBe("tarostar");
+    expect(normalizeMysteryCode("芋头星人")).toBe("芋头星人");
+    expect(normalizeMysteryCode("   ")).toBe("");
+  });
+});

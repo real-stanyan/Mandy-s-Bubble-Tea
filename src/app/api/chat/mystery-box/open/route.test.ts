@@ -7,8 +7,12 @@ vi.mock("@/lib/mystery-box", () => ({ openMysteryBox }));
 
 const { POST } = await import("./route");
 
-const req = () =>
-  new Request("http://localhost/api/chat/mystery-box/open", { method: "POST" });
+const req = (code?: string) =>
+  new Request("http://localhost/api/chat/mystery-box/open", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(code === undefined ? {} : { code }),
+  });
 
 beforeEach(() => {
   getAuthedUser.mockReset();
@@ -36,20 +40,26 @@ describe("POST /api/chat/mystery-box/open", () => {
       label: "Free Topping",
       expiresAt: "2026-08-31T00:00:00.000Z",
     });
-    const res = await POST(req());
+    const res = await POST(req("芋头星人"));
     const body = await res.json();
-    expect(openMysteryBox).toHaveBeenCalledWith("+61400000001", "C1");
+    expect(openMysteryBox).toHaveBeenCalledWith("+61400000001", "C1", "芋头星人");
     expect(body).toMatchObject({ ok: true, prize: "free_topping", couponId: "abc" });
   });
 
-  it("reports already-today as a fact (200), unavailable as a failure (503)", async () => {
-    openMysteryBox.mockResolvedValue({ opened: false, reason: "already-today" });
-    const res1 = await POST(req());
+  it("reports already-used / invalid-code as facts (200), unavailable as a failure (503)", async () => {
+    openMysteryBox.mockResolvedValue({ opened: false, reason: "already-used" });
+    const res1 = await POST(req("芋头星人"));
     expect(res1.status).toBe(200);
-    expect((await res1.json()).reason).toBe("already-today");
+    expect((await res1.json()).reason).toBe("already-used");
+
+    // No code in the body → the lib gets "" and judges it invalid.
+    openMysteryBox.mockResolvedValue({ opened: false, reason: "invalid-code" });
+    const res2 = await POST(req());
+    expect(openMysteryBox).toHaveBeenLastCalledWith("+61400000001", "C1", "");
+    expect(res2.status).toBe(200);
 
     openMysteryBox.mockResolvedValue({ opened: false, reason: "unavailable" });
-    const res2 = await POST(req());
-    expect(res2.status).toBe(503);
+    const res3 = await POST(req("芋头星人"));
+    expect(res3.status).toBe(503);
   });
 });

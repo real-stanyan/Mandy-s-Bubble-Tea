@@ -100,6 +100,8 @@ export function ChatDrawer() {
         checkoutCard: body.action === "checkout" || undefined,
         signInCard: body.signIn === true || undefined,
         mysteryBox: body.mysteryBox === true || undefined,
+        mysteryBoxCode:
+          typeof body.mysteryBoxCode === "string" ? body.mysteryBoxCode : undefined,
       };
       push(reply);
     } catch {

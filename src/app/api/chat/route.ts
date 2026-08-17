@@ -30,6 +30,7 @@ import {
 } from "@/lib/chat/log";
 import { fileChatComplaint, type ComplaintFiling } from "@/lib/chat/complaint";
 import { sendBulkInquiry, type BulkInquiry } from "@/lib/chat/bulk-inquiry";
+import { isActiveMysteryCode } from "@/lib/mystery-box";
 import { toApiProposal } from "@/lib/chat/proposal-to-cart";
 import {
   checkChatRateLimit,
@@ -324,6 +325,9 @@ export async function POST(request: Request): Promise<Response> {
     signIn?: boolean;
     /** True when the reply should render the mystery box card. */
     mysteryBox?: boolean;
+    /** The validated secret code the box was unlocked with — the client
+     *  sends it back on open. */
+    mysteryBoxCode?: string;
   }): Response {
     void recordChatTurns([
       {
@@ -376,6 +380,9 @@ export async function POST(request: Request): Promise<Response> {
   // answer in this request carries the sign-in card, no matter which loop
   // branch finally replies.
   let offerSignIn = false;
+  // One budget bump per request for an invalid mystery code, mirroring the
+  // order-status round.
+  let mysteryBudgetSpent = false;
   let maxAttempts = MAX_ATTEMPTS;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -488,13 +495,17 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    // Mystery box. The offer is terminal like a promotion card: the client
-    // renders a CLOSED box and the prize doesn't exist until the customer
-    // taps it (the open endpoint draws server-side). Signed-out gets the
-    // sign-in card instead of a box they couldn't open — with a FIXED
-    // string, because the model's own sentence may already be promising
-    // the box we're not rendering.
-    if (findToolCall(result.toolCalls, "offer_mystery_box")) {
+    // Mystery box — unlocked by an Instagram secret code, and the SERVER
+    // judges the code (the model was told to pass anything password-shaped
+    // through). Valid → terminal offer like a promotion card: the client
+    // renders a CLOSED box carrying the code; the prize doesn't exist until
+    // the tap (the open endpoint re-validates and draws). Invalid → the
+    // verdict goes back as a tool message so the model can sell the
+    // treasure hunt in the customer's language. Signed-out gets the
+    // sign-in card with FIXED copy, because the model's own sentence may
+    // already be promising a box we're not rendering.
+    const mysteryCall = findToolCall(result.toolCalls, "offer_mystery_box");
+    if (mysteryCall) {
       if (!customer) {
         return answer({
           reply: t.mysteryBoxSignIn,
@@ -505,14 +516,48 @@ export async function POST(request: Request): Promise<Response> {
           signIn: true,
         });
       }
-      return answer({
-        reply: scrubPrices(result.content) || t.mysteryBoxOffer,
-        proposal: null,
-        proposals: [],
-        action: null,
-        suggestions: [],
-        mysteryBox: true,
+      let code = "";
+      try {
+        const parsed = JSON.parse(mysteryCall.argumentsJson) as { code?: unknown };
+        if (typeof parsed.code === "string") code = parsed.code;
+      } catch {
+        // malformed → treated as an invalid code below
+      }
+      if (code && (await isActiveMysteryCode(code))) {
+        return answer({
+          reply: scrubPrices(result.content) || t.mysteryBoxOffer,
+          proposal: null,
+          proposals: [],
+          action: null,
+          suggestions: [],
+          mysteryBox: true,
+          mysteryBoxCode: code,
+        });
+      }
+      // Wrong code: one extra round so the model can answer properly —
+      // same budget treatment as an order-status lookup.
+      if (!mysteryBudgetSpent) {
+        mysteryBudgetSpent = true;
+        maxAttempts += 1;
+      }
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: mysteryCall.id,
+            type: "function",
+            function: { name: mysteryCall.name, arguments: mysteryCall.argumentsJson },
+          },
+        ],
       });
+      messages.push({
+        role: "tool",
+        tool_call_id: mysteryCall.id,
+        content:
+          "That code is not valid right now. Tell the customer (in their language) it didn't match the current code, and that the live code is posted on our Instagram (instagram.com/mandysbubbletea) — follow the account and check the latest posts. Do not reveal or guess any code, and do not offer a box without one.",
+      });
+      continue;
     }
 
     // Bulk inquiry — the handoff to Rick for orders self-serve can't take

@@ -143,8 +143,18 @@ export const CHAT_TOOLS = [
     function: {
       name: "offer_mystery_box",
       description:
-        "Show the customer today's mystery box when they ask for a surprise ('给我惊喜', 'surprise me', '盲盒', 'random treat'). The app renders a closed box; the PRIZE is drawn server-side only when they tap it — so never announce, promise, or guess what's inside, and never invent discount numbers. One box per customer per day; prizes land in their Rewards and apply at checkout automatically.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
+        "Unlock the mystery box with the secret code from our Instagram. Call it ONLY when the customer has actually said a code word — never for a bare 'surprise me' (answer that by pointing them at the Instagram for the current code). The server checks the code; the app renders a closed box; the PRIZE is drawn server-side only when they tap it — never announce, promise, or guess what's inside. Each code opens one box per customer; prizes land in their Rewards and apply at checkout automatically.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description: "The secret code the customer said, exactly as they wrote it.",
+          },
+        },
+        required: ["code"],
+        additionalProperties: false,
+      },
     },
   },
   {
