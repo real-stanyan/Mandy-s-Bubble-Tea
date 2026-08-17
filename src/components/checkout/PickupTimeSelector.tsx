@@ -64,22 +64,48 @@ export function PickupTimeSelector({ value, onChange }: Props) {
         {/* A bare "10 min" left customers guessing — is that the wait, or
             the time until I should turn up? (Stan, 2026-08-17.) The clock
             time is the answer to the question actually being asked; the
-            offset rides underneath as the shorthand. */}
+            offset rides underneath as the shorthand.
+            The "~" is load-bearing: 5:23pm is the middle of a window, not
+            a promise to the minute, and a counter one drink behind must not
+            read as broken (Stan, same day). */}
         {offsets.map((offset) => (
           <TimePill
             key={offset}
             active={value === offset}
-            label={now ? pickupClockLabel(offset, now) : `${offset} min`}
+            label={now ? `~${pickupClockLabel(offset, now)}` : `${offset} min`}
             sub={`in ${offset} min`}
             onClick={() => onChange(offset)}
           />
         ))}
       </div>
-      <p className="mt-2 text-[11.5px] text-ink3">
-        {value === 0 || !now
-          ? "We'll start making your drinks right away — they'll be at the counter in about 10 minutes."
-          : `We'll start making them a few minutes before ${pickupClockLabel(value, now)}, so they're fresh when you arrive. Here early? Tap "I'm here" on your order page and we'll start straight away.`}
-      </p>
+      {value === 0 || !now ? (
+        <p className="mt-2 text-[11.5px] text-ink3">
+          We&apos;ll start making your drinks right away — they&apos;ll be at
+          the counter in about 10 minutes.
+        </p>
+      ) : (
+        <div className="mt-2 space-y-1 text-[11.5px] text-ink3">
+          <p>
+            Ready around{" "}
+            <span className="font-semibold text-ink2">
+              {pickupClockLabel(value, now)}
+            </span>{" "}
+            — we&apos;ll start making them a few minutes before, so
+            they&apos;re fresh when you arrive.
+          </p>
+          {/* The early-arrival escape hatch was grey text in a grey
+              paragraph, so nobody would find the button it names (Stan,
+              2026-08-17). Own line, brand ink, quotes dropped — it reads as
+              a thing you can do. */}
+          <p>
+            Here early?{" "}
+            <span className="font-semibold text-brand">
+              Tap “I&apos;m here”
+            </span>{" "}
+            on your order page and we&apos;ll start straight away.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
