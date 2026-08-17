@@ -29,7 +29,7 @@ if (!url || !serviceKey) {
 
 const PAYLOAD = {
   title: "🍍 New Weekly Specials",
-  body: "Pineapple Green Tea, Pineapple Black Tea & Orange Iced Green Tea — all $4.60 (was $6.20), this week only.",
+  body: "Pineapple Green Tea, Pineapple Black Tea & Orange Iced Green Tea — all $4.60 (was $6.20).",
   data: { type: "weekly-special-promo", url: "/menu" },
 };
 
