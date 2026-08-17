@@ -325,6 +325,20 @@ export function AuthForm({
     <div ref={scopeRef}>
       {step === "form" && (
         <div>
+          {oauthLinking && (
+            // The way OUT of "One more step". Without this the half-signed-in
+            // customer (OAuth done, phone not linked) was stuck: no way back
+            // to pick a different account or method (Stan's screenshot,
+            // 2026-08-17). handleBackToForm drops the half session, which is
+            // what flips oauthLinking off and restores the sign-in form.
+            <button
+              type="button"
+              onClick={handleBackToForm}
+              className="au mb-[18px] flex items-center gap-1.5 text-[13.5px] font-semibold text-ink2 transition hover:text-ink"
+            >
+              <ArrowLeft size={16} /> Back to sign in
+            </button>
+          )}
           {variant === "card" && !oauthLinking && (
             <div className="au mb-5 flex flex-col items-center text-center">
               <BrandHero />
