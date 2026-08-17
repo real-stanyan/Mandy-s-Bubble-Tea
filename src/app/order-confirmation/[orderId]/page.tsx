@@ -13,6 +13,7 @@ import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
 import { ScheduledPickupCard } from "./ScheduledPickupCard";
+import { brisbaneClockLabel } from "@/lib/pickup-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -126,11 +127,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     }
     const ms = Date.parse(details.pickupAt);
     if (!Number.isFinite(ms)) return null;
-    const bne = new Date(ms + 10 * 60 * 60 * 1000);
-    const h24 = bne.getUTCHours();
-    const m = bne.getUTCMinutes();
-    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-    return `${h12}:${String(m).padStart(2, "0")}${h24 < 12 ? "am" : "pm"}`;
+    return brisbaneClockLabel(new Date(ms));
   })();
 
   // For delivery, the progress stepper is driven by the dispatch lifecycle, not

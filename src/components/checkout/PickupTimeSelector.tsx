@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { availablePickupOffsets } from "@/lib/pickup-schedule";
+import {
+  availablePickupOffsets,
+  pickupClockLabel,
+} from "@/lib/pickup-schedule";
 
 // "When will you collect it?" — fixed pills, not a time picker. The
 // offsets whose pickup time would land after close (10:30pm Brisbane)
@@ -16,16 +19,6 @@ type Props = {
   value: number;
   onChange: (next: number) => void;
 };
-
-/** Brisbane wall-clock label for "now + offset minutes" — UTC+10, no DST,
- *  same offset arithmetic the rest of checkout uses. */
-function pickupClock(offsetMinutes: number, now: Date): string {
-  const bne = new Date(now.getTime() + (offsetMinutes + 600) * 60 * 1000);
-  const h24 = bne.getUTCHours();
-  const m = bne.getUTCMinutes();
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${h12}:${String(m).padStart(2, "0")}${h24 < 12 ? "am" : "pm"}`;
-}
 
 export function PickupTimeSelector({ value, onChange }: Props) {
   // The option list depends on the clock, so it must not render on the
@@ -55,25 +48,37 @@ export function PickupTimeSelector({ value, onChange }: Props) {
 
   return (
     <div>
+      <p className="mb-2 text-[12.5px] text-ink2">
+        What time will you collect your drinks?
+      </p>
       <div className="flex flex-wrap gap-2">
+        {/* "Now" is not "instantly" — it means we start now, so it's ready
+            in about ten minutes. Saying so on the chip stops the pill row
+            from reading as five flavours of waiting. */}
         <TimePill
           active={value === 0}
-          label="Now"
+          label="As soon as possible"
+          sub="ready in ~10 min"
           onClick={() => onChange(0)}
         />
+        {/* A bare "10 min" left customers guessing — is that the wait, or
+            the time until I should turn up? (Stan, 2026-08-17.) The clock
+            time is the answer to the question actually being asked; the
+            offset rides underneath as the shorthand. */}
         {offsets.map((offset) => (
           <TimePill
             key={offset}
             active={value === offset}
-            label={`${offset} min`}
+            label={now ? pickupClockLabel(offset, now) : `${offset} min`}
+            sub={`in ${offset} min`}
             onClick={() => onChange(offset)}
           />
         ))}
       </div>
       <p className="mt-2 text-[11.5px] text-ink3">
         {value === 0 || !now
-          ? "We'll start making your drinks right away."
-          : `Pick up around ${pickupClock(value, now)} — we'll start making your drinks a few minutes before, so they're fresh when you arrive.`}
+          ? "We'll start making your drinks right away — they'll be at the counter in about 10 minutes."
+          : `We'll start making them a few minutes before ${pickupClockLabel(value, now)}, so they're fresh when you arrive. Here early? Tap "I'm here" on your order page and we'll start straight away.`}
       </p>
     </div>
   );
@@ -82,23 +87,32 @@ export function PickupTimeSelector({ value, onChange }: Props) {
 function TimePill({
   active,
   label,
+  sub,
   onClick,
 }: {
   active: boolean;
   label: string;
+  sub: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-4 py-2 text-[13px] font-semibold transition ${
+      className={`rounded-2xl px-4 py-2 text-left text-[13px] font-semibold leading-tight transition ${
         active
           ? "border-2 border-brand bg-cream text-brand"
           : "border border-line bg-card text-ink2 hover:border-ink4"
       }`}
     >
-      {label}
+      <span className="block">{label}</span>
+      <span
+        className={`mt-0.5 block text-[10.5px] font-medium ${
+          active ? "text-brand/80" : "text-ink3"
+        }`}
+      >
+        {sub}
+      </span>
     </button>
   );
 }
