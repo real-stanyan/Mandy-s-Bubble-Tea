@@ -60,7 +60,7 @@ describe("promotion text fed to the model", () => {
     }
   });
 
-  it("keeps the customer-facing card copy in Chinese", async () => {
+  it("keeps the customer-facing card copy in Chinese by default", async () => {
     const promotions = await getLivePromotions(CUSTOMER, CAMPAIGNS);
     // The point of the split: fixing the prompt must not quietly turn the
     // cards English on a Chinese-speaking customer.
@@ -71,5 +71,41 @@ describe("promotion text fed to the model", () => {
     const nudge = nearRewardNudge(CUSTOMER);
     expect(nudge).not.toBeNull();
     expect(nudge!).not.toMatch(CJK);
+  });
+});
+
+/** The card is also a REPLY: on a show_promotion turn with no model text the
+ *  route falls back to `cards[0].detail`, and a tool-call turn bypasses the
+ *  Latin-script retry gate. 2026-08-18: an English "Free drink?" got the
+ *  loyalty card's Chinese detail as its chat bubble — the cards only existed
+ *  in Chinese. So every card must exist in English too, picked by the same
+ *  heuristic the route already uses for its fixed strings. */
+describe("card copy in English (lang = 'en')", () => {
+  it("renders every card, every branch, without CJK", async () => {
+    const withCoupons: CustomerPromoState = {
+      ...CUSTOMER,
+      mysteryCouponLabels: ["Free Topping", "10% Off Your Order"],
+    };
+    const redeemer: CustomerPromoState = { ...CUSTOMER, starBalance: 19 };
+    const all = [
+      ...(await getLivePromotions(withCoupons, CAMPAIGNS, "en")),
+      ...(await getLivePromotions(redeemer, CAMPAIGNS, "en")),
+      ...(await getLivePromotions(null, { tasting: null, flash: null }, "en")),
+    ];
+    expect(all.length).toBeGreaterThan(0);
+    for (const p of all) {
+      expect(p.title, `title for [${p.key}]`).not.toMatch(CJK);
+      expect(p.detail, `detail for [${p.key}]`).not.toMatch(CJK);
+      if (p.cta) expect(p.cta, `cta for [${p.key}]`).not.toMatch(CJK);
+      expect(p.detail.length, `detail for [${p.key}] is empty`).toBeGreaterThan(0);
+    }
+  });
+
+  it("still carries the customer's own numbers", async () => {
+    const promotions = await getLivePromotions(CUSTOMER, CAMPAIGNS, "en");
+    const loyalty = promotions.find((p) => p.key === "loyalty");
+    // 7 stars of 9: the card states the balance and the 2 drinks to go.
+    expect(loyalty?.detail).toContain("7 stars");
+    expect(loyalty?.detail).toContain("2 more drink");
   });
 });

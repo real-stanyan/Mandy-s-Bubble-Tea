@@ -768,6 +768,61 @@ describe("POST /api/chat — promotions, not complaints", () => {
 
     expect(body.promotions ?? []).toEqual([]);
   });
+
+  it("answers an English question with an English card, even as the fallback reply", async () => {
+    // The production regression (2026-08-18): "Free drink?" → the model
+    // called show_promotion with no text of its own, the reply fell back to
+    // cards[0].detail, and the card only existed in Chinese. A tool-call
+    // turn bypasses the Latin-script retry gate, so the card copy itself
+    // must speak the customer's language.
+    readCustomerPromoState.mockResolvedValue({
+      starBalance: 4,
+      starsPerReward: 9,
+      lifetimePoints: 4,
+      mysteryCouponLabels: [],
+      welcomeAvailable: false,
+      igFollowAvailable: false,
+      igFollowPercentage: 0,
+      flashAvailable: false,
+      flashPercentage: 0,
+      appDownloadAvailable: false,
+      appDownloadPercentage: 0,
+    });
+    callDeepSeek.mockResolvedValue({
+      content: "",
+      toolCalls: [
+        { id: "c1", name: "show_promotion", argumentsJson: JSON.stringify({ key: "loyalty" }) },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "Free drink?" }] }))
+    ).json();
+
+    const CJK = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+    expect(body.reply).not.toMatch(CJK);
+    expect(body.reply.length).toBeGreaterThan(0);
+    expect(body.promotions).toHaveLength(1);
+    expect(body.promotions[0].title).not.toMatch(CJK);
+    expect(body.promotions[0].detail).toContain("4 stars");
+    expect(body.promotions[0].cta).not.toMatch(CJK);
+  });
+
+  it("keeps the card Chinese for a Chinese question", async () => {
+    callDeepSeek.mockResolvedValue({
+      content: "",
+      toolCalls: [
+        { id: "c1", name: "show_promotion", argumentsJson: JSON.stringify({ key: "loyalty" }) },
+      ],
+    });
+
+    const body = await (
+      await POST(req({ messages: [{ role: "user", content: "有免费饮品吗" }] }))
+    ).json();
+
+    expect(body.promotions).toHaveLength(1);
+    expect(body.promotions[0].detail).toMatch(/[一-鿿]/);
+  });
 });
 
 describe("POST /api/chat — offer_mystery_box", () => {

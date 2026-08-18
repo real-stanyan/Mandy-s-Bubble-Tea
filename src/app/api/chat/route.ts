@@ -90,14 +90,14 @@ const STRINGS = {
   },
 } as const;
 
-function stringsFor(lastUserText: string): (typeof STRINGS)["zh"] | (typeof STRINGS)["en"] {
+function copyLangFor(lastUserText: string): "zh" | "en" {
   // Han without kana -> Chinese. Kana present -> Japanese, which gets the
   // English strings (a Japanese variant would be guesswork; English is
   // the store lingua franca and the model own replies still come back
   // in Japanese).
   const hasKana = /[぀-ヿ]/.test(lastUserText);
   const hasHan = /[㐀-鿿]/.test(lastUserText);
-  return hasHan && !hasKana ? STRINGS.zh : STRINGS.en;
+  return hasHan && !hasKana ? "zh" : "en";
 }
 
 type IncomingMessage = { role: "user" | "assistant"; content: string };
@@ -305,9 +305,14 @@ export async function POST(request: Request): Promise<Response> {
       // requirement that isn't in force.
       isMysteryBoxOpenAccess(),
     ]);
-  const promotions = await getLivePromotions(customer, campaigns);
   const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-  const t = stringsFor(lastUserText);
+  // Cards and fixed strings pick their language by the same heuristic, so a
+  // card shown as a fallback reply can never disagree with the degrade copy
+  // (2026-08-18: an English "Free drink?" got the loyalty card's Chinese
+  // detail as its chat bubble — cards only existed in Chinese).
+  const copyLang = copyLangFor(lastUserText);
+  const promotions = await getLivePromotions(customer, campaigns, copyLang);
+  const t = STRINGS[copyLang];
 
   // Transcript for the Admin log. Written on the way out of every
   // customer-visible path (including degrades — a conversation that went

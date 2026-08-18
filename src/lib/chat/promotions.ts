@@ -35,14 +35,14 @@ export type Promotion = {
   detail: string;
   /** The same fact, written for the model instead of for the customer.
    *
-   *  `detail` is card copy, and it is Chinese because that is how the site
-   *  prints it. Feeding it straight into the system prompt turned the whole
-   *  block into a language sample: measured 2026-08-12 over 20 replies per
-   *  variant against the live catalog, a signed-out customer asking an
-   *  English question got a Chinese answer 4/20 of the time, with nothing
-   *  else Chinese anywhere in the prompt. The model cannot tell reference
-   *  data from a demonstration, so reference data has to be neutral. The
-   *  card keeps its Chinese; only what the model reads changes. */
+   *  `detail` is card copy in the customer's own language (see the `lang`
+   *  parameter of getLivePromotions). Feeding card copy straight into the
+   *  system prompt turned the whole block into a language sample: measured
+   *  2026-08-12 over 20 replies per variant against the live catalog, a
+   *  signed-out customer asking an English question got a Chinese answer
+   *  4/20 of the time, with nothing else Chinese anywhere in the prompt.
+   *  The model cannot tell reference data from a demonstration, so
+   *  reference data has to be neutral English regardless of `lang`. */
   promptDetail: string;
   /** Where the card's button sends them, if anywhere. */
   href: string | null;
@@ -96,8 +96,20 @@ export async function fetchPromoCampaigns(): Promise<PromoCampaigns> {
 export async function getLivePromotions(
   customer: CustomerPromoState | null,
   campaigns?: PromoCampaigns,
+  /** Language for the customer-facing card copy (title/detail/cta).
+   *
+   *  Chinese was the only version until 2026-08-18, when an English
+   *  customer asking "Free drink?" got the loyalty card's Chinese `detail`
+   *  as their chat bubble — the route's fallback reply is `cards[0].detail`,
+   *  and a tool-call turn bypasses the Latin-script retry gate. The route
+   *  passes the same cheap heuristic it already uses for its fixed strings
+   *  (stringsFor), so the card and the degrade copy always agree.
+   *  promptDetail stays neutral English regardless — see its comment. */
+  lang: "zh" | "en" = "zh",
 ): Promise<Promotion[]> {
   const out: Promotion[] = [];
+  /** Card copy in the customer's language: zh("中文", "English"). */
+  const L = <T,>(zhCopy: T, enCopy: T): T => (lang === "zh" ? zhCopy : enCopy);
 
   // --- Loyalty: the one customers ask about most ("我可以免费换了吗") ---
   const perReward = customer?.starsPerReward || LOYALTY.starsPerReward;
@@ -106,39 +118,54 @@ export async function getLivePromotions(
     const toNext = perReward > 0 ? perReward - (customer.starBalance % perReward) : perReward;
     out.push({
       key: "loyalty",
-      title: redeemable > 0 ? `你有 ${redeemable} 杯免费饮品` : "集星换免费饮品",
+      title:
+        redeemable > 0
+          ? L(`你有 ${redeemable} 杯免费饮品`, `You have ${redeemable} free drink${redeemable === 1 ? "" : "s"}`)
+          : L("集星换免费饮品", "Earn stars, drink free"),
       detail:
         redeemable > 0
-          ? `你现在有 ${customer.starBalance} 颗星，可以兑换 ${redeemable} 杯免费饮品（任意口味任意杯型）。在结账页或到店出示会员码即可使用。`
-          : `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品。你现在有 ${customer.starBalance} 颗星，再买 ${toNext} 杯就能换一杯。`,
+          ? L(
+              `你现在有 ${customer.starBalance} 颗星，可以兑换 ${redeemable} 杯免费饮品（任意口味任意杯型）。在结账页或到店出示会员码即可使用。`,
+              `You have ${customer.starBalance} stars — enough for ${redeemable} free drink${redeemable === 1 ? "" : "s"}, any flavour, any size. Redeem at checkout or show your member code in store.`,
+            )
+          : L(
+              `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品。你现在有 ${customer.starBalance} 颗星，再买 ${toNext} 杯就能换一杯。`,
+              `Every drink earns 1 star; ${perReward} stars gets a free drink. You have ${customer.starBalance} star${customer.starBalance === 1 ? "" : "s"} — ${toNext} more drink${toNext === 1 ? "" : "s"} to go.`,
+            ),
       promptDetail:
         redeemable > 0
           ? `They have ${customer.starBalance} stars and can redeem ${redeemable} free drink(s) — any flavour, any size — at checkout or in store with their member code.`
           : `One star per drink bought; ${perReward} stars earns a free drink of any flavour and size. They have ${customer.starBalance} stars and need ${toNext} more.`,
       href: redeemable > 0 ? "/account/promotions" : "/menu",
-      cta: redeemable > 0 ? "去兑换" : "去点单",
+      cta: redeemable > 0 ? L("去兑换", "Redeem") : L("去点单", "Order now"),
     });
   } else {
     out.push({
       key: "loyalty",
-      title: "集星换免费饮品",
-      detail: `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品（任意口味任意杯型）。登录后可以看到自己攒了多少颗。`,
+      title: L("集星换免费饮品", "Earn stars, drink free"),
+      detail: L(
+        `每买一杯饮品得 1 颗星，${perReward} 颗星换 1 杯免费饮品（任意口味任意杯型）。登录后可以看到自己攒了多少颗。`,
+        `Every drink earns 1 star; ${perReward} stars gets a free drink — any flavour, any size. Sign in to see how many you've collected.`,
+      ),
       promptDetail: `One star per drink bought; ${perReward} stars earns a free drink of any flavour and size. Signing in shows them their own balance — you do not know it.`,
       href: "/account",
-      cta: "查看我的星星",
+      cta: L("查看我的星星", "See my stars"),
     });
   }
 
   // --- Mystery-box coupons this customer is holding ---
   if (customer && customer.mysteryCouponLabels.length > 0) {
-    const list = customer.mysteryCouponLabels.join("、");
+    const n = customer.mysteryCouponLabels.length;
     out.push({
       key: "mystery-coupons",
-      title: `你有 ${customer.mysteryCouponLabels.length} 张盲盒券`,
-      detail: `盲盒开出的奖励：${list}。结账时自动使用当前订单里最划算的一张，不用手动选。`,
-      promptDetail: `They hold ${customer.mysteryCouponLabels.length} mystery-box coupon(s): ${customer.mysteryCouponLabels.join(", ")}. The best one for their cart applies automatically at checkout — nothing to enter.`,
+      title: L(`你有 ${n} 张盲盒券`, `You have ${n} mystery box prize${n === 1 ? "" : "s"}`),
+      detail: L(
+        `盲盒开出的奖励：${customer.mysteryCouponLabels.join("、")}。结账时自动使用当前订单里最划算的一张，不用手动选。`,
+        `Won from the mystery box: ${customer.mysteryCouponLabels.join(", ")}. The best one for your order applies automatically at checkout — nothing to enter.`,
+      ),
+      promptDetail: `They hold ${n} mystery-box coupon(s): ${customer.mysteryCouponLabels.join(", ")}. The best one for their cart applies automatically at checkout — nothing to enter.`,
       href: "/menu",
-      cta: "去点单",
+      cta: L("去点单", "Order now"),
     });
   }
 
@@ -146,11 +173,14 @@ export async function getLivePromotions(
   if (WEEKLY_SPECIALS.length > 0) {
     out.push({
       key: "weekly-specials",
-      title: "本周特价",
-      detail: `${WEEKLY_SPECIALS.map((s) => s.name).join("、")} —— 本周限时降价，菜单顶部的「WEEKLY SPECIALS」区就能点。`,
+      title: L("本周特价", "Weekly specials"),
+      detail: L(
+        `${WEEKLY_SPECIALS.map((s) => s.name).join("、")} —— 本周限时降价，菜单顶部的「WEEKLY SPECIALS」区就能点。`,
+        `${WEEKLY_SPECIALS.map((s) => s.name).join(", ")} — discounted this week only, in the WEEKLY SPECIALS shelf at the top of the menu.`,
+      ),
       promptDetail: `Discounted this week only: ${WEEKLY_SPECIALS.map((s) => s.name).join(", ")}. They sit in the WEEKLY SPECIALS shelf at the top of the menu.`,
       href: "/menu",
-      cta: "看特价",
+      cta: L("看特价", "See specials"),
     });
   }
 
@@ -162,66 +192,84 @@ export async function getLivePromotions(
   if (tasting?.available && tasting.productName) {
     out.push({
       key: "tasting",
-      title: `新品尝鲜价 ${money(tasting.tastingPriceCents)}`,
-      detail: `${tasting.productName} 尝鲜价 ${money(tasting.tastingPriceCents)}，每单限一杯，结账时自动取用你能享受的最优折扣。`,
+      title: L(`新品尝鲜价 ${money(tasting.tastingPriceCents)}`, `New drink intro price ${money(tasting.tastingPriceCents)}`),
+      detail: L(
+        `${tasting.productName} 尝鲜价 ${money(tasting.tastingPriceCents)}，每单限一杯，结账时自动取用你能享受的最优折扣。`,
+        `${tasting.productName} at an intro price of ${money(tasting.tastingPriceCents)} — one per order, checkout picks whichever deal works out best for you.`,
+      ),
       promptDetail: `${tasting.productName} is on an introductory price, one per order, applied at checkout alongside whichever discount works out best for them.`,
       href: "/menu",
-      cta: "去尝鲜",
+      cta: L("去尝鲜", "Try it"),
     });
   }
 
   if (customer?.flashAvailable && customer.flashPercentage > 0) {
     out.push({
       key: "flash",
-      title: `限时 ${customer.flashPercentage}% OFF`,
-      detail: `你有一张 ${customer.flashPercentage}% 的限时折扣，结账时自动使用。`,
+      title: L(`限时 ${customer.flashPercentage}% OFF`, `${customer.flashPercentage}% off, limited time`),
+      detail: L(
+        `你有一张 ${customer.flashPercentage}% 的限时折扣，结账时自动使用。`,
+        `You hold a ${customer.flashPercentage}% limited-time discount — it applies automatically at checkout.`,
+      ),
       promptDetail: `They hold a ${customer.flashPercentage}% limited-time discount, applied automatically at checkout.`,
       href: "/menu",
-      cta: "去点单",
+      cta: L("去点单", "Order now"),
     });
   }
 
   if (customer?.welcomeAvailable) {
     out.push({
       key: "welcome",
-      title: "新客首单优惠",
-      detail: "你的新客优惠还没用，下单时会自动抵扣。",
+      title: L("新客首单优惠", "Welcome discount"),
+      detail: L(
+        "你的新客优惠还没用，下单时会自动抵扣。",
+        "Your first-order welcome discount is still unused — it comes off automatically when you order.",
+      ),
       promptDetail:
         "Their first-order welcome discount is unused and comes off automatically when they order.",
       href: "/menu",
-      cta: "去点单",
+      cta: L("去点单", "Order now"),
     });
   }
 
   if (customer?.igFollowAvailable && customer.igFollowPercentage > 0) {
     out.push({
       key: "ig-follow",
-      title: `关注 Instagram 得 ${customer.igFollowPercentage}% OFF`,
-      detail: `关注 @mandysbubbletea 就能领 ${customer.igFollowPercentage}% 折扣，自动打在最便宜的那杯上。`,
+      title: L(`关注 Instagram 得 ${customer.igFollowPercentage}% OFF`, `Follow us on Instagram for ${customer.igFollowPercentage}% off`),
+      detail: L(
+        `关注 @mandysbubbletea 就能领 ${customer.igFollowPercentage}% 折扣，自动打在最便宜的那杯上。`,
+        `Follow @mandysbubbletea to claim a ${customer.igFollowPercentage}% discount — applied to the cheapest drink in your order.`,
+      ),
       promptDetail: `Following @mandysbubbletea on Instagram earns a ${customer.igFollowPercentage}% discount, applied to the cheapest drink in the order.`,
       href: "/account/promotions",
-      cta: "去领取",
+      cta: L("去领取", "Claim it"),
     });
   } else if (!customer) {
     out.push({
       key: "ig-follow",
-      title: "关注 Instagram 有折扣",
-      detail: "关注 @mandysbubbletea 可以领一次性折扣，登录后在「我的优惠」里领取。",
+      title: L("关注 Instagram 有折扣", "Instagram follower discount"),
+      detail: L(
+        "关注 @mandysbubbletea 可以领一次性折扣，登录后在「我的优惠」里领取。",
+        "Follow @mandysbubbletea for a one-off discount — sign in and claim it under My Offers.",
+      ),
       promptDetail:
         "Following @mandysbubbletea on Instagram earns a one-off discount, claimed under My Offers once signed in.",
       href: "/account",
-      cta: "登录查看",
+      cta: L("登录查看", "Sign in to claim"),
     });
   }
 
   if (customer?.appDownloadAvailable && customer.appDownloadPercentage > 0) {
     out.push({
       key: "app-download",
-      title: `下载 App 首单 ${customer.appDownloadPercentage}% OFF`,
-      detail: `在 App 里下单，首单直接减 ${customer.appDownloadPercentage}%，结账时自动生效。`,
+      title: L(`下载 App 首单 ${customer.appDownloadPercentage}% OFF`, `${customer.appDownloadPercentage}% off your first app order`),
+      detail: L(
+        `在 App 里下单，首单直接减 ${customer.appDownloadPercentage}%，结账时自动生效。`,
+        `Order in the app and your first order takes ${customer.appDownloadPercentage}% off — applied automatically at checkout.`,
+      ),
       promptDetail: `Their first order placed in the app takes ${customer.appDownloadPercentage}% off, applied automatically at checkout.`,
       href: "/menu",
-      cta: "去点单",
+      cta: L("去点单", "Order now"),
     });
   }
 
@@ -229,25 +277,40 @@ export async function getLivePromotions(
   const tier = customer ? tierFor(customer.lifetimePoints) : null;
   out.push({
     key: "tier",
-    title: tier ? `你的会员等级：${tierLabel(tier)}` : "会员等级",
+    title: tier
+      ? L(`你的会员等级：${tierLabel(tier, lang)}`, `Your member tier: ${tierLabel(tier, lang)}`)
+      : L("会员等级", "Member tiers"),
     detail: tier
-      ? tierDetail(tier, customer!.lifetimePoints)
-      : `累计买满 ${TIER_THRESHOLDS.gold} 杯升黄金、${TIER_THRESHOLDS.diamond} 杯升钻石。黄金和钻石会员每单享 ${TIER_DISCOUNT_PERCENT}% 折扣，钻石会员每月还有 ${DIAMOND_MONTHLY_FREE_TOPPINGS} 份免费小料。`,
+      ? tierDetail(tier, customer!.lifetimePoints, lang)
+      : L(
+          `累计买满 ${TIER_THRESHOLDS.gold} 杯升黄金、${TIER_THRESHOLDS.diamond} 杯升钻石。黄金和钻石会员每单享 ${TIER_DISCOUNT_PERCENT}% 折扣，钻石会员每月还有 ${DIAMOND_MONTHLY_FREE_TOPPINGS} 份免费小料。`,
+          `${TIER_THRESHOLDS.gold} lifetime drinks reaches Gold, ${TIER_THRESHOLDS.diamond} reaches Diamond. Gold and Diamond members take ${TIER_DISCOUNT_PERCENT}% off every order; Diamond also gets ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`,
+        ),
     promptDetail: tier
       ? tierPromptDetail(tier, customer!.lifetimePoints)
       : `${TIER_THRESHOLDS.gold} drinks bought lifetime reaches Gold, ${TIER_THRESHOLDS.diamond} reaches Diamond. Gold and Diamond take ${TIER_DISCOUNT_PERCENT}% off every order; Diamond also gets ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`,
     href: "/account",
-    cta: "查看会员",
+    cta: L("查看会员", "See my tier"),
   });
 
   return out;
 }
 
-function tierLabel(tier: "silver" | "gold" | "diamond"): string {
+function tierLabel(tier: "silver" | "gold" | "diamond", lang: "zh" | "en"): string {
+  if (lang === "en") return tier === "diamond" ? "Diamond" : tier === "gold" ? "Gold" : "Silver";
   return tier === "diamond" ? "钻石" : tier === "gold" ? "黄金" : "白银";
 }
 
-function tierDetail(tier: "silver" | "gold" | "diamond", lifetime: number): string {
+function tierDetail(tier: "silver" | "gold" | "diamond", lifetime: number, lang: "zh" | "en"): string {
+  if (lang === "en") {
+    if (tier === "diamond") {
+      return `Diamond member: ${TIER_DISCOUNT_PERCENT}% off every order, plus ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`;
+    }
+    if (tier === "gold") {
+      return `Gold member: ${TIER_DISCOUNT_PERCENT}% off every order. ${TIER_THRESHOLDS.diamond - lifetime} more drinks reaches Diamond, which adds ${DIAMOND_MONTHLY_FREE_TOPPINGS} free toppings a month.`;
+    }
+    return `Silver member. ${TIER_THRESHOLDS.gold - lifetime} more drinks reaches Gold, which takes ${TIER_DISCOUNT_PERCENT}% off every order.`;
+  }
   if (tier === "diamond") {
     return `钻石会员：每单 ${TIER_DISCOUNT_PERCENT}% 折扣，每月 ${DIAMOND_MONTHLY_FREE_TOPPINGS} 份免费小料。`;
   }
