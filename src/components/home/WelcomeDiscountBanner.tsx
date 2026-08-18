@@ -43,8 +43,13 @@ export function WelcomeDiscountBanner() {
       <div className="flex items-center gap-2">
         <Link
           href="/menu"
-          className="shrink-0 rounded-full bg-white px-4 py-2 text-xs font-semibold sm:text-sm"
-          style={{ color: BRAND.primaryColor }}
+          className="shrink-0 rounded-full px-4 py-2 text-xs font-semibold sm:text-sm"
+          /* White inline, not the bg-white utility: the banner ground is a
+             fixed inline brand brown in both themes, but the evening remap
+             turns the .bg-white class into a dark card surface — which left
+             this pill dark-on-dark with dim brown text (2026-08-18). A pill
+             on a fixed surface gets fixed colors. */
+          style={{ backgroundColor: "#FFFFFF", color: BRAND.primaryColor }}
         >
           Order Now
         </Link>

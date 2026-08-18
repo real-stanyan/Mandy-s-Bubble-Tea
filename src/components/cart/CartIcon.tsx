@@ -24,7 +24,12 @@ export function CartIcon() {
     >
       <CartSvg />
       {count > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-black px-1 text-[10px] font-bold text-white">
+        /* bg-brand + a border-bg ring, same treatment as MobileAppBar's
+           badges: the evening remap pins bg-black to a warm dark that
+           vanishes against the evening header, while the brand token flips
+           to brass on its own and the ring keeps the circle separated on
+           both grounds. */
+        <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-bg bg-brand px-1 text-[10px] font-bold text-white">
           {count}
         </span>
       )}
