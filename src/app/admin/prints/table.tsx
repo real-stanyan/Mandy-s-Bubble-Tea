@@ -11,10 +11,40 @@ export type Job = {
   cups: Array<{ drinkName: string }>;
   created_at: string;
   last_error: string | null;
+  /** Scheduled pickup: when the customer collects / when the sticker fires.
+   *  Both null on ASAP orders. */
+  pickup_at?: string | null;
+  print_due_at?: string | null;
 };
+
+type QuickFilter = "all" | "scheduled" | "online";
+
+const BNE = "Australia/Brisbane";
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-AU", {
+    timeZone: BNE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 export function PrintsTable({ jobs }: { jobs: Job[] }) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [quick, setQuick] = useState<QuickFilter>("all");
+
+  // "预约单" filters on pickup_at — the real scheduled marker — rather than
+  // the OL7 name, so a scheduled order that fell back to a store-counter
+  // number would still be caught; the search box covers typing "OL7" too.
+  const q = query.trim().toLowerCase();
+  const shown = jobs.filter((j) => {
+    if (quick === "scheduled" && !j.pickup_at) return false;
+    if (quick === "online" && j.source === "pos") return false;
+    if (q && !j.sticker_number.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
   async function reprint(id: string) {
     if (!confirm("Clone and reprint this job?")) return;
     setBusyId(id);
@@ -58,7 +88,7 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
         </tr>
       </thead>
       <tbody>
-        {jobs.map((j) => {
+        {shown.map((j) => {
           // Online (web/app) orders are the ones staff can miss — highlight
           // them. Keyed on "not pos" so a channel added later is highlighted
           // by default: the cost of missing an online order is a customer
@@ -93,7 +123,22 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
               </span>
               {j.last_error ? <div className="text-xs text-red-600">{j.last_error}</div> : null}
             </td>
-            <td className="p-2">{new Date(j.created_at).toLocaleString("en-AU", { timeZone: "Australia/Brisbane" })}</td>
+            <td className="p-2">
+              {new Date(j.created_at).toLocaleString("en-AU", { timeZone: BNE })}
+              {j.pickup_at ? (
+                <div className="mt-0.5 text-xs text-amber-700">
+                  取餐 {clock(j.pickup_at)}
+                  {j.print_due_at ? <> · 出票 {clock(j.print_due_at)}</> : null}
+                  {j.status === "pending" &&
+                  j.print_due_at &&
+                  Date.parse(j.print_due_at) > Date.now() ? (
+                    <span className="ml-1 rounded bg-amber-100 px-1 font-semibold">
+                      等出票
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </td>
             <td className="p-2">{j.cups.map((c) => c.drinkName).join(", ")}</td>
             <td className="p-2 space-x-2 whitespace-nowrap">
               <button
@@ -118,5 +163,29 @@ export function PrintsTable({ jobs }: { jobs: Job[] }) {
         })}
       </tbody>
     </table>
+  );
+}
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "rounded-full border px-3 py-1 text-sm " +
+        (active
+          ? "border-[#C43A10] bg-[#FBEDE7] font-semibold text-[#C43A10]"
+          : "hover:bg-gray-50")
+      }
+    >
+      {children}
+    </button>
   );
 }

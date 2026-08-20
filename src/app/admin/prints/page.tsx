@@ -15,10 +15,17 @@ export default async function AdminPrintsPage() {
   const today = new Date();
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
 
-  const [statsResult, jobsResult, heartbeatResult] = await Promise.all([
+  const [statsResult, jobsResult, heartbeatResult, upcomingResult] = await Promise.all([
     admin.from("print_jobs").select("status", { count: "exact" }).gte("created_at", startOfDay),
     admin.from("print_jobs").select("*").order("created_at", { ascending: false }).limit(100),
     admin.from("printer_heartbeats").select("*"),
+    // Scheduled orders whose sticker is still HELD (due in the future) —
+    // the counter's "what's coming up" number.
+    admin
+      .from("print_jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .gt("print_due_at", new Date().toISOString()),
   ]);
 
   const byStatus = { pending: 0, printed: 0, failed: 0, stale: 0 };
@@ -30,11 +37,12 @@ export default async function AdminPrintsPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Print jobs</h1>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <Stat label="Pending" value={byStatus.pending} />
         <Stat label="Printed today" value={byStatus.printed} />
         <Stat label="Failed" value={byStatus.failed} />
         <Stat label="Stale" value={byStatus.stale} />
+        <Stat label="预约待出票" value={upcomingResult.count ?? 0} />
       </div>
       <div className="mb-6">
         <h2 className="text-lg font-semibold mb-2">Devices</h2>
