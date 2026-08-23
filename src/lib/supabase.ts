@@ -23,6 +23,25 @@ export async function nextOnlineOrderNumber(): Promise<string> {
 }
 
 /**
+ * Next scheduled-pickup order number for today (OL700, OL701, …) — its own
+ * daily counter, so the OL7 prefix survives a 100-order day (the relabel
+ * approach broke the first time the online counter walked into OL9xx; see
+ * migration 2026-08-24-scheduled-order-counter.sql).
+ *
+ * Returns null past OL799 (the series would collide with real ASAP OL8xx
+ * numbers) and lets errors throw — the orders route treats both as "fall
+ * back to the online counter + relabel", which also covers the window
+ * where the migration hasn't been applied yet.
+ */
+export async function nextScheduledOrderNumber(): Promise<string | null> {
+  const { data, error } = await getSupabase().rpc("next_scheduled_order_number");
+  if (error) throw new Error(`Supabase scheduled counter failed: ${error.message}`);
+  const n = parseInt(String(data).replace(/^OL/, ""), 10);
+  if (!Number.isFinite(n) || n > 799) return null;
+  return data as string;
+}
+
+/**
  * Insert a welcome_discounts row for a newly-created customer.
  * Idempotent via upsert with ignoreDuplicates. Called after a fresh
  * Square customer is created in /api/customer. Swallows errors — must
