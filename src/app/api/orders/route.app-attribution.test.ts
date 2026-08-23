@@ -28,6 +28,7 @@ vi.mock("@/lib/catalog", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({
   nextOnlineOrderNumber: vi.fn().mockResolvedValue("OL800"),
+  nextScheduledOrderNumber: vi.fn().mockResolvedValue("OL700"),
   getWelcomeDiscountStatus: vi.fn(),
 }));
 vi.mock("@/lib/ig-follow-discount", () => ({

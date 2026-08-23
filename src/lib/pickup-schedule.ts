@@ -54,11 +54,16 @@ export function isValidPickupOffset(
  * sticker that surfaced early for any reason. Stan's pick, 2026-08-16
  * (6xx was on the table first — rejected as unlucky).
  *
- * Same daily counter, relabelled leading digit — exactly the DE-prefix
- * trick delivery numbers already use, so the sequence stays unique across
- * all three series. Past 99 online orders in a day the counter walks into
- * OL9xx, which this deliberately leaves alone: a wrong-prefix number is
- * still a working number, and the day that busy has bigger problems.
+ * FALLBACK ONLY since 2026-08-24: scheduled numbers normally come from
+ * their own daily counter (next_scheduled_order_number → OL700…OL799),
+ * because this relabel silently stopped working the first time the online
+ * counter passed OL899 — a 100-order day walked it into OL9xx, the regex
+ * no longer matched, and a scheduled ticket printed OL9xx (Stan's report,
+ * 2026-08-23). The orders route still calls this when the scheduled
+ * counter is exhausted (>OL799) or unavailable: same daily online counter,
+ * relabelled leading digit, unique across the series by construction —
+ * and past OL899 it still leaves OL9xx alone, wrong prefix but a working
+ * number.
  */
 export function toScheduledOrderNumber(pickupNumber: string): string {
   return pickupNumber.replace(/^OL8/, "OL7");
