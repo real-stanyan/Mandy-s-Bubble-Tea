@@ -2,8 +2,9 @@ import "server-only";
 import { getAuthedUser } from "@/lib/auth";
 import { squareClient, SQUARE_LOCATION_ID } from "@/lib/square";
 import { isBrisbaneToday, brisbaneClock, brisbaneYmd } from "@/lib/brisbane-date";
-import { getDeliveredOrderIds } from "@/lib/driver-tokens";
+import { getAcceptedOrderIds, getDeliveredOrderIds } from "@/lib/driver-tokens";
 import { isCustomAmountOnly } from "@/lib/orders/custom-amount";
+import { hasAuthorizedHold } from "@/lib/orders/authorized-hold";
 
 /**
  * What the check_order_status tool hands back to the model — plain English
@@ -80,14 +81,17 @@ export async function lookupOrderStatusForChat(
     // Today's paid orders only — same "was this paid?" signal as the
     // account page (netAmountDueMoney handles the loyalty-covers-everything
     // case where tenders stay empty), plus the custom-amount filter so a
-    // staff card test never shows up as "your order".
+    // staff card test never shows up as "your order". An AUTHORIZED card
+    // hold counts as paid: a delivery order between checkout and driver
+    // accept has due > 0 with the hold, and telling THAT customer "no
+    // active orders" is the 2026-08-23 complaint this line closes.
     const todays = (response.orders ?? []).filter((o) => {
       if (!isBrisbaneToday(o.createdAt ?? null)) return false;
       if (isCustomAmountOnly(o)) return false;
       if (o.state === "CANCELED") return true;
       const total = o.totalMoney?.amount ?? 0n;
       const due = o.netAmountDueMoney?.amount ?? total;
-      return due === 0n;
+      return due === 0n || hasAuthorizedHold(o);
     });
 
     if (todays.length === 0) {
@@ -140,6 +144,13 @@ export async function lookupOrderStatusForChat(
     const deliveredIds = await getDeliveredOrderIds(deliveryIds).catch(
       () => new Set<string>(),
     );
+    // Which delivery orders a driver has actually taken. Before that moment
+    // the honest status is "the shop is accepting it" (~10 minutes, per
+    // STORE FACTS) — and for a card order the money is only an authorization
+    // hold, which is exactly what the customer is worried about.
+    const acceptedIds = await getAcceptedOrderIds(deliveryIds).catch(
+      () => new Set<string>(),
+    );
 
     const lines = todays.slice(0, 3).map((o) => {
       const fulfillment = o.fulfillments?.[0];
@@ -155,7 +166,12 @@ export async function lookupOrderStatusForChat(
           ? "DELIVERED"
           : fulfillment?.state === "PREPARED"
             ? "prepared and on its way"
-            : "being prepared for delivery";
+            : acceptedIds.has(o.id ?? "")
+              ? "being prepared for delivery"
+              : "placed and paid — the shop is accepting it now (usually about 10 minutes)" +
+                (hasAuthorizedHold(o)
+                  ? "; the card shows a temporary hold that only becomes a charge when the shop accepts"
+                  : "");
       } else if (fulfillment?.state === "COMPLETED") {
         status = "already picked up";
       } else if (fulfillment?.state === "PREPARED") {

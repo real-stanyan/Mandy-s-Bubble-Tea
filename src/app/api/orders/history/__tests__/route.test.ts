@@ -125,4 +125,57 @@ describe("GET /api/orders/history", () => {
     expect(body.orders[0].id).toBe("ORDER_1");
     expect(mockedOrdersSearch).toHaveBeenCalledOnce();
   });
+
+  it("keeps a pre-accept delivery order visible: AUTHORIZED hold, due > 0, placed today", async () => {
+    // Delivery cards are authorized at checkout and captured on driver
+    // accept, so before accept due > 0. The 2026-08-23 complaint: a charged
+    // customer opened My Orders and saw nothing.
+    mockedGetAuthed.mockResolvedValue({
+      userId: "u1",
+      email: null,
+      phone: "+61400000000",
+      profile: {
+        user_id: "u1",
+        square_customer_id: "CUST_KEVIN",
+        phone_e164: "+61400000000",
+        first_name: "Kevin",
+        last_name: "j",
+        square_verified_at: null,
+      },
+    } as never);
+    mockedOrdersSearch.mockResolvedValue({
+      orders: [
+        {
+          id: "ORDER_HELD",
+          state: "OPEN",
+          totalMoney: { amount: 2255n, currency: "AUD" },
+          netAmountDueMoney: { amount: 2255n, currency: "AUD" },
+          tenders: [{ cardDetails: { status: "AUTHORIZED" } }],
+          lineItems: [{ name: "Taro Milk Tea", quantity: "2" }],
+          fulfillments: [{ type: "PICKUP", state: "PROPOSED" }],
+          metadata: { fulfillment_type: "DELIVERY" },
+          createdAt: new Date().toISOString(),
+        },
+        {
+          // Same hold but from a past day: an authorization that never
+          // captured must not linger in history as if the order happened.
+          id: "ORDER_STALE_HOLD",
+          state: "OPEN",
+          totalMoney: { amount: 900n, currency: "AUD" },
+          netAmountDueMoney: { amount: 900n, currency: "AUD" },
+          tenders: [{ cardDetails: { status: "AUTHORIZED" } }],
+          lineItems: [{ name: "Original Milk Tea", quantity: "1" }],
+          fulfillments: [{ type: "PICKUP", state: "PROPOSED" }],
+          metadata: { fulfillment_type: "DELIVERY" },
+          createdAt: "2026-05-08T11:53:10.501Z",
+        },
+      ],
+    } as never);
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.orders).toHaveLength(1);
+    expect(body.orders[0].id).toBe("ORDER_HELD");
+    expect(body.orders[0].active).toBe(true);
+  });
 });

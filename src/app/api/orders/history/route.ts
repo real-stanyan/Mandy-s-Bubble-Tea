@@ -6,6 +6,7 @@ import { serializeSquareResponse } from "@/lib/utils";
 import { getAuthedUser } from "@/lib/auth";
 import { getDeliveredOrderIds } from "@/lib/driver-tokens";
 import { isBrisbaneToday } from "@/lib/brisbane-date";
+import { hasAuthorizedHold } from "@/lib/orders/authorized-hold";
 
 // Order history for the account page. Customer is derived from the
 // Supabase session — no body required. Searches Square orders by
@@ -107,13 +108,18 @@ export async function GET(request: Request) {
     //   OPEN with closedAt=null until staff complete the fulfillment
     //   (so tenders/closedAt/state alone all miss this case)
     // - Partial loyalty + card: due=0, tenders present
+    // - Delivery before a driver accepts: due > 0 but an AUTHORIZED card
+    //   hold (capture happens on accept) — today-only, so a hold that never
+    //   captures can't linger in history as if the order happened
     // - Abandoned cart: due > 0, tenders=[]
     // Also keep CANCELED orders so users see their full history.
     const paidOrders = (response.orders ?? []).filter((o) => {
       if (o.state === "CANCELED") return true;
       const total = o.totalMoney?.amount ?? 0n;
       const due = o.netAmountDueMoney?.amount ?? total;
-      if (due !== 0n) return false;
+      const heldToday =
+        isBrisbaneToday(o.createdAt ?? null) && hasAuthorizedHold(o);
+      if (due !== 0n && !heldToday) return false;
       return !isCustomAmountOnly(o);
     });
 

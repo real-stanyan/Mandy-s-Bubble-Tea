@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const getAuthedUser = vi.fn();
 const search = vi.fn();
 const getDeliveredOrderIds = vi.fn();
+const getAcceptedOrderIds = vi.fn();
 
 vi.mock("@/lib/auth", () => ({ getAuthedUser }));
 vi.mock("@/lib/square", () => ({
@@ -11,7 +12,10 @@ vi.mock("@/lib/square", () => ({
 }));
 // driver-tokens pulls in supabase-server at module scope, which wants env
 // this test file deliberately runs without.
-vi.mock("@/lib/driver-tokens", () => ({ getDeliveredOrderIds }));
+vi.mock("@/lib/driver-tokens", () => ({
+  getDeliveredOrderIds,
+  getAcceptedOrderIds,
+}));
 
 const { lookupOrderStatusForChat } = await import("@/lib/chat/order-status");
 
@@ -48,6 +52,8 @@ beforeEach(() => {
   search.mockResolvedValue({ orders: [] });
   getDeliveredOrderIds.mockReset();
   getDeliveredOrderIds.mockResolvedValue(new Set());
+  getAcceptedOrderIds.mockReset();
+  getAcceptedOrderIds.mockResolvedValue(new Set());
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -133,6 +139,41 @@ describe("lookupOrderStatusForChat", () => {
     });
     const { report } = await lookupOrderStatusForChat(req());
     expect(report).toContain("NO orders placed today");
+  });
+
+  it("shows a pre-accept delivery order (AUTHORIZED hold, due > 0) as 'shop is accepting'", async () => {
+    // The 2026-08-23 complaint: delivery card is authorized at checkout and
+    // captured on driver accept, so before accept due > 0 — and the chat
+    // told a charged customer they had no active orders.
+    search.mockResolvedValue({
+      orders: [
+        order({
+          netAmountDueMoney: { amount: 2255n },
+          totalMoney: { amount: 2255n },
+          tenders: [{ cardDetails: { status: "AUTHORIZED" } }],
+          fulfillments: [{ type: "PICKUP", state: "PROPOSED" }],
+          metadata: { fulfillment_type: "DELIVERY" },
+        }),
+      ],
+    });
+    const { report } = await lookupOrderStatusForChat(req());
+    expect(report).toContain("accepting it now");
+    expect(report).toContain("temporary hold");
+    expect(report).not.toContain("NO orders placed today");
+  });
+
+  it("shows an accepted-but-unprepared delivery order as being prepared", async () => {
+    search.mockResolvedValue({
+      orders: [
+        order({
+          fulfillments: [{ type: "PICKUP", state: "PROPOSED" }],
+          metadata: { fulfillment_type: "DELIVERY" },
+        }),
+      ],
+    });
+    getAcceptedOrderIds.mockResolvedValue(new Set(["ORDER_1"]));
+    const { report } = await lookupOrderStatusForChat(req());
+    expect(report).toContain("being prepared for delivery");
   });
 
   it("marks a delivery order delivered from the driver marks, not Square state", async () => {
