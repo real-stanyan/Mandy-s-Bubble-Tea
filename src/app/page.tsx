@@ -425,6 +425,11 @@ function AppPromo() {
               big="App Store"
               href="https://apps.apple.com/au/app/mandys-bubble-tea/id6762111842"
             />
+            <StoreBadge
+              top="Get it on"
+              big="Google Play"
+              href="https://play.google.com/store/apps/details?id=com.mandysbubbletea.app"
+            />
           </div>
         </div>
       </div>

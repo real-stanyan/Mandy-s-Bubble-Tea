@@ -22,8 +22,22 @@ import { useAppDownloadPopupEligibility } from "@/hooks/use-app-download-popup-e
 
 const APP_STORE_URL =
   "https://apps.apple.com/au/app/mandys-bubble-tea/id6762111842";
+const PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=com.mandysbubbletea.app";
 
 const REVEAL_DELAY_MS = 900;
+
+// Which store the download button points at. UA sniffing is exactly the right
+// tool here: it only picks the DEFAULT button, and the other store stays one
+// tap away underneath, so a wrong guess costs nothing. Read in an effect (the
+// popup reveals well after hydration, so the flip is never visible).
+function useIsAndroid(): boolean {
+  const [isAndroid, setIsAndroid] = useState(false);
+  useEffect(() => {
+    setIsAndroid(/android/i.test(navigator.userAgent));
+  }, []);
+  return isAndroid;
+}
 
 function usePrefersReducedMotion(): boolean {
   const [reduce, setReduce] = useState(false);
@@ -46,6 +60,7 @@ type ClaimState = "form" | "submitting" | "done" | "already" | "used";
 export function AppDownloadPopup() {
   const { profile } = useAuth();
   const eligibility = useAppDownloadPopupEligibility();
+  const isAndroid = useIsAndroid();
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [phone, setPhone] = useState("");
@@ -214,14 +229,23 @@ export function AppDownloadPopup() {
               )}
             </p>
             <a
-              href={APP_STORE_URL}
+              href={isAndroid ? PLAY_STORE_URL : APP_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
               onClick={dismiss}
               className="mt-5 inline-flex w-full items-center justify-center gap-1.5 rounded-full px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 active:scale-[0.98]"
               style={{ backgroundColor: BRAND.primaryColor, transitionProperty: "opacity, transform" }}
             >
-              Download on the App Store →
+              {isAndroid ? "Get it on Google Play →" : "Download on the App Store →"}
+            </a>
+            <a
+              href={isAndroid ? APP_STORE_URL : PLAY_STORE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={dismiss}
+              className="mt-2.5 block text-center text-[12px] font-medium text-[#9A876F] underline underline-offset-2 transition hover:text-[#6B5440]"
+            >
+              {isAndroid ? "Also on the App Store" : "Also on Google Play"}
             </a>
           </div>
         ) : (
