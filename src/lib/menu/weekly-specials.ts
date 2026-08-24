@@ -26,8 +26,10 @@ export const WEEKLY_SPECIALS: WeeklySpecial[] = [
   { name: "Pineapple Green Tea", originalPriceCents: 620 },
   { name: "Pineapple Black Tea", originalPriceCents: 620 },
   { name: "Orange Iced Green Tea", originalPriceCents: 620 },
-  { name: "Honeydew Milk Tea", originalPriceCents: 620 },
-  { name: "Blueberry Slushy", originalPriceCents: 620 },
+  // Thai rotation (Stan, 2026-08-24): specials price $5.60 / $4.60 set in
+  // Square; originals below verified against the live catalog that day.
+  { name: "Thai Coco Frappe", originalPriceCents: 720 },
+  { name: "Thai Milk Tea", originalPriceCents: 620 },
   { name: "Blueberry Cheese", originalPriceCents: 750 },
 ];
 
