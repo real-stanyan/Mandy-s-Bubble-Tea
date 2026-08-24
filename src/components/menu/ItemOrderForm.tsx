@@ -309,7 +309,9 @@ export function ItemOrderForm({
       <Section title="Size">
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-400">
-            Large 700ml
+            {/* Matches the Square variation name + capacity, same wording as
+                the App's size chip (Stan, 2026-08-24). */}
+            Regular (700ml)
           </span>
         </div>
       </Section>
@@ -340,7 +342,10 @@ export function ItemOrderForm({
                     active ? { backgroundColor: "#3E2723" } : undefined
                   }
                 >
-                  {v.name}
+                  {/* "Regular" carries the capacity so the pill answers the
+                      size question by itself; a real named size (if one ever
+                      appears) renders untouched. */}
+                  {/^regular$/i.test(v.name.trim()) ? `${v.name} (700ml)` : v.name}
                   {v.soldOut && (
                     <span className="text-xs font-normal">(Sold out)</span>
                   )}
