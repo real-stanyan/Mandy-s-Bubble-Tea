@@ -8,9 +8,10 @@ import {
 
 describe("weekly-specials", () => {
   it("looks up the original price case-insensitively by item name", () => {
-    expect(originalPriceCentsFor("Honeydew Milk Tea")).toBe(620);
-    expect(originalPriceCentsFor("  honeydew milk tea ")).toBe(620);
-    expect(originalPriceCentsFor("HONEYDEW MILK TEA")).toBe(620);
+    expect(originalPriceCentsFor("Thai Milk Tea")).toBe(620);
+    expect(originalPriceCentsFor("  thai milk tea ")).toBe(620);
+    expect(originalPriceCentsFor("THAI MILK TEA")).toBe(620);
+    expect(originalPriceCentsFor("Thai Coco Frappe")).toBe(720);
   });
 
   // The catalog really does hold "Pineapple  Black Tea" with two spaces.
