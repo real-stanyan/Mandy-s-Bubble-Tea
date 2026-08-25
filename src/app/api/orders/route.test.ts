@@ -43,6 +43,8 @@ import {
   isDeliveryEnabled,
 } from "@/lib/store-status-server";
 import { getMenu } from "@/lib/catalog";
+import { cartHash } from "@/lib/order-dedup";
+import { nextOnlineOrderNumber } from "@/lib/supabase";
 
 function orderRequest(body: unknown): Request {
   return new Request("http://test/api/orders", {
@@ -372,5 +374,69 @@ describe("POST /api/orders — a cart line the catalog dropped", () => {
     vi.mocked(getMenu).mockRejectedValue(new Error("catalog down"));
     const res = await POST(orderRequest(pickupBody("VAR_ANYTHING")));
     expect((await res.json()).ok).toBe(true);
+  });
+});
+
+describe("POST /api/orders — dedupe draws no pickup number", () => {
+  const lines = [
+    {
+      itemName: "Test Cup",
+      variationId: "VAR1",
+      variationPriceCents: 600,
+      quantity: 1,
+      modifiers: [],
+    },
+  ];
+
+  beforeEach(() => {
+    ordersCreate.mockReset();
+    ordersSearch.mockReset();
+    vi.mocked(nextOnlineOrderNumber).mockClear();
+    vi.mocked(getAuthedUser).mockResolvedValue({
+      profile: { square_customer_id: "C1", phone_e164: "+61400000000" },
+    } as Awaited<ReturnType<typeof getAuthedUser>>);
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+  });
+
+  it("reuses the recent identical order and never touches the counter", async () => {
+    // The 2026-08-25 morning: a customer flip-flopping between card and
+    // Apple Pay re-posted the same cart five times; dedupe correctly reused
+    // the order, but the number was drawn BEFORE the dedupe check, so the
+    // day went OL800 → OL805 with 801–804 never existing. The draw now
+    // lives after the dedupe, and this pins it there.
+    ordersSearch.mockResolvedValue({
+      orders: [
+        {
+          id: "DUP1",
+          state: "OPEN",
+          createdAt: new Date().toISOString(),
+          metadata: { cart_hash: cartHash(lines) },
+          totalMoney: { amount: 600n },
+        },
+      ],
+    });
+
+    const res = await POST(orderRequest({ lines, fulfillmentType: "PICKUP" }));
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.deduped).toBe(true);
+    expect(body.orderId).toBe("DUP1");
+    expect(nextOnlineOrderNumber).not.toHaveBeenCalled();
+    expect(ordersCreate).not.toHaveBeenCalled();
+  });
+
+  it("still draws a number when no duplicate exists", async () => {
+    ordersSearch.mockResolvedValue({ orders: [] });
+    ordersCreate.mockResolvedValue({
+      order: { id: "ORD_NEW", totalMoney: { amount: 600n } },
+    });
+
+    const res = await POST(orderRequest({ lines, fulfillmentType: "PICKUP" }));
+    expect((await res.json()).ok).toBe(true);
+    expect(nextOnlineOrderNumber).toHaveBeenCalledTimes(1);
+    expect(ordersCreate).toHaveBeenCalledTimes(1);
   });
 });
