@@ -285,8 +285,16 @@ export async function POST(request: Request) {
   // Daily online order number (OL800, OL801, …) shown to the customer
   // on the confirmation page AND written to Square's ticketName so
   // staff see the same number on the POS / Dashboard / kitchen printer.
-  let pickupNumber: string;
-  try {
+  //
+  // Allocated by allocatePickupNumber() below — but only AFTER the dedupe
+  // check, right before the Square create. It used to be drawn here, ahead
+  // of dedupe, and every cancel-and-retry at the payment sheet burned a
+  // number: 2026-08-25 opened with a customer who flip-flopped between
+  // card and Apple Pay, and the day's sequence went OL800 → OL805 with
+  // 801–804 never existing anywhere. The counter draw is atomic and
+  // increment-only, so a number must not be drawn until we know this
+  // request is really creating a new order.
+  async function allocatePickupNumber(): Promise<string> {
     // Scheduled pickups wear OL7xx (Stan, 2026-08-16) from their OWN daily
     // counter — relabelling the online number broke the first 100-order
     // day, when the online counter walked into OL9xx and the OL8→OL7
@@ -301,22 +309,15 @@ export async function POST(request: Request) {
         console.error("[orders] scheduled counter failed, falling back:", err);
       }
     }
-    if (scheduledNumber) {
-      pickupNumber = scheduledNumber;
-    } else {
-      pickupNumber = await nextOnlineOrderNumber();
-      // Delivery orders get a DE-prefixed number (DE800 vs the OL800 pickup
-      // series) so staff distinguish them at a glance in Square Register —
-      // more robust than an emoji, which Register hardware can garble. Same
-      // atomic counter, just a relabelled prefix.
-      if (isDelivery) pickupNumber = pickupNumber.replace(/^OL/, "DE");
-      if (isScheduled) pickupNumber = toScheduledOrderNumber(pickupNumber);
-    }
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Failed to generate order number" },
-      { status: 500 },
-    );
+    if (scheduledNumber) return scheduledNumber;
+    let n = await nextOnlineOrderNumber();
+    // Delivery orders get a DE-prefixed number (DE800 vs the OL800 pickup
+    // series) so staff distinguish them at a glance in Square Register —
+    // more robust than an emoji, which Register hardware can garble. Same
+    // atomic counter, just a relabelled prefix.
+    if (isDelivery) n = n.replace(/^OL/, "DE");
+    if (isScheduled) n = toScheduledOrderNumber(n);
+    return n;
   }
 
   try {
@@ -392,6 +393,19 @@ export async function POST(request: Request) {
         // A search failure must never block a real order — fall through and
         // create normally (the client nonce + Square key still protect retries).
       }
+    }
+
+    // Past the dedupe: this request really is creating a new order, so NOW
+    // draw its number (see allocatePickupNumber's comment for why not
+    // earlier).
+    let pickupNumber: string;
+    try {
+      pickupNumber = await allocatePickupNumber();
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "Failed to generate order number" },
+        { status: 500 },
+      );
     }
 
     const response = await squareClient.orders.create({
