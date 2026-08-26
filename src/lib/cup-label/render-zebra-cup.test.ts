@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
-  renderCupLabel,
+  renderPhotoCupLabel,
   wrapModifierLine,
   LABEL_WIDTH_DOTS,
   LABEL_HEIGHT_DOTS,
 } from "./render-zebra-cup";
 import { POOL } from "../doodle/pool";
 
-describe("Zebra cup-label compositor", () => {
+describe("Zebra cup-label compositor (photo 50x80 layout — parked while 40x30 paper is loaded, see label-mode.ts)", () => {
   it("emits valid ZPL II framing for a basic input", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL999",
       cupIdxOf: { idx: 1, total: 2 },
       drinkName: "Pearl Milk Tea",
@@ -30,7 +30,7 @@ describe("Zebra cup-label compositor", () => {
     // order with an attached member should read "Hi, {firstName}" on the
     // left and a plain number on the right — NOT the customer's name in
     // the number slot, NOT the "Soul" fallback greeting.
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "47", // store-counter number (no longer the ticket NAME)
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Guava Iced Green Tea",
@@ -48,7 +48,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("escapes ZPL control chars in user content", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       // Keep input under TOP_DRINK_MAX_CHARS (20) so the escape behavior
@@ -63,7 +63,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("renders the full drink name without ellipsis, scaling the font down for long names", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Brown Sugar Milk Tea Frappe", // 27 chars
@@ -78,7 +78,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("embeds the Mandy logo as a plain ^GFA block at the bottom-right (no ^FR)", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Test",
@@ -102,7 +102,7 @@ describe("Zebra cup-label compositor", () => {
 
   it("scheduled pickup: stamps PU <time> under the sticker number in the top band", async () => {
     // 2026-08-17T07:45:00Z = 5:45pm Brisbane (UTC+10, no DST).
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL745",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Pearl Milk Tea",
@@ -121,7 +121,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("an ASAP order's top band is untouched: one line, original 46pt", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL845",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Pearl Milk Tea",
@@ -134,7 +134,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("an unparseable pickup time prints no stamp rather than 'PU NaN'", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL745",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Pearl Milk Tea",
@@ -147,7 +147,7 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("produces a preview PNG of the right pixel size", async () => {
-    const out = await renderCupLabel({
+    const out = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Test",
@@ -163,14 +163,14 @@ describe("Zebra cup-label compositor", () => {
   });
 
   it("omits the modifier ^FB block when modifiers is empty (matches Zebra zpl)", async () => {
-    const withMods = await renderCupLabel({
+    const withMods = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Test",
       modifiersText: "Pearl -> 50%S",
       doodleSvg: POOL[0].svg,
     });
-    const withoutMods = await renderCupLabel({
+    const withoutMods = await renderPhotoCupLabel({
       stickerNumber: "OL000",
       cupIdxOf: { idx: 1, total: 1 },
       drinkName: "Test",
@@ -241,7 +241,7 @@ describe("renderCupLabel (keepsake variant)", () => {
   };
 
   it("omits drink name + modifiers when keepsake is true", async () => {
-    const { zpl } = await renderCupLabel({ ...base, keepsake: true });
+    const { zpl } = await renderPhotoCupLabel({ ...base, keepsake: true });
     expect(zpl).not.toContain("Pearl Milk Tea");
     expect(zpl).not.toContain("50%S");
     // Greeting + order/cup line are retained.
@@ -250,7 +250,7 @@ describe("renderCupLabel (keepsake variant)", () => {
   });
 
   it("keeps drink name + modifiers when keepsake is absent (regression)", async () => {
-    const { zpl } = await renderCupLabel(base);
+    const { zpl } = await renderPhotoCupLabel(base);
     expect(zpl).toContain("Pearl Milk Tea");
     expect(zpl).toContain("50%S");
   });

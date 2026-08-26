@@ -8,8 +8,50 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { LabelPicker } from "./LabelPicker";
 import { summaryFor } from "./cup-label-summary";
 import { flattenCups } from "@/lib/cup-label/use-gallery-auto-fill";
+import {
+  PHOTO_LABELS_OFFLINE,
+  PHOTO_LABELS_OFFLINE_NOTICE,
+} from "@/lib/cup-label/label-mode";
+
+/**
+ * Shown in place of the picker while the 40×30 text-only paper is loaded
+ * (see lib/cup-label/label-mode.ts). Also drains any label selections
+ * still sitting in the persisted cart — a stale in-flight AI/draw
+ * selection would otherwise wedge the checkout gate forever with no UI
+ * left to clear it.
+ */
+function CupLabelOfflineNotice() {
+  const lines = useCart((s) => s.lines);
+  const labelSelections = useCart((s) => s.labelSelections);
+  const clearLabel = useCart((s) => s.clearLabel);
+
+  useEffect(() => {
+    for (const key of Object.keys(labelSelections)) clearLabel(key);
+  }, [labelSelections, clearLabel]);
+
+  if (lines.length === 0) return null;
+  return (
+    <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold sm:text-lg">Cup labels</h2>
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+          style={{ backgroundColor: BRAND.accentColor, color: BRAND.primaryColor }}
+        >
+          Back soon
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-zinc-500 sm:text-sm">{PHOTO_LABELS_OFFLINE_NOTICE}</p>
+    </section>
+  );
+}
 
 export function CupLabelSection() {
+  if (PHOTO_LABELS_OFFLINE) return <CupLabelOfflineNotice />;
+  return <CupLabelPickerSection />;
+}
+
+function CupLabelPickerSection() {
   const lines = useCart((s) => s.lines);
   const labelSelections = useCart((s) => s.labelSelections);
   const setLabel = useCart((s) => s.setLabel);
