@@ -20,8 +20,10 @@ import {
 //   • Top band (108): black bar. Ticket number left (white, huge).
 //     Right column: cup fraction, plus "PU 5:45pm" stacked underneath
 //     for a scheduled pickup.
-//   • Body: drink name (≤2 lines, large) then modifier list (≤3 lines).
-//     Keepsake copies omit both, mirroring the photo layout's contract.
+//   • Body: drink name (≤2 lines, large) then modifier list (≤3 lines)
+//     placed directly under the name's actual line count, ending ≥24
+//     dots above the label bottom. Keepsake copies omit both, mirroring
+//     the photo layout's contract.
 export const TEXT_LABEL_WIDTH_DOTS = 472;
 export const TEXT_LABEL_HEIGHT_DOTS = 354;
 
@@ -54,13 +56,31 @@ function drinkFontSizeFor(name: string): number {
   return 30;
 }
 
+// Estimated line count for the drink name at its chosen font, using the
+// same 0.55 char-width heuristic that calibrates MOD_MAX_CHARS. The ^FB
+// block allows 2 lines; only the 36/30-dot tiers can actually wrap.
+function drinkLineCountFor(name: string, font: number): number {
+  const charsPerLine = Math.floor(INNER_WIDTH / (0.55 * font));
+  return name.length <= charsPerLine ? 1 : 2;
+}
+
 // Modifier block. 22 chars/line at 34-dot font across the 440-dot inner
 // width (0.55 char-width heuristic, same calibration as the photo layout).
-const MOD_Y = 238;
+// Y is dynamic — directly under however many lines the drink name takes —
+// so a one-line name doesn't push modifiers toward the label bottom.
+// Worst case (2-line name + 3 modifier lines) ends at 316 of 354 dots,
+// leaving ~3mm for tear-off / calibration drift. The original fixed
+// Y=238 left only 8 dots, and the third line clipped in production.
+const MOD_GAP = 16;
 const MOD_FONT = 34;
 const MOD_LINE_SPACING = 2;
 const MOD_MAX_CHARS = 22;
 const MOD_MAX_LINES = 3;
+
+function modYFor(drinkName: string): number {
+  const font = drinkFontSizeFor(drinkName);
+  return DRINK_Y + drinkLineCountFor(drinkName, font) * font + MOD_GAP;
+}
 
 function capModLines(lines: string[]): string[] {
   if (lines.length <= MOD_MAX_LINES) return lines;
@@ -101,6 +121,10 @@ export async function renderTextCupLabel(input: CupLabelInput): Promise<CupLabel
   parts.push("^CI28"); // UTF-8
   parts.push("^PR4");
   parts.push("^LH0,0");
+  // The ZD410 keeps ^LT (label top) in NVRAM across rolls — a stale
+  // offset from the 50x80 photo roll shifts this 30mm print down and
+  // clips the bottom. Pin it to 0 in every format.
+  parts.push("^LT0");
 
   // Top band: solid black bar, white (^FR) text.
   parts.push(`^FO0,0^GB${TEXT_LABEL_WIDTH_DOTS},${TOP_BAND_HEIGHT},${TOP_BAND_HEIGHT}^FS`);
@@ -129,7 +153,7 @@ export async function renderTextCupLabel(input: CupLabelInput): Promise<CupLabel
     );
     if (modLines.length > 0) {
       parts.push(
-        `^FO${PAD_X},${MOD_Y}^A0N,${MOD_FONT},${MOD_FONT}^FB${INNER_WIDTH},${modLines.length},${MOD_LINE_SPACING},L,0^FD${modLines.map(escapeZpl).join("\\&")}^FS`,
+        `^FO${PAD_X},${modYFor(input.drinkName)}^A0N,${MOD_FONT},${MOD_FONT}^FB${INNER_WIDTH},${modLines.length},${MOD_LINE_SPACING},L,0^FD${modLines.map(escapeZpl).join("\\&")}^FS`,
       );
     }
   }
@@ -155,11 +179,12 @@ async function renderPreviewPng(
   let body = "";
   if (!input.keepsake) {
     const drinkFont = drinkFontSizeFor(input.drinkName);
+    const modY = modYFor(input.drinkName);
     body += `<text x="${PAD_X}" y="${DRINK_Y + drinkFont}" font-family="sans-serif" font-size="${drinkFont}" font-weight="700" fill="black">${escapeXml(input.drinkName)}</text>`;
     body += d.modLines
       .map(
         (line, i) =>
-          `<text x="${PAD_X}" y="${MOD_Y + MOD_FONT + i * (MOD_FONT + MOD_LINE_SPACING)}" font-family="sans-serif" font-size="${MOD_FONT}" fill="black">${escapeXml(line)}</text>`,
+          `<text x="${PAD_X}" y="${modY + MOD_FONT + i * (MOD_FONT + MOD_LINE_SPACING)}" font-family="sans-serif" font-size="${MOD_FONT}" fill="black">${escapeXml(line)}</text>`,
       )
       .join("");
   }

@@ -95,6 +95,39 @@ describe("40x30 text-only cup label", () => {
     expect(out.zpl).toContain("…");
   });
 
+  it("resets the printer's stored label-top offset with ^LT0", async () => {
+    // The ZD410 keeps ^LT in NVRAM across rolls. A stale offset from the
+    // 50x80 photo roll shifts the whole 30mm print down and clips the
+    // bottom — seen live 2026-08-26. Every format must pin it to 0.
+    const out = await renderTextCupLabel(base);
+    expect(out.zpl).toContain("^LT0");
+  });
+
+  it("starts modifiers directly under a one-line drink name (no dead band)", async () => {
+    // "Pearl Milk Tea" = 14 chars → 52-dot font, one line. Modifiers
+    // must not sit at a fixed Y that assumes a two-line name.
+    const out = await renderTextCupLabel(base);
+    const modField = out.zpl.split("\n").find((l) => l.includes("Pearls(2)"))!;
+    const y = Number(/\^FO\d+,(\d+)/.exec(modField)![1]);
+    expect(y).toBe(120 + 52 + 16);
+  });
+
+  it("keeps worst-case content above a real bottom margin", async () => {
+    // Two-line drink name + 3 capped modifier lines must still end at
+    // least 24 dots (~2mm) above the 354-dot label bottom, so ordinary
+    // tear-off / calibration drift can't clip the last line.
+    const out = await renderTextCupLabel({
+      ...base,
+      drinkName: "Brown Sugar Oreo Brulee ML", // 26 chars → 36-dot font, 2 lines
+      modifiersText:
+        "Oat Milk\nPearls(2)+Grass Jelly+Pudding+Coconut Jelly\nLess Ice\n50% Sugar",
+    });
+    const modField = out.zpl.split("\n").find((l) => l.includes("\\&"))!;
+    const y = Number(/\^FO\d+,(\d+)/.exec(modField)![1]);
+    const bottom = y + 3 * (34 + 2);
+    expect(bottom).toBeLessThanOrEqual(TEXT_LABEL_HEIGHT_DOTS - 24);
+  });
+
   it("escapes ZPL control characters in user-influenced fields", async () => {
     const out = await renderTextCupLabel({ ...base, drinkName: "A^B~C\\Drink" });
     expect(out.zpl).not.toContain("A^B~C");
