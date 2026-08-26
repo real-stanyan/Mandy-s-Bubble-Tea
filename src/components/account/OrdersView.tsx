@@ -121,7 +121,7 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
       <div className="flex items-center justify-between gap-3">
         <span className="inline-flex items-center gap-2 rounded-full border border-line bg-white py-[7px] pl-[11px] pr-3.5">
           <span className={`h-[9px] w-[9px] rounded-full ${dotClass}`} />
-          <span className={`text-[13px] font-bold ${labelClass}`}>
+          <span className={`text-[11.5px] font-bold ${labelClass}`}>
             {meta.label}
           </span>
         </span>
@@ -142,7 +142,7 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
           <span className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
             Order number
           </span>
-          <span className="text-[12px] font-semibold text-ink3">
+          <span className="text-[11px] font-semibold text-ink3">
             {order.fulfillmentType === "DELIVERY"
               ? "Quote this on delivery"
               : "Show this at the counter"}
@@ -156,12 +156,12 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
       <div className="mt-4 flex items-center gap-3.5">
         <OrderThumb order={order} size={56} />
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold leading-snug text-ink">
+          <p className="text-[13.5px] font-semibold leading-snug text-ink">
             {order.itemSummary ||
               `${order.lineCount} item${order.lineCount !== 1 ? "s" : ""}`}
           </p>
           {order.createdAt && (
-            <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-brand">
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-brand">
               <Clock size={13} /> {whenText(order.createdAt)}
             </p>
           )}
@@ -183,7 +183,7 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
                   {done && <Check size={13} />}
                 </span>
                 <span
-                  className={`text-[11px] font-semibold ${
+                  className={`text-[10px] font-semibold ${
                     done ? "text-ink" : "text-ink4"
                   }`}
                 >
@@ -206,11 +206,11 @@ function StandardActiveCard({ order }: { order: OrderHistoryItem }) {
         className="mt-[18px] flex items-center justify-between border-t pt-4"
         style={{ borderColor: "rgba(141,85,36,0.14)" }}
       >
-        <span className="text-[13px] font-semibold text-ink2">
+        <span className="text-[11.5px] font-semibold text-ink2">
           {modeLabel(order)} · {order.lineCount} drink
           {order.lineCount !== 1 ? "s" : ""}
         </span>
-        <span className="text-[19px] font-bold text-brand">
+        <span className="text-[17.5px] font-bold text-brand">
           {formatPrice(BigInt(order.totalCents))}
         </span>
       </div>
@@ -273,12 +273,12 @@ function PastOrderCard({ order }: { order: OrderHistoryItem }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* what they ordered (the hero) — now full width */}
-        <h3 className="truncate font-serif text-[15.5px] font-semibold leading-snug text-ink">
+        <h3 className="truncate font-serif text-[14px] font-semibold leading-snug text-ink">
           {title}
         </h3>
 
         {/* mode · date · status (status carries the colour, not the price) */}
-        <p className="mt-1 truncate text-[12px] text-ink4">
+        <p className="mt-1 truncate text-[10.5px] text-ink4">
           {modeLabel(order)} · {whenText(order.createdAt)} ·{" "}
           {canceled ? (
             <span className="font-semibold text-red-600">Cancelled</span>
@@ -292,10 +292,10 @@ function PastOrderCard({ order }: { order: OrderHistoryItem }) {
             so we always show the price — including $0.00. */}
         <div className="mt-2.5 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="rounded-md bg-cream px-2 py-0.5 font-mono text-[13px] font-bold tracking-[0.4px] text-ink">
+            <span className="rounded-md bg-cream px-2 py-0.5 font-mono text-[11.5px] font-bold tracking-[0.4px] text-ink">
               {formatPrice(total)}
             </span>
-            <span className="truncate font-mono text-[11px] font-semibold tracking-[0.5px] text-ink4">
+            <span className="truncate font-mono text-[10px] font-semibold tracking-[0.5px] text-ink4">
               {displayNumber(order)}
             </span>
           </div>
@@ -307,7 +307,7 @@ function PastOrderCard({ order }: { order: OrderHistoryItem }) {
                 e.stopPropagation();
                 reorder();
               }}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] px-3 py-1.5 text-[12px] font-bold text-brand transition hover:bg-brand hover:text-white"
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] px-3 py-1.5 text-[10.5px] font-bold text-brand transition hover:bg-brand hover:text-white"
             >
               <RotateCcw size={13} strokeWidth={2.5} /> Reorder
             </button>
@@ -332,13 +332,13 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
       {orders.length === 0 ? (
         <div className="rounded-card border border-line bg-card px-10 py-[60px] text-center shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
           <div className="text-[52px]">🧋</div>
-          <p className="mt-3 text-base text-ink2">
+          <p className="mt-3 text-[13px] text-ink2">
             You haven&apos;t placed any orders yet.
           </p>
           <button
             type="button"
             onClick={() => router.push("/menu")}
-            className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_22px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
+            className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-3 text-[13px] font-semibold text-white shadow-[0_12px_22px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
           >
             Browse the menu <ArrowRight size={16} />
           </button>
@@ -349,10 +349,10 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
             <>
               <div className="mb-4 flex items-center gap-2.5">
                 <span className="h-[9px] w-[9px] rounded-full bg-green shadow-[0_0_0_5px_rgba(60,169,110,0.16)]" />
-                <h2 className="font-serif text-2xl font-semibold tracking-[-0.4px] text-ink">
+                <h2 className="font-serif text-[20px] font-semibold tracking-[-0.4px] text-ink">
                   In progress
                 </h2>
-                <span className="text-[13px] font-bold text-ink4">
+                <span className="text-[11.5px] font-bold text-ink4">
                   {active.length}
                 </span>
               </div>
@@ -369,17 +369,17 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
           )}
 
           <div className="mb-4 flex items-baseline justify-between">
-            <h2 className="font-serif text-2xl font-semibold tracking-[-0.4px] text-ink">
+            <h2 className="font-serif text-[20px] font-semibold tracking-[-0.4px] text-ink">
               Past orders
             </h2>
             {past.length > 0 && (
-              <span className="text-[13px] font-semibold text-ink3">
+              <span className="text-[11.5px] font-semibold text-ink3">
                 {past.length} total
               </span>
             )}
           </div>
           {past.length === 0 ? (
-            <div className="rounded-card border border-line bg-card p-[30px] text-center text-[14px] text-ink3">
+            <div className="rounded-card border border-line bg-card p-[30px] text-center text-[12.5px] text-ink3">
               No past orders yet.
             </div>
           ) : (
@@ -393,7 +393,7 @@ export function OrdersView({ orders }: { orders: OrderHistoryItem[] }) {
             <button
               type="button"
               onClick={() => setShowAll((v) => !v)}
-              className="mx-auto mt-5 flex items-center gap-1.5 rounded-full border border-line bg-card px-5 py-2.5 text-sm font-semibold text-ink2 transition hover:bg-paper"
+              className="mx-auto mt-5 flex items-center gap-1.5 rounded-full border border-line bg-card px-5 py-2.5 text-[13px] font-semibold text-ink2 transition hover:bg-paper"
             >
               {showAll ? "Show less" : `Show all ${past.length} orders`}
               <ChevronDown
