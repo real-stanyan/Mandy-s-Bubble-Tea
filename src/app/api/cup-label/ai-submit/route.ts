@@ -22,6 +22,10 @@ import {
   MEMORY_STAMP_STYLE_ID,
   buildMemoryStampPrompt,
 } from "@/lib/cup-label/stamp-style";
+import {
+  PHOTO_LABELS_OFFLINE,
+  PHOTO_LABELS_OFFLINE_NOTICE,
+} from "@/lib/cup-label/label-mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +81,14 @@ function decodeBase64Image(input: string): Buffer {
 }
 
 export async function POST(request: NextRequest) {
+  // 40×30 text-only paper mode: custom labels can't print — reject early.
+  // See lib/cup-label/label-mode.ts.
+  if (PHOTO_LABELS_OFFLINE) {
+    return NextResponse.json(
+      { ok: false, error: "photo_labels_offline", message: PHOTO_LABELS_OFFLINE_NOTICE },
+      { status: 503 },
+    );
+  }
   const user = await getAuthedUser(request);
   if (!user) {
     return NextResponse.json({ ok: false, error: "Sign in required" }, { status: 401 });

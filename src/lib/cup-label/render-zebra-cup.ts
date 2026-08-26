@@ -170,7 +170,24 @@ export type CupLabelOutput = {
   previewPng: Buffer;
 };
 
+/**
+ * Mode dispatch — every producer (enqueue, admin test print) calls this.
+ * While the temporary 40×30mm paper is loaded (see label-mode.ts) it
+ * routes to the text-only renderer; the full 50×80 photo layout below
+ * stays intact for the flip back. Dynamic import keeps the two renderer
+ * modules from forming a static cycle (render-text-label imports
+ * formatPickupStamp / wrapModifierLine / types from this file).
+ */
 export async function renderCupLabel(input: CupLabelInput): Promise<CupLabelOutput> {
+  const { CUP_LABEL_PAPER_MODE } = await import("./label-mode");
+  if (CUP_LABEL_PAPER_MODE === "text-40x30") {
+    const { renderTextCupLabel } = await import("./render-text-label");
+    return renderTextCupLabel(input);
+  }
+  return renderPhotoCupLabel(input);
+}
+
+export async function renderPhotoCupLabel(input: CupLabelInput): Promise<CupLabelOutput> {
   // Fortune (POS / in-store) path: no doodle raster, the middle band
   // is a plain ZPL ^FB text block. Skip the entire SVG→PNG→1-bit
   // pipeline — the printer renders the glyphs natively from its stock
