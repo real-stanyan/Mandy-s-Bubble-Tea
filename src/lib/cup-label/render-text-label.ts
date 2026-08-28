@@ -20,10 +20,11 @@ import {
 //   • Top band (108): black bar. Ticket number left (white, huge).
 //     Right column: cup fraction, plus "PU 5:45pm" stacked underneath
 //     for a scheduled pickup.
-//   • Body: drink name (≤2 lines, large) then modifier list (≤3 lines)
-//     placed directly under the name's actual line count, ending ≥24
-//     dots above the label bottom. Keepsake copies omit both, mirroring
-//     the photo layout's contract.
+//   • Body: drink name (≤2 lines, large) then the modifier list placed
+//     directly under the name's actual line count, ending ≥24 dots above
+//     the label bottom. The modifier font adapts 34→28→24 so topping-
+//     heavy orders print in full before any ellipsis. Keepsake copies
+//     omit both, mirroring the photo layout's contract.
 export const TEXT_LABEL_WIDTH_DOTS = 472;
 export const TEXT_LABEL_HEIGHT_DOTS = 354;
 
@@ -64,31 +65,61 @@ function drinkLineCountFor(name: string, font: number): number {
   return name.length <= charsPerLine ? 1 : 2;
 }
 
-// Modifier block. 22 chars/line at 34-dot font across the 440-dot inner
-// width (0.55 char-width heuristic, same calibration as the photo layout).
-// Y is dynamic — directly under however many lines the drink name takes —
-// so a one-line name doesn't push modifiers toward the label bottom.
-// Worst case (2-line name + 3 modifier lines) ends at 316 of 354 dots,
-// leaving ~3mm for tear-off / calibration drift. The original fixed
-// Y=238 left only 8 dots, and the third line clipped in production.
+// Modifier block. Y is dynamic — directly under however many lines the
+// drink name takes — so a one-line name doesn't push modifiers toward
+// the label bottom. All content must end BOTTOM_MARGIN above the label
+// edge so ordinary tear-off / calibration drift can't clip it (the
+// original fixed Y=238 left only 8 dots and clipped in production).
+//
+// The font is adaptive: 34 dots normally, stepping down 34→28→24 when a
+// topping-heavy order needs more lines than fit at the current size.
+// chars/line per tier scales from the field-calibrated 22 @ 34 dots
+// (0.55 char-width heuristic, same as the photo layout). Only when even
+// 24-dot can't hold everything does the last line ellipsize.
 const MOD_GAP = 16;
-const MOD_FONT = 34;
 const MOD_LINE_SPACING = 2;
-const MOD_MAX_CHARS = 22;
-const MOD_MAX_LINES = 3;
+const BOTTOM_MARGIN = 24;
+const BOTTOM_LIMIT = TEXT_LABEL_HEIGHT_DOTS - BOTTOM_MARGIN;
+const MOD_TIERS = [34, 28, 24].map((font) => ({
+  font,
+  chars: Math.floor((22 * 34) / font),
+}));
 
 function modYFor(drinkName: string): number {
   const font = drinkFontSizeFor(drinkName);
   return DRINK_Y + drinkLineCountFor(drinkName, font) * font + MOD_GAP;
 }
 
-function capModLines(lines: string[]): string[] {
-  if (lines.length <= MOD_MAX_LINES) return lines;
-  const out = lines.slice(0, MOD_MAX_LINES);
-  const last = out[MOD_MAX_LINES - 1];
-  out[MOD_MAX_LINES - 1] =
-    last.length > MOD_MAX_CHARS - 1 ? last.slice(0, MOD_MAX_CHARS - 1) + "…" : last + " …";
+function maxModLinesFor(modY: number, font: number): number {
+  return Math.max(1, Math.floor((BOTTOM_LIMIT - modY) / (font + MOD_LINE_SPACING)));
+}
+
+function capModLines(lines: string[], maxLines: number, maxChars: number): string[] {
+  if (lines.length <= maxLines) return lines;
+  const out = lines.slice(0, maxLines);
+  const last = out[maxLines - 1];
+  out[maxLines - 1] =
+    last.length > maxChars - 1 ? last.slice(0, maxChars - 1) + "…" : last + " …";
   return out;
+}
+
+/** Pick the largest modifier font whose wrapped line count fits between
+ *  `modY` and the bottom margin; ellipsize at the smallest tier if even
+ *  that overflows. */
+function layoutModifiers(text: string, modY: number): { font: number; lines: string[] } {
+  for (const tier of MOD_TIERS) {
+    const lines = wrapModifierLine(text, tier.chars, Number.POSITIVE_INFINITY);
+    if (lines.length <= maxModLinesFor(modY, tier.font)) return { font: tier.font, lines };
+  }
+  const tier = MOD_TIERS[MOD_TIERS.length - 1];
+  return {
+    font: tier.font,
+    lines: capModLines(
+      wrapModifierLine(text, tier.chars, Number.POSITIVE_INFINITY),
+      maxModLinesFor(modY, tier.font),
+      tier.chars,
+    ),
+  };
 }
 
 function escapeZpl(s: string): string {
@@ -109,10 +140,11 @@ export async function renderTextCupLabel(input: CupLabelInput): Promise<CupLabel
   const pickupStamp = formatPickupStamp(input.pickupAt);
   const sticker = input.stickerNumber;
   const stickerFont = stickerFontSizeFor(sticker);
-  const modLines =
+  const modY = modYFor(input.drinkName);
+  const mods =
     input.modifiersText.length > 0
-      ? capModLines(wrapModifierLine(input.modifiersText, MOD_MAX_CHARS))
-      : [];
+      ? layoutModifiers(input.modifiersText, modY)
+      : { font: MOD_TIERS[0].font, lines: [] };
 
   const parts: string[] = [];
   parts.push("^XA");
@@ -151,23 +183,23 @@ export async function renderTextCupLabel(input: CupLabelInput): Promise<CupLabel
     parts.push(
       `^FO${PAD_X},${DRINK_Y}^A0N,${drinkFont},${drinkFont}^FB${INNER_WIDTH},2,0,L,0^FD${escapeZpl(input.drinkName)}^FS`,
     );
-    if (modLines.length > 0) {
+    if (mods.lines.length > 0) {
       parts.push(
-        `^FO${PAD_X},${modYFor(input.drinkName)}^A0N,${MOD_FONT},${MOD_FONT}^FB${INNER_WIDTH},${modLines.length},${MOD_LINE_SPACING},L,0^FD${modLines.map(escapeZpl).join("\\&")}^FS`,
+        `^FO${PAD_X},${modY}^A0N,${mods.font},${mods.font}^FB${INNER_WIDTH},${mods.lines.length},${MOD_LINE_SPACING},L,0^FD${mods.lines.map(escapeZpl).join("\\&")}^FS`,
       );
     }
   }
 
   parts.push("^XZ");
   const zpl = parts.join("\n");
-  const previewPng = await renderPreviewPng(input, { frac, pickupStamp, modLines });
+  const previewPng = await renderPreviewPng(input, { frac, pickupStamp, mods });
   return { zpl, previewPng };
 }
 
 // Dev/admin eyeball preview mirroring the ZPL layout.
 async function renderPreviewPng(
   input: CupLabelInput,
-  d: { frac: string; pickupStamp: string; modLines: string[] },
+  d: { frac: string; pickupStamp: string; mods: { font: number; lines: string[] } },
 ): Promise<Buffer> {
   const stickerFont = stickerFontSizeFor(input.stickerNumber);
   const rightEdge = TEXT_LABEL_WIDTH_DOTS - PAD_X;
@@ -181,10 +213,10 @@ async function renderPreviewPng(
     const drinkFont = drinkFontSizeFor(input.drinkName);
     const modY = modYFor(input.drinkName);
     body += `<text x="${PAD_X}" y="${DRINK_Y + drinkFont}" font-family="sans-serif" font-size="${drinkFont}" font-weight="700" fill="black">${escapeXml(input.drinkName)}</text>`;
-    body += d.modLines
+    body += d.mods.lines
       .map(
         (line, i) =>
-          `<text x="${PAD_X}" y="${modY + MOD_FONT + i * (MOD_FONT + MOD_LINE_SPACING)}" font-family="sans-serif" font-size="${MOD_FONT}" fill="black">${escapeXml(line)}</text>`,
+          `<text x="${PAD_X}" y="${modY + d.mods.font + i * (d.mods.font + MOD_LINE_SPACING)}" font-family="sans-serif" font-size="${d.mods.font}" fill="black">${escapeXml(line)}</text>`,
       )
       .join("");
   }

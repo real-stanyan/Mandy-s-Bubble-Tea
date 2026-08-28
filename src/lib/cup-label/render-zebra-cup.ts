@@ -617,13 +617,20 @@ function tokenizeModLine(text: string): string[] {
   return out;
 }
 
-export function wrapModifierLine(text: string, maxChars: number): string[] {
+export function wrapModifierLine(
+  text: string,
+  maxChars: number,
+  maxLines: number = MOD_MAX_LINES,
+): string[] {
   if (!text) return [];
   // format-modifiers emits one group per line, separated by `\n`. Honor
   // those explicit breaks first so each attribute (milk / toppings /
   // ice / sugar) keeps its own row. Long toppings lines that exceed
   // `maxChars` get further word-wrapped via the existing `+` / ` -> `
   // tokenization so they still fit within the band width.
+  //
+  // `maxLines` defaults to this photo layout's cap; the 40x30 text
+  // layout passes Infinity and applies its own vertical-budget cap.
   const groups = text.split("\n");
   const lines: string[] = [];
   for (const group of groups) {
@@ -641,10 +648,10 @@ export function wrapModifierLine(text: string, maxChars: number): string[] {
     }
     if (cur) lines.push(cur);
   }
-  if (lines.length <= MOD_MAX_LINES) return lines;
-  const truncated = lines.slice(0, MOD_MAX_LINES);
-  const last = truncated[MOD_MAX_LINES - 1];
-  truncated[MOD_MAX_LINES - 1] = last.length > maxChars - 1
+  if (lines.length <= maxLines) return lines;
+  const truncated = lines.slice(0, maxLines);
+  const last = truncated[maxLines - 1];
+  truncated[maxLines - 1] = last.length > maxChars - 1
     ? last.slice(0, maxChars - 1) + "…"
     : last + " …";
   return truncated;

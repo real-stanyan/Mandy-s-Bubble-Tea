@@ -82,17 +82,53 @@ describe("40x30 text-only cup label", () => {
     expect(out.zpl).not.toContain("50%S");
   });
 
-  it("caps modifiers at 3 lines with an ellipsis", async () => {
+  it("shrinks the modifier font so topping-heavy orders print in full", async () => {
+    // 4 groups where the toppings line alone wraps at the 34-dot width.
+    // Instead of truncating at 3 lines, the font steps down (34→28→24)
+    // until everything fits above the bottom margin.
+    const out = await renderTextCupLabel({
+      ...base,
+      modifiersText: "Oat Milk\nPearls(2)+Grass Jelly+Pudding\nLess Ice\n75% Sugar",
+    });
+    const modField = out.zpl.split("\n").find((l) => l.includes("\\&"))!;
+    expect(modField).toContain("^A0N,24,24");
+    expect(out.zpl).toContain("Grass Jelly");
+    expect(out.zpl).toContain("75% Sugar");
+    expect(out.zpl).not.toContain("…");
+  });
+
+  it("does not inherit the photo layout's 5-line wrap cap when the budget allows 6", async () => {
+    // One-line drink name → 6 modifier lines fit at the 24-dot tier.
+    // The sugar level rides the last line; it must not be dropped.
+    const out = await renderTextCupLabel({
+      ...base,
+      drinkName: "Oreo Brulee Milk Tea",
+      modifiersText:
+        "Fresh Milk\nPudding + Green Apple Popping Pearls + Grass Jelly\nLess Ice\n50% Sugar",
+    });
+    expect(out.zpl).toContain("50% Sugar");
+    expect(out.zpl).not.toContain("…");
+  });
+
+  it("still ellipsizes when even the smallest font can't fit everything", async () => {
     const out = await renderTextCupLabel({
       ...base,
       modifiersText:
-        "Oat Milk\nPearls(2)+Grass Jelly+Pudding+Coconut Jelly+Aloe Vera\nLess Ice\n50% Sugar\nExtra Shot",
+        "Oat Milk\nPearls(2)+Grass Jelly+Pudding+Coconut Jelly+Aloe Vera+Taro Balls+Red Bean+Sago\nLess Ice\n50% Sugar\nExtra Shot\nWarm",
     });
-    const modField = out.zpl.split("\n").find((l) => l.includes("\\&"));
-    expect(modField).toBeDefined();
-    const lines = modField!.split("\\&");
-    expect(lines.length).toBeLessThanOrEqual(3);
+    const modField = out.zpl.split("\n").find((l) => l.includes("\\&"))!;
     expect(out.zpl).toContain("…");
+    // Whatever was kept must still end above the bottom margin.
+    const y = Number(/\^FO\d+,(\d+)/.exec(modField)![1]);
+    const font = Number(/\^A0N,(\d+),/.exec(modField)![1]);
+    const lineCount = modField.split("\\&").length;
+    expect(y + lineCount * (font + 2)).toBeLessThanOrEqual(TEXT_LABEL_HEIGHT_DOTS - 24);
+  });
+
+  it("keeps the 34-dot modifier font when the order is small", async () => {
+    const out = await renderTextCupLabel(base);
+    const modField = out.zpl.split("\n").find((l) => l.includes("Pearls(2)"))!;
+    expect(modField).toContain("^A0N,34,34");
   });
 
   it("resets the printer's stored label-top offset with ^LT0", async () => {
