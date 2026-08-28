@@ -487,3 +487,75 @@ export async function returnOrderRewards(order: {
   }
   return { returned };
 }
+
+/**
+ * Release ISSUED rewards stranded on dead orders, returning their held
+ * stars to the account.
+ *
+ * The leak this closes (2026-08-28, in-store): redeem 2 rewards → card
+ * declined → customer starts a fresh cart → the 18 held stars are still
+ * pinned to the abandoned order, the new redeem sees balance 6 and says
+ * "Not enough stars" to a customer whose app shows 24. Nothing ever
+ * released the holds.
+ *
+ * A reward is reclaimed only when its attached order is genuinely dead:
+ * CANCELED, or still unpaid (netAmountDue > 0) with no live card tender —
+ * an AUTHORIZED hold (Mandy Delivery pre-accept) or CAPTURED tender means
+ * the order is real and keeps its rewards. `excludeOrderId` protects the
+ * checkout being processed right now; `minAgeMs` lets the cron sweep keep
+ * clear of just-created checkouts it can't see the client side of.
+ *
+ * Best-effort by design: any per-reward failure (lookup or delete) skips
+ * that reward — a reclaim pass must never take down the caller.
+ */
+export async function reclaimStrandedRewards(
+  accountId: string,
+  opts: { excludeOrderId?: string; minAgeMs?: number } = {},
+): Promise<{ reclaimed: number }> {
+  const minAgeMs = opts.minAgeMs ?? 0;
+  let reclaimed = 0;
+  try {
+    const res = await squareClient.loyalty.rewards.search({
+      query: { loyaltyAccountId: accountId },
+      limit: 30,
+    });
+    for (const reward of res.rewards ?? []) {
+      if (reward.status !== "ISSUED" || !reward.id) continue;
+      if (!reward.orderId) continue;
+      if (opts.excludeOrderId && reward.orderId === opts.excludeOrderId) continue;
+      if (reward.createdAt) {
+        const age = Date.now() - Date.parse(reward.createdAt);
+        if (Number.isFinite(age) && age < minAgeMs) continue;
+      }
+      try {
+        const { order } = await squareClient.orders.get({ orderId: reward.orderId });
+        if (!order) continue;
+        const total = order.totalMoney?.amount ?? 0n;
+        const due = order.netAmountDueMoney?.amount ?? total;
+        const liveTender = (order.tenders ?? []).some((t) => {
+          const s = t.cardDetails?.status;
+          return s === "AUTHORIZED" || s === "CAPTURED" || t.type === "CASH";
+        });
+        const dead =
+          order.state === "CANCELED" || (due > 0n && !liveTender);
+        if (!dead) continue;
+        await squareClient.loyalty.rewards.delete({ rewardId: reward.id });
+        reclaimed += 1;
+        console.log(
+          `[reclaimStrandedRewards] account=${accountId} released reward=${reward.id} from dead order=${reward.orderId}`,
+        );
+      } catch (err) {
+        console.error(
+          `[reclaimStrandedRewards] reward=${reward.id} skipped:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[reclaimStrandedRewards] account=${accountId} search failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return { reclaimed };
+}
