@@ -4,8 +4,10 @@ const mockGetAuthedUser = vi.fn();
 const mockFindLoyaltyAccountByPhone = vi.fn();
 const mockGetActiveProgram = vi.fn();
 const mockRedeemReward = vi.fn();
+const mockReclaimStrandedRewards = vi.fn();
 const mockOrdersGet = vi.fn();
 const mockRewardsDelete = vi.fn();
+const mockAccountsGet = vi.fn();
 
 vi.mock("@/lib/auth", () => ({
   getAuthedUser: (req: Request) => mockGetAuthedUser(req),
@@ -15,12 +17,15 @@ vi.mock("@/lib/loyalty", () => ({
     mockFindLoyaltyAccountByPhone(...args),
   getActiveProgram: () => mockGetActiveProgram(),
   redeemReward: (...args: unknown[]) => mockRedeemReward(...args),
+  reclaimStrandedRewards: (...args: unknown[]) =>
+    mockReclaimStrandedRewards(...args),
 }));
 vi.mock("@/lib/square", () => ({
   squareClient: {
     orders: { get: (args: unknown) => mockOrdersGet(args) },
     loyalty: {
       rewards: { delete: (args: unknown) => mockRewardsDelete(args) },
+      accounts: { get: (args: unknown) => mockAccountsGet(args) },
     },
   },
 }));
@@ -124,15 +129,57 @@ describe("POST /api/loyalty/redeem", () => {
     expect(mockRedeemReward).not.toHaveBeenCalled();
   });
 
-  it("count exceeds available stars rejected as 400", async () => {
+  it("count exceeds available stars rejected as 400 (nothing to reclaim)", async () => {
     mockFindLoyaltyAccountByPhone.mockResolvedValue({
       accountId: "acc1",
       balance: 9,
     });
+    mockReclaimStrandedRewards.mockResolvedValue({ reclaimed: 0 });
     const res = await POST(makeRequest({ count: 2 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/Not enough stars/);
+    // The self-heal ran before giving up, excluding the current order.
+    expect(mockReclaimStrandedRewards).toHaveBeenCalledWith("acc1", {
+      excludeOrderId: undefined,
+    });
+  });
+
+  it("insufficient balance self-heals: stranded holds released, balance re-read, redeem proceeds", async () => {
+    // The 2026-08-28 incident: app shows 24 stars, server says 6 — the
+    // other 18 were ISSUED rewards pinned to an abandoned declined-card
+    // order. The route must release them and answer with the redeem the
+    // customer is owed, not "Not enough stars".
+    mockFindLoyaltyAccountByPhone.mockResolvedValue({
+      accountId: "acc1",
+      balance: 6,
+    });
+    mockReclaimStrandedRewards.mockResolvedValue({ reclaimed: 2 });
+    mockAccountsGet.mockResolvedValue({ loyaltyAccount: { balance: 24 } });
+    mockRedeemReward
+      .mockResolvedValueOnce({ loyaltyRewardId: "r1" })
+      .mockResolvedValueOnce({ loyaltyRewardId: "r2" });
+    // cup-count check + post-redeem refetch
+    mockOrdersGet
+      .mockResolvedValueOnce({ order: { lineItems: [{ quantity: "5" }] } })
+      .mockResolvedValueOnce({ order: { totalMoney: { amount: 2100n } } });
+
+    const res = await POST(makeRequest({ orderId: "ORDER_NEW", count: 2 }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.loyaltyRewardIds).toEqual(["r1", "r2"]);
+    expect(json.remainingBalance).toBe(24 - 18);
+    expect(mockReclaimStrandedRewards).toHaveBeenCalledWith("acc1", {
+      excludeOrderId: "ORDER_NEW",
+    });
+  });
+
+  it("balance sufficient: reclaim is never called", async () => {
+    mockRedeemReward.mockResolvedValueOnce({ loyaltyRewardId: "r1" });
+    const res = await POST(makeRequest({ count: 1 }));
+    expect(res.status).toBe(200);
+    expect(mockReclaimStrandedRewards).not.toHaveBeenCalled();
   });
 
   it("count > cupCount rejected as 400", async () => {

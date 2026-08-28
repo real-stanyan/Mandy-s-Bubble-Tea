@@ -3,6 +3,7 @@ import {
   redeemReward,
   getActiveProgram,
   findLoyaltyAccountByPhone,
+  reclaimStrandedRewards,
 } from "@/lib/loyalty";
 import { squareClient } from "@/lib/square";
 import { getAuthedUser } from "@/lib/auth";
@@ -125,12 +126,31 @@ export async function POST(request: Request) {
       }
     }
 
-    if (account.balance < starsNeeded) {
+    let balance = account.balance;
+    if (balance < starsNeeded) {
+      // Self-heal before saying no: the missing stars are very often held
+      // by ISSUED rewards stranded on a dead order — redeem + declined
+      // card + fresh cart left 18 stars pinned to an abandoned order on
+      // 2026-08-28, in store, while the customer's app showed a full
+      // balance. Release those holds and re-read the balance; only reject
+      // if the stars genuinely aren't there.
+      const { reclaimed } = await reclaimStrandedRewards(account.accountId, {
+        excludeOrderId: body.orderId,
+      });
+      if (reclaimed > 0) {
+        const fresh = await squareClient.loyalty.accounts.get({
+          accountId: account.accountId,
+        });
+        balance = fresh.loyaltyAccount?.balance ?? balance;
+      }
+    }
+
+    if (balance < starsNeeded) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Not enough stars — you have ${account.balance}, need ${starsNeeded} for ${count} reward${count > 1 ? "s" : ""}.`,
-          balance: account.balance,
+          error: `Not enough stars — you have ${balance}, need ${starsNeeded} for ${count} reward${count > 1 ? "s" : ""}.`,
+          balance,
           starsPerReward,
         },
         { status: 400 },
@@ -180,11 +200,11 @@ export async function POST(request: Request) {
       loyaltyRewardIds: createdIds,
       // Back-compat for older app binaries that read `loyaltyRewardId`
       loyaltyRewardId: createdIds[0],
-      // Computed from the pre-loop balance snapshot. If a concurrent
-      // redemption on the same account ran in parallel, the displayed
-      // value can be briefly stale until the client refetches; the
-      // server-side balance check above prevents over-redemption.
-      remainingBalance: account.balance - starsNeeded,
+      // Computed from the pre-loop balance snapshot (post-reclaim). If a
+      // concurrent redemption on the same account ran in parallel, the
+      // displayed value can be briefly stale until the client refetches;
+      // the server-side balance check above prevents over-redemption.
+      remainingBalance: balance - starsNeeded,
       updatedAmountCents,
     });
   } catch (error) {
