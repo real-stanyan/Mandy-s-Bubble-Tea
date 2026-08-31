@@ -23,9 +23,11 @@ export type WeeklySpecial = {
 // says "Grapefruit Green Tea" / "Blueberry Iced Tea" but the real catalog
 // names are "Grapefruit Iced Green Tea" / "Blueberry Iced Green Tea".
 export const WEEKLY_SPECIALS: WeeklySpecial[] = [
-  { name: "Pineapple Green Tea", originalPriceCents: 620 },
-  { name: "Pineapple Black Tea", originalPriceCents: 620 },
-  { name: "Orange Iced Green Tea", originalPriceCents: 620 },
+  // Green rotation (Stan, 2026-08-31): both at $4.60 in Square, originals
+  // verified against the live catalog that day. Poster copy said "Green
+  // Apple Ice Tea" — the catalog name is "Green Apple Green Tea".
+  { name: "Green Apple Green Tea", originalPriceCents: 620 },
+  { name: "Yakult Green Tea", originalPriceCents: 620 },
   // Thai rotation (Stan, 2026-08-24): specials price $5.60 / $4.60 set in
   // Square; originals below verified against the live catalog that day.
   { name: "Thai Coco Frappe", originalPriceCents: 720 },
