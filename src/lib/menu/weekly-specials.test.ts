@@ -14,11 +14,12 @@ describe("weekly-specials", () => {
     expect(originalPriceCentsFor("Thai Coco Frappe")).toBe(720);
   });
 
-  // The catalog really does hold "Pineapple  Black Tea" with two spaces.
-  // A trim-only key drops it out of the shelf without a word of warning.
+  // The catalog has held names with doubled spaces before ("Pineapple
+  // Black Tea" with two, while it was on the shelf). A trim-only key drops
+  // such an item out of the shelf without a word of warning.
   it("matches names whose internal whitespace differs from the config", () => {
-    expect(originalPriceCentsFor("Pineapple  Black Tea")).toBe(620);
-    expect(normalizeItemName("  Pineapple   Black  Tea ")).toBe("pineapple black tea");
+    expect(originalPriceCentsFor("Yakult  Green Tea")).toBe(620);
+    expect(normalizeItemName("  Yakult   Green  Tea ")).toBe("yakult green tea");
   });
 
   it("returns null for an item that isn't currently a special", () => {
