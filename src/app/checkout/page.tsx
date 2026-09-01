@@ -34,6 +34,7 @@ import { PaymentErrorDialog } from "@/components/checkout/PaymentErrorDialog";
 import { OrderBlockedDialog } from "@/components/checkout/OrderBlockedDialog";
 import { classifyOrderBlock, type OrderBlock } from "@/lib/checkout/order-block";
 import { useOrderQuote } from "@/hooks/use-order-quote";
+import { usePlacesHealth } from "@/hooks/use-places-health";
 import { OrderSummaryTotals } from "@/components/checkout/OrderSummaryTotals";
 import { PickupReminderDialog } from "@/components/checkout/PickupReminderDialog";
 import { CupLabelSection } from "@/components/checkout/CupLabelSection";
@@ -349,6 +350,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
     const id = setInterval(() => setHoursOpen(isDeliveryHoursOpen()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Can Places confirm an address at all? Probed once per delivery checkout.
+  // When it says "down" the address form explains it and no coordinates ever
+  // arrive, so the quote below stays idle and Pay stays disabled — which is
+  // correct, and now says why (2026-09-01: the Maps billing lapsed and the
+  // customer just saw an empty suggestion list forever).
+  const placesHealth = usePlacesHealth(fulfillment === "DELIVERY");
 
   // Trigger quote when address + lat/lng + phone are populated and we're in DELIVERY mode.
   useEffect(() => {
@@ -1087,6 +1095,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   value={deliveryAddress}
                   onChange={setDeliveryAddress}
                   defaultPhone={profile.phone_e164}
+                  health={placesHealth}
                 />
                 <DeliveryQuoteCard state={quoteState} />
               </div>

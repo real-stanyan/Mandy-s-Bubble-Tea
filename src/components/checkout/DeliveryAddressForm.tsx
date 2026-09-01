@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { coordsAreValid } from "@/lib/places";
+import { coordsAreValid, type PlacesHealth } from "@/lib/places";
+import { PLACES_KEY, waitForPlaces } from "@/lib/google-places";
 import { extractPostcode, isDeliverablePostcode } from "@/lib/delivery-zone";
-import { DELIVERABLE_POSTCODES } from "@/lib/constants";
+import { BUSINESS, DELIVERABLE_POSTCODES } from "@/lib/constants";
 
 export type DeliveryAddress = {
   address: string;
@@ -19,54 +20,18 @@ type Props = {
   value: DeliveryAddress;
   onChange: (next: DeliveryAddress) => void;
   defaultPhone?: string;
+  /** Whether Places can confirm an address at all right now — see
+   *  `usePlacesHealth`. "down" means no delivery order can be placed, and
+   *  saying so is the whole point: the customer cannot fix it by retyping. */
+  health?: PlacesHealth;
 };
 
-const PLACES_KEY = process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY;
-
-declare global {
-  interface Window {
-    google?: {
-      maps?: {
-        places?: {
-          Autocomplete: new (
-            input: HTMLInputElement,
-            opts: { componentRestrictions?: { country: string }; fields?: string[] },
-          ) => {
-            addListener: (event: string, cb: () => void) => void;
-            getPlace: () => {
-              formatted_address?: string;
-              geometry?: { location?: { lat: () => number; lng: () => number } };
-              address_components?: {
-                long_name?: string;
-                short_name?: string;
-                types?: string[];
-              }[];
-            };
-          };
-        };
-      };
-    };
-    initGooglePlaces?: () => void;
-  }
-}
-
-// Loads the Google Places script once per page. Idempotent — multiple
-// instances of this form share the same `<script>` tag. No-op when the
-// API key is missing (autocomplete then cannot load, and delivery cannot
-// proceed — by design, addresses must be selected, not typed).
-function ensureGoogleScript() {
-  if (typeof window === "undefined") return;
-  if (!PLACES_KEY) return;
-  if (window.google?.maps?.places) return;
-  if (document.getElementById("google-places-sdk")) return;
-  const s = document.createElement("script");
-  s.id = "google-places-sdk";
-  s.async = true;
-  s.src = `https://maps.googleapis.com/maps/api/js?key=${PLACES_KEY}&libraries=places&loading=async`;
-  document.head.appendChild(s);
-}
-
-export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
+export function DeliveryAddressForm({
+  value,
+  onChange,
+  defaultPhone,
+  health = "loading",
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -86,15 +51,14 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
 
   useEffect(() => {
     if (!PLACES_KEY) return;
-    ensureGoogleScript();
     let cancelled = false;
-    const tryAttach = () => {
-      if (cancelled) return;
-      if (!window.google?.maps?.places || !inputRef.current) {
-        setTimeout(tryAttach, 200);
-        return;
-      }
-      const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
+    // waitForPlaces gives up after a bounded wait; the old inline retry
+    // polled every 200ms forever when the SDK never loaded.
+    void waitForPlaces().then((loaded) => {
+      if (cancelled || !loaded || !inputRef.current) return;
+      const places = window.google?.maps?.places;
+      if (!places) return;
+      const ac = new places.Autocomplete(inputRef.current, {
         componentRestrictions: { country: "au" },
         fields: ["formatted_address", "geometry", "address_components"],
       });
@@ -114,8 +78,7 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
           });
         }
       });
-    };
-    tryAttach();
+    });
     return () => {
       cancelled = true;
     };
@@ -137,8 +100,27 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
     });
   };
 
+  // Places is dead (no key, blocked script, lapsed billing, revoked key). No
+  // typing can rescue this, so the form stops pretending it is the customer's
+  // move and hands them the two things that still work.
+  const placesDown = !PLACES_KEY || health === "down";
+
   return (
     <div className="space-y-3">
+      {placesDown ? (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          <p className="font-semibold">Address lookup is down right now</p>
+          <p className="mt-1">
+            We can&apos;t confirm delivery addresses until it&apos;s back, so
+            delivery orders can&apos;t be placed. Switch to Pickup above, or
+            call us on{" "}
+            <a href={`tel:${BUSINESS.phone.replace(/\s/g, "")}`} className="underline">
+              {BUSINESS.phone}
+            </a>{" "}
+            and we&apos;ll take the order by phone.
+          </p>
+        </div>
+      ) : null}
       <div>
         <label className="mb-1 block text-xs font-medium text-zinc-700">
           Delivery Address
@@ -151,11 +133,7 @@ export function DeliveryAddressForm({ value, onChange, defaultPhone }: Props) {
           onChange={handleAddressInput}
           className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
         />
-        {!PLACES_KEY ? (
-          <p className="mt-1 text-xs text-amber-700">
-            Address autocomplete unavailable — delivery needs a selectable address.
-          </p>
-        ) : confirmed ? (
+        {placesDown ? null : confirmed ? (
           <p className="mt-1 text-xs text-emerald-700">✓ Address confirmed</p>
         ) : value.address.trim().length > 0 ? (
           <p className="mt-1 text-xs text-amber-700">
