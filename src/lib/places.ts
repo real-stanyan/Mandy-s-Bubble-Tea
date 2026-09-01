@@ -34,3 +34,20 @@ export function isWithinDeliveryRadius(store: LatLng, dest: LatLng): boolean {
 export function coordsAreValid(lat: number, lng: number): boolean {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
 }
+
+/** Is the browser's Places SDK usable right now? */
+export type PlacesHealth = "loading" | "ready" | "down";
+
+/**
+ * Turn a Places prediction status into a verdict about the *service*, not the
+ * query. `ZERO_RESULTS` means Google answered and had nothing to say — the
+ * service is fine. Everything else (REQUEST_DENIED from lapsed billing or a
+ * restricted key, OVER_QUERY_LIMIT, UNKNOWN_ERROR, or no answer at all) means
+ * no address can be confirmed, so delivery cannot be ordered and the customer
+ * has to be told instead of left retyping. See src/lib/google-places.ts.
+ */
+export function interpretPlacesStatus(
+  status: string | null | undefined,
+): "ready" | "down" {
+  return status === "OK" || status === "ZERO_RESULTS" ? "ready" : "down";
+}

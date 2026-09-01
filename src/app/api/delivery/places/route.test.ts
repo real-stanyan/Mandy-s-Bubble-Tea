@@ -72,3 +72,33 @@ it("returns 502 when google fetch throws", async () => {
   const res = await POST(req({ input: "1 Test", sessionToken: "s1" }));
   expect(res.status).toBe(502);
 });
+
+it("returns 503 when google denies the key (billing lapsed)", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({
+      status: "REQUEST_DENIED",
+      error_message: "You must enable Billing on the Google Cloud Project",
+      predictions: [],
+    })),
+  ));
+  const res = await POST(req({ input: "1 Test", sessionToken: "s1" }));
+  expect(res.status).toBe(503);
+  expect((await res.json()).error).toBe("places_unavailable");
+});
+
+it("details also reports a denied key as unavailable, not not_found", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ status: "REQUEST_DENIED" })),
+  ));
+  const res = await POST(req({ placeId: "p1" }));
+  expect(res.status).toBe(503);
+});
+
+it("an empty-but-healthy prediction list still returns 200", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ status: "ZERO_RESULTS", predictions: [] })),
+  ));
+  const res = await POST(req({ input: "zzzzz", sessionToken: "s1" }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).predictions).toEqual([]);
+});

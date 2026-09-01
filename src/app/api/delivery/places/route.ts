@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { extractPostcode } from "@/lib/delivery-zone";
+import { interpretPlacesStatus } from "@/lib/places";
 import { getAuthedUser } from "@/lib/auth";
 
 // Server-side proxy for Google Places so the native app never embeds a key.
@@ -37,8 +38,12 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ error: "upstream" }, { status: 502 });
     }
-    if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+    if (interpretPlacesStatus(data.status) === "down") {
+      // A dead key (lapsed billing, revoked restriction) is not "no such
+      // address" — reporting it as 404 sent the app back to a suggestion list
+      // that could never populate. 503 says the service is out, not the query.
       console.error("[places] google status", data.status);
+      return NextResponse.json({ error: "places_unavailable" }, { status: 503 });
     }
     const result = data.result;
     const loc = result?.geometry?.location;
@@ -65,8 +70,11 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ error: "upstream" }, { status: 502 });
     }
-    if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+    if (interpretPlacesStatus(data.status) === "down") {
+      // Same reason as above: an empty prediction list is indistinguishable
+      // from "keep typing", and the customer will keep typing forever.
       console.error("[places] google status", data.status);
+      return NextResponse.json({ error: "places_unavailable" }, { status: 503 });
     }
     const predictions = Array.isArray(data.predictions)
       ? data.predictions.map((p: { description: string; place_id: string }) => ({
