@@ -127,8 +127,17 @@ describe("deriveStatusUi — delivery, driven by dispatch status", () => {
       dispatchStatus: "pending",
     });
     expect(ui.kind).toBe("canceled");
-    expect(ui.heading).toBe("Order Canceled");
+    // A canceled delivery is the store declining it (driver Decline / 30-min
+    // no-driver release) — say so, and that the money came back.
+    expect(ui.heading).toBe("Declined by store");
+    expect(ui.body).toMatch(/hold/i);
     expect(ui.steps).toEqual(DELIVERY_STEPS);
+  });
+
+  it("CANCELED pickup keeps the generic canceled card", () => {
+    const ui = deriveStatusUi({ state: "CANCELED", isDelivery: false });
+    expect(ui.kind).toBe("canceled");
+    expect(ui.heading).toBe("Order Canceled");
   });
 });
 

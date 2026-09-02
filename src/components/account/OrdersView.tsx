@@ -281,7 +281,11 @@ function PastOrderCard({ order }: { order: OrderHistoryItem }) {
         <p className="mt-1 truncate text-[10.5px] text-ink4">
           {modeLabel(order)} · {whenText(order.createdAt)} ·{" "}
           {canceled ? (
-            <span className="font-semibold text-red-600">Cancelled</span>
+            <span className="font-semibold text-red-600">
+              {order.fulfillmentType === "DELIVERY"
+                ? "Declined by store"
+                : "Cancelled"}
+            </span>
           ) : (
             <span className="font-semibold text-green-dark">Completed</span>
           )}

@@ -52,6 +52,11 @@ describe("releaseDeliveryOrder", () => {
     expect(mockOrdersUpdate.mock.calls[0][0].order.fulfillments).toEqual([
       { uid: "F1", state: "CANCELED" },
     ])
+    // The ORDER must be canceled too, not just its fulfillment. Square does not
+    // cascade fulfillment CANCELED → order CANCELED, and an OPEN order whose hold
+    // is VOIDED (due > 0, no AUTHORIZED tender) is indistinguishable from an
+    // abandoned cart to every customer-facing list (DE852, 2026-09-02).
+    expect(mockOrdersUpdate.mock.calls[0][0].order.state).toBe("CANCELED")
   })
 
   it("does not void a $0 order with no tender", async () => {

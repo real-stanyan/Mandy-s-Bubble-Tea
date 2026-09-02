@@ -178,4 +178,47 @@ describe("GET /api/orders/history", () => {
     expect(body.orders[0].id).toBe("ORDER_HELD");
     expect(body.orders[0].active).toBe(true);
   });
+
+  it("keeps a driver-declined delivery visible as CANCELED (hold VOIDED, fulfillment CANCELED, order still OPEN)", async () => {
+    // DE852 (2026-09-02): the driver tapped Decline → hold voided, fulfillment
+    // CANCELED, but Square left the order OPEN with due > 0. The paid filter
+    // read that as an abandoned cart and the order vanished from Your Orders.
+    mockedGetAuthed.mockResolvedValue({
+      userId: "u1",
+      email: null,
+      phone: "+61400000000",
+      profile: {
+        user_id: "u1",
+        square_customer_id: "CUST_STAN",
+        phone_e164: "+61400000000",
+        first_name: "Stan",
+        last_name: "y",
+        square_verified_at: null,
+      },
+    } as never);
+    mockedOrdersSearch.mockResolvedValue({
+      orders: [
+        {
+          id: "ORDER_DECLINED",
+          referenceId: "DE852",
+          state: "OPEN",
+          totalMoney: { amount: 2087n, currency: "AUD" },
+          netAmountDueMoney: { amount: 2087n, currency: "AUD" },
+          tenders: [{ cardDetails: { status: "VOIDED" } }],
+          lineItems: [{ name: "Brown Sugar Milk Tea", quantity: "1" }],
+          fulfillments: [{ type: "PICKUP", state: "CANCELED" }],
+          metadata: { fulfillment_type: "DELIVERY" },
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    } as never);
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.orders).toHaveLength(1);
+    expect(body.orders[0].id).toBe("ORDER_DECLINED");
+    expect(body.orders[0].state).toBe("CANCELED");
+    expect(body.orders[0].fulfillmentState).toBe("CANCELED");
+    expect(body.orders[0].active).toBe(false);
+  });
 });

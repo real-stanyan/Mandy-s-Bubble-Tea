@@ -74,6 +74,20 @@ export function deriveStatusUi({
   }
 
   if (state === "CANCELED" || state === "FAILED") {
+    // A canceled delivery only happens one way: the store declined it (driver
+    // Decline, or no driver within 30 min). The card was only ever held, and
+    // the release voided that hold + returned any stars — say so, rather than
+    // sending the customer to a counter they never visited.
+    if (isDelivery) {
+      return {
+        kind: "canceled",
+        heading: "Declined by store",
+        body: "Sorry — we couldn't take this delivery. The hold on your card has been released and any stars used were returned.",
+        tone: "amber",
+        step: 0,
+        steps,
+      };
+    }
     return {
       kind: "canceled",
       heading: "Order Canceled",
