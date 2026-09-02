@@ -16,8 +16,19 @@
 --
 -- Additive + idempotent. Verify object:
 --   select proname from pg_proc where proname = 'next_scheduled_order_number';
+-- End-to-end verify (CONSUMES one number):
+--   select next_scheduled_order_number();  -- expect 'OL700' on first call of the day
 --
--- Apply in Supabase Dashboard → SQL Editor.
+-- Applied to production 2026-09-02 via the Management API.
+
+-- order_counters ships with check (type in ('instore','online')) — without
+-- widening it the function below fails its INSERT with 23514 at runtime,
+-- which the orders route's fallback silently swallows (exactly what
+-- happened between 2026-08-24 and 2026-09-02: the fix looked deployed but
+-- every scheduled order still fell back to the OL8→OL7 relabel).
+alter table order_counters drop constraint if exists order_counters_type_check;
+alter table order_counters add constraint order_counters_type_check
+  check (type = any (array['instore'::text, 'online'::text, 'scheduled'::text]));
 
 create or replace function next_scheduled_order_number()
 returns text
