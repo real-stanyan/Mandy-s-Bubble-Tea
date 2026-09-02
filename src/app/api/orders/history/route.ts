@@ -17,6 +17,18 @@ import { hasAuthorizedHold } from "@/lib/orders/authorized-hold";
 
 export const dynamic = "force-dynamic";
 
+// Canceled by either signal. Square does not cascade fulfillment CANCELED →
+// order CANCELED, and a delivery release (driver Decline / 30-min sweep)
+// historically only canceled the fulfillment.
+function isCanceled(order: {
+  state?: string | null;
+  fulfillments?: { state?: string | null }[] | null;
+}): boolean {
+  return (
+    order.state === "CANCELED" || order.fulfillments?.[0]?.state === "CANCELED"
+  );
+}
+
 export async function GET(request: Request) {
   if (!SQUARE_LOCATION_ID) {
     return NextResponse.json(
@@ -112,9 +124,13 @@ export async function GET(request: Request) {
     //   hold (capture happens on accept) — today-only, so a hold that never
     //   captures can't linger in history as if the order happened
     // - Abandoned cart: due > 0, tenders=[]
-    // Also keep CANCELED orders so users see their full history.
+    // Also keep CANCELED orders so users see their full history — judged by
+    // the fulfillment as well as the order: a driver Decline / no-driver
+    // release voids the hold and cancels the fulfillment, but orders released
+    // before 2026-09-02 were left OPEN (due > 0, VOIDED tender) and read as
+    // abandoned carts here, so the customer's declined order vanished (DE852).
     const paidOrders = (response.orders ?? []).filter((o) => {
-      if (o.state === "CANCELED") return true;
+      if (isCanceled(o)) return true;
       const total = o.totalMoney?.amount ?? 0n;
       const due = o.netAmountDueMoney?.amount ?? total;
       const heldToday =
@@ -182,8 +198,10 @@ export async function GET(request: Request) {
       const fulfilled = isDelivery
         ? deliveredIds.has(order.id ?? "")
         : fulfillment?.state === "COMPLETED";
+      const canceled = isCanceled(order);
       const active =
         order.state === "OPEN" &&
+        !canceled &&
         isBrisbaneToday(order.createdAt ?? null) &&
         !fulfilled;
 
@@ -192,7 +210,10 @@ export async function GET(request: Request) {
         referenceId: order.referenceId ?? order.ticketName ?? null,
         createdAt: order.createdAt ?? null,
         updatedAt: order.updatedAt ?? null,
-        state: order.state ?? null,
+        // Normalised: a canceled fulfillment reports as a CANCELED order so
+        // the web list and the App (same payload) both show it as canceled
+        // even for pre-fix releases that left the Square order OPEN.
+        state: canceled ? "CANCELED" : (order.state ?? null),
         fulfillmentState: fulfillment?.state ?? null,
         active,
         // Scheduled pickup's chosen collection time — the App renders the

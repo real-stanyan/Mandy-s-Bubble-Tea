@@ -39,7 +39,13 @@ export async function releaseDeliveryOrder(
     voided = true;
   }
 
-  // 3. Cancel the fulfillment so it drops out of the active queue. Re-fetch for
+  // 3. Cancel the fulfillment so it drops out of the active queue, AND cancel
+  //    the order itself. Square does not cascade fulfillment CANCELED → order
+  //    CANCELED: without the state write the order stays OPEN with due > 0 and
+  //    a VOIDED tender, which every customer-facing "was this paid?" filter
+  //    reads as an abandoned cart — the declined order simply vanished from
+  //    Your Orders (DE852, 2026-09-02). Square accepts state=CANCELED here
+  //    because nothing was captured (verified on DE852 itself). Re-fetch for
   //    the fresh version — steps 1–2 moved it.
   const fresh = await squareClient.orders.get({ orderId: order.id });
   const fulfillment = fresh.order?.fulfillments?.[0];
@@ -49,6 +55,7 @@ export async function releaseDeliveryOrder(
       order: {
         locationId: SQUARE_LOCATION_ID,
         version: fresh.order.version,
+        state: "CANCELED",
         fulfillments: [{ uid: fulfillment.uid, state: "CANCELED" }],
       },
       idempotencyKey: randomUUID(),
