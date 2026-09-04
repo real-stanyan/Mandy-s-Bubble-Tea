@@ -742,11 +742,14 @@ html[data-motion] [data-reveal="in"] {
 /* Mobile tab bar: one indicator pill slides between the four columns
    (the nav is a 4-column grid, so 100% of the pill width = one tab);
    the icon it lands on pops. */
+/* The nav is padded 14px (px-3.5) either side, so a column is a quarter
+   of the CONTENT width, not the box — measured from that inset the pill
+   lands under each icon instead of drifting right by half a gutter. */
 .tab-indicator {
   position: absolute;
-  left: 0;
-  top: 8px;
-  width: 25%;
+  left: 14px;
+  top: 10px;
+  width: calc((100% - 28px) / 4);
   height: 34px;
   display: grid;
   place-items: center;
