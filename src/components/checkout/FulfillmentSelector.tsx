@@ -50,7 +50,7 @@ export function FulfillmentSelector({
   deliveryPause = null,
   pickupEtaLabel = KITCHEN_LOAD_FALLBACK.label,
 }: Props) {
-  const pickupSub = ` · 34 Davenport St`;
+  const pickupSub = `${pickupEtaLabel} · 34 Davenport St`;
   const eligible = isDeliveryEligible(drinksSubtotalCents);
   const remainingCents = DELIVERY.minimumSubtotalCents - drinksSubtotalCents;
   const deliveryOn = DELIVERY_ENV_MASTER && deliveryEnabled;
