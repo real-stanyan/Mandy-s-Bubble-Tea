@@ -37,7 +37,9 @@ export function parseReportDate(s: string): string | null {
   return `${m[3]}-${mm}-${m[1].padStart(2, "0")}`;
 }
 
-const HEADER = /stock check\s+((?:[A-Za-z]{3},\s*)?\d{1,2}\s+[A-Za-z]{3,4}\.?\s+\d{4})/i;
+// Plain text: "stock check Thu, 04 Sep 2026". HTML copied out of a mail
+// client: "stock check · Thu, 04 Sep 2026". Either starts an email.
+const HEADER = /stock check\s*(?:[·—-]\s*)?((?:[A-Za-z]{3},\s*)?\d{1,2}\s+[A-Za-z]{3,4}\.?\s+\d{4})/i;
 
 type Section = "reorder" | "weekly" | "ok" | "other";
 
