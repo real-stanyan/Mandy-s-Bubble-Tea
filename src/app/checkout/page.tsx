@@ -27,6 +27,7 @@ import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { isPublicHolidayActive } from "@/lib/holiday";
 import type { OrderingStatus } from "@/lib/store-status";
+import type { KitchenLoad } from "@/lib/kitchen-load";
 import { buildPaymentRequestBody } from "@/lib/cup-label/payment-request";
 import { buildPaymentSelections } from "@/lib/cup-label/build-payment-selections";
 import { computeCupLabelGate } from "@/lib/cup-label/checkout-gate";
@@ -428,6 +429,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   // button flips at the 22:15 cutoff (or pos_backup_mode toggle) without
   // needing a page reload. Server gates the actual order in /api/orders.
   const [orderingStatus, setOrderingStatus] = useState<OrderingStatus | null>(null);
+  // Live ASAP estimate ("2–3 min") — the pickup pills and the Pickup card
+  // both read it so they never disagree. Undefined until the first poll.
+  const [kitchen, setKitchen] = useState<KitchenLoad | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     async function pull() {
@@ -437,11 +441,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         const data = (await res.json()) as OrderingStatus & {
           deliveryEnabled?: boolean;
           deliveryPause?: { until: string; reason: string } | null;
+          kitchen?: KitchenLoad | null;
         };
         if (!cancelled) {
           setOrderingStatus(data);
           setDeliveryEnabled(DELIVERY_ENV_MASTER && data.deliveryEnabled !== false);
           setDeliveryPause(data.deliveryPause ?? null);
+          setKitchen(data.kitchen ?? null);
         }
       } catch {
         /* keep last-known good value */
@@ -1076,6 +1082,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 drinksSubtotalCents={subtotal}
                 deliveryEnabled={deliveryEnabled}
                 deliveryPause={deliveryPause}
+                pickupEtaLabel={kitchen?.label}
               />
             </div>
 
@@ -1086,6 +1093,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                   <PickupTimeSelector
                     value={pickupOffset}
                     onChange={setPickupOffset}
+                    kitchen={kitchen}
                   />
                 </div>
               </div>
