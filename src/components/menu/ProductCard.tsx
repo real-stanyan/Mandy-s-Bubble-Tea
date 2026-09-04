@@ -35,20 +35,20 @@ export function ProductCard({ item }: { item: ProductRowData }) {
         }
       }}
       className={
-        "group relative flex flex-col overflow-hidden rounded-card border border-line bg-paper shadow-card outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 " +
+        "group lift relative flex flex-col overflow-hidden rounded-card border border-line bg-paper shadow-card outline-none focus-visible:ring-2 focus-visible:ring-brand/60 " +
         (item.soldOut
           ? "opacity-55 cursor-default"
-          : "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(42,30,20,0.08)]")
+          : "cursor-pointer hover:border-brand/30 hover:shadow-[0_18px_40px_rgba(42,30,20,0.12)]")
       }
     >
-      <div className="relative aspect-square w-full bg-sage">
+      <div className="zoom-media relative aspect-square w-full overflow-hidden bg-sage">
         {item.imageUrl ? (
           <Image
             src={item.imageUrl}
             alt={item.name}
             fill
             sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 22vw"
-            className="object-cover transition duration-500 group-hover:scale-[1.03]"
+            className="object-cover"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-6xl">
@@ -109,10 +109,10 @@ export function ProductCard({ item }: { item: ProductRowData }) {
             aria-label={`Customize ${item.name}`}
             tabIndex={-1}
             className={
-              "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition " +
+              "press relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full " +
               (item.soldOut
                 ? "bg-ink4 cursor-not-allowed"
-                : "bg-brand hover:bg-brand-dark active:scale-90")
+                : "bg-brand shadow-[0_8px_16px_rgba(141,85,36,0.28)] hover:bg-brand-dark")
             }
           >
             <Plus size={18} className="text-white" />

@@ -68,7 +68,7 @@ export function CartDrawer() {
     >
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-ink/45 transition-opacity ${
+        className={`drawer-scrim absolute inset-0 bg-ink/45 backdrop-blur-[2px] ${
           isOpen ? "opacity-100" : "opacity-0"
         }`}
         onClick={closeDrawer}
@@ -78,7 +78,7 @@ export function CartDrawer() {
       <aside
         role="dialog"
         aria-label="Shopping cart"
-        className={`absolute inset-x-0 bottom-0 flex max-h-[90%] flex-col rounded-t-[26px] bg-card shadow-[0_-16px_40px_rgba(42,30,20,0.25)] transition-transform sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:shadow-[-8px_0_40px_rgba(42,30,20,0.18)] ${
+        className={`drawer-panel absolute inset-x-0 bottom-0 flex max-h-[90%] flex-col rounded-t-[26px] bg-card shadow-[0_-16px_40px_rgba(42,30,20,0.25)] sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:shadow-[-8px_0_40px_rgba(42,30,20,0.18)] ${
           isOpen
             ? "translate-y-0 sm:translate-x-0"
             : "translate-y-full sm:translate-y-0 sm:translate-x-full"
