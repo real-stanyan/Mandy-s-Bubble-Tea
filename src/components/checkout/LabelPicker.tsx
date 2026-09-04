@@ -22,7 +22,12 @@ import { DrawCanvas, BRUSHES, type BrushWidth } from "./cup-label/DrawCanvas";
 import {
   StickerPreview,
   artFor,
+  getCachedGallery,
+  loadGallery,
   useAiPreview,
+  useGalleryThumb,
+  type Gallery,
+  type GalleryItem,
   type StickerArt,
 } from "./cup-label/StickerPreview";
 import {
@@ -41,9 +46,6 @@ const MEMORY_STAMP_SENTINEL = MEMORY_STAMP_LABEL;
 // Visual language is the checkout's own — token colours, the card radius,
 // the eyebrow/hint hierarchy — so the dialog reads as part of the page it
 // opened from, not a stock component dropped on top of it.
-
-type GalleryItem = { hash: string; thumbUrl: string; source: "builtin" | "upload" };
-type Gallery = { presets: GalleryItem[] };
 
 export type LabelPickerCup = {
   itemName: string;
@@ -88,16 +90,6 @@ function initialTabFor(sel: CupLabelSelection | undefined): Tab {
   return "preset";
 }
 
-let galleryCache: Gallery | null = null;
-async function loadGallery(): Promise<Gallery> {
-  if (galleryCache) return galleryCache;
-  const res = await fetch("/api/cup-label/gallery");
-  if (!res.ok) throw new Error(`gallery fetch failed: ${res.status}`);
-  const data = (await res.json()) as Gallery;
-  galleryCache = data;
-  return data;
-}
-
 // One button vocabulary for the whole dialog. Primary is the page's dark
 // pill (bg-ink stays dark in Evening Mode, so cream text always reads);
 // ghost is the quiet bordered pill for undo / change / sign in.
@@ -136,7 +128,7 @@ export function LabelPicker({
   // would this look like" before the customer commits: the drawing as it
   // is drawn, the gallery tile under the pointer.
   const [draftPaths, setDraftPaths] = useState<SvgPath[]>([]);
-  const [hoverHash, setHoverHash] = useState<string | null>(null);
+  const [hoverItem, setHoverItem] = useState<GalleryItem | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -145,19 +137,16 @@ export function LabelPicker({
       setPhotoError(null);
       setPhotoBusy(false);
       setDraftPaths([]);
-      setHoverHash(null);
+      setHoverItem(null);
     }
   }, [open, current]);
 
   const aiPreviewUrl = useAiPreview(current?.kind === "ai" ? current.aiDoodleId : null);
+  const presetThumbUrl = useGalleryThumb(current?.kind === "preset" ? current.hash : null);
 
-  let art: StickerArt = artFor(current, aiPreviewUrl);
-  if (tab === "preset" && hoverHash) {
-    art = {
-      kind: "image",
-      src: `/cup-label/gallery/${hoverHash}/binarized.png`,
-      alt: "Gallery design",
-    };
+  let art: StickerArt = artFor(current, aiPreviewUrl, presetThumbUrl);
+  if (tab === "preset" && hoverItem) {
+    art = { kind: "image", src: hoverItem.thumbUrl, alt: "Gallery design" };
   } else if (tab === "draw" && draftPaths.length > 0) {
     art = { kind: "paths", paths: draftPaths };
   } else if (tab === "photo" && photoStaged) {
@@ -280,7 +269,7 @@ export function LabelPicker({
                 {tab === "preset" ? (
                   <GalleryTab
                     current={current?.kind === "preset" ? current.hash : undefined}
-                    onHover={setHoverHash}
+                    onHover={setHoverItem}
                     onSelect={(hash) => {
                       onSelect({ kind: "preset", hash });
                       onOpenChange(false);
@@ -345,10 +334,10 @@ function GalleryTab({
   onSelect,
 }: {
   current: string | undefined;
-  onHover: (hash: string | null) => void;
+  onHover: (item: GalleryItem | null) => void;
   onSelect: (hash: string) => void;
 }) {
-  const [gallery, setGallery] = useState<Gallery | null>(galleryCache);
+  const [gallery, setGallery] = useState<Gallery | null>(getCachedGallery);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (gallery) return;
@@ -375,15 +364,16 @@ function GalleryTab({
         className="grid grid-cols-3 gap-2.5 sm:max-h-[52vh] sm:grid-cols-4 sm:overflow-y-auto sm:pr-1"
         onMouseLeave={() => onHover(null)}
       >
-        {gallery.presets.map(({ hash, thumbUrl }) => {
+        {gallery.presets.map((item) => {
+          const { hash, thumbUrl } = item;
           const selected = hash === current;
           return (
             <button
               key={hash}
               type="button"
               onClick={() => onSelect(hash)}
-              onMouseEnter={() => onHover(hash)}
-              onFocus={() => onHover(hash)}
+              onMouseEnter={() => onHover(item)}
+              onFocus={() => onHover(item)}
               onBlur={() => onHover(null)}
               className={`relative aspect-square w-full overflow-hidden rounded-tile border bg-[#fff] p-1.5 transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-v)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
                 selected ? "border-brand ring-2 ring-brand/30" : "border-line"
