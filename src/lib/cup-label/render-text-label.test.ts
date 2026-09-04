@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderTextCupLabel, TEXT_LABEL_WIDTH_DOTS, TEXT_LABEL_HEIGHT_DOTS } from "./render-text-label";
 import { renderCupLabel } from "./render-zebra-cup";
+import { CUP_LABEL_PAPER_MODE } from "./label-mode";
 import { POOL } from "../doodle/pool";
 
 const base = {
@@ -177,9 +178,18 @@ describe("40x30 text-only cup label", () => {
     expect(out.previewPng[1]).toBe(0x50);
   });
 
-  it("renderCupLabel dispatches to the text layout while 40x30 paper mode is active", async () => {
+  it("renderCupLabel dispatches by the current paper mode", async () => {
+    // Mode is a deploy-time constant (label-mode.ts). Pin the dispatch to
+    // whichever mode is live so a paper swap flips this test with it rather
+    // than breaking it: text mode = 40x30 width, no raster; photo mode =
+    // the photo layout with its ^GFA raster.
     const out = await renderCupLabel({ ...base, doodleSvg: POOL[0].svg });
-    expect(out.zpl).toContain(`^PW${TEXT_LABEL_WIDTH_DOTS}`);
-    expect(out.zpl).not.toContain("^GFA");
+    if (CUP_LABEL_PAPER_MODE === "text-40x30") {
+      expect(out.zpl).toContain(`^PW${TEXT_LABEL_WIDTH_DOTS}`);
+      expect(out.zpl).not.toContain("^GFA");
+    } else {
+      expect(out.zpl).not.toContain(`^PW${TEXT_LABEL_WIDTH_DOTS}`);
+      expect(out.zpl).toContain("^GFA");
+    }
   });
 });
