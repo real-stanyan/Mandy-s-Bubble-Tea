@@ -135,7 +135,7 @@ function CategorySection({ section }: { section: MenuBrowserSection }) {
       </Reveal>
       <div className="mx-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:mx-0">
         {section.items.map((item, i) => (
-          <Reveal key={item.id} delay={(i % 6) * 60} scale className="flex">
+          <Reveal key={item.id} delay={(i % 6) * 60} scale className="flex min-w-0">
             <ProductCard item={item} />
           </Reveal>
         ))}

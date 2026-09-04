@@ -35,7 +35,7 @@ export function ProductCard({ item }: { item: ProductRowData }) {
         }
       }}
       className={
-        "group lift relative flex flex-col overflow-hidden rounded-card border border-line bg-paper shadow-card outline-none focus-visible:ring-2 focus-visible:ring-brand/60 " +
+        "group lift relative flex h-full w-full flex-col overflow-hidden rounded-card border border-line bg-paper shadow-card outline-none focus-visible:ring-2 focus-visible:ring-brand/60 " +
         (item.soldOut
           ? "opacity-55 cursor-default"
           : "cursor-pointer hover:border-brand/30 hover:shadow-[0_18px_40px_rgba(42,30,20,0.12)]")
