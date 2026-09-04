@@ -5,11 +5,9 @@ import Image from "next/image";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { BRAND } from "@/lib/constants";
 import { useCart, type CupLabelSelection } from "@/store/cart";
 import {
   uploadPhotoForCupLabel,
@@ -22,16 +20,37 @@ import {
 } from "@/lib/cup-label/client";
 import { DrawCanvas, BRUSHES, type BrushWidth } from "./cup-label/DrawCanvas";
 import {
+  StickerPreview,
+  artFor,
+  useAiPreview,
+  type StickerArt,
+} from "./cup-label/StickerPreview";
+import {
   MEMORY_STAMP_STYLE_ID,
   MEMORY_STAMP_LABEL,
 } from "@/lib/cup-label/stamp-style";
+import type { SvgPath } from "@/lib/doodle/render-svg";
 
 /** Cart-line label AND the client-side dedupe key for stamp submissions. */
 const MEMORY_STAMP_SENTINEL = MEMORY_STAMP_LABEL;
-import type { SvgPath } from "@/lib/doodle/render-svg";
+
+// The label picker is a small design studio for one cup: the printed
+// sticker on the left, live, and the four ways to fill it on the right.
+// Every source (gallery, drawing, AI, photo) feeds the same preview, so
+// "what will my cup look like" is answered before anything is committed.
+// Visual language is the checkout's own — token colours, the card radius,
+// the eyebrow/hint hierarchy — so the dialog reads as part of the page it
+// opened from, not a stock component dropped on top of it.
 
 type GalleryItem = { hash: string; thumbUrl: string; source: "builtin" | "upload" };
 type Gallery = { presets: GalleryItem[] };
+
+export type LabelPickerCup = {
+  itemName: string;
+  variationName: string;
+  cupIdx: number;
+  totalCups: number;
+};
 
 type LabelPickerProps = {
   open: boolean;
@@ -42,6 +61,10 @@ type LabelPickerProps = {
   cartSessionId: string;
   /** Whether the user is signed in — Photo/AI tabs gate on this. */
   isSignedIn: boolean;
+  /** The cup being labelled — drives the sticker preview's text. */
+  cup: LabelPickerCup | null;
+  /** First name for the sticker's "Hi, Stan" band; null → "Hi there". */
+  greetingName: string | null;
   current: CupLabelSelection | undefined;
   onSelect: (selection: CupLabelSelection) => void;
   /** Clear this cup's pick so it falls back to a random surprise lucky cat. */
@@ -50,11 +73,11 @@ type LabelPickerProps = {
 
 type Tab = "preset" | "draw" | "ai" | "photo";
 
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "preset", label: "🎨 Gallery" },
-  { key: "draw", label: "✏️ Draw" },
-  { key: "ai", label: "✨ AI" },
-  { key: "photo", label: "📷 Photo" },
+const TABS: Array<{ key: Tab; label: string; glyph: string }> = [
+  { key: "preset", label: "Gallery", glyph: "🎨" },
+  { key: "draw", label: "Draw", glyph: "✏️" },
+  { key: "ai", label: "AI", glyph: "✨" },
+  { key: "photo", label: "Photo", glyph: "📷" },
 ];
 
 function initialTabFor(sel: CupLabelSelection | undefined): Tab {
@@ -75,12 +98,25 @@ async function loadGallery(): Promise<Gallery> {
   return data;
 }
 
+// One button vocabulary for the whole dialog. Primary is the page's dark
+// pill (bg-ink stays dark in Evening Mode, so cream text always reads);
+// ghost is the quiet bordered pill for undo / change / sign in.
+const BTN_PRIMARY =
+  "inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-ink px-5 text-[13px] font-semibold text-cream transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:opacity-35";
+const BTN_GHOST =
+  "inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-line bg-card px-4 text-[12.5px] font-semibold text-ink2 transition hover:border-ink4 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line";
+const EYEBROW = "text-[11px] font-bold uppercase tracking-[0.14em] text-ink3";
+const FIELD =
+  "w-full rounded-tile border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink placeholder:text-ink4 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
+
 export function LabelPicker({
   open,
   onOpenChange,
   slotKey,
   cartSessionId,
   isSignedIn,
+  cup,
+  greetingName,
   current,
   onSelect,
   onClear,
@@ -96,117 +132,220 @@ export function LabelPicker({
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
+  // Not-yet-committed candidates, so the sticker preview answers "what
+  // would this look like" before the customer commits: the drawing as it
+  // is drawn, the gallery tile under the pointer.
+  const [draftPaths, setDraftPaths] = useState<SvgPath[]>([]);
+  const [hoverHash, setHoverHash] = useState<string | null>(null);
+
   useEffect(() => {
     if (open) {
       setTab(initialTabFor(current));
       setPhotoStaged(current?.kind === "photo" ? current : null);
       setPhotoError(null);
       setPhotoBusy(false);
+      setDraftPaths([]);
+      setHoverHash(null);
     }
   }, [open, current]);
 
+  const aiPreviewUrl = useAiPreview(current?.kind === "ai" ? current.aiDoodleId : null);
+
+  let art: StickerArt = artFor(current, aiPreviewUrl);
+  if (tab === "preset" && hoverHash) {
+    art = {
+      kind: "image",
+      src: `/cup-label/gallery/${hoverHash}/binarized.png`,
+      alt: "Gallery design",
+    };
+  } else if (tab === "draw" && draftPaths.length > 0) {
+    art = { kind: "paths", paths: draftPaths };
+  } else if (tab === "photo" && photoStaged) {
+    art = { kind: "image", src: photoStaged.previewUrl, alt: "Your photo" };
+  }
+
+  const greeting = greetingName ? `Hi, ${greetingName}` : "Hi there";
+  const cupFraction = cup && cup.totalCups > 1 ? `${cup.cupIdx + 1}/${cup.totalCups}` : "";
+  const cupChip = cup
+    ? `${cup.itemName}${cup.totalCups > 1 ? ` · Cup ${cup.cupIdx + 1} of ${cup.totalCups}` : ""}`
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Choose a label (optional)</DialogTitle>
-          <DialogDescription>
-            Totally optional — leave it and your cup gets a surprise lucky cat 🐱.
-            Or pick your own design below.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        // The primitive's `max-w-md` sorts after a bare `max-w-3xl` in the
+        // stylesheet, so the wide layout needs the variant to win.
+        className="gap-0 overflow-hidden p-0 sm:w-[calc(100%-2rem)] sm:max-w-[900px] max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none"
+        aria-describedby={undefined}
+      >
+        <div className="flex max-h-[92dvh] flex-col sm:max-h-[86vh]">
+          {/* Header */}
+          <div className="border-b border-line px-5 pb-4 pt-5 sm:px-6">
+            <p className={EYEBROW}>Cup label · optional</p>
+            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 pr-8">
+              <DialogTitle className="font-serif text-[22px] leading-none text-ink">
+                Make this cup yours
+              </DialogTitle>
+              {cupChip ? (
+                <span className="rounded-full bg-cream px-2.5 py-1 text-[11.5px] font-semibold text-brand">
+                  {cupChip}
+                </span>
+              ) : null}
+            </div>
+            <DialogDescription className="mt-1.5 text-[13px] leading-snug text-ink3">
+              Leave it for a surprise lucky cat 🐱, or put your own design on
+              the sticker — it prints exactly like the preview.
+            </DialogDescription>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            onClear();
-            onOpenChange(false);
-          }}
-          className="flex items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-sm transition hover:bg-zinc-50"
-          style={{ borderColor: BRAND.primaryColor }}
-        >
-          <span className="font-medium" style={{ color: BRAND.primaryColor }}>
-            🐱 Surprise me — random lucky cat
-          </span>
-          {current === undefined ? (
-            <span className="text-xs font-semibold text-zinc-500">✓ Current</span>
-          ) : null}
-        </button>
+          {/* Body */}
+          <div className="grid min-h-0 flex-1 overflow-y-auto sm:grid-cols-[232px_1fr]">
+            {/* The sticker, live. */}
+            <aside className="flex items-center gap-4 border-b border-line bg-bg/60 p-4 sm:flex-col sm:items-stretch sm:border-b-0 sm:border-r sm:p-5">
+              <div className="w-[104px] shrink-0 sm:mx-auto sm:w-[172px] sm:rotate-[-1.5deg]">
+                <StickerPreview
+                  art={art}
+                  greeting={greeting}
+                  cupFraction={cupFraction}
+                  itemName={cup?.itemName ?? "Your drink"}
+                  variationName={cup?.variationName ?? ""}
+                  className="text-[13px] sm:text-[16px]"
+                />
+              </div>
+              <div className="min-w-0 flex-1 sm:flex-none">
+                <p className="hidden text-center text-[11px] text-ink3 sm:block">
+                  Your sticker, to scale
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClear();
+                    onOpenChange(false);
+                  }}
+                  aria-pressed={current === undefined}
+                  className={`flex w-full items-center gap-2.5 rounded-tile border px-3 py-2.5 text-left transition sm:mt-3 ${
+                    current === undefined
+                      ? "border-brand bg-cream"
+                      : "border-line bg-card hover:border-ink4"
+                  }`}
+                >
+                  <span className="text-lg leading-none">🐱</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-ink">
+                      Surprise me
+                    </span>
+                    <span className="block text-[11px] text-ink3">
+                      A random lucky cat
+                    </span>
+                  </span>
+                  {current === undefined ? (
+                    <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      ✓
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+            </aside>
 
-        <div className="flex gap-1 rounded-lg bg-zinc-100 p-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition"
-              style={{
-                backgroundColor: tab === t.key ? "white" : "transparent",
-                color: tab === t.key ? BRAND.primaryColor : "#52525b",
-                boxShadow: tab === t.key ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
-              }}
-              aria-pressed={tab === t.key}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+            {/* The ways to fill it. */}
+            <div className="min-w-0 p-4 sm:p-5">
+              <div
+                role="tablist"
+                aria-label="Label source"
+                className="grid grid-cols-4 gap-1 rounded-full bg-bg2/70 p-1"
+              >
+                {TABS.map((t) => {
+                  const active = tab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setTab(t.key)}
+                      className={`flex h-9 items-center justify-center gap-1.5 rounded-full text-[12.5px] font-semibold transition ${
+                        active
+                          ? "bg-card text-brand shadow-[var(--shadow-card-v)]"
+                          : "text-ink3 hover:text-ink2"
+                      }`}
+                    >
+                      <span aria-hidden="true">{t.glyph}</span>
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-        <div className="mt-3">
-          {tab === "preset" ? (
-            <GalleryTab
-              current={current?.kind === "preset" ? current.hash : undefined}
-              onSelect={(hash) => {
-                onSelect({ kind: "preset", hash });
-                onOpenChange(false);
-              }}
-            />
-          ) : tab === "draw" ? (
-            <DrawTab
-              isSignedIn={isSignedIn}
-              slotKey={slotKey}
-              onSelect={(sel) => {
-                onSelect(sel);
-                onOpenChange(false);
-              }}
-            />
-          ) : tab === "photo" ? (
-            <PhotoTab
-              isSignedIn={isSignedIn}
-              staged={photoStaged}
-              setStaged={setPhotoStaged}
-              busy={photoBusy}
-              setBusy={setPhotoBusy}
-              error={photoError}
-              setError={setPhotoError}
-              onSelect={(sel) => {
-                onSelect(sel);
-                onOpenChange(false);
-              }}
-            />
-          ) : (
-            <AiTab
-              isSignedIn={isSignedIn}
-              slotKey={slotKey}
-              cartSessionId={cartSessionId}
-              current={current?.kind === "ai" ? current : undefined}
-              onSelect={(sel) => {
-                onSelect(sel);
-                onOpenChange(false);
-              }}
-            />
-          )}
+              <div className="mt-4">
+                {tab === "preset" ? (
+                  <GalleryTab
+                    current={current?.kind === "preset" ? current.hash : undefined}
+                    onHover={setHoverHash}
+                    onSelect={(hash) => {
+                      onSelect({ kind: "preset", hash });
+                      onOpenChange(false);
+                    }}
+                  />
+                ) : tab === "draw" ? (
+                  <DrawTab
+                    isSignedIn={isSignedIn}
+                    slotKey={slotKey}
+                    onPathsChange={setDraftPaths}
+                    onSelect={(sel) => {
+                      onSelect(sel);
+                      onOpenChange(false);
+                    }}
+                  />
+                ) : tab === "photo" ? (
+                  <PhotoTab
+                    isSignedIn={isSignedIn}
+                    staged={photoStaged}
+                    setStaged={setPhotoStaged}
+                    busy={photoBusy}
+                    setBusy={setPhotoBusy}
+                    error={photoError}
+                    setError={setPhotoError}
+                    onSelect={(sel) => {
+                      onSelect(sel);
+                      onOpenChange(false);
+                    }}
+                  />
+                ) : (
+                  <AiTab
+                    isSignedIn={isSignedIn}
+                    slotKey={slotKey}
+                    cartSessionId={cartSessionId}
+                    current={current?.kind === "ai" ? current : undefined}
+                    onSelect={(sel) => {
+                      onSelect(sel);
+                      onOpenChange(false);
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
+function ErrorLine({ children }: { children: React.ReactNode }) {
+  return (
+    <p role="alert" className="rounded-tile bg-red-50 px-3 py-2 text-[12.5px] text-red-700">
+      {children}
+    </p>
+  );
+}
+
 function GalleryTab({
   current,
+  onHover,
   onSelect,
 }: {
   current: string | undefined;
+  onHover: (hash: string | null) => void;
   onSelect: (hash: string) => void;
 }) {
   const [gallery, setGallery] = useState<Gallery | null>(galleryCache);
@@ -216,45 +355,59 @@ function GalleryTab({
     loadGallery().then(setGallery).catch((e) => setError(String(e)));
   }, [gallery]);
 
-  if (error) return <p className="text-sm text-red-600">Failed to load gallery: {error}</p>;
-  if (!gallery) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (error) return <ErrorLine>Failed to load gallery: {error}</ErrorLine>;
+  if (!gallery) {
+    return (
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4" aria-busy="true">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="aspect-square animate-pulse rounded-tile bg-bg2/60" />
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="grid max-h-[60vh] grid-cols-3 gap-3 overflow-y-auto p-1 sm:grid-cols-4 md:grid-cols-5">
-      {gallery.presets.map(({ hash, thumbUrl }) => {
-        const selected = hash === current;
-        return (
-          <button
-            key={hash}
-            type="button"
-            onClick={() => onSelect(hash)}
-            className="relative h-28 w-full overflow-hidden rounded-md border bg-white transition hover:shadow-md focus:outline-none focus:ring-2 sm:h-32 md:h-36"
-            style={{
-              borderColor: selected ? BRAND.primaryColor : "#e4e4e7",
-              borderWidth: selected ? 3 : 1,
-            }}
-            aria-label={`Select label ${hash.slice(0, 8)}`}
-            aria-pressed={selected}
-          >
-            <Image
-              src={thumbUrl}
-              alt=""
-              width={592}
-              height={592}
-              unoptimized
-              className="h-full w-full object-contain p-1"
-            />
-            {selected ? (
-              <span
-                className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-xs font-medium text-white"
-                style={{ backgroundColor: BRAND.primaryColor }}
-              >
-                ✓
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
+    <div>
+      <p className="mb-2.5 text-[12.5px] text-ink3">
+        Hand-drawn by us. Hover to try one on, tap to keep it.
+      </p>
+      <div
+        className="grid grid-cols-3 gap-2.5 sm:max-h-[52vh] sm:grid-cols-4 sm:overflow-y-auto sm:pr-1"
+        onMouseLeave={() => onHover(null)}
+      >
+        {gallery.presets.map(({ hash, thumbUrl }) => {
+          const selected = hash === current;
+          return (
+            <button
+              key={hash}
+              type="button"
+              onClick={() => onSelect(hash)}
+              onMouseEnter={() => onHover(hash)}
+              onFocus={() => onHover(hash)}
+              onBlur={() => onHover(null)}
+              className={`relative aspect-square w-full overflow-hidden rounded-tile border bg-[#fff] p-1.5 transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-v)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                selected ? "border-brand ring-2 ring-brand/30" : "border-line"
+              }`}
+              aria-label={`Select label ${hash.slice(0, 8)}`}
+              aria-pressed={selected}
+            >
+              <Image
+                src={thumbUrl}
+                alt=""
+                width={592}
+                height={592}
+                unoptimized
+                className="h-full w-full object-contain"
+              />
+              {selected ? (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  ✓
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -278,7 +431,7 @@ function PhotoTab({
   setError: (error: string | null) => void;
   onSelect: (sel: Extract<CupLabelSelection, { kind: "photo" }>) => void;
 }) {
-  if (!isSignedIn) return <SignInGate label="Photo" />;
+  if (!isSignedIn) return <SignInGate label="photo labels" />;
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -301,44 +454,66 @@ function PhotoTab({
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 p-2">
-      {staged ? (
-        <Image
-          src={staged.previewUrl}
-          alt="Your uploaded photo (binarised preview)"
-          width={400}
-          height={400}
-          unoptimized
-          className="h-64 w-64 rounded-md border border-zinc-200 object-contain"
-        />
-      ) : (
-        <div className="flex h-64 w-64 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500">
-          No photo selected
-        </div>
-      )}
+    <div className="flex flex-col gap-4">
+      <p className="text-[12.5px] text-ink3">
+        Pets, friends, a holiday snap. We turn it into crisp black-and-white
+        ink for the sticker — simple, high-contrast photos print best.
+      </p>
 
-      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium">
+      <label
+        className={`relative mx-auto flex aspect-square w-full max-w-[240px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-tile border-2 border-dashed transition ${
+          staged
+            ? "border-line bg-[#fff]"
+            : "border-line bg-bg/60 hover:border-brand hover:bg-cream"
+        } ${busy ? "pointer-events-none opacity-60" : ""}`}
+      >
         <input
           type="file"
           accept="image/*"
           onChange={handleFile}
           disabled={busy}
-          className="hidden"
+          className="sr-only"
         />
-        {busy ? "Uploading…" : staged ? "Choose different photo" : "Choose a photo"}
+        {staged ? (
+          <Image
+            src={staged.previewUrl}
+            alt="Your uploaded photo (binarised preview)"
+            fill
+            sizes="240px"
+            unoptimized
+            className="object-contain p-2"
+          />
+        ) : (
+          <>
+            <span className="text-3xl" aria-hidden="true">
+              📷
+            </span>
+            <span className="mt-2 text-[13px] font-semibold text-ink">
+              {busy ? "Uploading…" : "Choose a photo"}
+            </span>
+            <span className="mt-0.5 text-[11.5px] text-ink3">JPG, PNG or HEIC</span>
+          </>
+        )}
       </label>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <ErrorLine>{error}</ErrorLine> : null}
 
       {staged ? (
-        <button
-          type="button"
-          onClick={() => onSelect(staged)}
-          className="rounded-md px-4 py-2 text-sm font-medium text-white"
-          style={{ backgroundColor: BRAND.primaryColor }}
-        >
-          Use this photo
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <label className={`${BTN_GHOST} cursor-pointer`}>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFile}
+              disabled={busy}
+              className="sr-only"
+            />
+            {busy ? "Uploading…" : "Choose a different photo"}
+          </label>
+          <button type="button" onClick={() => onSelect(staged)} className={BTN_PRIMARY}>
+            Use this photo
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -367,7 +542,7 @@ function AiTab({
     current?.prompt === MEMORY_STAMP_SENTINEL,
   );
 
-  if (!isSignedIn) return <SignInGate label="AI" />;
+  if (!isSignedIn) return <SignInGate label="AI labels" />;
 
   const trimmed = stampMode ? MEMORY_STAMP_SENTINEL : prompt.trim();
   const overLimit = !stampMode && prompt.length > AI_PROMPT_MAX_LEN;
@@ -456,80 +631,80 @@ function AiTab({
       });
   }
 
+  const modeChip = (active: boolean) =>
+    `flex-1 rounded-full px-3 py-2 text-[12.5px] font-semibold transition ${
+      active
+        ? "border border-brand bg-cream text-brand"
+        : "border border-line bg-card text-ink2 hover:border-ink4"
+    }`;
+
   return (
-    <div className="flex flex-col gap-3 p-2">
+    <div className="flex flex-col gap-4">
       {/* Style switch: freeform prompting vs the curated Memory Stamp. */}
       <div className="flex gap-2">
         <button
           type="button"
           onClick={() => setStampMode(false)}
-          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-            !stampMode
-              ? "border-transparent text-white"
-              : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
-          }`}
-          style={!stampMode ? { backgroundColor: BRAND.primaryColor } : undefined}
+          aria-pressed={!stampMode}
+          className={modeChip(!stampMode)}
         >
           ✨ Describe it
         </button>
         <button
           type="button"
           onClick={() => setStampMode(true)}
-          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-            stampMode
-              ? "border-transparent text-white"
-              : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
-          }`}
-          style={stampMode ? { backgroundColor: BRAND.primaryColor } : undefined}
+          aria-pressed={stampMode}
+          className={modeChip(stampMode)}
         >
           🧧 Memory Stamp
         </button>
       </div>
 
       {stampMode ? (
-        <p className="text-xs leading-relaxed text-zinc-600">
+        <p className="text-[12.5px] leading-relaxed text-ink3">
           Upload a photo and we&apos;ll press its subject into a vintage
           ink-stamp keepsake — printed right on your cup. Pets, friends,
           holiday snaps all work; faces stay true.
         </p>
       ) : (
-        <>
-          <label className="text-sm font-medium">
+        <div>
+          <label htmlFor="ai-prompt" className={EYEBROW}>
             Describe your design
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              maxLength={AI_PROMPT_MAX_LEN + 50}
-              rows={3}
-              placeholder="e.g. two cats reading on a moon, line drawing"
-              className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm"
-            />
           </label>
-          <p
-            className="text-xs"
-            style={{ color: overLimit ? "#dc2626" : "#71717a" }}
-          >
-            {prompt.length}/{AI_PROMPT_MAX_LEN}
-          </p>
-        </>
+          <textarea
+            id="ai-prompt"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            maxLength={AI_PROMPT_MAX_LEN + 50}
+            rows={3}
+            placeholder="e.g. two cats reading on a moon, line drawing"
+            className={`${FIELD} mt-1.5 resize-none`}
+          />
+          <div className="mt-1 flex items-center justify-between text-[11.5px]">
+            <span className="text-ink3">Printed in black ink — simple shapes come out best.</span>
+            <span className={overLimit ? "font-semibold text-red-600" : "text-ink4"}>
+              {prompt.length}/{AI_PROMPT_MAX_LEN}
+            </span>
+          </div>
+        </div>
       )}
 
-      <div className="flex items-center gap-3 self-start">
+      <div className="flex items-center gap-3">
         {refDataUri ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={refDataUri}
             alt="Reference image preview"
-            className="h-16 w-16 rounded-md border border-zinc-200 object-cover"
+            className="h-14 w-14 shrink-0 rounded-tile border border-line object-cover"
           />
         ) : null}
-        <div className="flex flex-col gap-1">
-          <label className="flex cursor-pointer items-center gap-2 self-start rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-zinc-50">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={`${BTN_GHOST} cursor-pointer`}>
             <input
               type="file"
               accept="image/*"
               onChange={handleRefFile}
-              className="hidden"
+              className="sr-only"
             />
             📎{" "}
             {refDataUri
@@ -544,7 +719,7 @@ function AiTab({
             <button
               type="button"
               onClick={() => setRefDataUri(null)}
-              className="self-start text-xs text-zinc-500 underline hover:text-red-600"
+              className="text-[12px] font-medium text-ink3 underline underline-offset-2 hover:text-red-600"
             >
               Remove
             </button>
@@ -552,17 +727,21 @@ function AiTab({
         </div>
       </div>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <ErrorLine>{error}</ErrorLine> : null}
 
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={!canSubmit}
-        className="self-end rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        Generate
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11.5px] text-ink3">
+          Takes about half a minute — you can keep checking out meanwhile.
+        </p>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={!canSubmit}
+          className={BTN_PRIMARY}
+        >
+          ✨ Generate
+        </button>
+      </div>
     </div>
   );
 }
@@ -570,18 +749,22 @@ function AiTab({
 function DrawTab({
   isSignedIn,
   slotKey,
+  onPathsChange,
   onSelect,
 }: {
   isSignedIn: boolean;
   slotKey: string;
+  /** Mirrors the strokes up to the picker so the sticker preview draws
+   *  along. */
+  onPathsChange: (paths: SvgPath[]) => void;
   onSelect: (sel: Extract<CupLabelSelection, { kind: "draw" }>) => void;
 }) {
-  const [paths, setPaths] = useState<SvgPath[]>([]);
+  const [paths, setPathsState] = useState<SvgPath[]>([]);
   const [brush, setBrush] = useState<BrushWidth>(6);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!isSignedIn) return <SignInGate label="Draw" />;
+  if (!isSignedIn) return <SignInGate label="drawn labels" />;
 
   // Force a fresh canvas whenever the user picks a different cup —
   // otherwise the prior cup's strokes bleed in via shared state.
@@ -592,6 +775,11 @@ function DrawTab({
   // the React `key` on the canvas would force a remount on slot
   // change. The LabelPicker reopens the dialog per cup so slotKey is
   // stable for the lifetime of this component.
+
+  function setPaths(next: SvgPath[]) {
+    setPathsState(next);
+    onPathsChange(next);
+  }
 
   function handleUndo() {
     if (paths.length === 0) return;
@@ -625,12 +813,10 @@ function DrawTab({
   void _slotKey;
 
   return (
-    <div className="flex flex-col gap-3 p-2">
-      <DrawCanvas paths={paths} brushWidth={brush} onPathsChange={setPaths} />
-
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500">Brush</span>
+          <span className={EYEBROW}>Brush</span>
           {BRUSHES.map((w) => {
             const active = brush === w;
             return (
@@ -638,30 +824,26 @@ function DrawTab({
                 key={w}
                 type="button"
                 onClick={() => setBrush(w)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border transition"
-                style={{
-                  borderColor: active ? BRAND.primaryColor : "#d4d4d8",
-                  borderWidth: active ? 2 : 1,
-                  backgroundColor: active ? "#fff" : "#fafafa",
-                }}
+                className={`flex h-9 w-9 items-center justify-center rounded-full border bg-card transition ${
+                  active ? "border-2 border-brand" : "border-line hover:border-ink4"
+                }`}
                 aria-pressed={active}
                 aria-label={`Brush size ${w}`}
               >
                 <span
-                  className="inline-block rounded-full bg-black"
-                  style={{ width: w, height: w }}
+                  className="inline-block rounded-full bg-ink"
+                  style={{ width: w + 2, height: w + 2 }}
                 />
               </button>
             );
           })}
         </div>
-
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleUndo}
             disabled={paths.length === 0 || busy}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+            className={BTN_GHOST}
           >
             Undo
           </button>
@@ -669,37 +851,50 @@ function DrawTab({
             type="button"
             onClick={handleClear}
             disabled={paths.length === 0 || busy}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+            className={BTN_GHOST}
           >
             Clear
           </button>
         </div>
       </div>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      <div className="mx-auto w-full max-w-[360px]">
+        <DrawCanvas paths={paths} brushWidth={brush} onPathsChange={setPaths} />
+      </div>
 
-      <button
-        type="button"
-        onClick={handleUse}
-        disabled={paths.length === 0 || busy}
-        className="self-end rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
-        {busy ? "Saving…" : "Use this drawing"}
-      </button>
+      {error ? <ErrorLine>{error}</ErrorLine> : null}
+
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11.5px] text-ink3">
+          {paths.length === 0
+            ? "Draw with a finger, mouse or pen. It prints in black ink."
+            : "Watch it land on the sticker as you go."}
+        </p>
+        <button
+          type="button"
+          onClick={handleUse}
+          disabled={paths.length === 0 || busy}
+          className={BTN_PRIMARY}
+        >
+          {busy ? "Saving…" : "Use this drawing"}
+        </button>
+      </div>
     </div>
   );
 }
 
 function SignInGate({ label }: { label: string }) {
   return (
-    <div className="rounded-md border border-dashed border-zinc-300 p-4 text-sm text-zinc-600">
-      <p>Sign in to use {label}.</p>
-      <a
-        href="/account"
-        className="mt-2 inline-block rounded-md px-3 py-1.5 text-xs font-medium text-white"
-        style={{ backgroundColor: BRAND.primaryColor }}
-      >
+    <div className="flex flex-col items-center rounded-tile border border-dashed border-line bg-bg/60 px-5 py-8 text-center">
+      <span className="text-2xl" aria-hidden="true">
+        🔒
+      </span>
+      <p className="mt-2 text-[14px] font-semibold text-ink">Sign in for {label}</p>
+      <p className="mt-1 max-w-[280px] text-[12.5px] text-ink3">
+        Your designs are saved to your account so they print on the right cup
+        — and so we can find them again for you.
+      </p>
+      <a href="/account" className={`${BTN_PRIMARY} mt-4`}>
         Sign in
       </a>
     </div>
