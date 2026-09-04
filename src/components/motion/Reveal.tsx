@@ -39,6 +39,14 @@ export function Reveal({
       el.dataset.reveal = "in";
       return;
     }
+    // Anything already on screen at mount reveals straight away rather
+    // than waiting on the observer's first delivery — which a background
+    // tab defers until it is fronted, leaving the fold blank meanwhile.
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 1.05 && rect.bottom > 0) {
+      el.dataset.reveal = "in";
+      return;
+    }
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
