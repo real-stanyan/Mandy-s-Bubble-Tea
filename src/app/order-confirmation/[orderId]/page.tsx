@@ -12,6 +12,7 @@ import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
 import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
 import { OrderStatusHero, type FulfillmentState } from "./OrderStatusHero";
+import { OrderPlacedCelebration } from "./OrderPlacedCelebration";
 import { ScheduledPickupCard } from "./ScheduledPickupCard";
 import { brisbaneClockLabel } from "@/lib/pickup-schedule";
 import { isStickerHeld } from "@/lib/print-jobs";
@@ -253,8 +254,9 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+      <OrderPlacedCelebration orderId={orderId} orderNumber={pickupNumber} />
       {/* Header */}
-      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+      <div className="rise rise-1 mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-brand">
             Order {pickupNumber}
@@ -277,6 +279,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           {/* One order = one card: the order number + live status share a single
               shell (rendered inside OrderStatusHero), then takes over the screen
               for out-for-delivery. */}
+          <div className="rise rise-2">
           <OrderStatusHero
             orderId={orderId}
             initialState={initialState}
@@ -287,6 +290,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             etaText={waitText}
             initialHeld={initialHeld}
           />
+          </div>
 
           {scheduledPickupLabel ? (
             <ScheduledPickupCard
@@ -296,7 +300,7 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
           ) : null}
 
           {/* Items */}
-          <div className="rounded-card border border-line bg-card p-2 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
+          <div className="rise rise-3 rounded-card border border-line bg-card p-2 shadow-[0_2px_8px_rgba(42,30,20,0.05)]">
             <h2 className="px-3.5 pb-2 pt-3 font-serif text-[18px] font-semibold text-ink">
               Items
             </h2>

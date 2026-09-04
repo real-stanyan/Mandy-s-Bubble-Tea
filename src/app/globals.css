@@ -710,3 +710,66 @@ html[data-motion] [data-reveal="in"] {
   .lift:hover, .press:hover, .press:active, .lift:active, .cat-link:hover { transform: none; }
   .group:hover .zoom-media img { transform: none; }
 }
+
+/* ===== Motion pass 2 (2026-09-04) ===== */
+
+/* Item sheet: scrim fades, card slides up from the fold (desktop: rises
+   a touch with a scale). Exit is the route popping — no animation. */
+@keyframes mbt-sheet-in {
+  from { opacity: 0; transform: translateY(28px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.modal-scrim-in { animation: mbt-fade-in 240ms ease-out both; }
+.modal-card-in { animation: mbt-sheet-in 460ms var(--ease-out-expo) both; }
+
+/* Order placed: the toast blooms in, the check inside it pops a beat
+   later, and the whole layer fades out at the end of its run. */
+@keyframes mbt-celebrate-layer {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  82%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes mbt-check-pop {
+  0%   { transform: scale(0.4); }
+  55%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.celebrate-layer { animation: mbt-celebrate-layer 2400ms ease-in-out both; }
+.celebrate-toast { animation: mbt-bloom 560ms var(--ease-out-expo) both; }
+.celebrate-check { animation: mbt-check-pop 520ms var(--ease-spring) 180ms both; }
+
+/* Mobile tab bar: one indicator pill slides between the four columns
+   (the nav is a 4-column grid, so 100% of the pill width = one tab);
+   the icon it lands on pops. */
+.tab-indicator {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 25%;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: transform 460ms var(--ease-spring);
+}
+.tab-indicator-pill {
+  width: 46px;
+  height: 30px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+@keyframes mbt-tab-pop {
+  0%   { transform: scale(0.82); }
+  60%  { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.tab-icon-active { animation: mbt-tab-pop 380ms var(--ease-spring) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim-in, .modal-card-in, .celebrate-toast, .celebrate-check, .tab-icon-active {
+    animation: none !important;
+  }
+  .celebrate-layer { animation-duration: 1400ms; }
+  .tab-indicator { transition: none; }
+}

@@ -944,6 +944,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       // this one.
       clearOrderNonce();
       clear();
+      // Tells the confirmation page to celebrate this one arrival (and never again).
+      try { sessionStorage.setItem("mbt-just-placed", orderJson.orderId); } catch {}
       router.push(`/order-confirmation/${orderJson.orderId}`);
     } catch (err) {
       const described = describeError(err);
@@ -972,6 +974,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
       if (createdOrderId && /already\s+(been\s+)?paid/i.test(described.message)) {
         clearOrderNonce();
         clear();
+        try { sessionStorage.setItem("mbt-just-placed", createdOrderId); } catch {}
         router.push(`/order-confirmation/${createdOrderId}`);
         return;
       }

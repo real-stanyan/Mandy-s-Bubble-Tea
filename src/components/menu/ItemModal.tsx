@@ -36,7 +36,7 @@ export function ItemModal({ children }: { children: React.ReactNode }) {
         type="button"
         aria-label="Close"
         onClick={close}
-        className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
+        className="modal-scrim-in absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
       />
       {/* card — the card itself does NOT scroll, the body inside it does.
           Close used to be absolutely positioned inside the scroll container,
@@ -53,7 +53,7 @@ export function ItemModal({ children }: { children: React.ReactNode }) {
       <div
         role="dialog"
         aria-modal="true"
-        className="relative z-[1] flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-[24px] bg-card shadow-[0_30px_80px_rgba(42,30,20,0.4)] supports-[height:100dvh]:max-h-[calc(100dvh-2.5rem)] sm:max-h-[90vh] sm:supports-[height:100dvh]:max-h-[90dvh]"
+        className="modal-card-in relative z-[1] flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-[24px] bg-card shadow-[0_30px_80px_rgba(42,30,20,0.4)] supports-[height:100dvh]:max-h-[calc(100dvh-2.5rem)] sm:max-h-[90vh] sm:supports-[height:100dvh]:max-h-[90dvh]"
       >
         <button
           type="button"
