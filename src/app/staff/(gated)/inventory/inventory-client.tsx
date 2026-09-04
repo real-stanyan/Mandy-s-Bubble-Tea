@@ -64,6 +64,8 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
   const [newItem, setNewItem] = useState({ name: "", category: "", unit: "", qty: "", threshold: "" });
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [peekStale, setPeekStale] = useState(false);
+  const [shopOnlyOpen, setShopOnlyOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
@@ -71,6 +73,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
     const order: string[] = [];
     const byCat = new Map<string, InventoryRow[]>();
     for (const r of view.rows) {
+      if (!r.inWarehouse) continue;
       if (!byCat.has(r.category)) {
         byCat.set(r.category, []);
         order.push(r.category);
@@ -81,8 +84,20 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
   }, [view.rows]);
 
   const low = view.rows.filter((r) => r.low);
-  const suggested = view.rows.filter((r) => r.suggestion.bring > 0);
-  const pickRows = showAllPick ? view.rows.filter((r) => r.hasShopCount) : suggested;
+  const shopOnlyRows = view.rows.filter((r) => !r.inWarehouse);
+  // Warehouse items first, then what has to be bought — the run goes past
+  // the warehouse before the shops.
+  const byKind = (a: InventoryRow, b: InventoryRow) =>
+    a.kind === b.kind ? 0 : a.kind === "warehouse" ? -1 : 1;
+  const suggested = view.rows.filter((r) => r.suggestion.bring > 0).sort(byKind);
+  const pickRows = showAllPick ? view.rows.filter((r) => r.hasShopCount).sort(byKind) : suggested;
+  const pickTotals = {
+    warehouse: suggested.filter((r) => r.kind === "warehouse").length,
+    buy: suggested.filter((r) => r.kind === "buy").length,
+  };
+  // The list is computed from today's count, so it waits for it. Stan can
+  // peek at the previous count's answer, clearly labelled as such.
+  const listReady = view.countedToday || peekStale;
 
   const dirtyIds = view.rows.filter((r) => {
     const d = draft[r.id];
@@ -168,9 +183,18 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
   }
 
   async function deleteItem(r: InventoryRow) {
-    if (!window.confirm(`Remove "${r.name}" from the inventory?`)) return;
+    const msg = r.hasShopCount
+      ? `Take "${r.name}" out of the warehouse? It stays on the pickup list as something to buy.`
+      : `Remove "${r.name}" from the inventory?`;
+    if (!window.confirm(msg)) return;
     if (await call({ action: "delete-item", id: r.id }, `delete-${r.id}`)) {
-      setNotice({ tone: "ok", text: `Removed ${r.name}.` });
+      setNotice({ tone: "ok", text: r.hasShopCount ? `${r.name} is now bought as needed.` : `Removed ${r.name}.` });
+    }
+  }
+
+  async function trackItem(r: InventoryRow) {
+    if (await call({ action: "track-item", id: r.id }, `track-${r.id}`)) {
+      setNotice({ tone: "ok", text: `${r.name} is back in the warehouse — set its quantity below.` });
     }
   }
 
@@ -283,11 +307,30 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
           </button>
         </div>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Enough for the shop to last {view.coverDays} days at its measured usage. Edit a number
-          if you take more or less, then confirm — the warehouse goes down by what you took.
+          Computed from today&apos;s stock check: enough for the shop to last {view.coverDays} days
+          at its measured usage. Warehouse items first, then what to buy. Edit a number if you take
+          more or less, then confirm — the warehouse goes down by what you took.
         </p>
 
-        {view.todaysPickups.length > 0 && (
+        {!view.countedToday && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+            Today&apos;s stock check hasn&apos;t come in yet
+            {view.lastShopCountDate ? ` (last one: ${view.lastShopCountDate})` : ""}. The list
+            appears once staff submit it.{" "}
+            <button type="button" onClick={() => setPeekStale((v) => !v)} className="underline">
+              {peekStale ? "Hide the preview" : "Preview using the last count"}
+            </button>
+          </div>
+        )}
+
+        {listReady && suggested.length > 0 && (
+          <p className="mt-3 text-sm font-medium">
+            {suggested.length} item{suggested.length === 1 ? "" : "s"} today · {pickTotals.warehouse} from
+            the warehouse · {pickTotals.buy} to buy
+          </p>
+        )}
+
+        {listReady && view.todaysPickups.length > 0 && (
           <p className="mt-2 text-xs text-zinc-500">
             Already recorded today:{" "}
             {view.todaysPickups
@@ -297,7 +340,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
           </p>
         )}
 
-        {pickRows.length === 0 ? (
+        {!listReady ? null : pickRows.length === 0 ? (
           <p className="mt-3 rounded-lg border border-zinc-200 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
             {suggested.length === 0 && view.rows.every((r) => r.usagePerDay == null)
               ? "No usage figures yet. Usage is measured from consecutive stock checks — after tomorrow's count the first numbers appear. To start now, import past report emails below, or type a daily usage in the table."
@@ -316,11 +359,24 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
               return (
                 <li key={r.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-2">
                   <div className="min-w-0">
-                    <div className="truncate font-medium">{r.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{r.name}</span>
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                          r.kind === "buy"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100"
+                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {r.kind === "buy" ? "buy" : "warehouse"}
+                      </span>
+                    </div>
                     <div className="truncate text-xs text-zinc-500">
                       {REASON_LABEL[r.suggestion.reason]}
                       {r.shopCoverDays != null ? ` · shop lasts ${fmt(r.shopCoverDays)} d` : ""}
-                      {r.qty != null ? ` · warehouse ${fmt(r.qty, 2)}${r.unit ? ` ${r.unit}` : ""}` : ""}
+                      {r.kind === "warehouse" && r.qty != null
+                        ? ` · warehouse ${fmt(r.qty, 2)}${r.unit ? ` ${r.unit}` : ""}`
+                        : ""}
                     </div>
                   </div>
                   <span className="w-16 text-right text-sm tabular-nums">{r.shop ? fmt(r.shop.qty, 2) : "—"}</span>
@@ -338,7 +394,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
           </ul>
         )}
 
-        {pickRows.length > 0 && (
+        {listReady && pickRows.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <input
               value={pickBy}
@@ -521,6 +577,40 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
             </ul>
           </div>
         ))}
+
+        {shopOnlyRows.length > 0 && (
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setShopOnlyOpen((v) => !v)}
+              className="text-sm font-semibold underline-offset-2 hover:underline"
+            >
+              {shopOnlyOpen ? "▾" : "▸"} Bought as needed, not kept in the warehouse ({shopOnlyRows.length})
+            </button>
+            {shopOnlyOpen && (
+              <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
+                {shopOnlyRows.map((r) => (
+                  <li key={r.id} className="flex items-center gap-3 py-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate">
+                      {r.name}
+                      <span className="ml-2 text-xs text-zinc-500">
+                        {r.usagePerDay != null ? `${fmt(r.usagePerDay, 2)}/d` : "no usage yet"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => trackItem(r)}
+                      disabled={busy !== null}
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                    >
+                      Keep in warehouse
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div className="mt-6 rounded-lg border border-dashed border-zinc-300 p-3 dark:border-zinc-700">
           <h3 className="text-sm font-semibold">Add an item</h3>

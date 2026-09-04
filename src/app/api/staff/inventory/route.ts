@@ -11,6 +11,7 @@ import {
   patchItems,
   removeItem,
   setCoverDays,
+  trackItem,
   type ItemPatch,
   type PickupLine,
 } from "@/lib/staff/inventory";
@@ -24,6 +25,7 @@ type Body =
   | { action: "patch-items"; items: ItemPatch[] }
   | { action: "add-item"; name: string; category: string; unit?: string; qty?: number | null; threshold?: number | null }
   | { action: "delete-item"; id: string }
+  | { action: "track-item"; id: string }
   | { action: "confirm-pickup"; lines: PickupLine[]; by?: string }
   | { action: "set-cover-days"; coverDays: number }
   | { action: "import-reports"; text: string };
@@ -62,7 +64,10 @@ export async function POST(request: Request) {
       break;
     }
     case "delete-item":
-      next = removeItem(state, String(body.id));
+      next = removeItem(state, String(body.id), now);
+      break;
+    case "track-item":
+      next = trackItem(state, String(body.id), now);
       break;
     case "confirm-pickup":
       next = applyPickup(state, Array.isArray(body.lines) ? body.lines : [], today, body.by?.trim() || null, now);

@@ -3,13 +3,16 @@ import {
   addItem,
   applyPickup,
   buildView,
+  ensureShopLines,
   estimateUsage,
   patchItems,
   recordShopCount,
+  removeItem,
   seedState,
   shopCountFromRaw,
   shopOnHand,
   suggestPickup,
+  trackItem,
   type PickupRecord,
   type ShopCount,
 } from "./inventory";
@@ -152,6 +155,25 @@ describe("state transitions", () => {
     expect(s.items.some((i) => i.id === "ghost")).toBe(false);
   });
 
+  it("removeItem keeps a stock line as a shop-only row and drops a custom item", () => {
+    let s = seedState(NOW);
+    s = addItem(s, { name: "Pearls", category: "Topping" }, NOW).state;
+    s = removeItem(s, "other-fresh-milk", NOW);
+    s = removeItem(s, "custom-pearls", NOW);
+    const milk = s.items.find((i) => i.id === "other-fresh-milk")!;
+    expect(milk).toMatchObject({ inWarehouse: false, qty: null, threshold: null });
+    expect(s.items.some((i) => i.id === "custom-pearls")).toBe(false);
+    expect(trackItem(s, "other-fresh-milk", NOW).items.find((i) => i.id === "other-fresh-milk")?.inWarehouse).toBe(true);
+  });
+
+  it("ensureShopLines brings back numeric stock lines that were deleted outright", () => {
+    const s = seedState(NOW);
+    const gutted = { ...s, items: s.items.filter((i) => i.id !== "other-banana" && i.id !== "packaging-cups") };
+    const { state, added } = ensureShopLines(gutted, NOW);
+    expect(added).toBe(1); // banana yes, cups no (sufficiency, no number)
+    expect(state.items.find((i) => i.id === "other-banana")).toMatchObject({ inWarehouse: false, hasShopCount: true });
+  });
+
   it("addItem creates a custom id and avoids collisions", () => {
     const a = addItem(seedState(NOW), { name: "Brown Sugar Pearls", category: "Topping", qty: 12 }, NOW);
     const b = addItem(a.state, { name: "Brown Sugar Pearls", category: "Topping" }, NOW);
@@ -174,5 +196,22 @@ describe("buildView", () => {
     expect(mango.usageSource).toBe("override");
     expect(mango.suggestion).toEqual({ bring: 7, reason: "topup" }); // 3×3 − 2
     expect(v.rows.find((r) => r.id === "syrup-lychee")?.low).toBe(true); // 48 ≤ 50
+    expect(v.countedToday).toBe(false);
+    expect(buildView(s, "2026-09-04").countedToday).toBe(true);
+  });
+
+  it("a shop-only item is suggested as 'buy' with no warehouse cap", () => {
+    let s = seedState(NOW);
+    s = removeItem(s, "other-fresh-milk", NOW);
+    s = recordShopCount(s, { date: "2026-09-03", counts: { "other-fresh-milk": 20 } });
+    s = recordShopCount(s, { date: "2026-09-04", counts: { "other-fresh-milk": 8 } });
+    const milk = buildView(s, "2026-09-04").rows.find((r) => r.id === "other-fresh-milk")!;
+    expect(milk.kind).toBe("buy");
+    expect(milk.usagePerDay).toBe(12);
+    expect(milk.suggestion).toEqual({ bring: 28, reason: "topup" }); // 12×3 − 8, uncapped
+    // Confirming it logs the line but there is no warehouse figure to reduce.
+    const after = applyPickup(s, [{ id: "other-fresh-milk", qty: 28 }], "2026-09-04", null, NOW);
+    expect(after.pickups[0].lines).toEqual([{ id: "other-fresh-milk", qty: 28 }]);
+    expect(after.items.find((i) => i.id === "other-fresh-milk")?.qty).toBeNull();
   });
 });
