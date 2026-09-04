@@ -5,25 +5,31 @@ import { kitchenLoadFor, type KitchenLoad } from "@/lib/kitchen-load";
 // The kitchen's queue right now, in cups — the input to the ASAP estimate
 // (see kitchen-load.ts for the brackets).
 //
-// What counts as "in the queue": every order at the shop — web, App and
-// POS alike, because the barista makes them all from the same bench —
-// created in the last LOOKBACK window, still OPEN, whose fulfillment
-// hasn't reached PREPARED (ready) or COMPLETED / CANCELED. A drink that is
-// already on the counter isn't ahead of the new customer; a drink whose
-// ticket hasn't printed yet is.
+// Square's order state is no use for this: the POS completes a walk-in the
+// moment it's paid, and the register marks online pickups COMPLETED just
+// as fast (2026-09-04 lunch: all 30 orders of the previous 90 minutes were
+// COMPLETED / fulfillment COMPLETED while the bench was clearly working).
+// A first cut that counted OPEN orders therefore read "quiet, 0 cups" all
+// day. So busyness is measured as cups ORDERED in the last LOOKBACK
+// window, across every channel — web, App and POS share one bench. The
+// window encodes a throughput assumption of roughly a cup a minute: a cup
+// ordered ten minutes ago is on the counter; the ones from the last few
+// minutes are not. Tune LOOKBACK_MS / the brackets together if the floor
+// says the estimates run hot or cold.
 //
-// The lookback is the honest ceiling on how long a not-yet-ready order
-// can plausibly still be on the bench. Past it, an OPEN/PROPOSED order is
-// almost always a stale one Square never closed (self-delivery keeps
-// state OPEN forever, see history route) — counting those would pin the
-// estimate at "busy" all day.
+// Scheduled pickups are held back by the print queue until shortly before
+// their time, so one booked for an hour ahead isn't on the bench yet and
+// isn't counted until it is. (A scheduled order created before the window
+// but being made now is missed — rare, and the brackets are coarse.)
 //
 // Cached for CACHE_TTL_MS: /api/store-status is polled every 30s by every
 // open checkout, and one Square search per 30s per instance is plenty.
 // Failure is null, never a guess — the caller shows the middle bracket.
-const LOOKBACK_MS = 20 * 60 * 1000;
+const LOOKBACK_MS = 10 * 60 * 1000;
+/** How far ahead of pickupAt a scheduled ticket is released to the bench
+ *  — the print queue's make lead. */
+const SCHEDULED_RELEASE_MS = 5 * 60 * 1000;
 const CACHE_TTL_MS = 30_000;
-const DONE_STATES = new Set(["PREPARED", "COMPLETED", "CANCELED", "FAILED"]);
 
 let cache: { value: KitchenLoad | null; fetchedAt: number } | null = null;
 
@@ -40,7 +46,6 @@ export async function countPendingCups(now: Date = new Date()): Promise<number |
       limit: 100,
       query: {
         filter: {
-          stateFilter: { states: ["OPEN"] },
           dateTimeFilter: {
             createdAt: { startAt: new Date(now.getTime() - LOOKBACK_MS).toISOString() },
           },
@@ -50,8 +55,14 @@ export async function countPendingCups(now: Date = new Date()): Promise<number |
     });
     let cups = 0;
     for (const order of res.orders ?? []) {
-      const state = order.fulfillments?.[0]?.state ?? "PROPOSED";
-      if (DONE_STATES.has(state)) continue;
+      if (order.state === "CANCELED" || order.state === "DRAFT") continue;
+      const fulfillment = order.fulfillments?.[0];
+      if (fulfillment?.state === "CANCELED" || fulfillment?.state === "FAILED") continue;
+      const pickup = fulfillment?.pickupDetails;
+      if (pickup?.scheduleType === "SCHEDULED" && pickup.pickupAt) {
+        const at = Date.parse(pickup.pickupAt);
+        if (Number.isFinite(at) && at - now.getTime() > SCHEDULED_RELEASE_MS) continue;
+      }
       for (const li of order.lineItems ?? []) {
         // Custom-amount / non-catalog lines aren't drinks.
         if (li.itemType && li.itemType !== "ITEM") continue;
