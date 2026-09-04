@@ -12,7 +12,12 @@ export function StaffNav({ role }: { role: StaffRole }) {
   const links = [
     { href: "/staff", label: "Stock check" },
     { href: "/staff/help", label: "Ask for help" },
-    ...(role === "owner" ? [{ href: "/staff/roster", label: "Roster" }] : []),
+    ...(role === "owner"
+      ? [
+          { href: "/staff/inventory", label: "Inventory" },
+          { href: "/staff/roster", label: "Roster" },
+        ]
+      : []),
   ];
 
   return (
