@@ -3,6 +3,7 @@ import { COMPLAINT_TO_EMAIL } from "@/lib/email/resend";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { hasAtLeast } from "@/lib/staff/auth";
 import { writeLastCount } from "@/lib/staff/stock-history-store";
+import { recordShopCountFromCheck } from "@/lib/staff/inventory-store";
 import {
   applyThresholds,
   buildReport,
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
   // the window was lost because the text only ever lived in an email. A failed
   // write is logged inside and never blocks the report.
   await writeLastCount(raw, now);
+  // The same numbers feed the warehouse inventory: consecutive counts are how
+  // it measures what the shop uses per day (see lib/staff/inventory.ts).
+  await recordShopCountFromCheck(raw, now);
 
   const outcome = await sendTransactionalEmail("stock-check", {
     from: FROM,
