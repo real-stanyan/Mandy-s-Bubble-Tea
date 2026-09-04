@@ -22,7 +22,7 @@ export type CupLabelPaperMode = "text-40x30" | "photo-50x80";
 // Indirection through a function keeps TS from narrowing the const to
 // its literal, which would make the flag comparison below a type error.
 function currentPaperMode(): CupLabelPaperMode {
-  return "text-40x30";
+  return "photo-50x80";
 }
 
 export const CUP_LABEL_PAPER_MODE: CupLabelPaperMode = currentPaperMode();
