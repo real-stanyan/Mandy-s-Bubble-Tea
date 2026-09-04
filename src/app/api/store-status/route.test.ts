@@ -13,6 +13,10 @@ vi.mock("@/lib/store-status-server", async () => {
   };
 });
 
+// kitchen-load-server reaches for the Square client at module scope.
+const { getKitchenLoad } = vi.hoisted(() => ({ getKitchenLoad: vi.fn() }));
+vi.mock("@/lib/kitchen-load-server", () => ({ getKitchenLoad }));
+
 import {
   getEffectiveOrderingStatus,
   getDeliveryPause,
@@ -25,6 +29,8 @@ describe("GET /api/store-status", () => {
     vi.mocked(isDeliveryEnabled).mockReset();
     vi.mocked(getDeliveryPause).mockReset();
     vi.mocked(getDeliveryPause).mockResolvedValue(null);
+    getKitchenLoad.mockReset();
+    getKitchenLoad.mockResolvedValue(null);
   });
 
   it("returns effective status JSON with the live delivery flag", async () => {
@@ -40,6 +46,32 @@ describe("GET /api/store-status", () => {
       nextLabel: "until 10:30pm",
       deliveryEnabled: true,
       deliveryPause: null,
+      kitchen: null,
+    });
+  });
+
+  it("passes the live kitchen load through for the ASAP estimate", async () => {
+    // "~10 min" was a constant; the estimate now follows the bench
+    // (Stan, 2026-09-04). The route just relays what the server measured.
+    vi.mocked(getEffectiveOrderingStatus).mockResolvedValue({
+      open: true,
+      nextLabel: "until 10:30pm",
+    });
+    vi.mocked(isDeliveryEnabled).mockResolvedValue(true);
+    getKitchenLoad.mockResolvedValue({
+      level: "busy",
+      pendingCups: 14,
+      minMinutes: 7,
+      maxMinutes: 10,
+      label: "7–10 min",
+    });
+    const body = await (await GET()).json();
+    expect(body.kitchen).toEqual({
+      level: "busy",
+      pendingCups: 14,
+      minMinutes: 7,
+      maxMinutes: 10,
+      label: "7–10 min",
     });
   });
 

@@ -3,6 +3,7 @@
 import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { DELIVERY } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
+import { KITCHEN_LOAD_FALLBACK } from "@/lib/kitchen-load";
 
 export type FulfillmentType = "PICKUP" | "DELIVERY";
 
@@ -36,6 +37,9 @@ type Props = {
   /** Live pause from /api/store-status — why delivery is off and when it's
    *  back. Absent when delivery is off for any other reason. */
   deliveryPause?: { until: string; reason: string } | null;
+  /** Live ASAP estimate ("2–3 min") from /api/store-status — the same
+   *  number the pickup-time pills show, so the two cards agree. */
+  pickupEtaLabel?: string;
 };
 
 export function FulfillmentSelector({
@@ -44,7 +48,9 @@ export function FulfillmentSelector({
   drinksSubtotalCents,
   deliveryEnabled = true,
   deliveryPause = null,
+  pickupEtaLabel = KITCHEN_LOAD_FALLBACK.label,
 }: Props) {
+  const pickupSub = ` · 34 Davenport St`;
   const eligible = isDeliveryEligible(drinksSubtotalCents);
   const remainingCents = DELIVERY.minimumSubtotalCents - drinksSubtotalCents;
   const deliveryOn = DELIVERY_ENV_MASTER && deliveryEnabled;
@@ -57,7 +63,7 @@ export function FulfillmentSelector({
           <BagIcon className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
           <div>
             <div className="text-[15px] font-semibold text-ink">Pickup</div>
-            <div className="mt-0.5 text-xs text-ink3">~10 min · 34 Davenport St</div>
+            <div className="mt-0.5 text-xs text-ink3">{pickupSub}</div>
           </div>
         </div>
         {/* Silence reads as broken. A named reason and a return time turn
@@ -82,7 +88,7 @@ export function FulfillmentSelector({
         onClick={() => onChange("PICKUP")}
         icon={<BagIcon className="h-[21px] w-[21px]" />}
         label="Pickup"
-        sub="~10 min · 34 Davenport St"
+        sub={pickupSub}
       />
       <FulfillmentButton
         active={value === "DELIVERY"}

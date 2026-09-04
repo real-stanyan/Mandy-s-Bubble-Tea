@@ -5,6 +5,11 @@ import {
   availablePickupOffsets,
   pickupClockLabel,
 } from "@/lib/pickup-schedule";
+import {
+  KITCHEN_LOAD_FALLBACK,
+  kitchenMoodLabel,
+  type KitchenLoad,
+} from "@/lib/kitchen-load";
 
 // "When will you collect it?" — fixed pills, not a time picker. The
 // offsets whose pickup time would land after close (10:30pm Brisbane)
@@ -18,9 +23,13 @@ import {
 type Props = {
   value: number;
   onChange: (next: number) => void;
+  /** Live kitchen load from /api/store-status. Undefined before the first
+   *  poll, null when the server couldn't measure it — both show the
+   *  middle bracket (see kitchen-load.ts) without claiming a mood. */
+  kitchen?: KitchenLoad | null;
 };
 
-export function PickupTimeSelector({ value, onChange }: Props) {
+export function PickupTimeSelector({ value, onChange, kitchen }: Props) {
   // The option list depends on the clock, so it must not render on the
   // server (a hydration mismatch at 10:0Xpm would flash pills that then
   // vanish). Mount empty, fill on the client, refresh each minute so a
@@ -46,6 +55,12 @@ export function PickupTimeSelector({ value, onChange }: Props) {
     if (now && value !== 0 && !offsets.includes(value)) onChange(0);
   }, [now, value, offsets, onChange]);
 
+  // "~10 min" used to be a constant. On a dead Tuesday afternoon that had
+  // customers waiting outside for a drink already on the counter; on a
+  // Friday night it under-promised. The estimate now follows the cups on
+  // the bench (Stan, 2026-09-04): quiet 2–3, medium 5–7, busy 7–10.
+  const load = kitchen ?? KITCHEN_LOAD_FALLBACK;
+
   return (
     <div>
       <p className="mb-2 text-[12.5px] text-ink2">
@@ -53,12 +68,12 @@ export function PickupTimeSelector({ value, onChange }: Props) {
       </p>
       <div className="flex flex-wrap gap-2">
         {/* "Now" is not "instantly" — it means we start now, so it's ready
-            in about ten minutes. Saying so on the chip stops the pill row
+            in a few minutes. Saying so on the chip stops the pill row
             from reading as five flavours of waiting. */}
         <TimePill
           active={value === 0}
           label="As soon as possible"
-          sub="ready in ~10 min"
+          sub={`ready in ${load.label}`}
           onClick={() => onChange(0)}
         />
         {/* A bare "10 min" left customers guessing — is that the wait, or
@@ -81,7 +96,15 @@ export function PickupTimeSelector({ value, onChange }: Props) {
       {value === 0 || !now ? (
         <p className="mt-2 text-[11.5px] text-ink3">
           We&apos;ll start making your drinks right away — they&apos;ll be at
-          the counter in about 10 minutes.
+          the counter in about {load.label}.
+          {/* The mood only when we actually measured it: a fallback must
+              not claim the kitchen is "a little busy" while Square is down. */}
+          {kitchen ? (
+            <>
+              {" "}
+              We&apos;re {kitchenMoodLabel(kitchen.level)}.
+            </>
+          ) : null}
         </p>
       ) : (
         <div className="mt-2 space-y-1 text-[11.5px] text-ink3">
