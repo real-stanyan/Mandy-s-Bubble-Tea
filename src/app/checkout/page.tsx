@@ -1032,10 +1032,10 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         id="checkout-form"
         onSubmit={handleSubmit}
         noValidate
-        className="grid gap-5 sm:gap-8 lg:grid-cols-[1fr_380px] pb-24 lg:pb-0"
+        className="grid gap-4 pb-28 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-8 lg:pb-0"
       >
         {/* ── Left column ── */}
-        <div className="min-w-0 space-y-5 sm:space-y-6">
+        <div className="min-w-0 space-y-4 sm:space-y-5">
           {/* Deliberately above everything, not inside the order summary: on
               mobile that summary is a collapsed <details>, and this is the one
               message the customer cannot afford to miss — nothing else on the
@@ -1043,7 +1043,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           {cartHasBlockedItems && (
             <div
               role="alert"
-              className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:p-5"
+              className="rounded-card border border-red-200 bg-red-50 p-5 text-sm text-red-800 sm:p-6"
             >
               <p className="font-semibold">{quoteBlocked?.message}</p>
               <p className="mt-1 text-red-700">
@@ -1065,9 +1065,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           )}
 
           {/* Fulfillment + delivery quote */}
-          <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
-            <SectionLabel>Fulfillment</SectionLabel>
-            <div className="mt-3.5">
+          <section className={CARD}>
+            <SectionLabel hint="Pick up at the counter, or have it brought to you.">
+              How you&apos;ll get it
+            </SectionLabel>
+            <div className="mt-4">
               <FulfillmentSelector
                 value={fulfillment}
                 onChange={setFulfillment}
@@ -1078,9 +1080,9 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </div>
 
             {fulfillment === "PICKUP" && (
-              <div className="mt-4">
+              <div className="mt-5 border-t border-line pt-5">
                 <SectionLabel>Pickup time</SectionLabel>
-                <div className="mt-2.5">
+                <div className="mt-3">
                   <PickupTimeSelector
                     value={pickupOffset}
                     onChange={setPickupOffset}
@@ -1090,7 +1092,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             )}
 
             {fulfillment === "DELIVERY" && (
-              <div className="mt-4 space-y-3">
+              <div className="mt-5 space-y-3 border-t border-line pt-5">
                 <DeliveryAddressForm
                   value={deliveryAddress}
                   onChange={setDeliveryAddress}
@@ -1102,84 +1104,63 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             )}
           </section>
 
-          {/* Rewards Progress */}
-          <section
-            className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
-            style={{ backgroundColor: BRAND.accentColor }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                {/* Pinned day ink, not tokens: this card keeps its cream
-                    poster face in evening mode (inline BRAND.accentColor
-                    bg), so token text would flip light-on-light. Same
-                    idiom as AuthSplitCard's brand panel. */}
-                <h3 className="text-sm font-bold text-[#2A1E14] sm:text-base">
-                  Rewards Progress
-                </h3>
-                <p className="mt-0.5 text-xs text-[#5A4330] sm:mt-1 sm:text-sm">
-                  {loyaltyBalance > 0
-                    ? `${loyaltyBalance} stars · +${starsThisOrder} this order`
-                    : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} this order`}
-                </p>
-              </div>
+          {/* Rewards — same card as everything else, brand only on the
+              things that carry meaning (the progress fill, the redeem
+              control). The cream poster face + pinned inks it used to
+              wear was the loudest thing on a page whose loudest thing
+              should be the Pay button. */}
+          <section className={CARD}>
+            <div className="flex items-start justify-between gap-4">
+              <SectionLabel
+                hint={
+                  loyaltyBalance > 0
+                    ? `${loyaltyBalance} star${loyaltyBalance !== 1 ? "s" : ""} banked · +${starsThisOrder} with this order`
+                    : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} with this order`
+                }
+              >
+                Rewards
+              </SectionLabel>
               <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white sm:h-9 sm:w-9"
-                style={{ backgroundColor: BRAND.primaryColor }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cream text-brand"
+                aria-hidden="true"
               >
                 <StarIcon />
               </span>
             </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 sm:mt-4 sm:h-2.5">
+            <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-bg2">
               <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${progressPct}%`,
-                  backgroundColor: BRAND.primaryColor,
-                }}
+                className="h-full rounded-full bg-brand transition-all"
+                style={{ width: `${progressPct}%` }}
               />
             </div>
-            <div className="mt-1.5 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-[#2A1E14]/55 sm:mt-2 sm:text-[11px]">
-              <span>{loyaltyBalance} Stars</span>
-              <span>{starsPerReward} for Free Drink</span>
+            <div className="mt-2 flex justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-ink4">
+              <span>{loyaltyBalance} stars</span>
+              <span>{starsPerReward} = free drink</span>
             </div>
 
             {maxRewardCount > 0 && (
-              <div
-                className="mt-2.5 flex items-center justify-between rounded-lg border px-4 py-3 sm:mt-3"
-                style={{
-                  borderColor: `${BRAND.primaryColor}4D`, // 30% alpha
-                  backgroundColor: `${BRAND.accentColor}66`, // ~40% alpha
-                }}
-              >
-                <div>
-                  <div
-                    className="text-sm font-medium"
-                    style={{ color: BRAND.primaryColor }}
-                  >
-                    Use rewards
+              <div className="mt-4 flex items-center justify-between gap-4 rounded-tile border border-line bg-paper px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-[14px] font-semibold text-ink">
+                    Redeem a free drink
                   </div>
-                  {rewardCount > 0 && (
-                    <div className="mt-0.5 text-xs text-neutral-600">
-                      −{formatPrice(rewardCents)} off {rewardCount} cheapest drink
-                      {rewardCount > 1 ? "s" : ""}
-                    </div>
-                  )}
+                  <div className="mt-0.5 text-[12.5px] text-ink3">
+                    {rewardCount > 0
+                      ? `−${formatPrice(rewardCents)} · ${rewardCount} cheapest drink${rewardCount > 1 ? "s" : ""} free`
+                      : `${maxRewardCount} available`}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setRewardCount((n) => Math.max(0, n - 1))}
                     disabled={rewardCount === 0}
-                    className="h-8 w-8 rounded-full border disabled:opacity-30"
-                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-lg leading-none text-ink transition hover:bg-bg2 disabled:opacity-30 disabled:hover:bg-card"
                     aria-label="Decrease reward count"
                   >
                     <span aria-hidden="true">−</span>
                   </button>
-                  <span
-                    className="min-w-[1.5rem] text-center font-medium"
-                    style={{ color: BRAND.primaryColor }}
-                  >
+                  <span className="min-w-[1.5rem] text-center text-[15px] font-semibold tabular-nums text-ink">
                     {rewardCount}
                   </span>
                   <button
@@ -1188,8 +1169,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       setRewardCount((n) => Math.min(maxRewardCount, n + 1))
                     }
                     disabled={rewardCount === maxRewardCount}
-                    className="h-8 w-8 rounded-full border disabled:opacity-30"
-                    style={{ borderColor: BRAND.primaryColor, color: BRAND.primaryColor }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-lg leading-none text-ink transition hover:bg-bg2 disabled:opacity-30 disabled:hover:bg-card"
                     aria-label="Increase reward count"
                   >
                     <span aria-hidden="true">+</span>
@@ -1201,45 +1181,51 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
           {/* ── Mobile: Order Summary (collapsible) ── */}
           <section className="lg:hidden">
-            <details className="rounded-2xl border border-line bg-white" open>
-              <summary className="flex cursor-pointer items-center justify-between p-4 text-sm font-bold text-ink">
-                <span>Order Summary ({lines.length} item{lines.length !== 1 ? "s" : ""})</span>
-                <span className="font-bold" style={{ color: BRAND.primaryColor }}>
-                  {formatPrice(displayTotal)}
+            <details
+              className="group rounded-card border border-line bg-card shadow-[var(--shadow-card-v)]"
+              open
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 [&::-webkit-details-marker]:hidden">
+                <SectionLabel
+                  hint={`${lines.length} item${lines.length !== 1 ? "s" : ""}`}
+                >
+                  Your order
+                </SectionLabel>
+                <span className="flex items-center gap-2">
+                  <span className="text-[15px] font-semibold tabular-nums text-ink">
+                    {formatPrice(displayTotal)}
+                  </span>
+                  <Chevron className="h-4 w-4 text-ink4 transition group-open:rotate-180" />
                 </span>
               </summary>
-              <div className="border-t border-line p-4">
+              <div className="border-t border-line px-5 pb-5 pt-4">
                 <ul className="space-y-4">
                   {lines.map((line) => (
                     <SummaryRow key={line.id} line={line} />
                   ))}
                 </ul>
 
-                <OrderSummaryTotals
-                  subtotalCents={subtotal}
-                  quote={orderQuote}
-                  fulfillment={fulfillment}
-                  rewardCount={rewardCount}
-                  deliveryQuotePending={deliveryFeesPending}
-                  totalSizeClassName="text-xl"
-                />
+                <div className="mt-5 border-t border-line pt-4">
+                  <OrderSummaryTotals
+                    subtotalCents={subtotal}
+                    quote={orderQuote}
+                    fulfillment={fulfillment}
+                    rewardCount={rewardCount}
+                    deliveryQuotePending={deliveryFeesPending}
+                    totalSizeClassName="text-xl"
+                  />
+                </div>
               </div>
             </details>
           </section>
 
           {/* Free drink banner */}
           {isFreeRedeem && (
-            <section
-              className="rounded-2xl border-2 p-4 sm:p-5"
-              style={{ borderColor: BRAND.primaryColor }}
-            >
-              <p
-                className="text-center text-base font-bold sm:text-lg"
-                style={{ color: BRAND.primaryColor }}
-              >
-                This drink is on us! 🎉
+            <section className="rounded-card border border-brand/30 bg-cream p-5 sm:p-6">
+              <p className="text-center text-[17px] font-semibold text-brand">
+                This drink is on us 🎉
               </p>
-              <p className="mt-1 text-center text-xs text-ink2 sm:text-sm">
+              <p className="mt-1 text-center text-[13px] text-ink2">
                 {noPaymentDue
                   ? `Your ${starsPerReward} stars will be redeemed — no payment needed.`
                   : `Your ${starsPerReward} stars will be redeemed — delivery + service fees still apply.`}
@@ -1252,16 +1238,16 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
 
           {/* ── Keepsake copy — free extra print of each customized cup ── */}
           {hasAnyCustomizedCup && (
-            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4 sm:p-5">
+            <label className={`flex cursor-pointer items-start gap-3 ${CARD}`}>
               <input
                 type="checkbox"
                 checked={keepLabelCopy}
                 onChange={(e) => setKeepLabelCopy(e.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-[#C43A10]"
+                className="mt-0.5 h-4 w-4 accent-[var(--brand)]"
               />
-              <span className="text-sm text-ink2">
+              <span className="text-[14px] font-medium text-ink">
                 🎁 Print an extra copy of my custom cup design to keep
-                <span className="mt-0.5 block text-xs text-ink3">
+                <span className="mt-0.5 block text-[12.5px] font-normal text-ink3">
                   We&apos;ll print a spare label of each cup you customized — yours to keep.
                 </span>
               </span>
@@ -1269,32 +1255,28 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           )}
 
           {/* ── Your Details — signed-in summary + optional note ── */}
-          <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
-            <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
-              <div className="min-w-0">
-                <SectionLabel>Your Details</SectionLabel>
-                <p className="mt-1.5 truncate text-sm font-medium text-ink">
-                  {displayName}
-                </p>
-                <p className="text-xs text-ink3">{profile.phone_e164}</p>
-              </div>
-              <span
-                className="shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
-                style={{ backgroundColor: BRAND.primaryColor }}
-              >
-                Signed In
+          <section className={CARD}>
+            <div className="flex items-start justify-between gap-4">
+              <SectionLabel>Your details</SectionLabel>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-semibold text-green-dark">
+                <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden="true" />
+                Signed in
               </span>
             </div>
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-ink3">
-                Order note (optional)
+            <p className="mt-3 truncate text-[15px] font-semibold text-ink">
+              {displayName}
+            </p>
+            <p className="mt-0.5 text-[13px] text-ink3">{profile.phone_e164}</p>
+            <label className="mt-5 block">
+              <span className="mb-2 block text-[13px] font-medium text-ink2">
+                Note for the barista <span className="text-ink4">(optional)</span>
               </span>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Any special requests? e.g. less ice, extra boba"
+                placeholder="e.g. less ice, extra boba"
                 rows={2}
-                className="w-full rounded-lg border border-black/15 bg-white px-4 py-3 text-sm outline-none focus:border-black/40"
+                className="w-full rounded-tile border border-line bg-paper px-4 py-3 text-[14px] text-ink outline-none transition placeholder:text-ink4 focus:border-brand focus:bg-card"
               />
             </label>
           </section>
@@ -1302,21 +1284,36 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
           {/* Payment Method — hidden only when nothing at all will be charged */}
           {!noPaymentDue && (
             <>
-              <section className="rounded-2xl border border-line bg-card p-4 sm:p-5">
-                <SectionLabel>Payment Method</SectionLabel>
+              {/* One card: choose a method, and the card form lives INSIDE
+                  it when Card is chosen — the old page split these into two
+                  stacked cards plus a floating hint line, so "pick a method"
+                  and "fill in the card" read as unrelated steps. Every option
+                  is the same height and radius; only the selected one is
+                  filled, the rest are outlined. */}
+              <section className={CARD}>
+                <SectionLabel
+                  hint={
+                    walletAvailable
+                      ? "Apple Pay and Google Pay finish in one tap."
+                      : undefined
+                  }
+                >
+                  Payment
+                </SectionLabel>
 
-                <div className="mt-3.5 flex flex-col gap-2.5 sm:gap-3">
+                <div className="mt-4 flex flex-col gap-2.5">
                   {applePayAvailable && (
                     <button
                       type="button"
                       onClick={() => setPayMethod("apple")}
-                      className={`flex w-full items-center justify-center gap-0.5 rounded-xl py-3 text-sm transition sm:py-3.5 sm:text-base ${
+                      aria-pressed={payMethod === "apple"}
+                      className={`flex h-12 w-full items-center justify-center gap-0.5 rounded-tile text-[15px] transition ${
                         payMethod === "apple"
-                          ? "bg-black text-white ring-2 ring-black ring-offset-2"
-                          : "bg-black/85 text-white/90 hover:bg-black"
+                          ? "bg-black text-white ring-2 ring-black ring-offset-2 ring-offset-card"
+                          : "border border-line bg-card text-ink hover:bg-bg2"
                       }`}
                     >
-                      Buy with <AppleLogo className="ml-0.5 -mt-0.5" /><span className="font-semibold">Pay</span>
+                      <AppleLogo className="-mt-0.5" /><span className="font-semibold">Pay</span>
                     </button>
                   )}
 
@@ -1324,13 +1321,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     <button
                       type="button"
                       onClick={() => setPayMethod("google")}
-                      className={`flex w-full items-center justify-center gap-1 rounded-xl py-3 text-sm transition sm:py-3.5 sm:text-base ${
+                      aria-pressed={payMethod === "google"}
+                      className={`flex h-12 w-full items-center justify-center gap-1.5 rounded-tile text-[15px] transition ${
                         payMethod === "google"
-                          ? "bg-[#3c4043] text-white ring-2 ring-[#3c4043] ring-offset-2"
-                          : "bg-[#3c4043]/85 text-white/90 hover:bg-[#3c4043]"
+                          ? "bg-[#3c4043] text-white ring-2 ring-[#3c4043] ring-offset-2 ring-offset-card"
+                          : "border border-line bg-card text-ink hover:bg-bg2"
                       }`}
                     >
-                      Buy with <GoogleGLogo /> <span className="font-semibold">Pay</span>
+                      <GoogleGLogo /> <span className="font-semibold">Pay</span>
                     </button>
                   )}
 
@@ -1338,47 +1336,39 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                     <button
                       type="button"
                       onClick={() => setPayMethod("card")}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-full border-2 py-2.5 text-sm font-semibold transition sm:py-3"
-                      style={
+                      aria-pressed={payMethod === "card"}
+                      className={`flex h-12 w-full items-center justify-center gap-2 rounded-tile text-[15px] font-semibold transition ${
                         payMethod === "card"
-                          ? { borderColor: BRAND.primaryColor, color: BRAND.primaryColor }
-                          : { borderColor: "rgba(0,0,0,0.15)", color: "#71717a" }
-                      }
+                          ? "bg-brand text-white ring-2 ring-brand ring-offset-2 ring-offset-card"
+                          : "border border-line bg-card text-ink hover:bg-bg2"
+                      }`}
                     >
-                      <CardIcon /> Pay with Card
+                      <CardIcon /> Card
                     </button>
                   )}
                 </div>
-              </section>
 
-              {(payMethod === "apple" || payMethod === "google") && walletAvailable && (
-                <p className="text-xs text-ink4">
-                  Click &quot;{payMethod === "apple" ? "Pay with Apple Pay" : "Pay with Google Pay"}&quot; below to complete your order.
-                </p>
-              )}
+                <div id="google-pay-container" className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0" />
 
-              <div id="google-pay-container" className="absolute h-0 w-0 overflow-hidden opacity-0 pointer-events-none" />
-
-              <section
-                className="rounded-2xl border border-line bg-white p-4 sm:p-5"
-                style={{ display: payMethod === "card" ? undefined : "none" }}
-              >
-                <div>
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-ink3">
-                    Card Details
+                <div
+                  className="mt-4 border-t border-line pt-4"
+                  style={{ display: payMethod === "card" ? undefined : "none" }}
+                >
+                  <span className="mb-2 block text-[13px] font-medium text-ink2">
+                    Card details
                   </span>
                   {SQUARE_ENV !== "production" && (
-                    <p className="mb-2 text-[10px] text-ink4">
+                    <p className="mb-2 text-[11px] text-ink4">
                       Sandbox: <code>4111 1111 1111 1111</code> · 12/27 · 111 · 4215
                     </p>
                   )}
                   <div
                     id="card-container"
-                    className="min-h-[90px] rounded-lg border border-black/15 bg-white px-3 py-2"
+                    className="min-h-[90px] rounded-tile border border-line bg-paper px-3 py-2"
                   />
                   {!cardReady && (
-                    <p className="mt-2 text-xs text-ink4">
-                      Loading card form…
+                    <p className="mt-2 text-[12.5px] text-ink4">
+                      Loading secure card form…
                     </p>
                   )}
                 </div>
@@ -1394,12 +1384,17 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
         </div>
 
         {/* ── Right column: Order Summary (desktop) ── */}
-        <section className="hidden rounded-2xl border border-line bg-card p-4 sm:p-6 lg:block lg:sticky lg:top-6 lg:self-start">
-          <h2 className="mb-4 font-serif text-xl font-semibold tracking-[-0.02em] text-ink sm:mb-5">
-            Order summary
-          </h2>
+        <section className="hidden rounded-card border border-line bg-card p-6 shadow-[var(--shadow-card-v)] lg:block lg:sticky lg:top-6 lg:self-start">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="font-serif text-[22px] font-semibold tracking-[-0.02em] text-ink">
+              Your order
+            </h2>
+            <span className="text-[12.5px] text-ink3">
+              {lines.length} item{lines.length !== 1 ? "s" : ""}
+            </span>
+          </div>
 
-          <ul className="space-y-5">
+          <ul className="mt-5 space-y-4">
             {lines.map((line) => (
               <SummaryRow key={line.id} line={line} />
             ))}
@@ -1432,7 +1427,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
               cartHasBlockedItems
             }
-            className={`mt-6 flex w-full items-center justify-center gap-1 rounded-full py-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`mt-6 flex h-[52px] w-full items-center justify-center gap-1.5 rounded-full text-[15px] font-semibold text-white shadow-[var(--shadow-primary-cta-v)] transition hover:opacity-90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${
               // Evening flips these to the WHITE wallet-button variant (see
               // globals.css) — a black button on the espresso background was
               // a hole in the page (Stan's screenshot, 2026-08-17).
@@ -1475,23 +1470,23 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                           : "Loading payment…"}
           </button>
 
-          <p className="mt-3 text-center text-xs text-ink3">
-            You&apos;ll earn {starsThisOrder} ⭐ on this order
+          <p className="mt-3 text-center text-[12.5px] text-ink3">
+            +{starsThisOrder} star{starsThisOrder !== 1 ? "s" : ""} on this order
           </p>
-          <p className="mt-2 text-center text-[11px] text-ink4">
-            By placing your order, you agree to Mandy&apos;s{" "}
-            <a href="#" className="underline">Terms of Service</a>{" "}
-            and <a href="#" className="underline">Privacy Policy</a>.
+          <p className="mt-2 text-center text-[11.5px] leading-relaxed text-ink4">
+            By placing your order you agree to Mandy&apos;s{" "}
+            <a href="#" className="underline">Terms</a> and{" "}
+            <a href="#" className="underline">Privacy Policy</a>.
           </p>
         </section>
       </form>
 
       {/* ── Mobile sticky bottom bar ── */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-card/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_24px_rgba(42,30,20,0.10)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-ink3">Total</p>
-            <p className="text-lg font-bold text-ink">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink3">Total</p>
+            <p className="text-[20px] font-semibold leading-tight tabular-nums text-ink">
               {formatPrice(displayTotal)}
             </p>
             {/* Same quote, condensed: one line per discount the server applied,
@@ -1528,7 +1523,7 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               (fulfillment === "DELIVERY" && quoteState.kind !== "ok") ||
               cartHasBlockedItems
             }
-            className={`flex min-w-[148px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex h-12 min-w-[156px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-[15px] font-semibold text-white shadow-[var(--shadow-primary-cta-v)] transition hover:opacity-90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${
               storeClosed
                 ? ""
                 : payMethod === "apple"
@@ -1664,13 +1659,32 @@ function PaymentIncidentNotice() {
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+/** Section heading. One quiet register for every card on the page: a
+ *  small-caps eyebrow with an optional one-line hint. The old page mixed
+ *  10 / 11 / 11.5 / 12 / 12.5px labels across cards, so a customer's eye
+ *  had nothing to rank. */
+function SectionLabel({
+  children,
+  hint,
+}: {
+  children: React.ReactNode;
+  hint?: React.ReactNode;
+}) {
   return (
-    <h3 className="text-[12px] font-bold uppercase tracking-[0.1em] text-ink3">
-      {children}
-    </h3>
+    <div>
+      <h3 className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-ink3">
+        {children}
+      </h3>
+      {hint && <p className="mt-1 text-[13px] leading-snug text-ink3">{hint}</p>}
+    </div>
   );
 }
+
+/** The page's one card style. Every section wears it, so rhythm comes from
+ *  spacing and copy rather than from each card inventing its own border,
+ *  radius and padding. */
+const CARD =
+  "rounded-card border border-line bg-card p-5 shadow-[var(--shadow-card-v)] sm:p-6";
 
 function BackArrow() {
   return (
@@ -1700,39 +1714,38 @@ function SummaryRow({ line }: { line: CartLine }) {
     .join(", ");
 
   return (
-    <li className="flex items-start gap-3">
+    <li className="flex items-start gap-3.5">
       {line.itemImageUrl ? (
         <Image
           src={line.itemImageUrl}
           alt={line.itemName}
-          width={56}
-          height={56}
-          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+          width={52}
+          height={52}
+          className="h-[52px] w-[52px] shrink-0 rounded-tile bg-paper object-cover"
         />
       ) : (
-        <div
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-lg"
-          style={{ backgroundColor: BRAND.accentColor }}
-        >
+        <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-tile bg-cream text-lg">
           🧋
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-bold text-ink">
-            {line.quantity > 1 && `${line.quantity}× `}
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="text-[14px] font-semibold leading-snug text-ink">
             {line.itemName}
           </p>
-          <p
-            className="shrink-0 text-sm font-bold"
-            style={{ color: BRAND.primaryColor }}
-          >
+          <p className="shrink-0 text-[14px] font-semibold tabular-nums text-ink">
             {formatPrice(lineTotal(line))}
           </p>
         </div>
-        {details && (
-          <p className="mt-0.5 text-xs text-ink3">{details}</p>
-        )}
+        {/* Quantity reads as its own fact, not glued to the name — the old
+            "2× Thai Milk Tea" made the name harder to scan. */}
+        <p className="mt-0.5 text-[12.5px] leading-snug text-ink3">
+          {line.quantity > 1 && (
+            <span className="font-semibold text-ink2">×{line.quantity}</span>
+          )}
+          {line.quantity > 1 && details && <span> · </span>}
+          {details}
+        </p>
       </div>
     </li>
   );
@@ -1741,6 +1754,25 @@ function SummaryRow({ line }: { line: CartLine }) {
 /* ------------------------------------------------------------------ */
 /*  Icons                                                              */
 /* ------------------------------------------------------------------ */
+
+function Chevron({ className }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
 
 function StarIcon() {
   return (
