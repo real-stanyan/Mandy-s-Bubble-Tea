@@ -10,7 +10,12 @@ import {
   PHOTO_LABELS_OFFLINE,
   PHOTO_LABELS_OFFLINE_NOTICE,
 } from "@/lib/cup-label/label-mode";
-import { StickerArtwork, artFor, useAiPreview } from "./cup-label/StickerPreview";
+import {
+  StickerArtwork,
+  artFor,
+  useAiPreview,
+  useGalleryThumb,
+} from "./cup-label/StickerPreview";
 
 // Wears the checkout page's one card style (see CARD / SectionLabel in
 // app/checkout/page.tsx) so the section sits in the same rhythm as
@@ -99,7 +104,7 @@ function CupLabelPickerSection() {
                   type="button"
                   onClick={() => setPickerCupKey(key)}
                   className={`flex w-full items-center gap-3.5 rounded-tile border p-2.5 text-left transition hover:border-ink4 ${
-                    chosen ? "border-brand/40 bg-cream/60" : "border-line bg-card"
+                    chosen ? "border-brand/40 bg-cream" : "border-line bg-card"
                   }`}
                   aria-label={`${chosen ? "Change" : "Choose"} the label for ${cup.itemName}${
                     cup.totalCups > 1 ? `, cup ${cup.cupIdx + 1} of ${cup.totalCups}` : ""
@@ -169,7 +174,8 @@ function CupLabelPickerSection() {
  *  the AI result once the background job lands. */
 function CupThumb({ sel }: { sel: CupLabelSelection | undefined }) {
   const aiPreviewUrl = useAiPreview(sel?.kind === "ai" ? sel.aiDoodleId : null);
-  const art = artFor(sel, aiPreviewUrl);
+  const presetThumbUrl = useGalleryThumb(sel?.kind === "preset" ? sel.hash : null);
+  const art = artFor(sel, aiPreviewUrl, presetThumbUrl);
   if (art.kind === "pending") {
     return (
       <div className="flex h-full w-full items-center justify-center text-xl">

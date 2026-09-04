@@ -22,6 +22,65 @@ import { CANVAS_W, CANVAS_H } from "./DrawCanvas";
 export const LUCKY_CAT_SAMPLE =
   "/cup-label/lucky-cat/a59c1cc2694cc43822317a53cce9463b/binarized.png";
 
+export type GalleryItem = { hash: string; thumbUrl: string; source: "builtin" | "upload" };
+export type Gallery = { presets: GalleryItem[] };
+
+// The gallery list is the only place a preset's real thumbnail URL lives
+// (production serves them from Supabase Storage; only dev has them under
+// /public). Fetched once per page and shared by the picker grid, the
+// sticker preview and the checkout row thumbs.
+let galleryCache: Gallery | null = null;
+let galleryInflight: Promise<Gallery> | null = null;
+
+export function getCachedGallery(): Gallery | null {
+  return galleryCache;
+}
+
+export async function loadGallery(): Promise<Gallery> {
+  if (galleryCache) return galleryCache;
+  if (galleryInflight) return galleryInflight;
+  galleryInflight = (async () => {
+    const res = await fetch("/api/cup-label/gallery");
+    if (!res.ok) throw new Error(`gallery fetch failed: ${res.status}`);
+    const data = (await res.json()) as Gallery;
+    galleryCache = data;
+    return data;
+  })();
+  try {
+    return await galleryInflight;
+  } finally {
+    galleryInflight = null;
+  }
+}
+
+/** Where a preset's thumbnail lives when the gallery list isn't available
+ *  (dev checkouts keep the builtin set under /public). */
+export function presetFallbackUrl(hash: string): string {
+  return `/cup-label/gallery/${hash}/binarized.png`;
+}
+
+/** The gallery's thumbnail URL for a preset hash, or null until the list
+ *  has loaded / when the hash isn't in it. */
+export function useGalleryThumb(hash: string | null): string | null {
+  const [gallery, setGallery] = useState<Gallery | null>(galleryCache);
+  useEffect(() => {
+    if (!hash || gallery) return;
+    let cancelled = false;
+    loadGallery()
+      .then((g) => {
+        if (!cancelled) setGallery(g);
+      })
+      .catch(() => {
+        /* fall back to the public path */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hash, gallery]);
+  if (!hash) return null;
+  return gallery?.presets.find((p) => p.hash === hash)?.thumbUrl ?? null;
+}
+
 /** Poll cadence + cap for AI previews. Doubao p95 is well under 30s; 90s
  *  covers retries. */
 const AI_POLL_MS = 2_500;
@@ -83,12 +142,14 @@ export type StickerArt =
   | { kind: "paths"; paths: SvgPath[] }
   | { kind: "pending"; glyph: string; caption: string };
 
-/** What to draw in the artwork square for a selection. `draft` is the
- *  picker's not-yet-committed candidate (a drawing in progress, a staged
- *  photo, a hovered gallery tile) and wins over the committed pick. */
+/** What to draw in the artwork square for a committed selection.
+ *  `presetThumbUrl` is the gallery's URL for a preset (from
+ *  useGalleryThumb); the picker layers its own not-yet-committed
+ *  candidates on top of this. */
 export function artFor(
   selection: CupLabelSelection | undefined,
   aiPreviewUrl: string | null,
+  presetThumbUrl: string | null = null,
 ): StickerArt {
   if (!selection) {
     return { kind: "image", src: LUCKY_CAT_SAMPLE, alt: "Surprise lucky cat" };
@@ -96,7 +157,7 @@ export function artFor(
   if (selection.kind === "preset") {
     return {
       kind: "image",
-      src: `/cup-label/gallery/${selection.hash}/binarized.png`,
+      src: presetThumbUrl ?? presetFallbackUrl(selection.hash),
       alt: "Gallery design",
     };
   }
