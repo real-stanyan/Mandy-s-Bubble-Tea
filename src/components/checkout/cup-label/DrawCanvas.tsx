@@ -74,7 +74,7 @@ export function DrawCanvas({ paths, brushWidth, onPathsChange }: Props) {
       ref={svgRef}
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       preserveAspectRatio="xMidYMid meet"
-      className="aspect-square w-full select-none rounded-md border border-zinc-200 bg-white"
+      className="aspect-square w-full select-none rounded-tile border border-line bg-[#fff]"
       style={{ touchAction: "none" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

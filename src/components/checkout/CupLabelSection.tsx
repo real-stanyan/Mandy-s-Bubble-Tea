@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { useCart, cupKey, type CupLabelSelection } from "@/store/cart";
-import { BRAND } from "@/lib/constants";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LabelPicker } from "./LabelPicker";
 import { summaryFor } from "./cup-label-summary";
@@ -12,6 +10,15 @@ import {
   PHOTO_LABELS_OFFLINE,
   PHOTO_LABELS_OFFLINE_NOTICE,
 } from "@/lib/cup-label/label-mode";
+import { StickerArtwork, artFor, useAiPreview } from "./cup-label/StickerPreview";
+
+// Wears the checkout page's one card style (see CARD / SectionLabel in
+// app/checkout/page.tsx) so the section sits in the same rhythm as
+// Fulfillment, Rewards and Your details rather than importing its own
+// border, radius and greys.
+const CARD =
+  "rounded-card border border-line bg-card p-5 shadow-[var(--shadow-card-v)] sm:p-6";
+const EYEBROW = "text-[11.5px] font-bold uppercase tracking-[0.14em] text-ink3";
 
 /**
  * Shown in place of the picker while the 40×30 text-only paper is loaded
@@ -31,17 +38,14 @@ function CupLabelOfflineNotice() {
 
   if (lines.length === 0) return null;
   return (
-    <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
+    <section className={CARD}>
       <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold sm:text-lg">Cup labels</h2>
-        <span
-          className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-          style={{ backgroundColor: BRAND.accentColor, color: BRAND.primaryColor }}
-        >
+        <h3 className={EYEBROW}>Cup labels</h3>
+        <span className="rounded-full bg-cream px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand">
           Back soon
         </span>
       </div>
-      <p className="mt-1 text-xs text-zinc-500 sm:text-sm">{PHOTO_LABELS_OFFLINE_NOTICE}</p>
+      <p className="mt-1 text-[13px] leading-snug text-ink3">{PHOTO_LABELS_OFFLINE_NOTICE}</p>
     </section>
   );
 }
@@ -66,58 +70,72 @@ function CupLabelPickerSection() {
   const cups = flattenCups(lines);
   if (cups.length === 0) return null;
 
+  const pickerCup = pickerCupKey
+    ? (cups.find((c) => cupKey(c.lineId, c.cupIdx) === pickerCupKey) ?? null)
+    : null;
+
   return (
     <>
-      <section className="rounded-2xl border border-black/10 bg-white p-4 sm:p-5">
-        <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold sm:text-lg">Cup labels</h2>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                style={{ backgroundColor: BRAND.accentColor, color: BRAND.primaryColor }}
-              >
-                Optional
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-              Leave any cup as is and we&apos;ll print a surprise lucky cat 🐱.
-              Want to choose your own? Tap a cup below.
-            </p>
-          </div>
+      <section className={CARD}>
+        <div className="flex items-center gap-2">
+          <h3 className={EYEBROW}>Cup labels</h3>
+          <span className="rounded-full bg-cream px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand">
+            Optional
+          </span>
         </div>
+        <p className="mt-1 text-[13px] leading-snug text-ink3">
+          Every cup gets a printed sticker. Leave it and we&apos;ll surprise you
+          with a lucky cat 🐱 — or tap a cup to put your own design on it.
+        </p>
 
-        <ul className="space-y-2">
+        <ul className="mt-4 space-y-2">
           {cups.map((cup) => {
             const key = cupKey(cup.lineId, cup.cupIdx);
             const sel: CupLabelSelection | undefined = labelSelections[key];
+            const chosen = sel !== undefined;
             return (
-              <li
-                key={key}
-                className="flex items-center gap-3 rounded-xl border border-black/5 p-2 sm:p-3"
-              >
-                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-zinc-50 sm:h-16 sm:w-16">
-                  {renderThumb(sel)}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{cup.itemName}</p>
-                  <p className="truncate text-xs text-zinc-500">
-                    {cup.variationName}
-                    {cup.totalCups > 1
-                      ? ` · Cup ${cup.cupIdx + 1} of ${cup.totalCups}`
-                      : ""}
-                  </p>
-                  <p className="truncate text-xs text-zinc-400">{summaryFor(sel)}</p>
-                </div>
-
+              <li key={key}>
                 <button
                   type="button"
                   onClick={() => setPickerCupKey(key)}
-                  className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-white sm:text-sm"
-                  style={{ backgroundColor: BRAND.primaryColor }}
+                  className={`flex w-full items-center gap-3.5 rounded-tile border p-2.5 text-left transition hover:border-ink4 ${
+                    chosen ? "border-brand/40 bg-cream/60" : "border-line bg-card"
+                  }`}
+                  aria-label={`${chosen ? "Change" : "Choose"} the label for ${cup.itemName}${
+                    cup.totalCups > 1 ? `, cup ${cup.cupIdx + 1} of ${cup.totalCups}` : ""
+                  }`}
                 >
-                  {sel ? "Change" : "Choose"}
+                  {/* The artwork square of the sticker, at thumb size. */}
+                  <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[8px] bg-[#fff] ring-1 ring-black/10 sm:h-16 sm:w-16">
+                    <CupThumb sel={sel} />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-semibold text-ink">{cup.itemName}</p>
+                    <p className="truncate text-[12px] text-ink3">
+                      {cup.variationName}
+                      {cup.totalCups > 1
+                        ? ` · Cup ${cup.cupIdx + 1} of ${cup.totalCups}`
+                        : ""}
+                    </p>
+                    <p
+                      className={`mt-0.5 truncate text-[12px] ${
+                        chosen ? "font-semibold text-brand" : "text-ink3"
+                      }`}
+                    >
+                      {summaryFor(sel)}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold ${
+                      chosen
+                        ? "border border-line bg-card text-ink2"
+                        : "bg-ink text-cream"
+                    }`}
+                  >
+                    {chosen ? "Change" : "Choose"}
+                  </span>
                 </button>
               </li>
             );
@@ -133,6 +151,8 @@ function CupLabelPickerSection() {
         slotKey={pickerCupKey ?? ""}
         cartSessionId={cartSessionId}
         isSignedIn={isSignedIn}
+        cup={pickerCup}
+        greetingName={profile?.first_name ?? null}
         current={pickerCupKey ? labelSelections[pickerCupKey] : undefined}
         onSelect={(selection) => {
           if (pickerCupKey) setLabel(pickerCupKey, selection);
@@ -145,128 +165,21 @@ function CupLabelPickerSection() {
   );
 }
 
-function renderThumb(sel: CupLabelSelection | undefined) {
-  if (!sel) {
-    // Default (no pick) prints a random lucky cat — show a representative
-    // cat so the thumb hints at what prints.
+/** Row thumbnail — the same artwork the sticker preview shows, including
+ *  the AI result once the background job lands. */
+function CupThumb({ sel }: { sel: CupLabelSelection | undefined }) {
+  const aiPreviewUrl = useAiPreview(sel?.kind === "ai" ? sel.aiDoodleId : null);
+  const art = artFor(sel, aiPreviewUrl);
+  if (art.kind === "pending") {
     return (
-      <Image
-        src="/cup-label/lucky-cat/a59c1cc2694cc43822317a53cce9463b/binarized.png"
-        alt="Surprise lucky cat"
-        fill
-        sizes="64px"
-        unoptimized
-        className="object-contain"
-      />
+      <div className="flex h-full w-full items-center justify-center text-xl">
+        {/* Generating: pulse so "working" and "this is your final icon"
+            don't look identical. */}
+        <span className={sel?.kind === "ai" && sel.aiDoodleId ? "animate-pulse" : ""}>
+          {art.glyph}
+        </span>
+      </div>
     );
   }
-  if (sel.kind === "preset") {
-    return (
-      <Image
-        src={`/cup-label/gallery/${sel.hash}/binarized.png`}
-        alt=""
-        fill
-        sizes="64px"
-        unoptimized
-        className="object-contain"
-      />
-    );
-  }
-  if (sel.kind === "photo") {
-    return (
-      <Image
-        src={sel.previewUrl}
-        alt="Your uploaded photo"
-        fill
-        sizes="64px"
-        unoptimized
-        className="object-contain"
-      />
-    );
-  }
-  // kind === "ai" — poll until the background job lands, then show the
-  // result. Memory Stamp made the old always-✨ placeholder untenable: the
-  // whole point of the feature is what the stamp looks like.
-  if (sel.kind === "ai") return <AiThumb aiDoodleId={sel.aiDoodleId} />;
-  // Residual case: a draw selection with nothing on the canvas yet.
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
-      ✨
-    </div>
-  );
-}
-
-/** Poll cadence + cap. Doubao p95 is well under 30s; 90s covers retries. */
-const AI_POLL_MS = 2_500;
-const AI_POLL_MAX = 36;
-
-function AiThumb({ aiDoodleId }: { aiDoodleId: string | null }) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    // No id yet (submit still in flight) — the cart re-renders us with the
-    // real id the moment the submit callback stamps it.
-    if (!aiDoodleId) return;
-    setPreviewUrl(null);
-    let cancelled = false;
-    let tries = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const tick = async () => {
-      tries += 1;
-      try {
-        const res = await fetch(
-          `/api/cup-label/ai-status?aiDoodleId=${encodeURIComponent(aiDoodleId)}`,
-        );
-        const json = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          status?: string;
-          previewUrl?: string;
-        };
-        if (cancelled) return;
-        if (json.ok && json.status === "ready" && json.previewUrl) {
-          setPreviewUrl(json.previewUrl);
-          return;
-        }
-        // failed → stop polling and keep the placeholder; the submit path
-        // separately clears the slot back to a gallery default.
-        if (json.ok && json.status === "failed") return;
-      } catch {
-        /* transient — next tick retries */
-      }
-      if (!cancelled && tries < AI_POLL_MAX) {
-        timer = setTimeout(tick, AI_POLL_MS);
-      }
-    };
-    void tick();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [aiDoodleId]);
-
-  if (previewUrl) {
-    return (
-      <Image
-        src={previewUrl}
-        alt="Your AI cup label"
-        fill
-        sizes="64px"
-        unoptimized
-        className="object-contain"
-      />
-    );
-  }
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-zinc-50 text-xl">
-      {aiDoodleId ? (
-        // Generating: pulse so "working" and "this is your final icon" don't
-        // look identical.
-        <span className="animate-pulse">✨</span>
-      ) : (
-        "✨"
-      )}
-    </div>
-  );
+  return <StickerArtwork art={art} />;
 }
