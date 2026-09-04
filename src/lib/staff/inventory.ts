@@ -49,6 +49,10 @@ export type InventoryItem = {
   /** True when a stock-check line with this id is counted as a number.
    *  False for sufficiency items (cups, straws) and custom items. */
   hasShopCount: boolean;
+  /** Kept in the warehouse (quantity tracked, pickups decrement it). False
+   *  for things bought as needed — fresh milk, fruit — which still appear on
+   *  the pickup list as "buy" so the morning run covers them too. */
+  inWarehouse: boolean;
   updatedAt: string;
 };
 
@@ -124,6 +128,7 @@ export function seedState(now: Date, lastShopCount: ShopCount | null = null): In
         threshold: null,
         usageOverride: null,
         hasShopCount: item.rule.kind !== "sufficiency",
+        inWarehouse: true,
         updatedAt: at,
       });
     }
@@ -135,6 +140,37 @@ export function seedState(now: Date, lastShopCount: ShopCount | null = null): In
     pickups: [],
     shopCounts: lastShopCount ? [lastShopCount] : [],
   };
+}
+
+/**
+ * Every numeric daily stock-check line has a row, even after Stan removes it
+ * from the warehouse: the pickup list has to cover the whole morning run,
+ * bought and carried alike. Lines that are missing (removed before this
+ * existed, or newly added to stocklist.ts) come back as shop-only rows.
+ */
+export function ensureShopLines(state: InventoryState, now: Date): { state: InventoryState; added: number } {
+  const have = new Set(state.items.map((i) => i.id));
+  const at = now.toISOString();
+  const extra: InventoryItem[] = [];
+  for (const cat of STOCK_LIST) {
+    for (const item of cat.items) {
+      if (item.rule.kind !== "threshold" || have.has(item.id)) continue;
+      extra.push({
+        id: item.id,
+        name: item.name,
+        category: cat.name,
+        unit: "",
+        qty: null,
+        threshold: null,
+        usageOverride: null,
+        hasShopCount: true,
+        inWarehouse: false,
+        updatedAt: at,
+      });
+    }
+  }
+  if (extra.length === 0) return { state, added: 0 };
+  return { state: { ...state, items: [...state.items, ...extra] }, added: extra.length };
 }
 
 /** The stock-check line an inventory item mirrors, if any. */
@@ -300,6 +336,8 @@ export function isLow(item: Pick<InventoryItem, "qty" | "threshold">): boolean {
 
 /** One row of the page: the stored item plus everything derived from it. */
 export type InventoryRow = InventoryItem & {
+  /** Carried from the warehouse, or bought on the way. */
+  kind: "warehouse" | "buy";
   usage: UsageEstimate;
   /** Override if set, else the measured figure. */
   usagePerDay: number | null;
@@ -320,6 +358,9 @@ export type InventoryView = {
   /** Pickups confirmed today, newest last. */
   todaysPickups: PickupRecord[];
   lastShopCountDate: string | null;
+  /** Today's stock check has been submitted — the pickup list is only shown
+   *  once it has, because it is computed from it. */
+  countedToday: boolean;
 };
 
 export function buildView(state: InventoryState, today: string): InventoryView {
@@ -333,16 +374,19 @@ export function buildView(state: InventoryState, today: string): InventoryView {
     const shop = item.hasShopCount ? shopOnHand(item.id, state.shopCounts, state.pickups) : null;
     const cover = (qty: number | null) =>
       qty == null || usagePerDay == null || usagePerDay <= 0 ? null : qty / usagePerDay;
+    // A bought item has no warehouse to run short of, so no cap applies.
+    const cap = item.inWarehouse ? item.qty : null;
     return {
       ...item,
+      kind: item.inWarehouse ? "warehouse" : "buy",
       usage,
       usagePerDay,
       usageSource,
       shop,
       shopCoverDays: cover(shop?.qty ?? null),
-      warehouseCoverDays: cover(item.qty),
-      low: isLow(item),
-      suggestion: suggestPickup(usagePerDay, shop?.qty ?? null, item.qty, state.coverDays),
+      warehouseCoverDays: item.inWarehouse ? cover(item.qty) : null,
+      low: item.inWarehouse && isLow(item),
+      suggestion: suggestPickup(usagePerDay, shop?.qty ?? null, cap, state.coverDays),
     };
   });
   let lastShopCountDate: string | null = null;
@@ -355,6 +399,7 @@ export function buildView(state: InventoryState, today: string): InventoryView {
     rows,
     todaysPickups: state.pickups.filter((p) => p.date === today),
     lastShopCountDate,
+    countedToday: lastShopCountDate === today,
   };
 }
 
@@ -378,7 +423,9 @@ export function applyPickup(
     ...state,
     items: state.items.map((item) => {
       const q = taken.get(item.id);
-      if (q == null || item.qty == null) return item;
+      // Bought items are logged (they count as delivered for the usage
+      // maths) but there is no warehouse figure to take them out of.
+      if (q == null || item.qty == null || !item.inWarehouse) return item;
       return { ...item, qty: Math.max(0, round2(item.qty - q)), updatedAt: at };
     }),
     pickups: [...state.pickups, { date, at, by, lines: clean }].slice(-400),
@@ -464,13 +511,37 @@ export function addItem(
     threshold: cleanQty(input.threshold ?? null),
     usageOverride: null,
     hasShopCount: false,
+    inWarehouse: true,
     updatedAt: now.toISOString(),
   };
   return { state: { ...state, items: [...state.items, item] }, item };
 }
 
-export function removeItem(state: InventoryState, id: string): InventoryState {
-  return { ...state, items: state.items.filter((i) => i.id !== id) };
+/**
+ * Take an item out of the warehouse. A stock-check line stays as a
+ * shop-only row — it is still counted every day and still has to be bought
+ * — so only its warehouse fields are cleared. A custom item has nothing
+ * else keeping it, so it goes.
+ */
+export function removeItem(state: InventoryState, id: string, now: Date = new Date()): InventoryState {
+  const at = now.toISOString();
+  return {
+    ...state,
+    items: state.items.flatMap((i) => {
+      if (i.id !== id) return [i];
+      if (!i.hasShopCount) return [];
+      return [{ ...i, inWarehouse: false, qty: null, threshold: null, updatedAt: at }];
+    }),
+  };
+}
+
+/** Start keeping a shop-only item in the warehouse again. */
+export function trackItem(state: InventoryState, id: string, now: Date = new Date()): InventoryState {
+  const at = now.toISOString();
+  return {
+    ...state,
+    items: state.items.map((i) => (i.id === id && !i.inWarehouse ? { ...i, inWarehouse: true, updatedAt: at } : i)),
+  };
 }
 
 export function setCoverDays(state: InventoryState, coverDays: number): InventoryState {
@@ -499,6 +570,8 @@ export function parseState(value: unknown): InventoryState | null {
         threshold: cleanQty(i.threshold),
         usageOverride: cleanQty(i.usageOverride),
         hasShopCount: Boolean(i.hasShopCount),
+        // Rows written before this flag existed were all warehouse rows.
+        inWarehouse: i.inWarehouse === undefined ? true : Boolean(i.inWarehouse),
         updatedAt: typeof i.updatedAt === "string" ? i.updatedAt : "",
       })),
     pickups: Array.isArray(v.pickups) ? v.pickups : [],

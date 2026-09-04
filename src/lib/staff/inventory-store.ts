@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { brisbaneDate } from "./stock-history";
 import { readLastCount } from "./stock-history-store";
 import {
+  ensureShopLines,
   parseState,
   recordShopCount,
   seedState,
@@ -33,7 +34,13 @@ export async function readInventory(now: Date = new Date()): Promise<InventorySt
       .maybeSingle();
     if (!error && data) {
       const parsed = parseState(data.value);
-      if (parsed) return parsed;
+      if (parsed) {
+        // Lines removed from the warehouse (or added to stocklist.ts since)
+        // come back as shop-only rows so the pickup list stays complete.
+        const ensured = ensureShopLines(parsed, now);
+        if (ensured.added > 0) await writeInventory(ensured.state);
+        return ensured.state;
+      }
     }
   } catch (e) {
     console.error("[inventory] could not read", e);
