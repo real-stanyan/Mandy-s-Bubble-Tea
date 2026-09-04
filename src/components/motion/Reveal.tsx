@@ -42,24 +42,47 @@ export function Reveal({
     // Anything already on screen at mount reveals straight away rather
     // than waiting on the observer's first delivery — which a background
     // tab defers until it is fronted, leaving the fold blank meanwhile.
-    const rect = el.getBoundingClientRect();
-    if (rect.top < window.innerHeight * 1.05 && rect.bottom > 0) {
+    const inView = () => {
+      const rect = el.getBoundingClientRect();
+      return rect.top < window.innerHeight * 1.05 && rect.bottom > 0;
+    };
+    if (inView()) {
       el.dataset.reveal = "in";
       return;
     }
+    let done = false;
+    const show = () => {
+      if (done) return;
+      done = true;
+      el.dataset.reveal = "in";
+      io.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
     const io = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            el.dataset.reveal = "in";
-            io.disconnect();
-          }
-        }
+        if (entries.some((entry) => entry.isIntersecting)) show();
       },
       { threshold: 0.12, rootMargin: "0px 0px -6% 0px" },
     );
+    // Belt and braces: a plain scroll check alongside the observer, for
+    // documents the browser considers hidden (embedded webviews, a tab
+    // fronted after load) where observer callbacks can lag well behind
+    // the scroll position.
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (inView()) show();
+      });
+    };
     io.observe(el);
-    return () => io.disconnect();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   const Tag = as;
