@@ -47,12 +47,23 @@ const TABS = [
 export function SiteTabBar() {
   const pathname = usePathname() ?? "";
   const orderCount = useActiveOrderCount();
+  const activeIndex = TABS.findIndex((t) => t.match(pathname));
 
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around bg-gradient-to-t from-paper from-70% to-transparent px-3.5 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 items-center bg-gradient-to-t from-paper from-70% to-transparent px-3.5 pb-[max(env(safe-area-inset-bottom),12px)] pt-2 lg:hidden"
     >
+      {/* One pill slides between the columns; each column is 25% wide. */}
+      {activeIndex >= 0 ? (
+        <span
+          aria-hidden="true"
+          className="tab-indicator"
+          style={{ transform: `translateX(${activeIndex * 100}%)` }}
+        >
+          <span className="tab-indicator-pill" />
+        </span>
+      ) : null}
       {TABS.map(({ href, label, icon: Icon, match }) => {
         const active = match(pathname);
         const badge = href === "/account/orders" ? orderCount : 0;
@@ -63,11 +74,14 @@ export function SiteTabBar() {
             href={href}
             aria-current={active ? "page" : undefined}
             className={
-              "flex flex-col items-center gap-[3px] rounded-tile px-3.5 py-1.5 transition " +
+              "press relative z-[1] flex flex-col items-center gap-[3px] rounded-tile px-3.5 py-1.5 " +
               (active ? "text-brand" : "text-ink3")
             }
           >
-            <span className="relative grid place-items-center">
+            <span
+              key={active ? "on" : "off"}
+              className={"relative grid place-items-center " + (active ? "tab-icon-active" : "")}
+            >
               <Icon size={22} />
               {badge > 0 && (
                 <span className="absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full border-2 border-paper bg-green px-1 text-[9.5px] font-bold text-white">

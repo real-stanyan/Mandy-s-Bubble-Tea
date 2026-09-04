@@ -36,16 +36,27 @@ export function CountUp({
     const target = Number(digits.replace(/,/g, ""));
     if (!Number.isFinite(target)) return;
     let raf = 0;
+    let settle = 0;
+    const format = (n: number) => `${prefix}${n.toLocaleString("en-AU")}${suffix}`;
 
     const run = () => {
-      const start = performance.now();
+      let start: number | null = null;
       const tick = (now: number) => {
-        const t = Math.min(1, (now - start) / durationMs);
-        const n = Math.round(target * easeOutExpo(t));
-        setShown(`${prefix}${n.toLocaleString("en-AU")}${suffix}`);
+        // The first frame's timestamp is the clock we count from — a
+        // performance.now() taken before requestAnimationFrame can sit
+        // AHEAD of the frame time and produce a negative step ("-1+").
+        if (start === null) start = now;
+        const t = Math.min(1, Math.max(0, (now - start) / durationMs));
+        setShown(format(Math.round(target * easeOutExpo(t))));
         if (t < 1) raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
+      // Frames stop in a background tab; make sure the final value lands
+      // regardless, so nobody returns to a counter frozen mid-run.
+      settle = window.setTimeout(() => {
+        cancelAnimationFrame(raf);
+        setShown(value);
+      }, durationMs + 120);
     };
 
     const io = new IntersectionObserver(
@@ -61,6 +72,7 @@ export function CountUp({
     return () => {
       io.disconnect();
       cancelAnimationFrame(raf);
+      window.clearTimeout(settle);
     };
   }, [value, durationMs]);
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { Children, type ReactNode } from "react";
+import { Reveal } from "@/components/motion/Reveal";
 import dynamic from "next/dynamic";
 import { Gift } from "lucide-react";
 import type { MembershipTier } from "@/lib/membership-tier";
@@ -43,6 +44,23 @@ const MemberQrCard = dynamic(
 
 // Neutralizes legacy single-column self-margins on reused cards so the
 // surrounding layout owns spacing (orders/promotions pages stay untouched).
+// Each direct child rises into place in turn, 70ms apart: the account
+// page is a stack of cards, and a stack that lands one by one reads as
+// considered rather than dumped.
+function Stagger({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      {Children.map(children, (child, i) =>
+        child == null || child === false ? null : (
+          <Reveal key={i} delay={Math.min(i, 8) * 70} scale>
+            {child}
+          </Reveal>
+        ),
+      )}
+    </div>
+  );
+}
+
 function Flush({ children }: { children: ReactNode }) {
   return (
     <div className="[&>*]:!mx-0 [&>*]:!mt-0 [&>*]:!mb-0 [&>*]:!px-0">
@@ -107,7 +125,7 @@ export function AccountView(props: AccountViewProps) {
       )}
 
       {/* ===================== MOBILE ===================== */}
-      <div className="flex flex-col gap-5 px-4 lg:hidden">
+      <Stagger className="flex flex-col gap-5 px-4 lg:hidden">
         <ProfileSummaryCardCompact name={displayName} phone={phone} tier={tier} />
 
         <section>
@@ -214,7 +232,7 @@ export function AccountView(props: AccountViewProps) {
         <p className="text-center text-[11.5px] text-ink4">
           Mandy&apos;s Bubble Tea · Web v2.0 · Southport QLD
         </p>
-      </div>
+      </Stagger>
 
       {/* ===================== DESKTOP ===================== */}
       <div className="hidden lg:block">
@@ -229,7 +247,7 @@ export function AccountView(props: AccountViewProps) {
 
         <div className="mt-7 grid gap-7 px-4 lg:grid-cols-[340px_1fr] lg:items-start">
           {/* Left: sticky profile summary + member cards */}
-          <div className="flex flex-col gap-4 lg:sticky lg:top-24">
+          <Stagger className="flex flex-col gap-4 lg:sticky lg:top-24">
             <ProfileSummaryCard
               name={displayName}
               phone={phone}
@@ -252,10 +270,10 @@ export function AccountView(props: AccountViewProps) {
             <Flush>
               <PromotionsCard rewardsCount={rewardsAvailable} />
             </Flush>
-          </div>
+          </Stagger>
 
           {/* Right: rewards + settings */}
-          <div className="flex flex-col gap-7">
+          <Stagger className="flex flex-col gap-7">
             <section>
               <h2 className="mb-4 font-serif text-[22px] font-semibold tracking-[-0.4px] text-ink">
                 Rewards
@@ -346,7 +364,7 @@ export function AccountView(props: AccountViewProps) {
             <p className="text-center text-[11.5px] text-ink4">
               Mandy&apos;s Bubble Tea · Web v2.0 · Southport QLD
             </p>
-          </div>
+          </Stagger>
         </div>
       </div>
     </main>
