@@ -573,9 +573,12 @@ body[data-scroll-locked] {
 }
 
 /* Scroll reveal — components/motion/Reveal.tsx flips data-reveal="in"
-   when the element enters the viewport. Hidden state lives in CSS so the
-   first paint never flashes the content before it rises. */
-[data-reveal] {
+   when the element enters the viewport. The hidden state is gated on
+   html[data-motion], which the head script in layout.tsx sets before first
+   paint only when JS runs and motion isn't reduced — so crawlers, no-JS
+   and reduced-motion readers get the page fully visible, and everyone
+   else never sees a flash before the rise. */
+html[data-motion] [data-reveal] {
   opacity: 0;
   transform: translateY(18px);
   transition:
@@ -584,10 +587,10 @@ body[data-scroll-locked] {
   transition-delay: var(--reveal-delay, 0ms);
   will-change: opacity, transform;
 }
-[data-reveal][data-reveal-scale] {
+html[data-motion] [data-reveal][data-reveal-scale] {
   transform: translateY(14px) scale(0.975);
 }
-[data-reveal="in"] {
+html[data-motion] [data-reveal="in"] {
   opacity: 1;
   transform: none;
 }
