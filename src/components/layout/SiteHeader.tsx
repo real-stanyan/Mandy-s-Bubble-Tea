@@ -35,13 +35,26 @@ export function SiteHeader() {
     return () => clearInterval(id);
   }, []);
 
+  // Compact the bar once the page has scrolled a little — the header steps
+  // back so the content it sits over gets the room.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   function isActive(href: string) {
     return href === "/" ? pathname === "/" : pathname.startsWith(href);
   }
 
   return (
-    <header className="sticky top-0 z-40 hidden w-full border-b border-line bg-bg/85 shadow-[0_4px_16px_rgba(42,30,20,0.05)] backdrop-blur-md lg:block">
-      <div className="mx-auto flex h-[74px] max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+    <header
+      data-scrolled={scrolled ? "true" : "false"}
+      className="site-header sticky top-0 z-40 hidden w-full border-b border-line bg-bg/85 shadow-[0_4px_16px_rgba(42,30,20,0.05)] backdrop-blur-md lg:block"
+    >
+      <div className="site-header-inner mx-auto flex h-[74px] max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link prefetch={false} href="/" aria-label="Mandy's home" className="shrink-0">
           <Image
             src="/logo.webp"
@@ -60,7 +73,7 @@ export function SiteHeader() {
               key={l.href}
               href={l.href}
               className={
-                "rounded-full px-3.5 py-2 text-[14.5px] font-semibold transition " +
+                "press rounded-full px-3.5 py-2 text-[14.5px] font-semibold " +
                 (isActive(l.href)
                   ? "text-brand"
                   : "text-ink2 hover:bg-[rgba(42,30,20,0.04)]")
@@ -91,7 +104,7 @@ export function SiteHeader() {
           <Link
             prefetch={false}
             href="/menu"
-            className="hidden items-center gap-1.5 rounded-full bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] transition hover:bg-brand-dark active:scale-[0.97] sm:inline-flex"
+            className="press glow-brand hidden items-center gap-1.5 rounded-full bg-brand px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_10px_18px_rgba(141,85,36,0.28)] hover:bg-brand-dark sm:inline-flex"
           >
             Order now <ArrowRight size={15} />
           </Link>

@@ -29,7 +29,7 @@ export function CategorySidebar({
               onSelect(it.slug);
             }}
             className={
-              "flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-left transition " +
+              "cat-link flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-left " +
               (isActive
                 ? "bg-cream text-brand"
                 : "text-ink2 hover:bg-[rgba(42,30,20,0.04)]")

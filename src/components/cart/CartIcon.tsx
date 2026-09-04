@@ -20,7 +20,7 @@ export function CartIcon() {
       type="button"
       onClick={openDrawer}
       aria-label={`Open cart (${count} items)`}
-      className="relative rounded-full p-2 text-ink hover:bg-white/15"
+      className="press relative rounded-full p-2 text-ink hover:bg-white/15"
     >
       <CartSvg />
       {count > 0 && (
@@ -29,7 +29,10 @@ export function CartIcon() {
            vanishes against the evening header, while the brand token flips
            to brass on its own and the ring keeps the circle separated on
            both grounds. */
-        <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-bg bg-brand px-1 text-[10px] font-bold text-white">
+        <span
+          key={count}
+          className="badge-pop absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-bg bg-brand px-1 text-[10px] font-bold text-white"
+        >
           {count}
         </span>
       )}

@@ -9,6 +9,7 @@ import { CategorySidebar } from "@/components/menu/CategorySidebar";
 import { useCategoryScrollSpy } from "@/components/menu/useCategoryScrollSpy";
 import { categoryBlurb } from "@/lib/category-copy";
 import type { ProductRowData } from "@/components/menu/ProductRow";
+import { Reveal } from "@/components/motion/Reveal";
 
 export type MenuBrowserSection = {
   slug: string;
@@ -104,7 +105,7 @@ function ChipBar({
             onClick={() => onSelect(it.slug)}
             aria-pressed={on}
             className={
-              "shrink-0 whitespace-nowrap rounded-full border px-[15px] py-2 text-[13px] font-semibold transition " +
+              "press shrink-0 whitespace-nowrap rounded-full border px-[15px] py-2 text-[13px] font-semibold " +
               (on
                 ? "border-transparent bg-brand text-white"
                 : "border-line bg-card text-ink2")
@@ -121,7 +122,7 @@ function ChipBar({
 function CategorySection({ section }: { section: MenuBrowserSection }) {
   return (
     <section id={`cat-${section.slug}`} className="mb-12 scroll-mt-24">
-      <div className="mx-4 mb-4 lg:mx-0">
+      <Reveal className="mx-4 mb-4 lg:mx-0">
         <h2
           className="font-serif text-ink"
           style={{ fontSize: 28, letterSpacing: -0.6, fontWeight: 600 }}
@@ -131,10 +132,12 @@ function CategorySection({ section }: { section: MenuBrowserSection }) {
         <p className="mt-1 text-[14px] text-ink3">
           {categoryBlurb(section.squareName, section.items.length)}
         </p>
-      </div>
+      </Reveal>
       <div className="mx-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:mx-0">
-        {section.items.map((item) => (
-          <ProductCard key={item.id} item={item} />
+        {section.items.map((item, i) => (
+          <Reveal key={item.id} delay={(i % 6) * 60} scale className="flex">
+            <ProductCard item={item} />
+          </Reveal>
         ))}
       </div>
     </section>

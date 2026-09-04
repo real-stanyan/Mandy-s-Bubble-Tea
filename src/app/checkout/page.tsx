@@ -1692,7 +1692,7 @@ function SectionLabel({
  *  spacing and copy rather than from each card inventing its own border,
  *  radius and padding. */
 const CARD =
-  "rounded-card border border-line bg-card p-5 shadow-[var(--shadow-card-v)] sm:p-6";
+  "rise rounded-card border border-line bg-card p-5 shadow-[var(--shadow-card-v)] sm:p-6";
 
 function BackArrow() {
   return (

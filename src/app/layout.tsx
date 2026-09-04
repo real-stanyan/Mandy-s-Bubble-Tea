@@ -184,6 +184,17 @@ export default function RootLayout({
               "if(ev){document.documentElement.dataset.theme='evening';}}catch(e){}})();",
           }}
         />
+        {/* Motion flag — the scroll-reveal hidden state in globals.css only
+            applies under html[data-motion], so a page without JS (crawlers,
+            a stalled bundle) or with reduced motion is fully visible from
+            the first byte. Parser-blocking so there is no flash either way. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{if(!matchMedia('(prefers-reduced-motion: reduce)').matches){" +
+              "document.documentElement.dataset.motion='1';}}catch(e){}})();",
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">
         <AuthProvider>

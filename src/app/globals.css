@@ -560,3 +560,153 @@ body[data-scroll-locked] {
   background-color: #ffffff !important;
   color: #111111 !important;
 }
+
+/* =====================================================================
+   Motion pass (2026-09-04) — one vocabulary for how things move.
+   Reveals rise gently as they scroll in; interactive surfaces lift on
+   hover and settle on press; nothing loops except the hero's float and
+   the review marquee. Everything here yields to prefers-reduced-motion.
+   ===================================================================== */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Scroll reveal — components/motion/Reveal.tsx flips data-reveal="in"
+   when the element enters the viewport. The hidden state is gated on
+   html[data-motion], which the head script in layout.tsx sets before first
+   paint only when JS runs and motion isn't reduced — so crawlers, no-JS
+   and reduced-motion readers get the page fully visible, and everyone
+   else never sees a flash before the rise. */
+html[data-motion] [data-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 760ms var(--ease-out-expo),
+    transform 760ms var(--ease-out-expo);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+html[data-motion] [data-reveal][data-reveal-scale] {
+  transform: translateY(14px) scale(0.975);
+}
+html[data-motion] [data-reveal="in"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Load-in stagger for above-the-fold copy (no observer needed). */
+@keyframes mbt-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: mbt-rise 720ms var(--ease-out-expo) both; }
+.rise-1 { animation-delay: 60ms; }
+.rise-2 { animation-delay: 140ms; }
+.rise-3 { animation-delay: 220ms; }
+.rise-4 { animation-delay: 300ms; }
+.rise-5 { animation-delay: 380ms; }
+.rise-6 { animation-delay: 460ms; }
+@keyframes mbt-bloom {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.bloom { animation: mbt-bloom 900ms var(--ease-out-expo) 200ms both; }
+
+/* Interactive surfaces: cards lift, buttons press. */
+.lift {
+  transition:
+    transform 280ms var(--ease-out-expo),
+    box-shadow 280ms var(--ease-out-expo),
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+.lift:hover { transform: translateY(-3px); }
+.lift:active { transform: translateY(-1px) scale(0.99); transition-duration: 120ms; }
+.press {
+  transition:
+    transform 160ms var(--ease-out-expo),
+    background-color 160ms ease,
+    box-shadow 220ms ease,
+    opacity 160ms ease;
+}
+.press:hover { transform: translateY(-1px); }
+.press:active { transform: scale(0.96); }
+.glow-brand:hover { box-shadow: 0 18px 34px rgba(141, 85, 36, 0.36); }
+
+/* Media zoom inside a .group card. */
+.zoom-media img { transition: transform 900ms var(--ease-out-expo); }
+.group:hover .zoom-media img { transform: scale(1.06); }
+
+/* Hero: the floating cards drift on their own phase, slower than the cup. */
+@keyframes home-float-soft {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
+}
+.float-soft { animation: home-float-soft 4.4s ease-in-out infinite; }
+.float-soft-late { animation: home-float-soft 4.4s ease-in-out -1.7s infinite; }
+.home-marquee:hover .home-marquee-track { animation-play-state: paused; }
+
+/* Site header compacts once the page scrolls (SiteHeader sets data-scrolled). */
+.site-header {
+  transition: box-shadow 320ms ease, background-color 320ms ease;
+}
+.site-header-inner { transition: height 320ms var(--ease-out-expo); }
+.site-header[data-scrolled="true"] { box-shadow: 0 10px 30px rgba(42, 30, 20, 0.12); }
+.site-header[data-scrolled="true"] .site-header-inner { height: 62px; }
+
+/* Menu category sidebar links slide a touch on hover; the active one
+   carries a brand bar that grows in. */
+.cat-link {
+  position: relative;
+  transition:
+    color 200ms ease,
+    background-color 260ms var(--ease-out-expo),
+    transform 260ms var(--ease-out-expo);
+}
+.cat-link:hover { transform: translateX(2px); }
+.cat-link::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--brand);
+  transform: translateY(-50%);
+  transition: height 260ms var(--ease-out-expo);
+}
+.cat-link[aria-current="page"]::before { height: 60%; }
+
+/* Cart: badge pops when the count changes; lines settle in one by one;
+   the drawer glides instead of sliding linearly. */
+@keyframes mbt-badge-pop {
+  0%   { transform: scale(0.5); }
+  60%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.badge-pop { animation: mbt-badge-pop 460ms var(--ease-spring) both; }
+.drawer-panel { transition: transform 520ms var(--ease-out-expo), opacity 300ms ease; }
+.drawer-scrim { transition: opacity 360ms ease; }
+.cart-line-in { animation: mbt-rise 520ms var(--ease-out-expo) both; }
+
+/* Skeleton tiles and gallery tiles breathe rather than blink. */
+@keyframes mbt-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.breathe { animation: mbt-breathe 1.9s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .rise, .bloom, .float-soft, .float-soft-late, .badge-pop, .cart-line-in, .breathe {
+    animation: none !important;
+  }
+  .lift, .press, .zoom-media img, .cat-link, .cat-link::before,
+  .site-header, .site-header-inner, .drawer-panel, .drawer-scrim {
+    transition: none !important;
+  }
+  .lift:hover, .press:hover, .press:active, .lift:active, .cat-link:hover { transform: none; }
+  .group:hover .zoom-media img { transform: none; }
+}

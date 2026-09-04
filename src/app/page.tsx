@@ -8,6 +8,8 @@ import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
 import { AppDownloadPopup } from "@/components/home/AppDownloadPopup";
 import { OrderModePopup } from "@/components/home/OrderModePopup";
 import { HeroCup } from "@/components/home/HeroCup";
+import { Reveal } from "@/components/motion/Reveal";
+import { CountUp } from "@/components/motion/CountUp";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
 import { FragranceBlindBoxPromo } from "@/components/home/FragranceBlindBoxPromo";
 
@@ -110,42 +112,45 @@ function Hero() {
       <div className="mx-auto grid max-w-6xl items-center gap-5 sm:gap-10 md:grid-cols-[1.05fr_0.95fr]">
         {/* left copy */}
         <div>
-          <span className="inline-flex items-center gap-2 rounded-full bg-green/15 px-3.5 py-2 text-[13px] font-semibold text-green-dark">
+          {/* Copy rises in line by line on load — the one place the page
+              animates without being scrolled to, because it IS the first
+              thing seen. */}
+          <span className="rise rise-1 inline-flex items-center gap-2 rounded-full bg-green/15 px-3.5 py-2 text-[13px] font-semibold text-green-dark">
             <span className="h-[7px] w-[7px] rounded-full bg-current" />
             Freshly brewed daily in Southport
           </span>
-          <h1 className="serif-display mt-3.5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink sm:mt-5">
+          <h1 className="serif-display rise rise-2 mt-3.5 font-serif text-[clamp(44px,6vw,72px)] font-semibold leading-[0.98] tracking-[-0.03em] text-ink sm:mt-5">
             Your daily dose
             <br />
             of <span className="italic text-brand">happiness</span>.
           </h1>
-          <p className="mt-3 max-w-[480px] text-[17px] leading-relaxed text-ink2 sm:mt-5">
+          <p className="rise rise-3 mt-3 max-w-[480px] text-[17px] leading-relaxed text-ink2 sm:mt-5">
             Silky milk teas and chewy pearls, made to order — order ahead, skip
             the line, and earn a free drink along the way.
           </p>
-          <div className="mt-5 flex flex-wrap gap-3 sm:mt-7">
+          <div className="rise rise-4 mt-5 flex flex-wrap gap-3 sm:mt-7">
             <Link
               href="/menu"
-              className="inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(141,85,36,0.30)] transition hover:bg-brand-dark active:scale-[0.97]"
+              className="press glow-brand inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(141,85,36,0.30)] hover:bg-brand-dark"
             >
               Order now <ArrowRight size={17} />
             </Link>
             <Link
               href="/account"
-              className="inline-flex items-center rounded-full border border-line bg-card px-6 py-3.5 text-sm font-semibold text-ink2 transition hover:bg-paper"
+              className="press inline-flex items-center rounded-full border border-line bg-card px-6 py-3.5 text-sm font-semibold text-ink2 hover:bg-paper"
             >
               Join rewards
             </Link>
           </div>
-          <div className="mt-5 flex items-center gap-7 sm:mt-9">
+          <div className="rise rise-5 mt-5 flex items-center gap-7 sm:mt-9">
             {[
               ["7", "Drink families"],
               ["30+", "Signature drinks"],
               ["100%", "Made to order"],
             ].map(([v, l]) => (
               <div key={l}>
-                <div className="font-serif text-[30px] font-semibold tracking-[-0.5px] text-brand">
-                  {v}
+                <div className="font-serif text-[30px] font-semibold tracking-[-0.5px] text-brand tabular-nums">
+                  <CountUp value={v} />
                 </div>
                 <div className="mt-0.5 text-[12px] font-medium text-ink3">
                   {l}
@@ -156,7 +161,7 @@ function Hero() {
         </div>
 
         {/* right visual */}
-        <div className="relative grid place-items-center">
+        <div className="bloom relative grid place-items-center">
           {/* soft warm spotlight — radial peach glow fading to nothing, no hard
               edge, so the cup reads as lit from behind rather than stuck on a disc */}
           <div
@@ -191,7 +196,7 @@ function Hero() {
           <Link
             href="/account"
             aria-label="Join Mandy's Rewards — your 9th drink is on us"
-            className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[252px] items-center gap-3 rounded-[18px] bg-card p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)] ring-1 ring-black/[0.04] transition hover:-translate-y-0.5"
+            className="absolute bottom-[6%] left-[-2%] z-[3] flex max-w-[252px] items-center gap-3 rounded-[18px] bg-card p-3 pr-4 shadow-[0_18px_44px_rgba(42,30,20,0.14)] ring-1 ring-black/[0.04] transition hover:shadow-[0_24px_52px_rgba(42,30,20,0.18)]"
           >
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-star">
               <Gift size={18} />
@@ -205,8 +210,8 @@ function Hero() {
               </span>
             </span>
           </Link>
-          {/* floating badge */}
-          <div className="absolute right-[-1%] top-[8%] z-[3] flex items-center gap-2 rounded-full bg-card px-4 py-2.5 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
+          {/* floating badge — drifts on its own phase, slower than the cup */}
+          <div className="float-soft-late absolute right-[-1%] top-[8%] z-[3] flex items-center gap-2 rounded-full bg-card px-4 py-2.5 shadow-[0_18px_44px_rgba(42,30,20,0.14)]">
             <Star size={17} className="text-peach" />
             <span className="text-[13px] font-semibold text-ink">
               Made fresh to order
@@ -221,7 +226,7 @@ function Hero() {
 function Marquee() {
   const items = [...CUSTOMER_REVIEWS, ...CUSTOMER_REVIEWS];
   return (
-    <div className="mt-10 overflow-hidden border-y border-line bg-paper py-4">
+    <div className="home-marquee mt-10 overflow-hidden border-y border-line bg-paper py-4">
       <div className="home-marquee-track">
         {items.map((r, i) => (
           <span
@@ -267,7 +272,7 @@ function Featured({ items }: { items: FeaturedItem[] }) {
   if (items.length === 0) return null;
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pt-[72px] sm:px-8">
-      <div className="mb-8 flex items-end justify-between gap-5">
+      <Reveal className="mb-8 flex items-end justify-between gap-5">
         <SectionHead
           kicker="Mandy's · Southport"
           title="Steeped in flavour"
@@ -275,15 +280,20 @@ function Featured({ items }: { items: FeaturedItem[] }) {
         />
         <Link
           href="/menu"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-card px-4 py-2.5 text-[13px] font-semibold text-ink2 transition hover:bg-paper"
+          className="press inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-card px-4 py-2.5 text-[13px] font-semibold text-ink2 hover:bg-paper"
         >
           View full menu <ArrowRight size={15} />
         </Link>
-      </div>
+      </Reveal>
       <div className="scrollbar-hide -mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:px-0 lg:grid lg:grid-cols-4 lg:gap-5 lg:overflow-visible">
-        {items.map((it) => (
-          <Link
+        {items.map((it, i) => (
+          <Reveal
             key={it.id}
+            delay={i * 90}
+            scale
+            className="flex w-[158px] shrink-0 snap-start sm:w-[200px] lg:w-auto lg:shrink"
+          >
+          <Link
             href={`/menu/${it.categorySlug}/${it.id}`}
             // prefetch off: a prefetched navigation can skip the @modal
             // intercepting route and render the full item page instead of
@@ -292,16 +302,16 @@ function Featured({ items }: { items: FeaturedItem[] }) {
             // grid's cards use router.push (never prefetched), which is why
             // only this entry point flickered between the two.
             prefetch={false}
-            className="group flex w-[158px] shrink-0 snap-start flex-col overflow-hidden rounded-card border border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)] transition hover:-translate-y-1 hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)] sm:w-[200px] lg:w-auto lg:shrink"
+            className="group lift flex w-full flex-col overflow-hidden rounded-card border border-line bg-card shadow-[0_2px_8px_rgba(42,30,20,0.05)] hover:shadow-[0_18px_44px_rgba(42,30,20,0.14)]"
           >
-            <div className="relative aspect-square overflow-hidden bg-bg2">
+            <div className="zoom-media relative aspect-square overflow-hidden bg-bg2">
               {it.imageUrl && (
                 <Image
                   src={it.imageUrl}
                   alt={it.name}
                   fill
                   sizes="(max-width:1024px) 50vw, 25vw"
-                  className="object-cover transition group-hover:scale-105"
+                  className="object-cover"
                 />
               )}
             </div>
@@ -316,6 +326,7 @@ function Featured({ items }: { items: FeaturedItem[] }) {
               )}
             </div>
           </Link>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -325,7 +336,8 @@ function Featured({ items }: { items: FeaturedItem[] }) {
 function StoryTeaser() {
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pt-[72px] sm:px-8">
-      <div
+      <Reveal
+        scale
         className="overflow-hidden rounded-[30px] text-white"
         style={{ background: "#3E2723" }}
       >
@@ -367,7 +379,7 @@ function StoryTeaser() {
             </p>
             <Link
               href="/our-story"
-              className="mt-6 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+              className="press mt-6 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/15"
             >
               Read our story <ArrowRight size={15} />
             </Link>
@@ -378,7 +390,9 @@ function StoryTeaser() {
                 ["2016", "Est. Southport"],
               ].map(([v, l]) => (
                 <div key={l}>
-                  <div className="font-serif text-[30px] font-semibold">{v}</div>
+                  <div className="font-serif text-[30px] font-semibold tabular-nums">
+                    {l === "Est. Southport" ? v : <CountUp value={v} />}
+                  </div>
                   <div className="mt-0.5 text-[11px] uppercase tracking-wide text-white/60">
                     {l}
                   </div>
@@ -387,7 +401,7 @@ function StoryTeaser() {
             </div>
           </div>
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
@@ -395,7 +409,8 @@ function StoryTeaser() {
 function AppPromo() {
   return (
     <section className="mx-auto w-full max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
-      <div
+      <Reveal
+        scale
         className="relative overflow-hidden rounded-[30px] p-10 sm:p-14"
         style={{ background: "#2E1D12" }}
       >
@@ -432,7 +447,7 @@ function AppPromo() {
             />
           </div>
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
