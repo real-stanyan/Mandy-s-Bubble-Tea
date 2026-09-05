@@ -14,6 +14,9 @@ export interface WalletPassRow {
   pass_type_id: string;
   created_at: string;
   updated_at: string;
+  /** Google Wallet: save JWT minted / App reported the save sheet's RESULT_OK. */
+  google_issued_at: string | null;
+  google_saved_at: string | null;
 }
 
 export interface WalletPassDeviceRow {
@@ -144,6 +147,28 @@ export async function bumpPassUpdatedAt(serial: string): Promise<void> {
     .update({ updated_at: new Date().toISOString() })
     .eq("serial_number", serial);
   if (error) throw new Error(`bumpPassUpdatedAt: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Google Wallet flags (same row — one member number on both phones)
+// ---------------------------------------------------------------------------
+
+export async function markGoogleIssued(serial: string): Promise<void> {
+  const { error } = await db()
+    .from("wallet_passes")
+    .update({ google_issued_at: new Date().toISOString() })
+    .eq("serial_number", serial)
+    .is("google_issued_at", null);
+  if (error) throw new Error(`markGoogleIssued: ${error.message}`);
+}
+
+export async function markGoogleSaved(serial: string): Promise<void> {
+  const { error } = await db()
+    .from("wallet_passes")
+    .update({ google_saved_at: new Date().toISOString() })
+    .eq("serial_number", serial)
+    .is("google_saved_at", null);
+  if (error) throw new Error(`markGoogleSaved: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
