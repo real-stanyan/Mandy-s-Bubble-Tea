@@ -146,6 +146,7 @@ export async function ItemDetailContent({
             lockedToppings={lockedToppings}
             displayName={shownName}
             stickyPreview={inModal}
+            menuHref={`/menu/${category.slug}`}
           />
         </div>
       </div>

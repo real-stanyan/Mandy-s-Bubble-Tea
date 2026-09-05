@@ -9,6 +9,7 @@ import type {
   ModifierList,
   ModifierOption,
 } from "@/lib/catalog";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/store/cart";
 import { isLockedToppingName } from "@/lib/menu/top10-presets";
 import {
@@ -48,6 +49,12 @@ type Props = {
    * hardcoded offset would either clip or float.
    */
   stickyPreview?: boolean;
+  /**
+   * Where the full-route page goes after a successful add — the category the
+   * drink lives in. The modal closes itself instead; this is only read when
+   * there is no modal to close.
+   */
+  menuHref?: string;
 };
 
 function supportsMultiCount(list: ModifierList): boolean {
@@ -75,11 +82,15 @@ export function ItemOrderForm({
   lockedToppings = [],
   displayName,
   stickyPreview = false,
+  menuHref = "/menu",
 }: Props) {
   const addLine = useCart((s) => s.addLine);
+  const router = useRouter();
   // Non-null only when rendered inside the item modal — dismiss it after a
-  // successful add so the shopper returns to the menu (the full-route page has
-  // no provider, so add-to-cart stays put there).
+  // successful add so the shopper returns to the menu. The full-route page
+  // has no modal to close, so it navigates back to the category instead:
+  // staying on a drink you have just added reads as "did that work?"
+  // (Stan, 2026-09-05).
   const closeModal = useItemModalClose();
 
   const [variationId, setVariationId] = useState<string>(
@@ -284,8 +295,10 @@ export function ItemOrderForm({
     setSelectedByList(buildDefaultCounts(modifierLists, lockedToppings));
     setQuantity(1);
 
-    // Inside the modal: dismiss it so the shopper drops back to the menu.
-    closeModal?.();
+    // Leave the drink either way: close the modal, or send the full-route
+    // page back to its category.
+    if (closeModal) closeModal();
+    else router.push(menuHref);
   }
 
   return (
@@ -473,7 +486,19 @@ export function ItemOrderForm({
         </p>
       )}
 
-      <div className="mt-6 flex items-center gap-3 sm:mt-8">
+      {/* Pinned to the bottom of whatever scrolls (the modal body, or the
+          page) so the price and the add button stay reachable while the
+          customer is still down in the topping lists. On the full page the
+          mobile tab bar owns the bottom edge, so the bar sits above it until
+          lg, where the tab bar is gone. */}
+      <div
+        className={
+          "sticky z-10 mt-6 flex items-center gap-3 rounded-card border border-line bg-card p-3 shadow-[0_-8px_28px_rgba(42,30,20,0.12)] sm:mt-8 " +
+          (stickyPreview
+            ? "bottom-2"
+            : "bottom-[calc(76px+env(safe-area-inset-bottom))] lg:bottom-2")
+        }
+      >
         <QuantityStepper value={quantity} onChange={setQuantity} />
 
         <button
