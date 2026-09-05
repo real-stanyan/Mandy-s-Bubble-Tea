@@ -15,7 +15,7 @@ import type { InventoryRow, InventoryView, PickupSuggestion } from "@/lib/staff/
  * clumsy, and a save on every keystroke would race itself.
  */
 
-type Draft = { qty: string; threshold: string; unit: string; usageOverride: string };
+type Draft = { qty: string; threshold: string; unit: string; usageOverride: string; unitCost: string };
 
 type ImportSummary = { days: number; added: number; unknown: string[]; ambiguous: string[] };
 
@@ -23,7 +23,7 @@ const REASON_LABEL: Record<PickupSuggestion["reason"], string> = {
   covered: "shop is covered",
   topup: "top-up",
   "no-usage": "no usage figure yet",
-  "no-shop-count": "shop never counted — full cover",
+  "no-shop-count": "not on the count sheet",
   "warehouse-empty": "warehouse empty",
   "warehouse-short": "all the warehouse has",
 };
@@ -42,6 +42,7 @@ function draftOf(rows: InventoryRow[]): Record<string, Draft> {
       threshold: r.threshold == null ? "" : String(r.threshold),
       unit: r.unit,
       usageOverride: r.usageOverride == null ? "" : String(r.usageOverride),
+      unitCost: r.unitCost == null ? "" : String(r.unitCost),
     };
   }
   return out;
@@ -106,6 +107,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
       numOrNull(d.qty) !== r.qty ||
       numOrNull(d.threshold) !== r.threshold ||
       numOrNull(d.usageOverride) !== r.usageOverride ||
+      numOrNull(d.unitCost) !== r.unitCost ||
       d.unit.trim() !== r.unit
     );
   });
@@ -158,6 +160,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
         qty: numOrNull(d.qty),
         threshold: numOrNull(d.threshold),
         usageOverride: numOrNull(d.usageOverride),
+        unitCost: numOrNull(d.unitCost),
         unit: d.unit,
       };
     });
@@ -440,6 +443,47 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
         )}
       </section>
 
+      {/* ── Weekly cost ────────────────────────────────────────────── */}
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Weekly cost</h2>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Measured usage × unit cost (ex-GST). Taiwan prices are FOB + 8%, no sea freight; RMB at 4.7.
+          Fix a number in the Cost column below.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Ingredients</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">${view.cost.ingredientsWeekly.toLocaleString()}</div>
+          </div>
+          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Packaging</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">${view.cost.packagingWeekly.toLocaleString()}</div>
+          </div>
+          <div className="col-span-2 rounded-lg border border-zinc-200 p-3 sm:col-span-1 dark:border-zinc-800">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Total / week</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">
+              ${(view.cost.ingredientsWeekly + view.cost.packagingWeekly).toLocaleString()}
+            </div>
+          </div>
+        </div>
+        {view.cost.top.length > 0 && (
+          <ul className="mt-3 divide-y divide-zinc-200 rounded-lg border border-zinc-200 text-sm dark:divide-zinc-800 dark:border-zinc-800">
+            {view.cost.top.map((t) => (
+              <li key={t.id} className="flex items-center justify-between px-3 py-1.5">
+                <span>{t.name}</span>
+                <span className="tabular-nums">${t.weeklyCost.toFixed(0)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {(view.cost.missingCost.length > 0 || view.cost.missingUsage.length > 0) && (
+          <p className="mt-2 text-xs text-zinc-500">
+            {view.cost.missingCost.length > 0 && <>No cost yet: {view.cost.missingCost.join(", ")}. </>}
+            {view.cost.missingUsage.length > 0 && <>No usage yet: {view.cost.missingUsage.join(", ")}.</>}
+          </p>
+        )}
+      </section>
+
       {/* ── Import past reports ────────────────────────────────────── */}
       <section className="mt-8">
         <button
@@ -485,11 +529,12 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
           to go back to the measured figure.
         </p>
 
-        <div className="mt-3 grid grid-cols-[1fr_4.5rem_4.5rem_5.5rem_2rem] items-center gap-2 px-1 text-[11px] uppercase tracking-wide text-zinc-500">
+        <div className="mt-3 grid grid-cols-[1fr_4rem_4rem_4.6rem_4.6rem_2rem] items-center gap-2 px-1 text-[11px] uppercase tracking-wide text-zinc-500">
           <span>Item</span>
           <span className="text-right">Qty</span>
           <span className="text-right">Order at</span>
           <span className="text-right">Per day</span>
+          <span className="text-right">Cost</span>
           <span />
         </div>
 
@@ -498,11 +543,11 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{cat.name}</h3>
             <ul className="mt-1 divide-y divide-zinc-200 dark:divide-zinc-800">
               {cat.rows.map((r) => {
-                const d = draft[r.id] ?? { qty: "", threshold: "", unit: "", usageOverride: "" };
+                const d = draft[r.id] ?? { qty: "", threshold: "", unit: "", usageOverride: "", unitCost: "" };
                 const set = (k: keyof Draft, v: string) =>
                   setDraft((p) => ({ ...p, [r.id]: { ...p[r.id], [k]: v } }));
                 return (
-                  <li key={r.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_5.5rem_2rem] items-center gap-2 py-2">
+                  <li key={r.id} className="grid grid-cols-[1fr_4rem_4rem_4.6rem_4.6rem_2rem] items-center gap-2 py-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">{r.name}</span>
@@ -532,6 +577,7 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
                               ? ` · measured ${fmt(r.usage.perDay, 2)}/d`
                               : ""}
                           {r.warehouseCoverDays != null ? ` · lasts ~${fmt(r.warehouseCoverDays, 0)} d` : ""}
+                          {r.weeklyCost != null ? ` · ${r.weeklyCost.toFixed(0)}/wk` : ""}
                         </span>
                       </div>
                     </div>
@@ -560,6 +606,15 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
                       className={`${input} w-full ${
                         d.usageOverride.trim() !== "" ? "border-amber-400 bg-amber-50 dark:bg-amber-950" : ""
                       }`}
+                    />
+                    <input
+                      inputMode="decimal"
+                      value={d.unitCost}
+                      onChange={(e) => set("unitCost", e.target.value)}
+                      placeholder="—"
+                      title={r.costSource || "unit cost, AUD ex-GST"}
+                      aria-label={`${r.name} unit cost`}
+                      className={`${input} w-full`}
                     />
                     <button
                       type="button"
@@ -595,8 +650,38 @@ export function InventoryClient({ initial }: { initial: InventoryView }) {
                       {r.name}
                       <span className="ml-2 text-xs text-zinc-500">
                         {r.usagePerDay != null ? `${fmt(r.usagePerDay, 2)}/d` : "no usage yet"}
+                        {r.weeklyCost != null ? ` · ${r.weeklyCost.toFixed(0)}/wk` : ""}
                       </span>
                     </span>
+                    <input
+                      inputMode="decimal"
+                      value={draft[r.id]?.unitCost ?? ""}
+                      onChange={(e) =>
+                        setDraft((p) => ({
+                          ...p,
+                          [r.id]: { ...(p[r.id] ?? { qty: "", threshold: "", unit: "", usageOverride: "" }), unitCost: e.target.value },
+                        }))
+                      }
+                      placeholder="cost"
+                      title={r.costSource || "unit cost, AUD ex-GST"}
+                      aria-label={`${r.name} unit cost`}
+                      className={`${input} w-16 text-xs`}
+                    />
+                    {!r.hasShopCount && (
+                      <input
+                        inputMode="decimal"
+                        value={draft[r.id]?.usageOverride ?? ""}
+                        onChange={(e) =>
+                          setDraft((p) => ({
+                            ...p,
+                            [r.id]: { ...(p[r.id] ?? { qty: "", threshold: "", unit: "", unitCost: "" }), usageOverride: e.target.value },
+                          }))
+                        }
+                        placeholder="per day"
+                        aria-label={`${r.name} daily usage`}
+                        className={`${input} w-16 text-xs`}
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={() => trackItem(r)}

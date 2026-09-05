@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { brisbaneDate } from "./stock-history";
 import { readLastCount } from "./stock-history-store";
 import {
+  ensureCosts,
   ensureShopLines,
   parseState,
   recordShopCount,
@@ -38,8 +39,10 @@ export async function readInventory(now: Date = new Date()): Promise<InventorySt
         // Lines removed from the warehouse (or added to stocklist.ts since)
         // come back as shop-only rows so the pickup list stays complete.
         const ensured = ensureShopLines(parsed, now);
-        if (ensured.added > 0) await writeInventory(ensured.state);
-        return ensured.state;
+        // One-off: the 2026-09-05 unit costs and the off-sheet cost items.
+        const costed = ensureCosts(ensured.state, now);
+        if (ensured.added > 0 || costed.changed) await writeInventory(costed.state);
+        return costed.state;
       }
     }
   } catch (e) {

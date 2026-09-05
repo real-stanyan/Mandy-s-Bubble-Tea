@@ -3,6 +3,7 @@ import {
   addItem,
   applyPickup,
   buildView,
+  ensureCosts,
   ensureShopLines,
   estimateUsage,
   patchItems,
@@ -198,6 +199,33 @@ describe("buildView", () => {
     expect(v.rows.find((r) => r.id === "syrup-lychee")?.low).toBe(true); // 48 ≤ 50
     expect(v.countedToday).toBe(false);
     expect(buildView(s, "2026-09-04").countedToday).toBe(true);
+  });
+
+  it("ensureCosts fills blank costs once, adds the off-sheet items, and never overwrites an edit", () => {
+    let s = seedState(NOW);
+    s = patchItems(s, [{ id: "syrup-mango", unitCost: 9.5 }], NOW);
+    const first = ensureCosts(s, NOW);
+    expect(first.changed).toBe(true);
+    const items = first.state.items;
+    expect(items.find((i) => i.id === "syrup-mango")?.unitCost).toBe(9.5); // edit kept
+    expect(items.find((i) => i.id === "syrup-peach")?.unitCost).toBeCloseTo(8.48, 2);
+    expect(items.find((i) => i.id === "other-cream")?.unitCost).toBe(5.9);
+    expect(items.find((i) => i.id === "packaging-cups")?.usageOverride).toBe(364);
+    expect(items.find((i) => i.id === "custom-tapioca-pearls")).toMatchObject({ unitCost: 45, inWarehouse: false });
+    expect(ensureCosts(first.state, NOW).changed).toBe(false);
+  });
+
+  it("buildView prices weekly cost and splits packaging out", () => {
+    let s = ensureCosts(seedState(NOW), NOW).state;
+    s = recordShopCount(s, { date: "2026-09-03", counts: { "syrup-mango": 5 } });
+    s = recordShopCount(s, { date: "2026-09-04", counts: { "syrup-mango": 3 } });
+    const v = buildView(s, "2026-09-04");
+    const mango = v.rows.find((r) => r.id === "syrup-mango")!;
+    expect(mango.weeklyCost).toBeCloseTo(2 * 7 * 8.97, 1);
+    expect(v.cost.packagingWeekly).toBeGreaterThan(0); // cups, straws, film, sticker
+    expect(v.cost.ingredientsWeekly).toBeGreaterThan(mango.weeklyCost!); // + pearls, creamers
+    // Off-sheet items carry usage for cost but never a pickup suggestion.
+    expect(v.rows.find((r) => r.id === "custom-okinawa-creamer")?.suggestion.bring).toBe(0);
   });
 
   it("a shop-only item is suggested as 'buy' with no warehouse cap", () => {
