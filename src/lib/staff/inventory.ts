@@ -53,6 +53,10 @@ export type InventoryItem = {
    *  for things bought as needed — fresh milk, fruit — which still appear on
    *  the pickup list as "buy" so the morning run covers them too. */
   inWarehouse: boolean;
+  /** AUD ex-GST per count unit, for the weekly cost view. Null = unknown. */
+  unitCost: number | null;
+  /** Where the price came from — an invoice number, "Stan 2026-09-05". */
+  costSource: string;
   updatedAt: string;
 };
 
@@ -82,6 +86,8 @@ export type InventoryState = {
   pickups: PickupRecord[];
   /** Oldest first, one per day (a second count on the same day replaces). */
   shopCounts: ShopCount[];
+  /** Which one-off cost seed has been applied (see ensureCosts). */
+  costsSeeded?: number;
 };
 
 /** Warehouse quantities Stan gave on 2026-09-05, keyed by stock-check id. */
@@ -129,6 +135,8 @@ export function seedState(now: Date, lastShopCount: ShopCount | null = null): In
         usageOverride: null,
         hasShopCount: item.rule.kind !== "sufficiency",
         inWarehouse: true,
+        unitCost: null,
+        costSource: "",
         updatedAt: at,
       });
     }
@@ -165,6 +173,8 @@ export function ensureShopLines(state: InventoryState, now: Date): { state: Inve
         usageOverride: null,
         hasShopCount: true,
         inWarehouse: false,
+        unitCost: null,
+        costSource: "",
         updatedAt: at,
       });
     }
@@ -349,6 +359,20 @@ export type InventoryRow = InventoryItem & {
   warehouseCoverDays: number | null;
   low: boolean;
   suggestion: PickupSuggestion;
+  /** usage × 7 × unitCost; null when either side is unknown. */
+  weeklyCost: number | null;
+};
+
+export type CostSummary = {
+  /** Items with a cost and a usage figure, split by the Packaging category. */
+  ingredientsWeekly: number;
+  packagingWeekly: number;
+  /** Items that have a usage figure but no unit cost yet. */
+  missingCost: string[];
+  /** Items with a cost but nothing to multiply it by yet. */
+  missingUsage: string[];
+  /** Largest weekly costs first. */
+  top: Array<{ id: string; name: string; weeklyCost: number }>;
 };
 
 export type InventoryView = {
@@ -361,6 +385,7 @@ export type InventoryView = {
   /** Today's stock check has been submitted — the pickup list is only shown
    *  once it has, because it is computed from it. */
   countedToday: boolean;
+  cost: CostSummary;
 };
 
 export function buildView(state: InventoryState, today: string): InventoryView {
@@ -386,9 +411,34 @@ export function buildView(state: InventoryState, today: string): InventoryView {
       shopCoverDays: cover(shop?.qty ?? null),
       warehouseCoverDays: item.inWarehouse ? cover(item.qty) : null,
       low: item.inWarehouse && isLow(item),
-      suggestion: suggestPickup(usagePerDay, shop?.qty ?? null, cap, state.coverDays),
+      // An item that is never counted (creamer, pearls, cups) has no shop
+      // figure to top up from, so it gets no daily suggestion — Stan buys
+      // those on their own rhythm. It still carries usage for the cost view.
+      suggestion: item.hasShopCount
+        ? suggestPickup(usagePerDay, shop?.qty ?? null, cap, state.coverDays)
+        : { bring: 0, reason: "no-shop-count" },
+      weeklyCost:
+        usagePerDay != null && item.unitCost != null
+          ? Math.round(usagePerDay * 7 * item.unitCost * 100) / 100
+          : null,
     };
   });
+  const cost: CostSummary = { ingredientsWeekly: 0, packagingWeekly: 0, missingCost: [], missingUsage: [], top: [] };
+  for (const r of rows) {
+    if (r.weeklyCost != null) {
+      if (r.category === "Packaging") cost.packagingWeekly += r.weeklyCost;
+      else cost.ingredientsWeekly += r.weeklyCost;
+      cost.top.push({ id: r.id, name: r.name, weeklyCost: r.weeklyCost });
+    } else if (r.usagePerDay != null && r.usagePerDay > 0 && r.unitCost == null) {
+      cost.missingCost.push(r.name);
+    } else if (r.unitCost != null && r.usagePerDay == null) {
+      cost.missingUsage.push(r.name);
+    }
+  }
+  cost.ingredientsWeekly = Math.round(cost.ingredientsWeekly);
+  cost.packagingWeekly = Math.round(cost.packagingWeekly);
+  cost.top.sort((a, b) => b.weeklyCost - a.weeklyCost);
+  cost.top = cost.top.slice(0, 10);
   let lastShopCountDate: string | null = null;
   for (const c of state.shopCounts) {
     if (!lastShopCountDate || c.date > lastShopCountDate) lastShopCountDate = c.date;
@@ -400,6 +450,7 @@ export function buildView(state: InventoryState, today: string): InventoryView {
     todaysPickups: state.pickups.filter((p) => p.date === today),
     lastShopCountDate,
     countedToday: lastShopCountDate === today,
+    cost,
   };
 }
 
@@ -465,6 +516,8 @@ export type ItemPatch = {
   qty?: number | null;
   threshold?: number | null;
   usageOverride?: number | null;
+  unitCost?: number | null;
+  costSource?: string;
 };
 
 /** Merge edits into existing items. Unknown ids are ignored — adding is a
@@ -485,6 +538,13 @@ export function patchItems(state: InventoryState, patches: ItemPatch[], now: Dat
         qty: p.qty === undefined ? item.qty : cleanQty(p.qty),
         threshold: p.threshold === undefined ? item.threshold : cleanQty(p.threshold),
         usageOverride: p.usageOverride === undefined ? item.usageOverride : cleanQty(p.usageOverride),
+        unitCost: p.unitCost === undefined ? item.unitCost : cleanQty(p.unitCost),
+        costSource:
+          p.costSource !== undefined
+            ? p.costSource.trim().slice(0, 80)
+            : p.unitCost !== undefined && cleanQty(p.unitCost) !== item.unitCost
+              ? "edited on the page"
+              : item.costSource,
         updatedAt: at,
       };
     }),
@@ -512,9 +572,115 @@ export function addItem(
     usageOverride: null,
     hasShopCount: false,
     inWarehouse: true,
+    unitCost: null,
+    costSource: "",
     updatedAt: now.toISOString(),
   };
   return { state: { ...state, items: [...state.items, item] }, item };
+}
+
+// MARK: costs
+
+/**
+ * Unit costs per count unit, AUD ex-GST, as gathered on 2026-09-05
+ * (`~/mandy/operations/ingredient-costs.md`). Taiwan FOB prices carry the
+ * quote's own 8% FOB/pallet overhead; sea freight is not in them. RMB items
+ * are converted at 4.7. These are the STARTING numbers — Stan edits the
+ * column on the page, and the seed never overwrites an edit.
+ */
+const TW = (p: number) => Math.round(p * 1.08 * 100) / 100;
+const RMB = (p: number) => Math.round((p / 4.7) * 1000) / 1000;
+export const DEFAULT_UNIT_COSTS: Record<string, { cost: number; source: string }> = {
+  "syrup-mango": { cost: TW(8.31), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-peach": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-lychee": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-strawberry": { cost: TW(8.31), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-pf": { cost: TW(9.0), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-grape": { cost: TW(8.54), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-ga": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-pa": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8% (pineapple)" },
+  "syrup-gf": { cost: TW(10.39), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-lemon": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-lymt": { cost: 18, source: "Stan 2026-09-05" },
+  "syrup-blueberry": { cost: TW(9.23), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-guava": { cost: TW(8.77), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-yogurt": { cost: 18, source: "MBT (6 btl/ctn $108)" },
+  "syrup-honeydew": { cost: TW(7.85), source: "Stan: same as other TW syrups" },
+  "syrup-orange": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "syrup-brown-sugar": { cost: 27.5, source: "MBT 144341 (4 btl/ctn $110)" },
+  "syrup-tiger-brown-sugar": { cost: 38, source: "MBT 144341" },
+  "syrup-strawberry-jam": { cost: 28, source: "local invoice" },
+  "topping-lychee-jelly": { cost: TW(8.54), source: "Tachungho QE40029 FOB +8%" },
+  "topping-mango-jelly": { cost: TW(8.54), source: "Tachungho QE40029 FOB +8%" },
+  "topping-aloe-vera": { cost: RMB(10.5), source: "Stan: 10.5 RMB @4.7" },
+  "topping-rainbow": { cost: RMB(20), source: "Stan: 20 RMB @4.7" },
+  "topping-strawberry-popping": { cost: RMB(17), source: "Stan: 17 RMB @4.7" },
+  "topping-jellyball": { cost: RMB(11.5), source: "Stan: 11.5 RMB @4.7" },
+  "topping-herbal-jelly": { cost: 11, source: "MBT 144341 grass jelly powder $22/kg, 1 bag = 2 units" },
+  "topping-green-apple-popping": { cost: RMB(17), source: "Stan: 17 RMB @4.7" },
+  "topping-oat-popping": { cost: RMB(16.5), source: "Stan: 16.5 RMB @4.7" },
+  "topping-chocolate-popping": { cost: RMB(20.5), source: "Stan: 20.5 RMB @4.7" },
+  "powder-matcha": { cost: TW(10.16), source: "Tachungho QE40029 FOB +8%" },
+  "powder-coconut": { cost: TW(9.46), source: "Tachungho QE40029 FOB +8%" },
+  "powder-silver-taro": { cost: 15, source: "MBT (20 bag/ctn $300)" },
+  "powder-colorful-taro": { cost: 15, source: "local invoice" },
+  "powder-thai": { cost: 10, source: "Stan 2026-09-05" },
+  "powder-brulee": { cost: RMB(40), source: "Stan: 40 RMB @4.7" },
+  "powder-pudding": { cost: TW(7.85), source: "Tachungho QE40029 FOB +8%" },
+  "tea-black-fannings": { cost: 16, source: "MBT 144341 (600g bag)" },
+  "tea-green": { cost: TW(8.77), source: "Tachungho QE40029 FOB +8% (600g bag)" },
+  "packaging-cups": { cost: RMB(0.26), source: "Stan: 0.26 RMB @4.7 (700ml, 13g)" },
+  "packaging-straws": { cost: RMB(0.11), source: "Stan: 0.13 thick / 0.09 thin RMB, half each @4.7" },
+  "other-fresh-milk": { cost: 1.79, source: "Stan 2026-09-05" },
+  "other-oat-milk": { cost: 2, source: "Stan 2026-09-05" },
+  "other-soy-milk": { cost: 2, source: "Stan 2026-09-05" },
+  "other-almond-milk": { cost: 2, source: "Stan 2026-09-05" },
+  "other-cream": { cost: 5.9, source: "Stan 2026-09-05" },
+  "other-condensed-milk": { cost: 3, source: "Stan 2026-09-05" },
+  "other-ice-cream": { cost: 6.5, source: "Stan 2026-09-05" },
+  "other-raw-sugar": { cost: 3.9, source: "Stan 2026-09-05" },
+  "other-oreo": { cost: 1.6, source: "Stan 2026-09-05" },
+  "other-pf-seeds": { cost: 1.8, source: "Stan 2026-09-05" },
+};
+
+/** Things that cost money every week but are not on the count sheet. Usage
+ *  is Stan's figure (per day), edited on the page like any override. Cups
+ *  and straws ride the August average of 364 cups a day. */
+const COST_EXTRAS: Array<{
+  id: string; name: string; category: string; unit: string; usagePerDay: number; cost: number; source: string; inWarehouse: boolean;
+}> = [
+  { id: "custom-tapioca-pearls", name: "Tapioca Pearls", category: "Topping", unit: "ctn", usagePerDay: 0.5, cost: 45, source: "MBT 142872: B3G1, $180 per 4 ctn; Stan 3.5 ctn/wk", inWarehouse: false },
+  { id: "custom-okinawa-creamer", name: "Okinawa Creamer", category: "Powder", unit: "ctn 20kg", usagePerDay: 0.5, cost: 220, source: "MBT 144341; Stan 3.5 ctn/wk", inWarehouse: false },
+  { id: "custom-coffee-mate-creamer", name: "Coffee Mate Creamer", category: "Powder", unit: "ctn 20×1kg", usagePerDay: 1 / 7, cost: 260, source: "MBT 144341 $13/bag; Stan 1 ctn/wk", inWarehouse: false },
+  { id: "custom-sealing-film", name: "Sealing film", category: "Packaging", unit: "pcs", usagePerDay: 364, cost: RMB(0.05), source: "Stan: 0.05 RMB @4.7; 364 cups/day (Aug avg)", inWarehouse: false },
+  { id: "custom-cup-sticker", name: "Cup sticker", category: "Packaging", unit: "pcs", usagePerDay: 364, cost: RMB(0.024), source: "Stan: 0.024 RMB @4.7; 364 cups/day (Aug avg)", inWarehouse: false },
+];
+
+/** Apply the 2026-09-05 cost seed once: fill blank unit costs, add the
+ *  off-sheet items, give cups/straws a usage figure. Never touches a cost
+ *  or override that is already set. */
+export function ensureCosts(state: InventoryState, now: Date): { state: InventoryState; changed: boolean } {
+  if ((state.costsSeeded ?? 0) >= 1) return { state, changed: false };
+  const at = now.toISOString();
+  const items = state.items.map((i) => {
+    const d = DEFAULT_UNIT_COSTS[i.id];
+    let next = i;
+    if (d && i.unitCost == null) next = { ...next, unitCost: d.cost, costSource: d.source, updatedAt: at };
+    if ((i.id === "packaging-cups" || i.id === "packaging-straws") && i.usageOverride == null) {
+      next = { ...next, usageOverride: 364, updatedAt: at };
+    }
+    return next;
+  });
+  const have = new Set(items.map((i) => i.id));
+  for (const x of COST_EXTRAS) {
+    if (have.has(x.id)) continue;
+    items.push({
+      id: x.id, name: x.name, category: x.category, unit: x.unit, qty: null, threshold: null,
+      usageOverride: Math.round(x.usagePerDay * 1000) / 1000, hasShopCount: false, inWarehouse: x.inWarehouse,
+      unitCost: x.cost, costSource: x.source, updatedAt: at,
+    });
+  }
+  return { state: { ...state, items, costsSeeded: 1 }, changed: true };
 }
 
 /**
@@ -572,10 +738,13 @@ export function parseState(value: unknown): InventoryState | null {
         hasShopCount: Boolean(i.hasShopCount),
         // Rows written before this flag existed were all warehouse rows.
         inWarehouse: i.inWarehouse === undefined ? true : Boolean(i.inWarehouse),
+        unitCost: cleanQty(i.unitCost),
+        costSource: typeof i.costSource === "string" ? i.costSource : "",
         updatedAt: typeof i.updatedAt === "string" ? i.updatedAt : "",
       })),
     pickups: Array.isArray(v.pickups) ? v.pickups : [],
     shopCounts: Array.isArray(v.shopCounts) ? v.shopCounts : [],
+    costsSeeded: typeof v.costsSeeded === "number" ? v.costsSeeded : 0,
   };
 }
 
