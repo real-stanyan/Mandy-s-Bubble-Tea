@@ -48,7 +48,7 @@ describe("ledger", () => {
   });
 
   it("recurring costs: defaults, legacy rentMonthly, and a wholesale edit", () => {
-    expect(emptyFinance().recurring.map((r) => r.id)).toEqual(["rent", "warehouse", "waste"]);
+    expect(emptyFinance().recurring.map((r) => r.id)).toEqual(["rent", "warehouse", "waste", "square-plan", "square-addon"]);
     const legacy = parseFinance({ entries: [], rentMonthly: 2600 })!;
     expect(legacy.recurring.find((r) => r.id === "rent")?.amount).toBe(2600);
     expect(legacy.recurring.find((r) => r.id === "warehouse")?.amount).toBe(950);
@@ -84,9 +84,9 @@ describe("buildDaily + aggregate", () => {
     expect(pts.map((p) => p.wages)).toEqual([0, 100, 100, 100]);
     expect(pts[0].electricity).toBe(10); // 310 / 31 days of August
     expect(pts[2].electricity).toBe(0); // September: no bill yet
-    // rent 2500/31 + warehouse 950/7 + waste 319/31 in August; September months differ.
-    expect(pts[0].fixed).toBeCloseTo(2500 / 31 + 950 / 7 + 319 / 31, 1);
-    expect(pts[2].fixed).toBeCloseTo(2500 / 30 + 950 / 7 + 319 / 30, 1);
+    // All monthly: (rent 2500 + warehouse 950 + waste 319 + Square 188) / days in the month.
+    expect(pts[0].fixed).toBeCloseTo(3957 / 31, 1);
+    expect(pts[2].fixed).toBeCloseTo(3957 / 30, 1);
 
     const weeks = aggregate(pts, "week");
     expect(weeks.map((w) => w.key)).toEqual(["2026-08-24", "2026-08-31"]);

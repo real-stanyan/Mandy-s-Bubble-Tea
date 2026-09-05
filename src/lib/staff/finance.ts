@@ -43,12 +43,14 @@ export type FinanceState = {
   recurring: RecurringCost[];
 };
 
-/** Stan, 2026-09-05: shop rent incl. water & GST; the warehouse; JJ's Waste
- *  (July 2026 invoice, incl. GST — edit when a bill differs). */
+/** Stan, 2026-09-05: shop rent incl. water & GST; the warehouse (monthly);
+ *  JJ's Waste (July 2026 invoice, incl. GST); Square plan + add-on. */
 export const DEFAULT_RECURRING: RecurringCost[] = [
   { id: "rent", name: "Shop rent (incl. water & GST)", amount: 2500, per: "month" },
-  { id: "warehouse", name: "Warehouse", amount: 950, per: "week" },
+  { id: "warehouse", name: "Warehouse", amount: 950, per: "month" },
   { id: "waste", name: "Waste & recycling (JJ's)", amount: 319, per: "month" },
+  { id: "square-plan", name: "Square subscription", amount: 149, per: "month" },
+  { id: "square-addon", name: "Square add-on", amount: 39, per: "month" },
 ];
 
 export const INCOME_KINDS: EntryKind[] = ["doordash", "other-income"];
