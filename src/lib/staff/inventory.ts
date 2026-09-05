@@ -254,9 +254,16 @@ export function estimateUsage(
   today: string,
   windowDays: number = USAGE_WINDOW_DAYS,
 ): UsageEstimate {
-  const readings = shopCounts
+  const inWindow = shopCounts
     .filter((c) => c.counts[itemId] != null && daysBetween(c.date, today) <= windowDays)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  // A reading far above the item's own median is a slipped keypad — "10"
+  // for 1.0, "85" for 0.85 — not a delivery. Left in, one such day books a
+  // week's worth of phantom usage (herbal jelly read 15/wk instead of 2).
+  // Dropped only when it is both ≥5 and >4× the median, so a genuinely
+  // busy item with big counts (milk at 20–40) is never touched.
+  const typo = typoThreshold(inWindow.map((c) => c.counts[itemId]));
+  const readings = typo == null ? inWindow : inWindow.filter((c) => c.counts[itemId] < typo);
 
   let used = 0;
   let days = 0;
@@ -274,6 +281,16 @@ export function estimateUsage(
   }
   if (days === 0) return { perDay: null, intervals: 0, spanDays: 0 };
   return { perDay: used / days, intervals, spanDays: days };
+}
+
+/** Readings at or above this are treated as keypad slips; null = no filter
+ *  (fewer than four readings, or a median of zero). Exported for tests. */
+export function typoThreshold(values: number[]): number | null {
+  if (values.length < 4) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (!(median > 0)) return null;
+  return Math.max(5, median * 4 + 1e-9);
 }
 
 /** The most recent shop count for an item, plus anything carried in on or
@@ -428,7 +445,7 @@ export function buildView(state: InventoryState, today: string): InventoryView {
     if (r.weeklyCost != null) {
       if (r.category === "Packaging") cost.packagingWeekly += r.weeklyCost;
       else cost.ingredientsWeekly += r.weeklyCost;
-      cost.top.push({ id: r.id, name: r.name, weeklyCost: r.weeklyCost });
+      if (r.weeklyCost > 0) cost.top.push({ id: r.id, name: r.name, weeklyCost: r.weeklyCost });
     } else if (r.usagePerDay != null && r.usagePerDay > 0 && r.unitCost == null) {
       cost.missingCost.push(r.name);
     } else if (r.unitCost != null && r.usagePerDay == null) {
@@ -656,16 +673,42 @@ const COST_EXTRAS: Array<{
   { id: "custom-cup-sticker", name: "Cup sticker", category: "Packaging", unit: "pcs", usagePerDay: 364, cost: RMB(0.024), source: "Stan: 0.024 RMB @4.7; 364 cups/day (Aug avg)", inWarehouse: false },
 ];
 
-/** Apply the 2026-09-05 cost seed once: fill blank unit costs, add the
- *  off-sheet items, give cups/straws a usage figure. Never touches a cost
- *  or override that is already set. */
+/** Deliberately not costed (Stan, 2026-09-05): fruit is out of scope and
+ *  tissue / bin bags are not ingredients. A cost of 0 says "decided", as
+ *  opposed to null, "unknown". */
+const NOT_COSTED = [
+  "other-orange", "other-grapefruit", "other-lemon", "other-lime", "other-watermelon", "other-banana",
+  "other-tissue", "other-black-garbage-bag",
+];
+
+/** Apply the cost seeds once each: v1 fills blank unit costs, adds the
+ *  off-sheet items and gives cups/straws a usage figure; v2 marks the
+ *  not-costed items. Never touches a cost or override that is already set. */
 export function ensureCosts(state: InventoryState, now: Date): { state: InventoryState; changed: boolean } {
-  if ((state.costsSeeded ?? 0) >= 1) return { state, changed: false };
+  const seeded = state.costsSeeded ?? 0;
+  if (seeded >= 2) return { state, changed: false };
   const at = now.toISOString();
+  if (seeded === 1) {
+    return {
+      state: {
+        ...state,
+        costsSeeded: 2,
+        items: state.items.map((i) =>
+          NOT_COSTED.includes(i.id) && i.unitCost == null
+            ? { ...i, unitCost: 0, costSource: "not counted (Stan 2026-09-05)", updatedAt: at }
+            : i,
+        ),
+      },
+      changed: true,
+    };
+  }
   const items = state.items.map((i) => {
     const d = DEFAULT_UNIT_COSTS[i.id];
     let next = i;
     if (d && i.unitCost == null) next = { ...next, unitCost: d.cost, costSource: d.source, updatedAt: at };
+    if (!d && NOT_COSTED.includes(i.id) && i.unitCost == null) {
+      next = { ...next, unitCost: 0, costSource: "not counted (Stan 2026-09-05)", updatedAt: at };
+    }
     if ((i.id === "packaging-cups" || i.id === "packaging-straws") && i.usageOverride == null) {
       next = { ...next, usageOverride: 364, updatedAt: at };
     }
@@ -680,7 +723,7 @@ export function ensureCosts(state: InventoryState, now: Date): { state: Inventor
       unitCost: x.cost, costSource: x.source, updatedAt: at,
     });
   }
-  return { state: { ...state, items, costsSeeded: 1 }, changed: true };
+  return { state: { ...state, items, costsSeeded: 2 }, changed: true };
 }
 
 /**
