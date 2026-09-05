@@ -14,6 +14,7 @@ import {
   shopOnHand,
   suggestPickup,
   trackItem,
+  typoThreshold,
   type PickupRecord,
   type ShopCount,
 } from "./inventory";
@@ -78,6 +79,22 @@ describe("estimateUsage", () => {
     const u = estimateUsage("x", odd, [], "2026-09-05");
     expect(u.intervals).toBe(1);
     expect(u.perDay).toBe(3);
+  });
+
+  it("drops keypad-slip readings before measuring", () => {
+    // 0.8, 0.7, 10 (a slipped "1.0"), 0.6, 0.5 — the 10 would book ~9.5 units of use.
+    const counts: ShopCount[] = [
+      { date: "2026-09-01", counts: { x: 0.8 } },
+      { date: "2026-09-02", counts: { x: 0.7 } },
+      { date: "2026-09-03", counts: { x: 10 } },
+      { date: "2026-09-04", counts: { x: 0.6 } },
+      { date: "2026-09-05", counts: { x: 0.5 } },
+    ];
+    const u = estimateUsage("x", counts, [], "2026-09-05");
+    expect(u.perDay).toBeCloseTo(0.3 / 4); // 0.8 → 0.5 over 4 days, the 10 ignored
+    expect(typoThreshold([0.8, 0.7, 10, 0.6, 0.5])).toBeCloseTo(5);
+    expect(typoThreshold([20, 26, 12, 14, 39])).toBeCloseTo(80); // milk-sized counts never trip it
+    expect(typoThreshold([1, 2, 3])).toBeNull();
   });
 
   it("ignores readings older than the window", () => {
@@ -212,7 +229,14 @@ describe("buildView", () => {
     expect(items.find((i) => i.id === "other-cream")?.unitCost).toBe(5.9);
     expect(items.find((i) => i.id === "packaging-cups")?.usageOverride).toBe(364);
     expect(items.find((i) => i.id === "custom-tapioca-pearls")).toMatchObject({ unitCost: 45, inWarehouse: false });
+    expect(items.find((i) => i.id === "other-banana")?.unitCost).toBe(0); // fruit: decided, not unknown
     expect(ensureCosts(first.state, NOW).changed).toBe(false);
+    // A state already on seed v1 gets only the v2 step.
+    const v1 = { ...s, costsSeeded: 1 };
+    const second = ensureCosts(v1, NOW);
+    expect(second.changed).toBe(true);
+    expect(second.state.items.find((i) => i.id === "other-tissue")?.unitCost).toBe(0);
+    expect(second.state.items.find((i) => i.id === "syrup-peach")?.unitCost).toBeNull(); // v1 not re-run
   });
 
   it("buildView prices weekly cost and splits packaging out", () => {
