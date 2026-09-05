@@ -15,6 +15,7 @@ export function StaffNav({ role }: { role: StaffRole }) {
     ...(role === "owner"
       ? [
           { href: "/staff/inventory", label: "Inventory" },
+          { href: "/staff/finance", label: "Finance" },
           { href: "/staff/roster", label: "Roster" },
         ]
       : []),

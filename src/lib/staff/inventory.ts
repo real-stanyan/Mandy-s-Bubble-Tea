@@ -471,6 +471,71 @@ export function buildView(state: InventoryState, today: string): InventoryView {
   };
 }
 
+/** YYYY-MM-DD plus n days, in Brisbane. */
+export function addDaysYmd(ymd: string, n: number): string {
+  const d = new Date(Date.parse(`${ymd}T00:00:00+10:00`) + n * 86_400_000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Brisbane", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+/**
+ * What the shop consumed each day, in dollars, split ingredients / packaging.
+ *
+ * Counted items: each pair of consecutive counts (typo readings dropped, the
+ * same filter as estimateUsage) gives (before + delivered − after), spread
+ * evenly over the days between the two counts — the days the drinks were
+ * actually made. Items with a usage override (creamer, pearls, cups) cost
+ * the same every day. Days before the first count carry nothing; the
+ * Finance page says so rather than pretending zero was spent.
+ */
+export function consumptionCostByDay(
+  state: InventoryState,
+  from: string,
+  to: string,
+): Record<string, { ingredients: number; packaging: number }> {
+  const out: Record<string, { ingredients: number; packaging: number }> = {};
+  const add = (day: string, packaging: boolean, dollars: number) => {
+    if (day < from || day > to || !(dollars > 0)) return;
+    const o = (out[day] ??= { ingredients: 0, packaging: 0 });
+    if (packaging) o.packaging += dollars;
+    else o.ingredients += dollars;
+  };
+  const days = daysBetween(from, to) + 1;
+  for (const item of state.items) {
+    if (item.unitCost == null || item.unitCost <= 0) continue;
+    const packaging = item.category === "Packaging";
+    if (item.usageOverride != null || !item.hasShopCount) {
+      if (item.usageOverride == null) continue;
+      for (let k = 0; k < days; k++) add(addDaysYmd(from, k), packaging, item.usageOverride * item.unitCost);
+      continue;
+    }
+    const all = state.shopCounts
+      .filter((c) => c.counts[item.id] != null)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const typo = typoThreshold(all.map((c) => c.counts[item.id]));
+    const readings = typo == null ? all : all.filter((c) => c.counts[item.id] < typo);
+    for (let i = 1; i < readings.length; i++) {
+      const a = readings[i - 1];
+      const b = readings[i];
+      const d = daysBetween(a.date, b.date);
+      if (d <= 0 || d > 7) continue;
+      let delivered = 0;
+      for (const p of state.pickups) {
+        if (p.date <= a.date || p.date > b.date) continue;
+        for (const line of p.lines) if (line.id === item.id) delivered += line.qty;
+      }
+      const delta = a.counts[item.id] + delivered - b.counts[item.id];
+      if (delta < 0) continue;
+      const perDay = (delta / d) * item.unitCost;
+      for (let k = 0; k < d; k++) add(addDaysYmd(a.date, k), packaging, perDay);
+    }
+  }
+  for (const o of Object.values(out)) {
+    o.ingredients = Math.round(o.ingredients * 100) / 100;
+    o.packaging = Math.round(o.packaging * 100) / 100;
+  }
+  return out;
+}
+
 /** Apply a confirmed pickup: log it and take it out of the warehouse.
  *  Items with no warehouse quantity yet stay null — there is nothing to
  *  subtract from, and inventing a negative number would only mislead. */
