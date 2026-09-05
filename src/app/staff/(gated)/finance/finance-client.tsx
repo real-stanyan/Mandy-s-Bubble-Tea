@@ -45,6 +45,12 @@ const KIND_LABEL: Record<EntryKind, string> = {
 
 const money = (n: number, digits = 0) =>
   "$" + n.toLocaleString("en-AU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+/** part as a percentage of whole — one decimal under 10%, none above. */
+const pct = (part: number, whole: number) => {
+  if (!(whole > 0)) return "—";
+  const r = (part / whole) * 100;
+  return `${r.toFixed(Math.abs(r) < 10 ? 1 : 0)}%`;
+};
 
 export function FinanceClient({ initial }: { initial: FinanceView }) {
   const [view, setView] = useState(initial);
@@ -192,11 +198,12 @@ export function FinanceClient({ initial }: { initial: FinanceView }) {
 
       {/* ── Headline ─────────────────────────────────────────────── */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Income" value={money(totals.income)} sub={`Square ${money(totals.square)} · DoorDash ${money(totals.doordash)}`} />
-        <Tile label="Cost" value={money(totals.cost)} sub={`Ingredients ${money(totals.ingredients + totals.packaging)} · fixed ${money(totals.fixed)}`} />
-        <Tile label="Margin" value={money(totals.income - totals.cost)} sub={marginPct == null ? "—" : `${marginPct.toFixed(0)}% of income`} />
-        <Tile label="Wages + bills" value={money(totals.wages + totals.electricity + totals.otherCost)} sub={`wages ${money(totals.wages)} · power ${money(totals.electricity)}`} />
+        <Tile label="Income" value={money(totals.income)} sub={`Square ${pct(totals.square, totals.income)} · DoorDash ${pct(totals.doordash, totals.income)}`} />
+        <Tile label="Cost" value={money(totals.cost)} sub={`${pct(totals.cost, totals.income)} of income · ingredients ${pct(totals.ingredients + totals.packaging, totals.income)}`} />
+        <Tile label="Margin" value={money(totals.income - totals.cost)} sub={marginPct == null ? "—" : `${marginPct.toFixed(marginPct < 10 ? 1 : 0)}% of income`} />
+        <Tile label="Wages + bills" value={money(totals.wages + totals.electricity + totals.otherCost)} sub={`wages ${pct(totals.wages, totals.income)} · power ${pct(totals.electricity, totals.income)} of income`} />
       </div>
+      <ShareBar totals={totals} />
       {view.firstConsumptionDay && view.firstConsumptionDay > view.from && (
         <p className="mt-2 text-xs text-zinc-500">
           Ingredient cost is measured from stock counts, which start {view.firstConsumptionDay}; earlier days show only fixed costs, wages and bills.
@@ -226,7 +233,7 @@ export function FinanceClient({ initial }: { initial: FinanceView }) {
           <table className="w-full text-sm">
             <thead className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
               <tr>
-                {["Period", "Square", "DoorDash", "Ingredients", "Packaging", "Fixed", "Wages", "Power", "Other", "Margin"].map((h) => (
+                {["Period", "Square", "DoorDash", "Ingredients", "Packaging", "Fixed", "Wages", "Power", "Other", "Cost %", "Margin", "Margin %"].map((h) => (
                   <th key={h} className={`px-3 py-2 ${h === "Period" ? "" : "text-right"}`}>{h}</th>
                 ))}
               </tr>
@@ -243,7 +250,9 @@ export function FinanceClient({ initial }: { initial: FinanceView }) {
                   <td className="px-3 py-1.5 text-right">{money(p.wages)}</td>
                   <td className="px-3 py-1.5 text-right">{money(p.electricity)}</td>
                   <td className="px-3 py-1.5 text-right">{money(p.otherCost - p.otherIncome)}</td>
+                  <td className="px-3 py-1.5 text-right text-zinc-500">{pct(p.cost, p.income)}</td>
                   <td className={`px-3 py-1.5 text-right font-semibold ${p.margin < 0 ? "text-red-600" : ""}`}>{money(p.margin)}</td>
+                  <td className={`px-3 py-1.5 text-right ${p.margin < 0 ? "text-red-600" : "text-zinc-500"}`}>{pct(p.margin, p.income)}</td>
                 </tr>
               ))}
             </tbody>
@@ -330,6 +339,49 @@ export function FinanceClient({ initial }: { initial: FinanceView }) {
           )}
         </ul>
       </section>
+    </div>
+  );
+}
+
+/** Every dollar of income in the range, split into what it paid for and what was left.
+ *  Cost categories are steps of the one cost hue (same job, parts of a whole);
+ *  the margin is the income blue. */
+function ShareBar({
+  totals,
+}: {
+  totals: { income: number; cost: number; ingredients: number; packaging: number; fixed: number; wages: number; electricity: number; otherCost: number };
+}) {
+  if (!(totals.income > 0)) return null;
+  const parts = [
+    { key: "Ingredients", v: totals.ingredients, op: 1 },
+    { key: "Packaging", v: totals.packaging, op: 0.78 },
+    { key: "Fixed", v: totals.fixed, op: 0.6 },
+    { key: "Wages", v: totals.wages, op: 0.45 },
+    { key: "Power", v: totals.electricity, op: 0.33 },
+    { key: "Other", v: totals.otherCost, op: 0.22 },
+  ].filter((p) => p.v > 0);
+  const margin = totals.income - totals.cost;
+  const w = (v: number) => `${Math.max(0, Math.min(100, (v / totals.income) * 100))}%`;
+  return (
+    <div className="mt-3">
+      <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" role="img" aria-label="Share of income by cost category and margin">
+        {parts.map((p) => (
+          <div key={p.key} title={`${p.key} ${pct(p.v, totals.income)}`} style={{ width: w(p.v), background: C.cost, opacity: p.op }} />
+        ))}
+        {margin > 0 && <div title={`Margin ${pct(margin, totals.income)}`} style={{ width: w(margin), background: C.income }} />}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+        {parts.map((p) => (
+          <span key={p.key} className="inline-flex items-center gap-1.5 tabular-nums">
+            <span className="inline-block h-2 w-2 rounded-sm" style={{ background: C.cost, opacity: p.op }} />
+            {p.key} {pct(p.v, totals.income)}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5 tabular-nums">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: C.income }} />
+          <span className={margin < 0 ? "text-red-600" : ""}>Margin {pct(margin, totals.income)}</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -426,8 +478,8 @@ function Chart({
         <div className="pointer-events-none absolute left-2 top-2 rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900/95">
           <div className="font-semibold">{h.label}{h.days > 1 && granularity !== "day" ? ` · ${h.days} days` : ""}</div>
           <div className="mt-1 tabular-nums">Income {money(h.income)} <span className="text-zinc-500">(Square {money(h.square)}, DoorDash {money(h.doordash)})</span></div>
-          <div className="tabular-nums">Cost {money(h.cost)} <span className="text-zinc-500">(ingredients {money(h.ingredients + h.packaging)}, fixed {money(h.fixed)}, wages {money(h.wages)}, power {money(h.electricity)})</span></div>
-          <div className={`tabular-nums font-semibold ${h.margin < 0 ? "text-red-600" : ""}`}>Margin {money(h.margin)}</div>
+          <div className="tabular-nums">Cost {money(h.cost)} · {pct(h.cost, h.income)} of income <span className="text-zinc-500">(ingredients {money(h.ingredients + h.packaging)}, fixed {money(h.fixed)}, wages {money(h.wages)}, power {money(h.electricity)})</span></div>
+          <div className={`tabular-nums font-semibold ${h.margin < 0 ? "text-red-600" : ""}`}>Margin {money(h.margin)} · {pct(h.margin, h.income)}</div>
         </div>
       )}
     </div>
