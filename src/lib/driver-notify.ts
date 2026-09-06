@@ -2,6 +2,7 @@ import type { Square } from "square";
 import { claimOrderPushSlot } from "@/lib/push-tokens";
 import { getAllDriverPushTokens } from "@/lib/driver-tokens";
 import { sendExpoPush } from "@/lib/push";
+import { isUnpaidCheckout } from "@/lib/orders/ghost-zero-order";
 
 /**
  * Push a "new delivery" alert to all registered driver devices when a
@@ -53,10 +54,25 @@ export async function nagDriversUnacceptedDelivery(
 export async function notifyDriversNewDelivery(
   order: Square.Order,
   eventId?: string,
+  opts: {
+    /** The caller has just authorized the card and holds a PRE-payment order
+     *  object with no tender on it yet (the payment route). */
+    assumeSettled?: boolean;
+  } = {},
 ): Promise<void> {
   if (order.metadata?.fulfillment_type !== "DELIVERY") return;
   const orderId = order.id;
   if (!orderId) return;
+
+  // Only a delivery someone can actually drive: the card is held/charged, or
+  // the order is fully comped ($0). The webhook calls this on EVERY
+  // order.updated — including the cancel of a never-paid cart. DE888
+  // (2026-09-06): "New delivery 🚚" reached both drivers for an order that
+  // was CANCELED and had never been paid.
+  if (!opts.assumeSettled) {
+    if (order.state === "CANCELED") return;
+    if (isUnpaidCheckout(order)) return;
+  }
 
   const claimed = await claimOrderPushSlot(orderId, "new_delivery");
   if (!claimed) return;
