@@ -7,11 +7,14 @@ import {
 } from "./weekly-specials";
 
 describe("weekly-specials", () => {
+  // Driven off the config instead of hard-coded drink names: the shelf
+  // rotates every week or two, and a test that names this week's promo
+  // fails on the next rotation for a reason that isn't a bug.
   it("looks up the original price case-insensitively by item name", () => {
-    expect(originalPriceCentsFor("Thai Milk Tea")).toBe(620);
-    expect(originalPriceCentsFor("  thai milk tea ")).toBe(620);
-    expect(originalPriceCentsFor("THAI MILK TEA")).toBe(620);
-    expect(originalPriceCentsFor("Thai Coco Frappe")).toBe(720);
+    const { name, originalPriceCents } = WEEKLY_SPECIALS[0];
+    expect(originalPriceCentsFor(name)).toBe(originalPriceCents);
+    expect(originalPriceCentsFor(`  ${name.toLowerCase()} `)).toBe(originalPriceCents);
+    expect(originalPriceCentsFor(name.toUpperCase())).toBe(originalPriceCents);
   });
 
   // The catalog has held names with doubled spaces before ("Pineapple
