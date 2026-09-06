@@ -5,6 +5,7 @@ import {
   SQUARE_LOCATION_ID,
   findCustomerByPhone,
 } from "@/lib/square";
+import { isGhostZeroOrder } from "@/lib/orders/ghost-zero-order";
 
 // Thin helpers around the Square Loyalty API. Squared away in one
 // place so API routes don't re-fetch the active program on every call
@@ -508,6 +509,12 @@ export async function returnOrderRewards(order: {
  * Best-effort by design: any per-reward failure (lookup or delete) skips
  * that reward — a reclaim pass must never take down the caller.
  */
+// A ghost $0 order (see ghost-zero-order.ts) is only judged dead once its
+// reward is this old: the redeem route calls this with minAgeMs 0 for the
+// customer's OTHER orders, and a $0 checkout on a second device could still be
+// between redeem and pay.
+const GHOST_MIN_AGE_MS = 30 * 60 * 1000;
+
 export async function reclaimStrandedRewards(
   accountId: string,
   opts: { excludeOrderId?: string; minAgeMs?: number } = {},
@@ -538,11 +545,21 @@ export async function reclaimStrandedRewards(
         });
         const dead =
           order.state === "CANCELED" || (due > 0n && !liveTender);
-        if (!dead) continue;
+        // Ghost $0 pickup (OL890, 2026-09-06): rewards attached, checkout
+        // never finished, nothing printed — the stars are pinned to a drink
+        // nobody is making.
+        const rewardAgeMs = reward.createdAt
+          ? Date.now() - Date.parse(reward.createdAt)
+          : Number.POSITIVE_INFINITY;
+        const ghost =
+          !dead &&
+          rewardAgeMs >= GHOST_MIN_AGE_MS &&
+          (await isGhostZeroOrder(order));
+        if (!dead && !ghost) continue;
         await squareClient.loyalty.rewards.delete({ rewardId: reward.id });
         reclaimed += 1;
         console.log(
-          `[reclaimStrandedRewards] account=${accountId} released reward=${reward.id} from dead order=${reward.orderId}`,
+          `[reclaimStrandedRewards] account=${accountId} released reward=${reward.id} from ${ghost ? "ghost $0" : "dead"} order=${reward.orderId}`,
         );
       } catch (err) {
         console.error(

@@ -4,6 +4,7 @@ import { bearerTokenMatches } from "@/lib/bearer-auth";
 import { getAcceptedOrderIds } from "@/lib/driver-tokens";
 import { releaseDeliveryOrder } from "@/lib/release-delivery-order";
 import { nagDriversUnacceptedDelivery } from "@/lib/driver-notify";
+import { isUnpaidCheckout } from "@/lib/orders/ghost-zero-order";
 
 const ACTIVE_FULFILLMENT_STATES = new Set(["PROPOSED", "RESERVED"]);
 
@@ -83,6 +84,15 @@ export async function GET(request: Request) {
 
       for (const order of candidates) {
         if (acceptedSet.has(order.id!)) continue; // a driver took it
+
+        // Never-paid checkout: the customer opened the pay sheet and walked
+        // away (or every charge failed). No money is held, nothing to
+        // release, nothing for a driver to deliver — not a "$0 loyalty
+        // order". DE888 (2026-09-06): it drew 25 minutes of ⏰ pushes to every
+        // driver and was then CANCELED, which poisoned the customer's
+        // idempotent retry (Square replayed the CANCELED order; every later
+        // Pay tap failed at the card). Leave it alone.
+        if (isUnpaidCheckout(order)) continue;
 
         const tender = order.tenders?.find((t) => t.cardDetails?.status);
         const tenderStatus = tender?.cardDetails?.status;

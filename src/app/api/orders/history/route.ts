@@ -7,6 +7,7 @@ import { getAuthedUser } from "@/lib/auth";
 import { getDeliveredOrderIds } from "@/lib/driver-tokens";
 import { isBrisbaneToday } from "@/lib/brisbane-date";
 import { hasAuthorizedHold } from "@/lib/orders/authorized-hold";
+import { findGhostZeroOrderIds } from "@/lib/orders/ghost-zero-order";
 
 // Order history for the account page. Customer is derived from the
 // Supabase session — no body required. Searches Square orders by
@@ -139,11 +140,26 @@ export async function GET(request: Request) {
       return !isCustomAmountOnly(o);
     });
 
+    // A $0 order whose checkout never finished passes the filter above (due
+    // 0, no tender) and is indistinguishable from a settled one in Square.
+    // Our own print ledger tells them apart — see ghost-zero-order.ts.
+    // OL890 (2026-09-06): three rewards pinned, nothing printed, and the app
+    // showed "Received" for an order nobody was making.
+    const ghostIds = await findGhostZeroOrderIds(paidOrders);
+    if (ghostIds.size > 0) {
+      console.warn(
+        `[orders/history] hiding ghost $0 orders: ${[...ghostIds].join(",")}`,
+      );
+    }
+    const visibleOrders = paidOrders.filter(
+      (o) => !o.id || !ghostIds.has(o.id),
+    );
+
     // Which delivery orders have actually been delivered (driver app marked
     // them so). Self-delivery orders keep Square state=OPEN forever, so this is
     // the real "done" signal for them. Failure degrades to "none delivered" —
     // the same-day cutoff below still clears stale orders.
-    const deliveryOrderIds = paidOrders
+    const deliveryOrderIds = visibleOrders
       .filter(
         (o) =>
           o.metadata?.fulfillment_type === "DELIVERY" ||
@@ -155,7 +171,7 @@ export async function GET(request: Request) {
       () => new Set<string>(),
     );
 
-    const orders = paidOrders.map((order) => {
+    const orders = visibleOrders.map((order) => {
       const rawLines = order.lineItems ?? [];
       const lineItems = rawLines.map((li) => {
         const variationId = li.catalogObjectId ?? "";

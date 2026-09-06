@@ -28,6 +28,8 @@
 | printer-client | Mac mini 常驻打印客户端（热敏小票 + 杯贴），SSH tunnel 回连 | `printer-client/` |
 | customer note（杯贴 Note） | 结账页「Note for the barista」；随 `/api/orders` 写进每个 Square line item 的 `note`，杯贴底部信息带以 `Note:` 打出，配料永不为它截断（先缩字号，再缩 note） | `src/lib/cup-label/label-note.ts`、`layoutBottomBand`；老订单回落解析取餐备注 `"<单号> — <note>"`，配送单备注不解析 |
 | serializeSquareResponse | 返回 Square 数据前的 BigInt 序列化包装，防 JSON 炸 | 见 `.claude/square-api.md` |
+| 幽灵免单（ghost $0 order） | 积分免单在 `/api/loyalty/redeem` 之后、`/api/payment` 之前掉线留下的单：OPEN、$0、无 tender、reward 仍 ISSUED——在 Square 里与已结算但店员还没点完成的免单一模一样；靠自家打印台账（`print_jobs` / `cup_label_jobs` 有无该单）区分 | `src/lib/orders/ghost-zero-order.ts`；订单历史隐藏它、积分回收 sweep 归还星（OL890，2026-09-06） |
+| dead replay（幂等回放到死单） | 同一幂等键重发 CreateOrder 时 Square 回放原单——即使它已 CANCELED；`/api/orders` 发现回放单已取消时用 `key\|after:<deadId>` 派生新键重建 | DE888，2026-09-06；`/api/payment` 对 CANCELED/DRAFT 单直接 409 `orderNotOpen`，不再「先授权再作废」客人的卡 |
 
 ## Key invariants
 
