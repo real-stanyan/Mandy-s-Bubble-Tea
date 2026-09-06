@@ -416,9 +416,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await squareClient.orders.create({
-      idempotencyKey: orderIdempotencyKey,
-      order: {
+    const orderDraft = {
         locationId: SQUARE_LOCATION_ID,
         customerId,
         referenceId: pickupNumber,
@@ -485,8 +483,42 @@ export async function POST(request: Request) {
                 }
               : null,
         }),
-      },
+    };
+
+    let response = await squareClient.orders.create({
+      idempotencyKey: orderIdempotencyKey,
+      order: orderDraft,
     });
+
+    // Square answers a CreateOrder whose idempotency key it has seen before
+    // with the ORIGINAL order — even after that order died. The clients keep
+    // their key stable across Pay retries on purpose (a cancelled pay sheet
+    // must not mint duplicates), so a customer who walks away and comes back
+    // can be handed a CANCELED order: DE888 (2026-09-06) was abandoned at the
+    // Apple Pay sheet, cancelled by the unaccepted-delivery sweep half an hour
+    // later, and then replayed to the same customer on every Pay tap for five
+    // minutes — each one failing at the card. A dead replay is not the order
+    // we were asked to create. Chain a fresh key off the dead id and create
+    // again; deterministic, so the customer's NEXT retry replays the fresh
+    // order instead of minting a third one.
+    for (let hop = 0; hop < 2 && response.order?.state === "CANCELED"; hop++) {
+      const dead = response.order;
+      console.warn(
+        `[orders] idempotent replay returned CANCELED order ${dead.id} (${dead.ticketName ?? "?"}); creating a fresh order`,
+      );
+      reportDegraded("orders.dead-replay", {
+        deadOrderId: dead.id ?? null,
+        ticketName: dead.ticketName ?? null,
+        hop,
+      });
+      response = await squareClient.orders.create({
+        idempotencyKey: deriveOrderIdempotencyKey(
+          customerId,
+          `${body.idempotencyKey ?? orderIdempotencyKey}|after:${dead.id}`,
+        ),
+        order: orderDraft,
+      });
+    }
 
     const orderId = response.order?.id;
     if (!orderId) {
