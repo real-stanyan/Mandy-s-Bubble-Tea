@@ -38,6 +38,8 @@ export type CupVisual = {
   toppings: ToppingVisual[];
   hasFoam: boolean;
   hasBrulee: boolean;
+  /** A milk swap ("oat milk"), or null on the house standard. Caption only — the cup draws the same liquid. */
+  milk: string | null;
 };
 
 type Picked = { name: string; count: number };
@@ -223,6 +225,16 @@ function hasNamed(picked: Picked[], needle: string): boolean {
   return picked.some((p) => p.count > 0 && norm(p.name).includes(needle));
 }
 
+// The ALTERNATIVE MILK list: "Fresh Milk", "Oat Milk"… name the milk; the
+// default is "Standard(Recommended)". Requires the word milk so that "Oat
+// Popping" (a topping) is not read as a swap.
+function milkFrom(picked: Picked[]): string | null {
+  const swap = picked.find(
+    (p) => p.count > 0 && norm(p.name).includes("milk") && !norm(p.name).includes("standard"),
+  );
+  return swap ? norm(swap.name) : null;
+}
+
 /* -------------------------- entry point -------------------------- */
 
 export function resolveCupVisual(args: {
@@ -240,6 +252,7 @@ export function resolveCupVisual(args: {
     toppings: toppingsFrom(picked),
     hasFoam: hasNamed(picked, "cheese cream"),
     hasBrulee: hasNamed(picked, "brulee"),
+    milk: milkFrom(picked),
   };
 }
 
@@ -270,6 +283,7 @@ export function describeCup(v: CupVisual): string {
             ? "extra ice"
             : "normal ice",
   );
+  if (v.milk) bits.push(v.milk);
   const extras = [
     ...v.toppings.map((t) => (t.count > 1 ? `${t.name} ×${t.count}` : t.name)),
     ...(v.hasFoam ? ["cheese cream"] : []),
