@@ -10,6 +10,7 @@ import { renderCupLabel } from "./render-zebra-cup";
 import { clientLineIdFromSquareLine } from "./client-line-id";
 import { printTimingFor } from "../pickup-schedule";
 import { formatModifiersForLabel } from "./format-modifiers";
+import { customerNoteForLine } from "./label-note";
 import { drawLuckyCatHash, RARE_LUCKY_CAT_HASH, FREE_DRINK_TICKET_TEXT } from "./lucky-cat";
 import { getFreeDrinkOdds } from "./lucky-cat-server";
 import { downloadBucketBinarized, listLuckyCatPoolHashes, getLuckyCatBinarized, listPresetOverrides } from "./gallery-store";
@@ -297,6 +298,12 @@ export async function enqueueCupLabelJobs({
     const qty = Number.isFinite(rawQty) ? Math.max(0, Math.floor(rawQty)) : 0;
     const drinkName = line.name ?? "Drink";
     const modifiersText = formatModifiersForLabel(line);
+    // The customer's note for the barista: the line's own note (checkout
+    // stamps it on every line; POS staff can type one) or, for orders from
+    // before that, the pickup-note fallback. Printed on the cup's label only —
+    // the keepsake copy omits all prep info and the free-drink ticket is a
+    // voucher, not a prep sheet.
+    const customerNote = customerNoteForLine(order, line);
 
     for (let localIdx = 0; localIdx < qty; localIdx++) {
       const cupIdx = groupCounter.get(clientLineId) ?? 0;
@@ -518,6 +525,7 @@ export async function enqueueCupLabelJobs({
         doodlePngBuffer,
         customerFirstName: customerFirstName ?? null,
         pickupAt: pickupAtDate,
+        customerNote,
       });
 
       rows.push({
