@@ -1,17 +1,19 @@
 // src/lib/doodle/binarize.ts
 //
-// 300dpi 1-bit thermal preprocessing pipeline. Versioned:
+// 300dpi 1-bit thermal preprocessing pipeline. Three generations live here
+// and `binarizeForThermal` picks one per call:
 //
-//   * v1 — production default. Snapshot in `./binarize.v1.ts`. Recipe:
-//     normalize + linear(0.85, 25) + blur(0.4) + Atkinson LTR.
-//     Validated live on ZD410 (OL802/OL817/OL824/OL825) and on three
-//     test photos (Doubao North Face / 吃面妹子 / 戴眼镜哥 / 模糊吃饭照).
-//     Stan eyeballed v1 vs v2/v2.1 on real thermal paper and picked v1
-//     as "most natural" — v2's CLAHE+unsharp gains detail but reads
-//     too harsh / crispy on thermal stock.
+//   * v1 — the tone Stan signed off on. Frozen snapshot in `./binarize.v1.ts`.
+//     Recipe: normalize + linear(0.85, 25) + blur(0.4) + Atkinson LTR.
+//     Validated live on ZD410 (OL802/OL817/OL824/OL825) and on three test
+//     photos (Doubao North Face / 吃面妹子 / 戴眼镜哥 / 模糊吃饭照). Stan
+//     eyeballed v1 vs v2/v2.1 on real thermal paper and picked v1 as "most
+//     natural" — v2's CLAHE+unsharp gains detail but reads too harsh /
+//     crispy on thermal stock. Still used verbatim for `threshold` (line-art)
+//     mode and as the hard rollback (`BINARIZE_PIPELINE=v1`).
 //
-//   * v2 — opt-in experiment via `BINARIZE_PIPELINE=v2`. Aimed at the
-//     v1 failure modes on faces and busy photo subjects at 300dpi:
+//   * v2 — the CLAHE path. Aimed at the v1 failure modes on faces and busy
+//     photo subjects at 300dpi:
 //
 //       1. CLAHE (tile = 48px, slope clip = 2) replaces v1's global
 //          `linear(0.85, 25)` shadow lift. CLAHE equalises each tile
@@ -48,54 +50,66 @@
 //          shifting the average dot density. v2 used ±3, v2.1 dials
 //          to ±2 so jitter doesn't compound with unsharp into noise.
 //
-//     Threshold and Floyd-Steinberg modes stay close to v1 — the v1
-//     failure modes that motivated this rewrite all live on the
-//     Atkinson photo path.
+//     Routing history. 2026-08-03: customer night-time uploads (dim
+//     ambient light, subject lit by phone flash) printed as near-solid-
+//     black cups — v1's single global stretch has nowhere to go when the
+//     histogram is a spike of near-black plus a few highlights — so dark
+//     sources (grayscale mean of a 64×64 thumbnail < 70) were routed to
+//     v2. 2026-08-04: the mean-only rule missed bright-subject-on-black
+//     (cinema seats, night street, dark clothing); sampling 84 real
+//     uploads the mean caught 8 while 35 more had ≥25% of the frame in
+//     deep shadow, so that shadow-mass metric was OR-ed in. The same fix
+//     added a shadow-only tone curve after CLAHE (knee 80 → [30, 80],
+//     gamma 0.70) because Atkinson's discarded 2/8 error lets dark
+//     regions collapse to solid black; that curve survives below as the
+//     fallback for sources the v3 lift declines (see `applyShadowCurve`).
 //
-// Rollback / opt-in: default is v1; set `BINARIZE_PIPELINE=v2` to try
-// the experimental v2 path. The switch is checked per-call so flipping
-// env + redeploy is the entire rollover path either direction.
+//     Rejected then and still: switching the photo path to Floyd-
+//     Steinberg. It diffuses the full error so shadows keep gradation,
+//     but side by side on the real failure cases it turns the whole image
+//     into a flat grey wash and throws away the contrast Stan chose
+//     Atkinson for.
 //
-// Auto-dark-source routing (2026-08-03): customer night-time photo
-// uploads (dim ambient light, subject lit mostly by phone flash) were
-// printing as near-solid-black cups. v1's contrast recipe is a single
-// global `normalize() + linear(0.85, 25)` stretch — for a night photo
-// whose histogram is a big spike of near-black pixels plus a few bright
-// highlights, that global stretch has nowhere to go (the highlights
-// already anchor the top of the range) and the shadow-heavy midtones
-// stay under the dither threshold. v2's CLAHE step fixes exactly this
-// (per-tile local contrast instead of one global curve) but was kept
-// opt-in because Stan judged it "too crispy" on ordinarily-lit photos.
-// Rather than flip the global default, we cheaply estimate source
-// brightness (grayscale mean of a 64x64 thumbnail — a few ms, no full-res
-// decode) and only route genuinely dark sources through the v2 path;
-// normally-lit photos are unaffected and keep going through v1.
+//   * v3 (2026-09-06, the default for photos) — v1's tone, plus the
+//     region-aware shadow lift in `./shadow-lift.ts`, dithered with the
+//     serpentine Atkinson from v2. Rick reported that photos with SOME
+//     dark area — a black dress, a black car, dark hair on a bright
+//     background — still print those areas as solid black. Those photos
+//     have <25% of the frame in shadow and a healthy mean, so they never
+//     reached the CLAHE route, and v1 has no shadow handling at all: its
+//     black is `linear(0.85,25)` = 25 → ~90% nominal dot coverage, which
+//     thermal dot gain turns into 100% on paper. Even the v2 curve's floor
+//     of 30 (~88%) came back from the printer as "mud". v3 therefore:
 //
-// Shadow recovery (2026-08-04): Stan reported prints where "the bright areas
-// are fine now, the dark areas are still mud". Two separate causes:
+//       - holds an ink limit of ~72% nominal coverage (FLOOR 72) so every
+//         black region keeps white dots to bleed into, and re-expands the
+//         tones below 128 so deep-shadow structure separates;
+//       - applies that curve only inside LARGE deep-shadow regions (a
+//         morphological opening drops anything thinner than 9 dots), so
+//         outlines, text strokes, eyes and other small solid-black detail
+//         print exactly as before, and the tone at/above 128 is bit-
+//         identical to v1's — highlights and midtones cannot move;
+//       - skips images whose dark regions are flat graphic fills (stamp
+//         skies, bold display text, logo blocks): lifting intentional ink
+//         only greys it out. The shading test and its thresholds were
+//         tuned on 80 real uploads + 30 Doubao originals; see the module
+//         header of shadow-lift.ts for the numbers.
 //
-//   1. The mean-only routing rule missed the failure class. A photo with a
-//      bright subject against a black background (cinema seats, night street,
-//      dark clothing) averages well above 70, so it went down v1 — which has
-//      no local-contrast step whatsoever. Sampling 84 real uploads: the mean
-//      rule caught 8; another 35 had >=25% of the frame in deep shadow and
-//      were being sent to v1. Routing now ORs in that shadow-mass metric.
+//     The same lift replaces the global curve on the v2 route (its base
+//     tone there is identity, since CLAHE already set the range), with the
+//     2026-08-04 curve kept as the fallback when the lift declines, so
+//     flat-fill sources on that route print exactly as they did before.
 //
-//   2. Even on the v2 path, shadows still clipped. Atkinson only propagates
-//      6/8 of the quantisation error (2/8 is discarded — that discard is what
-//      gives it its punch), so in a dark region the running error never
-//      accumulates enough to flip a pixel white and the whole area collapses
-//      to solid black. A shadow-only tone curve (see SHADOW_LUT) now runs
-//      after CLAHE and lifts that band above the dither threshold while
-//      leaving everything above the knee bit-identical.
-//
-// Rejected: switching the photo path to Floyd-Steinberg. It diffuses the full
-// error so shadows do keep their gradation, but rendered side by side on the
-// real failure cases it turns the whole image into a flat grey wash and throws
-// away the contrast Stan chose Atkinson for.
+// Rollback / opt-in, all via `BINARIZE_PIPELINE`, checked per call so
+// flipping env + redeploy is the entire rollover path either direction:
+//   "legacy" → 2026-08-04 behaviour (v1 default, v2+global curve for
+//              shadow-heavy sources), i.e. v3 and the region lift off;
+//   "v1"     → v1 for everything (the frozen snapshot);
+//   "v2"     → v2 for everything (the CLAHE experiment, with the lift).
 
 import sharp from "sharp";
 import { binarizeForThermalV1 } from "./binarize.v1";
+import { applyRegionShadowLift } from "./shadow-lift";
 
 export const DOODLE_SIZE = 592;
 
@@ -158,44 +172,28 @@ export async function isDarkSource(rawImage: Buffer): Promise<boolean> {
   return probe ? probe.mean < DARK_MEAN_THRESHOLD : false;
 }
 
-// Either failure shape wants the same treatment (local contrast + a shadow
-// curve): the whole frame is underexposed, OR a big slice of it is crushed
-// while the rest is correctly exposed.
-export async function needsShadowRecovery(rawImage: Buffer): Promise<boolean> {
-  const probe = await probeSource(rawImage);
-  if (!probe) return false;
+// Either failure shape wants the CLAHE route: the whole frame is
+// underexposed, OR a big slice of it is crushed while the rest is correctly
+// exposed.
+function shouldRecoverShadows(probe: SourceProbe): boolean {
   return (
     probe.mean < DARK_MEAN_THRESHOLD ||
     probe.shadowFraction >= SHADOW_FRACTION_THRESHOLD
   );
 }
 
-// Shadow-recovery tone curve, applied after CLAHE and before dithering.
-//
-// Two jobs, one LUT:
-//
-//   * Everything at or above SHADOW_KNEE passes through untouched. Stan signed
-//     off on the current highlight/midtone rendition, so the curve is built so
-//     it *cannot* move them — the fix is confined to the tones that are broken.
-//
-//   * Below the knee the range is re-expanded into [SHADOW_FLOOR, knee] with
-//     gamma < 1. Deep-shadow detail that CLAHE surfaced but that still sat
-//     under the dither threshold gets pulled across it, so a black region
-//     resolves into shapes instead of one slab.
-//
-// SHADOW_FLOOR doubles as an ink limit: with a floor of 30 the darkest pixel
-// prints at ~88% dot coverage instead of 100%, so solid black keeps a sprinkle
-// of white dots. That matters more on thermal than on screen — adjacent black
-// dots bleed into each other on the paper, and a region printed at a true 100%
-// has no white left to bleed into, which is what turns it into an
-// undifferentiated burn.
-//
-// knee=80 / floor=30 / gamma=0.70 was picked by rendering a sweep over real
-// customer uploads (dark cinema selfie + mid-key regression case). Lower knees
-// left the shadows still closed; knee=96+ started washing midtones grey and
-// losing the punch that made Stan pick Atkinson over Floyd-Steinberg in the
-// first place. It errs slightly open on screen on purpose: thermal dot gain
-// prints darker than the preview.
+export async function needsShadowRecovery(rawImage: Buffer): Promise<boolean> {
+  const probe = await probeSource(rawImage);
+  return probe ? shouldRecoverShadows(probe) : false;
+}
+
+// The 2026-08-04 shadow-recovery curve for the CLAHE route. Everything at or
+// above SHADOW_KNEE passes through untouched; below the knee the range is
+// re-expanded into [SHADOW_FLOOR, knee] with gamma < 1. Superseded as the
+// primary fix by the region-aware lift (floor 30 ≈ 88% coverage still
+// printed as mud once dot gain had its say), but kept as the v2 fallback for
+// sources the lift declines — flat graphic fills — so those keep printing
+// exactly as they did.
 const SHADOW_KNEE = 80;
 const SHADOW_FLOOR = 30;
 const SHADOW_GAMMA = 0.7;
@@ -215,23 +213,27 @@ const SHADOW_LUT = (() => {
   return lut;
 })();
 
-function applyShadowCurve(gray: Buffer): Uint8Array {
+function applyShadowCurve(gray: Uint8Array): Uint8Array {
   const out = new Uint8Array(gray.length);
   for (let i = 0; i < gray.length; i++) out[i] = SHADOW_LUT[gray[i]];
   return out;
 }
 
-// v1 is the production default (validated on real ZD410 prints — Stan
-// tested v2 / v2.1 against v1 on three different photos and chose v1
-// as "most natural" for thermal output). v2 stays in tree as an opt-in
-// experiment via BINARIZE_PIPELINE=v2 for future tinkering.
-function isV2Enabled(): boolean {
-  return process.env.BINARIZE_PIPELINE === "v2";
+// v1's tone, `linear(0.85, 25)`, as a function. v3 applies it through the
+// lift's lookup table instead of sharp so the lifted curve can be blended
+// against it per pixel; at and above the lift's knee the two are identical.
+const V1_TONE = (v: number) => 0.85 * v + 25;
+
+type ForcedPipeline = "legacy" | "v1" | "v2" | null;
+
+function forcedPipeline(): ForcedPipeline {
+  const v = process.env.BINARIZE_PIPELINE;
+  return v === "legacy" || v === "v1" || v === "v2" ? v : null;
 }
 
 // Deterministic (x,y) hash producing values in [-1, 1]. Cheap enough to
 // run per-pixel; the bit-mixing pattern below is xxhash-style and gives
-// adequate decorrelation for ±3 threshold jitter — we are not asking it
+// adequate decorrelation for ±2 threshold jitter — we are not asking it
 // to look like real blue noise, just to break up regular dither cells.
 function jitter(x: number, y: number): number {
   let h = (x * 0x9e3779b1) ^ (y * 0x85ebca6b);
@@ -241,7 +243,13 @@ function jitter(x: number, y: number): number {
   return ((h >>> 0) / 0xffffffff) * 2 - 1;
 }
 
-function serpentineAtkinson(
+/**
+ * Serpentine Atkinson with ±2 threshold jitter — the dither used by the v2
+ * and v3 photo paths. Exported so calibration tooling (scripts/
+ * print-tone-wedge.ts) can dither a known-coverage target exactly the way a
+ * photo label is dithered.
+ */
+export function serpentineAtkinson(
   gray: Uint8Array,
   w: number,
   h: number,
@@ -316,9 +324,24 @@ function floydSteinberg(gray: Uint8Array, w: number, h: number): Uint8Array {
   return out;
 }
 
+function toPng(bin: Uint8Array): Promise<Buffer> {
+  return sharp(Buffer.from(bin), {
+    raw: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 1 },
+  })
+    .png()
+    .toBuffer();
+}
+
+function dither(gray: Uint8Array, mode: BinarizeMode): Uint8Array {
+  return mode === "atkinson"
+    ? serpentineAtkinson(gray, DOODLE_SIZE, DOODLE_SIZE)
+    : floydSteinberg(gray, DOODLE_SIZE, DOODLE_SIZE);
+}
+
 async function binarizeForThermalV2(
   rawImage: Buffer,
   opts: BinarizeOptions,
+  regionLift: boolean,
 ): Promise<Buffer> {
   if (opts.mode === "threshold") {
     // Line-art path: same as v1 but with CLAHE replacing the implicit
@@ -332,52 +355,79 @@ async function binarizeForThermalV2(
       .raw()
       .toBuffer();
     const t = opts.threshold ?? 128;
-    const bin = Buffer.from(gray.map((v) => (v < t ? 0 : 255)));
-    return sharp(bin, {
-      raw: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 1 },
-    })
-      .png()
-      .toBuffer();
+    const bin = new Uint8Array(gray.length);
+    for (let i = 0; i < bin.length; i++) bin[i] = gray[i] < t ? 0 : 255;
+    return toPng(bin);
   }
 
-  // Photo path v2.1 — CLAHE (gentler) + light unsharp + post-blur + shadow
-  // curve + serpentine atkinson + small threshold jitter. See header for the
-  // per-step rationale (v2.1 dial-back vs v2 first cut).
-  const gray = await sharp(rawImage)
-    .resize(DOODLE_SIZE, DOODLE_SIZE, { fit: "cover" })
-    .grayscale()
-    .normalize()
-    .clahe({ width: 48, height: 48, maxSlope: 2 })
-    .sharpen({ sigma: 0.8, m1: 0.3, m2: 1.5 })
-    .blur(0.3)
-    .raw()
-    .toBuffer();
+  // Photo path v2.1 — CLAHE (gentler) + light unsharp + post-blur, then the
+  // shadow treatment, then serpentine Atkinson with small threshold jitter.
+  // See the header for the per-step rationale (v2.1 dial-back vs v2).
+  const gray = new Uint8Array(
+    await sharp(rawImage)
+      .resize(DOODLE_SIZE, DOODLE_SIZE, { fit: "cover" })
+      .grayscale()
+      .normalize()
+      .clahe({ width: 48, height: 48, maxSlope: 2 })
+      .sharpen({ sigma: 0.8, m1: 0.3, m2: 1.5 })
+      .blur(0.3)
+      .raw()
+      .toBuffer(),
+  );
 
-  // Last step before dithering: CLAHE has already surfaced whatever local
-  // structure the shadows hold, but much of it still sits below the dither
-  // threshold. The curve lifts that band across it (and holds a white floor
-  // so black regions keep texture) without touching anything above the knee.
-  const toned = applyShadowCurve(gray);
+  // CLAHE has surfaced whatever local structure the shadows hold, but much
+  // of it still sits below the dither threshold. The region lift pulls the
+  // large shaded regions across it and holds the ink limit; when it declines
+  // (flat graphic fills, or no large dark region at all) the 2026-08-04
+  // global curve runs instead, so those sources print exactly as before.
+  let toned: Uint8Array | null = null;
+  if (regionLift) {
+    const lift = applyRegionShadowLift(gray, DOODLE_SIZE, DOODLE_SIZE, (v) => v);
+    if (lift.lifted) toned = lift.out;
+  }
+  if (!toned) toned = applyShadowCurve(gray);
 
-  const dithered =
-    opts.mode === "atkinson"
-      ? serpentineAtkinson(toned, DOODLE_SIZE, DOODLE_SIZE)
-      : floydSteinberg(toned, DOODLE_SIZE, DOODLE_SIZE);
+  return toPng(dither(toned, opts.mode));
+}
 
-  return sharp(Buffer.from(dithered), {
-    raw: { width: DOODLE_SIZE, height: DOODLE_SIZE, channels: 1 },
-  })
-    .png()
-    .toBuffer();
+// v3 — v1's tone with the region-aware shadow lift. `normalize` / `blur`
+// are v1's; `linear(0.85, 25)` moved into the lift's lookup table (both
+// are per-pixel affine maps, so the order against blur/grayscale does not
+// matter) so it can be blended per pixel against the lifted curve.
+async function binarizeForThermalV3(
+  rawImage: Buffer,
+  opts: BinarizeOptions,
+): Promise<Buffer> {
+  const gray = new Uint8Array(
+    await sharp(rawImage)
+      .resize(DOODLE_SIZE, DOODLE_SIZE, { fit: "cover" })
+      .normalize()
+      .grayscale()
+      .blur(0.4)
+      .raw()
+      .toBuffer(),
+  );
+  const { out } = applyRegionShadowLift(gray, DOODLE_SIZE, DOODLE_SIZE, V1_TONE);
+  return toPng(dither(out, opts.mode));
 }
 
 export async function binarizeForThermal(
   rawImage: Buffer,
   opts: BinarizeOptions,
 ): Promise<Buffer> {
-  if (isV2Enabled()) return binarizeForThermalV2(rawImage, opts);
-  if (await needsShadowRecovery(rawImage)) {
-    return binarizeForThermalV2(rawImage, opts);
+  const forced = forcedPipeline();
+  if (forced === "v1") return binarizeForThermalV1(rawImage, opts);
+  if (forced === "v2") return binarizeForThermalV2(rawImage, opts, true);
+
+  const regionLift = forced !== "legacy";
+  const probe = await probeSource(rawImage);
+  if (probe && shouldRecoverShadows(probe)) {
+    return binarizeForThermalV2(rawImage, opts, regionLift);
   }
-  return binarizeForThermalV1(rawImage, opts);
+  // Line art (threshold mode) has no shadows to lift; v1 stays the exact
+  // pipeline the static gallery and the logo were produced with.
+  if (!regionLift || opts.mode === "threshold") {
+    return binarizeForThermalV1(rawImage, opts);
+  }
+  return binarizeForThermalV3(rawImage, opts);
 }

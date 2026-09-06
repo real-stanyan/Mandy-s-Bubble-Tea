@@ -1,11 +1,13 @@
 // scripts/print-local-binarize.ts
 //
 // Same as print-v1-v2-compare.ts but takes one or more local image
-// files (jpg/png) and prints both v1 and v2 of each on ZD410.
+// files (jpg/png) and prints each twice on the ZD410: the frozen v1
+// snapshot next to whatever `binarizeForThermal` does today (v3 region
+// shadow lift, or the CLAHE route for shadow-heavy sources).
 //
 //   npx tsx scripts/print-local-binarize.ts <path1> [<path2> ...]
 //
-// Each label is tagged "<basename>-V1" / "<basename>-V2" in the
+// Each label is tagged "<basename>-V1" / "<basename>-NEW" in the
 // sticker_number and drink_name fields so prints come out paired.
 
 import { config as loadEnv } from "dotenv";
@@ -61,7 +63,7 @@ async function main() {
 
     const variants: Array<{ label: string; png: Buffer }> = [
       { label: "v1", png: await binarizeForThermalV1(raw, { mode: "atkinson" }) },
-      { label: "v2", png: await binarizeForThermal(raw, { mode: "atkinson" }) },
+      { label: "new", png: await binarizeForThermal(raw, { mode: "atkinson" }) },
     ];
 
     for (const { label, png } of variants) {
