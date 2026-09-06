@@ -26,6 +26,7 @@
 | wallet pass | Apple/Google 钱包会员卡 | `src/lib/wallet/` |
 | `creation_source=MERGE` | Square 自动建的 customer 记录（LOYALTY/MERGE），早于 complete-signup | 别拿 customerCreated 当发放门，用幂等 upsert |
 | printer-client | Mac mini 常驻打印客户端（热敏小票 + 杯贴），SSH tunnel 回连 | `printer-client/` |
+| customer note（杯贴 Note） | 结账页「Note for the barista」；随 `/api/orders` 写进每个 Square line item 的 `note`，杯贴底部信息带以 `Note:` 打出，配料永不为它截断（先缩字号，再缩 note） | `src/lib/cup-label/label-note.ts`、`layoutBottomBand`；老订单回落解析取餐备注 `"<单号> — <note>"`，配送单备注不解析 |
 | serializeSquareResponse | 返回 Square 数据前的 BigInt 序列化包装，防 JSON 炸 | 见 `.claude/square-api.md` |
 
 ## Key invariants
