@@ -216,6 +216,30 @@ export async function POST(request: Request) {
       });
     }
 
+    // Not OPEN and not already paid = a dead order (CANCELED by a delivery
+    // release, a staff void, or the unaccepted-delivery sweep; DRAFT never
+    // ours). Square refuses to pay it — "The order must be OPEN to be paid."
+    // — but only AFTER authorizing the card, which it then voids. DE888
+    // (2026-09-06): the app's idempotent retries kept replaying a CANCELED
+    // order and the customer's debit card took five authorize-and-void
+    // cycles in five minutes. Answer before touching the card, with a flag
+    // the client can act on (rotate its nonce → a fresh order).
+    if (order.state === "CANCELED" || order.state === "DRAFT") {
+      console.warn(
+        `[payment] order ${body.orderId} is ${order.state}, not OPEN; refusing without charging`,
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "This order is no longer open — it was cancelled or has expired. Please go back to your cart and place the order again.",
+          orderNotOpen: true,
+          orderState: order.state,
+        },
+        { status: 409 },
+      );
+    }
+
     const amount = order.totalMoney?.amount ?? 0n;
     let paymentId: string | null = null;
     let paymentStatus: string | null = null;
@@ -299,7 +323,9 @@ export async function POST(request: Request) {
       if (isDelivery) {
         after(async () => {
           try {
-            await notifyDriversNewDelivery(order);
+            // `order` was fetched BEFORE payments.create, so it carries no
+            // tender yet — tell the notifier this hold is real.
+            await notifyDriversNewDelivery(order, undefined, { assumeSettled: true });
           } catch (e) {
             console.error("[driver-push] authorize-time notify failed (non-fatal)", e);
           }
