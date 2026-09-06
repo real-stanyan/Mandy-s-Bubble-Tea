@@ -10,6 +10,7 @@ import type {
   ModifierOption,
 } from "@/lib/catalog";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCart } from "@/store/cart";
 import { isLockedToppingName } from "@/lib/menu/top10-presets";
 import {
@@ -32,6 +33,16 @@ import {
   isWarmIceModifier,
   someSelectedAcrossLists,
 } from "@/lib/menu/modifier-mutex";
+import { OptionSlider } from "@/components/menu/OptionSlider";
+import { ToppingGroupHead, ToppingTile } from "@/components/menu/ToppingTile";
+import { MilkCard, MilkDetail } from "@/components/menu/MilkCard";
+import { axisKindFor, axisOptions } from "@/lib/menu/option-axis";
+import {
+  TOPPING_GROUP_COLOR,
+  TOPPING_GROUP_LABEL,
+  groupToppings,
+} from "@/lib/menu/topping-identity";
+import { isMilkList, milkIdentity } from "@/lib/menu/milk-identity";
 
 type Props = {
   item: MenuItem;
@@ -55,6 +66,11 @@ type Props = {
    * there is no modal to close.
    */
   menuHref?: string;
+  /**
+   * The same drink from its regular category, for a Top 10 build whose
+   * included topping is sold out: "Order it without Pearls →".
+   */
+  plainHref?: string;
 };
 
 function supportsMultiCount(list: ModifierList): boolean {
@@ -83,6 +99,7 @@ export function ItemOrderForm({
   displayName,
   stickyPreview = false,
   menuHref = "/menu",
+  plainHref,
 }: Props) {
   const addLine = useCart((s) => s.addLine);
   const router = useRouter();
@@ -153,6 +170,7 @@ export function ItemOrderForm({
     }
     return Array.from(new Set(names));
   }, [modifierLists, selectedByList]);
+  const lockedSoldOut = soldOutSelectedNames.filter((n) => isLockedToppingName(n, lockedToppings));
 
   const canAdd =
     selectedVariation != null &&
@@ -249,6 +267,47 @@ export function ItemOrderForm({
     return true;
   }
 
+  const selectedExclusiveName = (): string | null => {
+    for (const ml of modifierLists) {
+      const hit = ml.modifiers.find(
+        (m) => countOf(selectedByList, ml.id, m.id) > 0 && isExclusiveModifier(m),
+      );
+      if (hit) return hit.name;
+    }
+    return null;
+  };
+
+  /** The one-line reason a topping can't be added now, or null when it can. */
+  const toppingBlockReason = (list: ModifierList, mod: ModifierOption): string | null => {
+    if (mod.soldOut) return "Sold out";
+    if (isExclusiveModifier(mod)) {
+      if (someSelectedAcrossLists(selectedByList, modifierLists, isWarmIceModifier))
+        return "Not with Warm";
+      const partnerId = getExclusivePartner(list, mod.id);
+      const partner = partnerId ? list.modifiers.find((m) => m.id === partnerId) : null;
+      if (partner && countOf(selectedByList, list.id, partner.id) > 0)
+        return `Not with ${partner.name}`;
+    }
+    if (
+      !isUncountedTopping(mod.name) &&
+      list.maxTotal != null &&
+      cappedTotalCount(list.modifiers, selectedByList[list.id] ?? {}) >= list.maxTotal
+    ) {
+      return `Up to ${list.maxTotal} toppings`;
+    }
+    return null;
+  };
+
+  /** Why an ice option is off: Warm can't go with cheese cream or brulee. */
+  const iceBlockReason = (mod: ModifierOption): string | null => {
+    if (mod.soldOut) return "Sold out";
+    if (isWarmIceModifier(mod)) {
+      const ex = selectedExclusiveName();
+      if (ex) return `Not with ${ex}`;
+    }
+    return null;
+  };
+
   function incrementModifier(list: ModifierList, modifierId: string) {
     if (!canIncrement(list, modifierId)) return;
     setSelectedByList((prev) => {
@@ -319,7 +378,7 @@ export function ItemOrderForm({
         <CupPreview visual={cupVisual} drinkName={displayName ?? item.name} />
       </div>
 
-      <Section title="Size">
+      <Section eyebrow="SIZE" title="Choose size">
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-400">
             {/* Matches the Square variation name + capacity, same wording as
@@ -330,7 +389,7 @@ export function ItemOrderForm({
       </Section>
 
       {item.variations.length > 1 && (
-        <Section title="Select Size">
+        <Section eyebrow="SIZE" title="Choose size">
           <div className="flex flex-wrap gap-2">
             {item.variations.map((v) => {
               const active = variationId === v.id;
@@ -371,9 +430,150 @@ export function ItemOrderForm({
 
       {modifierLists.map((ml) => {
         const multi = supportsMultiCount(ml);
+        const counts = selectedByList[ml.id] ?? {};
+
+        if (ml.name.toUpperCase().includes("TOPPING")) {
+          // Toppings as tiles, grouped by texture: each with its own glyph
+          // and colour, a stepper once it is in the cup, and a reason when
+          // it can't be picked (sold out, the cap, not with Warm).
+          const cap = ml.maxTotal ?? 3;
+          const picked = cappedTotalCount(ml.modifiers, counts);
+          return (
+            <Section
+              key={ml.id}
+              eyebrow="TOPPINGS"
+              title="Add toppings"
+              hint={`${picked} of ${cap} · Oreo doesn't count`}
+              error={validationErrors[ml.id]}
+            >
+              {groupToppings(ml.modifiers).map(({ group, items }) => (
+                <div key={group}>
+                  <ToppingGroupHead
+                    label={TOPPING_GROUP_LABEL[group]}
+                    color={TOPPING_GROUP_COLOR[group]}
+                    picked={items.reduce((n, { option }) => n + (counts[option.id] ?? 0), 0)}
+                  />
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {items.map(({ option: mod, identity }) => {
+                      const count = counts[mod.id] ?? 0;
+                      const locked = isLocked(mod);
+                      const canInc = canIncrement(ml, mod.id);
+                      return (
+                        <ToppingTile
+                          key={mod.id}
+                          name={mod.name}
+                          priceCents={mod.priceCents}
+                          identity={identity}
+                          count={count}
+                          locked={locked}
+                          soldOut={mod.soldOut}
+                          disabled={count === 0 && !canInc}
+                          disabledReason={toppingBlockReason(ml, mod)}
+                          supportsStepper={multi && !isExclusiveModifier(mod)}
+                          canIncrement={canInc}
+                          canDecrement={!(locked && count <= 1)}
+                          onIncrement={() => incrementModifier(ml, mod.id)}
+                          onDecrement={() => decrementModifier(ml, mod.id)}
+                          onToggle={() => {
+                            if (locked) return;
+                            if (count > 0) decrementModifier(ml, mod.id);
+                            else incrementModifier(ml, mod.id);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </Section>
+          );
+        }
+
+        const axis = ml.maxSelected === 1 ? axisKindFor(ml.name) : null;
+        if (axis) {
+          // Sugar / ice: one dimension, so one slider. Picking sets the count
+          // to 1 and clears the rest (incrementModifier does that for
+          // single-select lists); the Warm ⊥ cheese cream mutex still applies
+          // through canIncrement, which is what greys Warm out.
+          const ordered = axisOptions(axis, ml.modifiers);
+          const selectedId = ordered.find((o) => (counts[o.option.id] ?? 0) > 0)?.option.id ?? null;
+          const title = axis === "sugar" ? "Sugar level" : "Ice level";
+          return (
+            <Section
+              key={ml.id}
+              eyebrow={axis === "sugar" ? "SUGAR" : "ICE"}
+              title={title}
+              hint={describeSelection(ml, false)}
+              error={validationErrors[ml.id]}
+            >
+              <OptionSlider
+                label={title}
+                options={ordered.map((o) => ({
+                  id: o.option.id,
+                  short: o.short,
+                  name: o.option.name,
+                  disabled:
+                    o.option.soldOut ||
+                    ((counts[o.option.id] ?? 0) === 0 && !canIncrement(ml, o.option.id)),
+                  disabledReason:
+                    axis === "ice" ? iceBlockReason(o.option) : o.option.soldOut ? "Sold out" : null,
+                }))}
+                value={selectedId}
+                onChange={(id) => incrementModifier(ml, id)}
+              />
+            </Section>
+          );
+        }
+
+        if (ml.maxSelected === 1 && isMilkList(ml.name)) {
+          // Milk: five different things, not an axis — a strip of cards and
+          // a line under it saying what the picked one is (Standard is fresh
+          // milk + Mandy's milk powder; the counter gets asked that all day).
+          const picked = ml.modifiers.find((m) => (counts[m.id] ?? 0) > 0) ?? null;
+          return (
+            <Section
+              key={ml.id}
+              eyebrow="MILK"
+              title="Choose your milk"
+              hint={describeSelection(ml, false)}
+              error={validationErrors[ml.id]}
+            >
+              <div
+                role="radiogroup"
+                aria-label="Milk"
+                className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 pt-2 [scrollbar-width:none]"
+              >
+                {ml.modifiers.map((mod) => {
+                  const selected = (counts[mod.id] ?? 0) > 0;
+                  return (
+                    <MilkCard
+                      key={mod.id}
+                      name={mod.name}
+                      priceCents={mod.priceCents}
+                      identity={milkIdentity(mod.name)}
+                      selected={selected}
+                      soldOut={mod.soldOut}
+                      disabled={!selected && !canIncrement(ml, mod.id)}
+                      onPick={() => incrementModifier(ml, mod.id)}
+                    />
+                  );
+                })}
+              </div>
+              {picked && (
+                <MilkDetail
+                  name={picked.name}
+                  priceCents={picked.priceCents}
+                  identity={milkIdentity(picked.name)}
+                />
+              )}
+            </Section>
+          );
+        }
+
         return (
           <Section
             key={ml.id}
+            eyebrow={ml.name.toUpperCase()}
             title={ml.name}
             hint={describeSelection(ml, multi)}
             error={validationErrors[ml.id]}
@@ -475,15 +675,22 @@ export function ItemOrderForm({
       })}
 
       {soldOutSelectedNames.length > 0 && (
-        <p
+        <div
           role="alert"
-          className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700"
+          className="mb-3 rounded-xl border border-line bg-bg px-3 py-2.5 text-[12.5px] leading-snug text-ink2"
         >
-          {soldOutSelectedNames.join(", ")}{" "}
-          {soldOutSelectedNames.length === 1 ? "is" : "are"} sold out right
-          now, so this item can&apos;t be added as configured. Check back
-          later, or pick it from its regular category to customize toppings.
-        </p>
+          <p>
+            {soldOutSelectedNames.join(", ")} {soldOutSelectedNames.length === 1 ? "is" : "are"}{" "}
+            {lockedSoldOut.length > 0
+              ? "sold out today, so this Top 10 build isn't available."
+              : "sold out — remove it to add this drink."}
+          </p>
+          {lockedSoldOut.length > 0 && plainHref && (
+            <Link href={plainHref} className="mt-1 inline-block font-semibold text-brand">
+              Order it without {lockedSoldOut.join(" and ")} →
+            </Link>
+          )}
+        </div>
       )}
 
       {/* Pinned to the bottom of whatever scrolls (the modal body, or the
@@ -591,11 +798,14 @@ function ModifierStepper({
 }
 
 function Section({
+  eyebrow,
   title,
   hint,
   error,
   children,
 }: {
+  /** Small mono label above the title (SUGAR, TOPPINGS). */
+  eyebrow?: string;
   title: string;
   hint?: string;
   error?: string;
@@ -603,11 +813,14 @@ function Section({
 }) {
   return (
     <section className="mb-6">
-      <div className="mb-2.5 flex items-baseline justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          {title}
-        </h2>
-        {hint && <span className="text-xs text-zinc-400">{hint}</span>}
+      <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <div>
+          {eyebrow && (
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.13em] text-ink3">{eyebrow}</p>
+          )}
+          <h2 className="text-[17px] font-semibold leading-tight tracking-[-0.01em] text-ink">{title}</h2>
+        </div>
+        {hint && <span className="shrink-0 text-right text-[11.5px] font-medium text-ink3">{hint}</span>}
       </div>
       {children}
       {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}

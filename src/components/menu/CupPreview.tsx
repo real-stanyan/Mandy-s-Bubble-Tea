@@ -85,7 +85,10 @@ export function CupPreview({ visual, drinkName }: Props) {
         viewBox="0 0 120 196"
         // Compact on phones: the panel rides sticky above the modifier lists
         // there, and every pixel it holds is a pixel of the form it covers.
-        className="h-[108px] w-auto shrink-0 select-none md:h-[156px]"
+        // Two thirds of its old size on desktop too: the card pins to the top
+        // of the modal, and every pixel it keeps is a pixel the toppings grid
+        // under it does not get (Stan, 2026-09-06).
+        className="h-[92px] w-auto shrink-0 select-none md:h-[118px]"
         role="presentation"
         aria-hidden="true"
       >

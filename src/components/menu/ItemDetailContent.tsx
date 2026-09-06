@@ -7,6 +7,7 @@ import {
   lockedToppingsFor,
   displayNameFor,
   imageUrlFor,
+  TOP10_CATEGORY_SLUG,
 } from "@/lib/menu/top10-presets";
 import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
 
@@ -55,6 +56,15 @@ export async function ItemDetailContent({
   const lockedToppings = lockedToppingsFor(category.slug, item.name);
   const shownName = displayNameFor(category.slug, item.name);
   const heroImage = imageUrlFor(category.slug, item.name) ?? item.imageUrl;
+  // A Top 10 build whose included topping is sold out can still be ordered
+  // plain — the same drink from its regular category, no preset.
+  const plainCategory =
+    lockedToppings.length > 0
+      ? menu.categories.find(
+          (c) => c.slug !== TOP10_CATEGORY_SLUG && item.categoryIds.includes(c.id),
+        )
+      : undefined;
+  const plainHref = plainCategory ? `/menu/${plainCategory.slug}/${item.id}` : undefined;
   // Inside TOP 10 the locked toppings are mandatory, so the headline price
   // shows the real starting price (base + locked toppings).
   const displayPriceCents =
@@ -147,6 +157,7 @@ export async function ItemDetailContent({
             displayName={shownName}
             stickyPreview={inModal}
             menuHref={`/menu/${category.slug}`}
+            plainHref={plainHref}
           />
         </div>
       </div>

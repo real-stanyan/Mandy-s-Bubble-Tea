@@ -219,6 +219,16 @@ describe("describeCup", () => {
     expect(describeCup(v)).toContain("Pearls ×2");
   });
 
+  it("names a milk swap, but not the house standard, and not a topping that happens to be oat", () => {
+    expect(describeCup(resolveCupVisual({ drinkName: "x", picked: pick("Oat Milk") }))).toBe(
+      "standard sugar, normal ice, oat milk",
+    );
+    expect(describeCup(resolveCupVisual({ drinkName: "x", picked: pick("Standard(Recommended)") }))).toBe(
+      "standard sugar, normal ice",
+    );
+    expect(resolveCupVisual({ drinkName: "x", picked: pick("Oat Popping (New)") }).milk).toBeNull();
+  });
+
   it("mentions the layers", () => {
     expect(describeCup(resolveCupVisual({ drinkName: "x", picked: pick("Cheese Cream") })))
       .toContain("cheese cream");

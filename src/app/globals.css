@@ -776,3 +776,26 @@ html[data-motion] [data-reveal="in"] {
   .celebrate-layer { animation-duration: 1400ms; }
   .tab-indicator { transition: none; }
 }
+
+/* Settle — a topping tile's or milk card's glyph gives a little bounce
+   when it lands in the cup (the App's Settle, same curve). */
+@keyframes mbt-settle {
+  0% {
+    transform: scale(0.88);
+  }
+  55% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.mbt-settle {
+  display: block;
+  animation: mbt-settle 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mbt-settle {
+    animation: none;
+  }
+}
