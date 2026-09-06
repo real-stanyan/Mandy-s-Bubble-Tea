@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { squareClient } from "@/lib/square";
 import { bearerTokenMatches } from "@/lib/bearer-auth";
+import { isGhostZeroOrder } from "@/lib/orders/ghost-zero-order";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,11 @@ export async function GET(request: Request) {
             return s === "AUTHORIZED" || s === "CAPTURED" || t.type === "CASH";
           });
           const dead = order.state === "CANCELED" || (due > 0n && !liveTender);
-          if (!dead) continue;
+          // Ghost $0 pickup (OL890, 2026-09-06): rewards attached, checkout
+          // never finished, nothing printed. Same 30-minute age floor as the
+          // rest of this sweep keeps a live $0 checkout out of reach.
+          const ghost = !dead && (await isGhostZeroOrder(order));
+          if (!dead && !ghost) continue;
           await squareClient.loyalty.rewards.delete({ rewardId: reward.id });
           released += 1;
           console.log(
