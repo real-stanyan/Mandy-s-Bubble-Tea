@@ -75,15 +75,40 @@ describe("isUnpaidCheckout", () => {
 describe("isZeroOpenPickupOrder", () => {
   it("matches the settled-or-ghost $0 pickup shape", () => {
     expect(isZeroOpenPickupOrder(zeroOpen("a"))).toBe(true);
+    expect(isZeroOpenPickupOrder(zeroOpen("w", { metadata: { source: "web" } }))).toBe(true);
   });
   it("excludes delivery ($0 delivery stays OPEN/unprinted until a driver accepts)", () => {
-    expect(isZeroOpenPickupOrder(zeroOpen("d", { metadata: { fulfillment_type: "DELIVERY" } }))).toBe(false);
+    expect(isZeroOpenPickupOrder(zeroOpen("d", { metadata: { source: "app", fulfillment_type: "DELIVERY" } }))).toBe(false);
     expect(isZeroOpenPickupOrder(zeroOpen("d2", { fulfillments: [{ type: "DELIVERY" }] }))).toBe(false);
   });
   it("excludes COMPLETED, tendered and owing orders", () => {
     expect(isZeroOpenPickupOrder(zeroOpen("c", { state: "COMPLETED" }))).toBe(false);
     expect(isZeroOpenPickupOrder(zeroOpen("t", { tenders: [{ id: "t1" }] }))).toBe(false);
     expect(isZeroOpenPickupOrder(zeroOpen("o", { netAmountDueMoney: { amount: 500n } }))).toBe(false);
+  });
+
+  // The counter, not us. Ticket "4" (20/08/2026) was a real in-store loyalty
+  // redemption: staff applied the reward, made the Honey Black Tea, and never
+  // closed the ticket. We never print those, so an absent ledger row proves
+  // nothing — treating it as a ghost would refund a star for a drink already
+  // handed over.
+  it("excludes in-store POS orders even when they carry a loyalty reward", () => {
+    expect(
+      isZeroOpenPickupOrder(
+        zeroOpen("pos", { metadata: {}, fulfillments: [{ type: "IN_STORE" }] }),
+      ),
+    ).toBe(false);
+  });
+  it("excludes an order with no source metadata (POS) or a foreign source", () => {
+    expect(isZeroOpenPickupOrder(zeroOpen("nosrc", { metadata: {} }))).toBe(false);
+    expect(isZeroOpenPickupOrder(zeroOpen("other", { metadata: { source: "kiosk" } }))).toBe(false);
+  });
+  it("excludes an IN_STORE fulfillment even if something stamped a source", () => {
+    expect(
+      isZeroOpenPickupOrder(
+        zeroOpen("odd", { metadata: { source: "app" }, fulfillments: [{ type: "IN_STORE" }] }),
+      ),
+    ).toBe(false);
   });
 });
 

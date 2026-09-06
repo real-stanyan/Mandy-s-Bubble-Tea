@@ -61,12 +61,33 @@ function isDeliveryOrder(order: OrderLike): boolean {
   );
 }
 
-/** The Square-side shape shared by settled and ghost $0 orders. */
+/**
+ * The Square-side shape shared by settled and ghost $0 orders.
+ *
+ * Deliberately narrow — the print ledger is only evidence of "was this ever
+ * made?" for orders WE created:
+ *
+ *   • metadata.source web|app — the ghost can only arise between our own
+ *     /api/loyalty/redeem and /api/payment. A counter sale never runs that
+ *     code. An audit on 2026-09-06 found nine $0 OPEN in-store orders from
+ *     the previous month, one of them a loyalty redemption (ticket "4",
+ *     20/08, Honey Black Tea): staff pulled up the reward at the POS, made
+ *     the drink, and simply never closed the ticket. We never print those,
+ *     so "no ledger row" says nothing about whether the customer got it —
+ *     and returning the star would hand back a drink they had already drunk.
+ *   • PICKUP fulfillment — every order we create is one (delivery included,
+ *     see /api/orders), so IN_STORE is by definition not ours.
+ *   • not delivery — a $0 delivery order stays OPEN and unprinted by design
+ *     until a driver accepts.
+ */
 export function isZeroOpenPickupOrder(order: OrderLike): boolean {
+  const source = order.metadata?.source;
   return (
     order.state === "OPEN" &&
     netDueCents(order) === 0n &&
     (order.tenders ?? []).length === 0 &&
+    (source === "web" || source === "app") &&
+    order.fulfillments?.[0]?.type === "PICKUP" &&
     !isDeliveryOrder(order)
   );
 }
