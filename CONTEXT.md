@@ -16,7 +16,7 @@
 | tasting promo（尝新券） | 新品在时间窗内按固定"尝新价"卖（如 $5），**仅 App**，每单限 1 杯，配料另计 | `tasting_promos` 表；与其它折扣互斥取最优（ADR-0009） |
 | promo 互斥 | 多个可用折扣时只取最优的一个，不叠加 | |
 | cup-label / doodle | 杯贴：顾客涂鸦 / gallery 贴纸 / AI 图 / 默认兜底，热敏打印到杯子 | `src/lib/cup-label/`、`src/lib/doodle/` |
-| binarize | 把彩色图转成热敏打印用的黑白点阵（"打印效果"） | `binarize.ts`，`BINARIZE_PIPELINE=v2` 可选实验管线 |
+| binarize | 把彩色图转成热敏打印用的黑白点阵（"打印效果"）；照片默认 v3 = v1 色调 + 大块暗区提亮/墨量上限（`shadow-lift.ts`），阴影占比大的走 CLAHE 路径 | `binarize.ts` + `shadow-lift.ts`；`BINARIZE_PIPELINE=legacy/v1/v2` 回退开关；真机校准用 `scripts/print-tone-wedge.ts` |
 | gallery override | 管理员对内置 gallery 贴纸的重处理覆盖版，存 bucket | `override_at` 时间戳；缩略图 `?v=` 破缓存 |
 | thumbUrl WYSIWYG | 缩略图显示 binarized 打印效果（`binarized.png`），不显示彩色源 | upload/builtin 都如此 |
 | Live Activity（LA） | iOS 灵动岛/锁屏实时订单卡片，靠 ActivityKit token 推送 | `live-activity-webhook.ts` |
