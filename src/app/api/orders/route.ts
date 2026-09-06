@@ -27,6 +27,7 @@ import { isDeliveryEligible } from "@/lib/delivery-fee";
 import { isDeliveryHoursOpen } from "@/lib/delivery-hours";
 import { isDeliverablePostcode } from "@/lib/delivery-zone";
 import { deliveryFulfillmentNote } from "@/lib/delivery-ticket";
+import { normalizeOrderNote } from "@/lib/cup-label/label-note";
 import { computeOrderPricing, drinksSubtotalFor } from "@/lib/order-quote";
 import { isValidOrderBody } from "@/lib/order-request";
 import {
@@ -185,10 +186,17 @@ export async function POST(request: Request) {
   const customerId = user.profile.square_customer_id;
   const recipientPhone = user.profile.phone_e164;
 
+  // The customer's note for the barista rides on every line item as well as
+  // in the fulfillment note below: the cup label is rendered per line item
+  // and reads it back from there (lib/cup-label/label-note.ts). Register
+  // shows both, which is the point — the request stays with the drink it is
+  // about, and a POS-typed item note lands in the same field.
+  const customerNote = normalizeOrderNote(body.note) || undefined;
   const lineItems = body.lines.map((line) => ({
     quantity: String(line.quantity),
     catalogObjectId: line.variationId,
     modifiers: dedupeLineModifiers(line.modifiers),
+    ...(customerNote ? { note: customerNote } : {}),
   }));
 
   // Needed before the pricing call so an under-minimum delivery order is
@@ -451,9 +459,9 @@ export async function POST(request: Request) {
                       address: deliveryFullAddress,
                       phone: recipientPhone,
                       driverNote: body.delivery.driverNote,
-                      orderNote: body.note,
+                      orderNote: customerNote,
                     })
-                  : [pickupNumber, body.note].filter(Boolean).join(" — "),
+                  : [pickupNumber, customerNote].filter(Boolean).join(" — "),
             },
           },
         ],

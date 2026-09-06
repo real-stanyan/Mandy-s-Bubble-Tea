@@ -7,6 +7,7 @@ import {
   MANDY_LOGO_HEIGHT,
   MANDY_LOGO_WIDTH,
 } from "./mandy-logo";
+import { NOTE_PREFIX, sanitizeLabelNote } from "./label-note";
 
 // 50mm × 80mm direct-thermal cup label printed on a 300 DPI Zebra
 // (ZD410-300dpi). At 300 DPI: 25.4mm/inch ÷ 300 dots/inch ≈ 0.0847mm/dot,
@@ -101,8 +102,8 @@ const FORTUNE_FONT_SIZE = 55;
 const FORTUNE_LINE_SPACING = 18;
 const FORTUNE_PADDING_X = 40;
 const BAND_GAP = 10; // dot row gap between middle and bottom
-const BOTTOM_BAND_Y = TOP_BAND_HEIGHT + MIDDLE_BAND_HEIGHT + BAND_GAP;
-const BOTTOM_BAND_HEIGHT = LABEL_HEIGHT_DOTS - BOTTOM_BAND_Y;
+export const BOTTOM_BAND_Y = TOP_BAND_HEIGHT + MIDDLE_BAND_HEIGHT + BAND_GAP;
+export const BOTTOM_BAND_HEIGHT = LABEL_HEIGHT_DOTS - BOTTOM_BAND_Y;
 
 export type CupLabelInput = {
   stickerNumber: string;
@@ -147,6 +148,15 @@ export type CupLabelInput = {
    * (every ASAP order) prints the band exactly as before.
    */
   pickupAt?: Date | string | null;
+  /**
+   * The customer's "note for the barista" (web/app checkout, or a POS item
+   * note — see label-note.ts for where it is read from and what the printer
+   * font can carry). Printed in the bottom band under the modifier list as
+   * "Note: …", with the whole band stepping its fonts down so the modifier
+   * list still prints in full. Omitted on keepsake copies, like the rest of
+   * the prep info.
+   */
+  customerNote?: string | null;
 };
 
 function formatGreeting(name: string | null): string {
@@ -192,6 +202,13 @@ export async function renderPhotoCupLabel(input: CupLabelInput): Promise<CupLabe
   // is a plain ZPL ^FB text block. Skip the entire SVG→PNG→1-bit
   // pipeline — the printer renders the glyphs natively from its stock
   // ^A0 scalable font, which is sharper and ~85KB smaller in ZPL.
+  // Bottom band stack (drink / modifiers / note), shared by the ZPL and the
+  // preview so both agree on fonts and positions. Keepsake copies carry none
+  // of it.
+  const band = input.keepsake
+    ? null
+    : layoutBottomBand(input.drinkName, input.modifiersText, sanitizeLabelNote(input.customerNote));
+
   if (input.fortuneText) {
     const logo = await getMandyLogoZpl();
     const zpl = buildZpl({
@@ -199,15 +216,14 @@ export async function renderPhotoCupLabel(input: CupLabelInput): Promise<CupLabe
       cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
       drinkName: input.drinkName,
       greeting: formatGreeting(input.customerFirstName ?? null),
-      modifiers: input.modifiersText,
+      band,
       pickupStamp: formatPickupStamp(input.pickupAt),
       fortuneText: input.fortuneText,
-      keepsake: input.keepsake,
       logoHex: logo.hex,
       logoTotalBytes: logo.totalBytes,
       logoWidthBytes: logo.widthBytes,
     });
-    const previewPng = await renderPreviewPng(input, null);
+    const previewPng = await renderPreviewPng(input, null, band);
     return { zpl, previewPng };
   }
 
@@ -241,9 +257,8 @@ export async function renderPhotoCupLabel(input: CupLabelInput): Promise<CupLabe
     cupFrac: `${input.cupIdxOf.idx}/${input.cupIdxOf.total}`,
     drinkName: input.drinkName,
     greeting: formatGreeting(input.customerFirstName ?? null),
-    modifiers: input.modifiersText,
+    band,
     pickupStamp: formatPickupStamp(input.pickupAt),
-    keepsake: input.keepsake,
     doodleHex,
     doodleTotalBytes,
     doodleWidthBytes,
@@ -252,7 +267,7 @@ export async function renderPhotoCupLabel(input: CupLabelInput): Promise<CupLabe
     logoWidthBytes: logo.widthBytes,
   });
 
-  const previewPng = await renderPreviewPng(input, doodlePngBuffer);
+  const previewPng = await renderPreviewPng(input, doodlePngBuffer, band);
 
   return { zpl, previewPng };
 }
@@ -262,10 +277,13 @@ function buildZpl(args: {
   cupFrac: string;
   drinkName: string;
   greeting: string;
-  modifiers: string;
+  /**
+   * The laid-out bottom band (drink / modifiers / note) — see
+   * layoutBottomBand. Null on keepsake copies, which omit all three.
+   */
+  band: BottomBandLayout | null;
   /** "PU 5:45pm", or "" for an ASAP order. */
   pickupStamp: string;
-  keepsake?: boolean;
   doodleHex?: string;
   doodleTotalBytes?: number;
   doodleWidthBytes?: number;
@@ -274,17 +292,6 @@ function buildZpl(args: {
   logoTotalBytes: number;
   logoWidthBytes: number;
 }): string {
-  const innerWidth = LABEL_WIDTH_DOTS - 40; // 20px padding each side
-
-  // Modifier wrap. ZPL ^FB auto-wraps on space, but our zebra-format
-  // modifiers (e.g. "Lychee Jelly(2)+Grape Jelly+Lychee Jelly -> 50%S")
-  // contain `+` / ` -> ` boundaries that need explicit breaks. Pre-wrap
-  // here and join with `\&` (ZPL line-break inside ^FD).
-  const modLines = args.modifiers.length > 0
-    ? wrapModifierLine(args.modifiers, MOD_MAX_CHARS_PER_LINE)
-    : [];
-  const modField = modLines.map(escapeZpl).join("\\&");
-
   const parts: string[] = [];
   parts.push("^XA");
   parts.push(`^PW${LABEL_WIDTH_DOTS}`);
@@ -342,30 +349,32 @@ function buildZpl(args: {
     );
   }
 
-  // Bottom band: drink name (top, large) + modifier list (below) +
-  // optional Mandy logo (bottom-right corner). Layout 2026-05-22:
-  //   y_rel=0   2-dot horizontal divider across full label width
-  //   y_rel=15  drink (one big line, narrow width to reserve logo column)
-  //   y_rel=80  modifier list (4 lines max, narrow width to avoid logo)
-  //   y_rel=147 logo footprint (when not hidden)
+  // Bottom band: a stack of drink name, modifier list and customer note in
+  // the column left of the Mandy logo (bottom-right corner). Positions and
+  // fonts come from layoutBottomBand — see "Bottom band layout" below.
+  //   y_rel=0    2-dot horizontal divider across full label width
+  //   y_rel=12+  drink (^FB, printer wraps to ≤2 lines)
+  //              modifier list, pre-wrapped, one `\&` line per group/row
+  //              "Note: …", pre-wrapped
+  //   y_rel=147  logo footprint
   // ^GB draws a filled rect (last arg = stroke thickness, set = height
   // when ≤ height → solid bar).
   parts.push(`^FO0,${BOTTOM_BAND_Y}^GB${LABEL_WIDTH_DOTS},2,2^FS`);
 
-  // Keepsake copies print everything except the drink name + modifier
-  // list — the divider and logo below stay so the band still frames.
-  if (!args.keepsake) {
-    const drinkFont = drinkFontSizeFor(args.drinkName);
-    const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN;
-    const drinkWidth = innerWidth - reserveRight;
-    const modWidth = innerWidth - reserveRight;
+  // Keepsake copies print everything except the drink name, modifier list
+  // and note — the divider and logo below stay so the band still frames.
+  if (args.band) {
+    const { drink, mods, note } = args.band;
     parts.push(
-      `^FO20,${BOTTOM_BAND_Y + 15}^A0N,${drinkFont},${drinkFont}^FB${drinkWidth},2,0,L,0^FD${escapeZpl(args.drinkName)}^FS`,
+      `^FO20,${BOTTOM_BAND_Y + drink.y}^A0N,${drink.font},${drink.font}^FB${BAND_TEXT_WIDTH},2,${drink.gap},L,0^FD${escapeZpl(args.drinkName)}^FS`,
     );
-    if (modLines.length > 0) {
-      const lineCount = Math.min(modLines.length, MOD_MAX_LINES);
+    // Pre-wrapped rows joined with `\&` (ZPL line-break inside ^FD): our
+    // zebra-format modifiers break on `+` / ` -> `, which ^FB's own
+    // space-wrapping would not honour.
+    for (const block of [mods, note]) {
+      if (!block) continue;
       parts.push(
-        `^FO20,${BOTTOM_BAND_Y + 70}^A0N,32,32^FB${modWidth},${lineCount},4,L,0^FD${modField}^FS`,
+        `^FO20,${BOTTOM_BAND_Y + block.y}^A0N,${block.font},${block.font}^FB${BAND_TEXT_WIDTH},${block.lines.length},${block.gap},L,0^FD${block.lines.map(escapeZpl).join("\\&")}^FS`,
       );
     }
   }
@@ -386,12 +395,13 @@ function buildZpl(args: {
 async function renderPreviewPng(
   input: CupLabelInput,
   doodlePngBuffer: Buffer | null,
+  band: BottomBandLayout | null,
 ): Promise<Buffer> {
   const top = await renderTopBandPng(input);
   const middle = input.fortuneText
     ? await renderFortuneBandPng(input.fortuneText)
     : await renderMiddleBandPng(doodlePngBuffer!);
-  const bottom = await renderBottomBandPng(input);
+  const bottom = await renderBottomBandPng(band);
   return sharp({
     create: {
       width: LABEL_WIDTH_DOTS,
@@ -506,43 +516,22 @@ async function renderMiddleBandPng(doodlePng: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
-async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
-  // Bottom band 2026-05-22 layout:
-  //   y=15  drink name (1-2 lines, large)
-  //   y=80  modifier list (4 lines max)
-  //   y=147 logo footprint
-  const { drinkName, modifiersText } = input;
-  const fs = drinkFontSizeFor(drinkName);
-
-  // Keepsake copies omit the drink name + modifier list (mirrors the ZPL
-  // path); the divider + logo below stay so the preview matches the print.
-  let drinkText = "";
-  let modText = "";
-  if (!input.keepsake) {
-    // Width budget — always reserve right side for the logo.
-    const reserveRight = MANDY_LOGO_WIDTH + LOGO_MARGIN + 14;
-    const innerW = LABEL_WIDTH_DOTS - 20 - reserveRight;
-    // Char-width heuristic 0.55 calibrated from real ZD410 prints.
-    const drinkMaxChars = Math.max(1, Math.floor(innerW / (fs * 0.55)));
-    const drinkLines = wrapWords(drinkName, drinkMaxChars, 2);
-    const drinkLineHeight = Math.round(fs * 1.05);
-    drinkText = drinkLines
+async function renderBottomBandPng(band: BottomBandLayout | null): Promise<Buffer> {
+  // Mirrors the ZPL stack: same fonts and y offsets as layoutBottomBand
+  // handed to buildZpl, drink lines estimated with the same char-width
+  // heuristic. Keepsake copies (band = null) show just the divider + logo.
+  const textElem = (block: BandTextBlock, weight: string, style: string) =>
+    block.lines
       .map(
         (line, i) =>
-          `<text x="20" y="${15 + fs + i * drinkLineHeight}" font-family="sans-serif" font-size="${fs}" font-weight="700" fill="black">${escapeXml(line)}</text>`,
+          `<text x="20" y="${block.y + block.font + i * (block.font + block.gap)}" font-family="sans-serif" font-size="${block.font}" font-weight="${weight}" font-style="${style}" fill="black">${escapeXml(line)}</text>`,
       )
       .join("");
-
-    // Modifier list (left-aligned, narrow width to clear the logo).
-    const modLines = modifiersText.length > 0
-      ? wrapModifierLine(modifiersText, MOD_MAX_CHARS_PER_LINE).slice(0, MOD_MAX_LINES)
-      : [];
-    modText = modLines
-      .map(
-        (line, i) =>
-          `<text x="20" y="${70 + 32 + i * 36}" font-family="sans-serif" font-size="32" fill="black">${escapeXml(line)}</text>`,
-      )
-      .join("");
+  let bodyText = "";
+  if (band) {
+    bodyText += textElem(band.drink, "700", "normal");
+    if (band.mods) bodyText += textElem(band.mods, "400", "normal");
+    if (band.note) bodyText += textElem(band.note, "400", "italic");
   }
 
   const lx = LABEL_WIDTH_DOTS - MANDY_LOGO_WIDTH - LOGO_MARGIN;
@@ -553,46 +542,20 @@ async function renderBottomBandPng(input: CupLabelInput): Promise<Buffer> {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${LABEL_WIDTH_DOTS}" height="${BOTTOM_BAND_HEIGHT}">
     <rect width="100%" height="100%" fill="white"/>
     <rect x="0" y="0" width="${LABEL_WIDTH_DOTS}" height="2" fill="black"/>
-    ${drinkText}
-    ${modText}
+    ${bodyText}
     ${logoElem}
   </svg>`;
   return renderSvgToPng(svg, { widthPx: LABEL_WIDTH_DOTS, heightPx: BOTTOM_BAND_HEIGHT });
 }
 
-/** Greedy word-wrap with a hard cap on lines. */
-function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    if (cur.length === 0) cur = w;
-    else if (cur.length + 1 + w.length <= maxChars) cur = `${cur} ${w}`;
-    else {
-      lines.push(cur);
-      cur = w;
-      if (lines.length === maxLines - 1) break;
-    }
-  }
-  // Anything remaining goes on the last line, possibly truncated with …
-  const remaining = cur + (words.slice(lines.length === 0 ? 1 : lines.join(" ").split(/\s+/).length).join(" "));
-  if (lines.length < maxLines && cur) lines.push(cur);
-  return lines.length === 0 ? [text] : lines;
-}
-
 // ---- Modifier wrapping ----
 
-// At 300 DPI with 30-dot font in a 550-dot inner band (590 - 40 padding),
-// roughly 28-32 chars fit per line. Cap at 28 for safety so wide chars
-// don't overflow. 6-line max — bottom band height (223 dots) at font
-// 30 + 6 dot line spacing fits ~6 visual rows; format-modifiers emits
-// up to four groups (milk / toppings / ice / sugar) and the toppings
-// line may wrap into a second visual row.
-// Modifier wrap params updated 2026-05-22 v4 — font 32pt, 5 lines max
-// with tight 4-dot inter-line spacing so the typical 6-group modifier
-// (milk + 2-3 toppings + ice + sugar%) doesn't lose the critical
-// last-line sugar level to truncation. 5 × (32+4) = 180 dots, fits.
-const MOD_MAX_CHARS_PER_LINE = 26;
+// Pre-wrap for the ZPL ^FB blocks. The chars-per-line budget comes from the
+// caller (bandCharsPerLine for the photo layout, its own tiers for the 40×30
+// text layout — both use the 0.55 char-width heuristic calibrated on real
+// ZD410 prints: 26 chars at 32 dots across the 456-dot column). The 5-line
+// default cap is only the fallback for direct callers; the layouts pass
+// their own budget and only ellipsize as a last resort.
 const MOD_MAX_LINES = 5;
 
 // Tokenizes the modifier line on both ` -> ` (section sep) and `+`
@@ -642,6 +605,17 @@ export function wrapModifierLine(
     const tokens = tokenizeModLine(group);
     let cur = "";
     for (const t of tokens) {
+      if (t.length > maxChars) {
+        // A single token wider than the line — a long topping name, or a
+        // free-text note with no `+` / `->` in it. Break it at spaces so the
+        // line count we report is the line count the printer draws (^FB
+        // would wrap it on its own and push everything below off the band).
+        if (cur) lines.push(cur);
+        const chunks = wrapAtSpaces(t, maxChars);
+        lines.push(...chunks.slice(0, -1));
+        cur = chunks[chunks.length - 1];
+        continue;
+      }
       if (cur.length === 0) cur = t;
       else if (cur.length + t.length <= maxChars) cur += t;
       else { lines.push(cur); cur = t; }
@@ -655,6 +629,167 @@ export function wrapModifierLine(
     ? last.slice(0, maxChars - 1) + "…"
     : last + " …";
   return truncated;
+}
+
+// Greedy word-wrap of one over-long token; a single word wider than the
+// line is hard-cut so nothing can ever exceed `maxChars`.
+function wrapAtSpaces(text: string, maxChars: number): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (const word of text.split(" ").filter((w) => w.length > 0)) {
+    const pieces: string[] = [];
+    for (let i = 0; i < word.length; i += maxChars) pieces.push(word.slice(i, i + maxChars));
+    for (const p of pieces) {
+      if (cur.length === 0) cur = p;
+      else if (cur.length + 1 + p.length <= maxChars) cur += ` ${p}`;
+      else { out.push(cur); cur = p; }
+    }
+  }
+  if (cur) out.push(cur);
+  return out.length > 0 ? out : [""];
+}
+
+// ---- Bottom band layout: drink + modifiers + customer note ----
+//
+// BOTTOM_BAND_HEIGHT (253 dots) has to carry the drink name, every modifier
+// group in full and — since 2026-09-06 — the customer's note for the
+// barista. Fixed y positions and a 5-line modifier cap used to do this job;
+// they ellipsized the sugar level on a milk + 3 toppings + ice + sugar order
+// and had no room for a note at all. The band is now laid out as a stack —
+// drink, modifiers directly underneath, then the note — and the fonts step
+// down through BAND_TIERS until the stack fits. When even the smallest tier
+// overflows, the note gives up lines first (3 → 1, then vanishes — it is
+// still on the Square ticket), and only after that does the modifier list
+// ellipsize, exactly as it did before.
+const BAND_TOP_PAD = 12; // below the 2-dot divider
+const BAND_BOTTOM_PAD = 6;
+// Text stays in the column left of the logo; the logo is bottom-right.
+export const BAND_TEXT_WIDTH = LABEL_WIDTH_DOTS - 40 - (MANDY_LOGO_WIDTH + LOGO_MARGIN);
+// Char-width heuristic calibrated on real ZD410 prints (26 chars at 32 dots
+// across the 456-dot column).
+const CHAR_WIDTH_RATIO = 0.55;
+const DRINK_LINE_SPACING = 4;
+const DRINK_MODS_GAP = 8;
+const MODS_NOTE_GAP = 6;
+export const NOTE_MAX_LINES = 3;
+
+type BandTier = { drinkMax: number; modFont: number; modGap: number; noteFont: number; noteGap: number };
+// Tier 0 is the 2026-05-22 look (drink up to 60, modifiers 32/4) — a simple
+// order without a note prints exactly the sizes it did before.
+export const BAND_TIERS: readonly BandTier[] = [
+  { drinkMax: 60, modFont: 32, modGap: 4, noteFont: 28, noteGap: 3 },
+  { drinkMax: 42, modFont: 30, modGap: 3, noteFont: 26, noteGap: 2 },
+  { drinkMax: 36, modFont: 28, modGap: 2, noteFont: 24, noteGap: 2 },
+  { drinkMax: 32, modFont: 26, modGap: 2, noteFont: 22, noteGap: 1 },
+  { drinkMax: 28, modFont: 24, modGap: 1, noteFont: 20, noteGap: 1 },
+];
+
+export type BandTextBlock = {
+  /** y offset from the top of the bottom band (add BOTTOM_BAND_Y for ^FO). */
+  y: number;
+  font: number;
+  /** ZPL ^FB inter-line spacing; the line pitch is font + gap. */
+  gap: number;
+  lines: string[];
+};
+
+export type BottomBandLayout = {
+  /** `lines` here is an estimate — the printer wraps the name itself (^FB, ≤2 lines). */
+  drink: BandTextBlock;
+  mods: BandTextBlock | null;
+  note: BandTextBlock | null;
+  /** Index into BAND_TIERS that was used. */
+  tier: number;
+  /** Stacked height including padding; ≤ BOTTOM_BAND_HEIGHT unless nothing could fit. */
+  height: number;
+};
+
+export function bandCharsPerLine(font: number): number {
+  return Math.max(1, Math.floor(BAND_TEXT_WIDTH / (CHAR_WIDTH_RATIO * font)));
+}
+
+// Chars per line for the drink name at a given font. drinkFontSizeFor's
+// thresholds encode what a real ZD410 fits on one line of CG Triumvirate
+// Bold Condensed (14 chars at 60, …) — a little more than the 0.55 ratio
+// predicts — so a name the tier was chosen for is never budgeted as two
+// lines. The printer still wraps for real (^FB, 2 lines) if it has to.
+const DRINK_ONE_LINE_CHARS: Record<number, number> = { 60: 14, 50: 18, 42: 22, 34: 27 };
+function drinkCharsPerLine(font: number): number {
+  return Math.max(DRINK_ONE_LINE_CHARS[font] ?? 0, bandCharsPerLine(font));
+}
+
+function blockHeight(block: BandTextBlock): number {
+  return block.lines.length * (block.font + block.gap);
+}
+
+/**
+ * Lay the bottom band out for this cup. `note` is the already-sanitised
+ * customer note ("" for none); the "Note: " prefix is added here.
+ */
+export function layoutBottomBand(
+  drinkName: string,
+  modifiersText: string,
+  note: string,
+): BottomBandLayout {
+  const naturalDrinkFont = drinkFontSizeFor(drinkName);
+  const noteText = note ? `${NOTE_PREFIX}${note}` : "";
+
+  const stack = (tierIdx: number, noteMaxLines: number, modMaxLines: number): BottomBandLayout => {
+    const tier = BAND_TIERS[tierIdx];
+    const drinkFont = Math.min(naturalDrinkFont, tier.drinkMax);
+    let y = BAND_TOP_PAD;
+    const drink: BandTextBlock = {
+      y,
+      font: drinkFont,
+      gap: DRINK_LINE_SPACING,
+      lines: wrapModifierLine(drinkName, drinkCharsPerLine(drinkFont), 2),
+    };
+    y += blockHeight(drink);
+    let mods: BandTextBlock | null = null;
+    if (modifiersText.length > 0) {
+      y += DRINK_MODS_GAP;
+      mods = {
+        y,
+        font: tier.modFont,
+        gap: tier.modGap,
+        lines: wrapModifierLine(modifiersText, bandCharsPerLine(tier.modFont), modMaxLines),
+      };
+      y += blockHeight(mods);
+    }
+    let noteBlock: BandTextBlock | null = null;
+    if (noteText && noteMaxLines > 0) {
+      y += mods ? MODS_NOTE_GAP : DRINK_MODS_GAP;
+      noteBlock = {
+        y,
+        font: tier.noteFont,
+        gap: tier.noteGap,
+        lines: wrapModifierLine(noteText, bandCharsPerLine(tier.noteFont), noteMaxLines),
+      };
+      y += blockHeight(noteBlock);
+    }
+    return { drink, mods, note: noteBlock, tier: tierIdx, height: y + BAND_BOTTOM_PAD };
+  };
+  const fits = (l: BottomBandLayout) => l.height <= BOTTOM_BAND_HEIGHT;
+
+  // 1. The largest tier that carries everything in full.
+  for (let i = 0; i < BAND_TIERS.length; i++) {
+    const l = stack(i, NOTE_MAX_LINES, Number.POSITIVE_INFINITY);
+    if (fits(l)) return l;
+  }
+  const last = BAND_TIERS.length - 1;
+  // 2. Smallest tier, note shortened a line at a time; modifiers still whole.
+  for (let n = NOTE_MAX_LINES - 1; n >= 0; n--) {
+    const l = stack(last, n, Number.POSITIVE_INFINITY);
+    if (fits(l)) return l;
+  }
+  // 3. Even without a note the modifiers overflow: ellipsize them to the
+  //    rows that fit (the pre-2026-09 behaviour), never fewer than one.
+  const probe = stack(last, 0, 1);
+  const tier = BAND_TIERS[last];
+  const modsTop = probe.mods ? probe.mods.y : probe.height;
+  const room = BOTTOM_BAND_HEIGHT - BAND_BOTTOM_PAD - modsTop;
+  const maxModLines = Math.max(1, Math.floor(room / (tier.modFont + tier.modGap)));
+  return stack(last, 0, maxModLines);
 }
 
 // ---- Helpers ----
