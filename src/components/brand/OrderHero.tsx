@@ -378,19 +378,34 @@ function PickedUp({ live }: { live: boolean }) {
   return (
     <>
       <Counter />
-      <Motion x={180} y={COUNTER_Y - 34} frame={noteSway} period={DONE_PERIOD} live={live}>
-        <rect x={-40} y={0} width={80} height={34} rx={4} fill="#FFFDF6" stroke={INK} strokeWidth={1.8} />
-        {/* A smile, not the S-curve the first pass drew — that read as a
-            shrug on the one card that is meant to say thank you. */}
+      {/* Pivoting where the note meets the counter, so the sway reads as a
+          card propped there rather than one swinging from its top edge. */}
+      <Motion x={180} y={COUNTER_Y} frame={noteSway} period={DONE_PERIOD} live={live}>
+        <rect x={-47} y={-44} width={94} height={44} rx={4} fill="#FFFDF6" stroke={INK} strokeWidth={1.8} />
+        {/* textLength pins the width: the shop's rounded face is a webfont, and
+            without it a fallback's wider metrics would run the words off the
+            card on the one frame that matters. */}
+        <text
+          x={0}
+          y={-24}
+          textAnchor="middle"
+          textLength={74}
+          lengthAdjust="spacingAndGlyphs"
+          fill={INK}
+          style={{
+            font: '700 13px var(--font-shantell), "Comic Sans MS", cursive',
+            letterSpacing: "0.02em",
+          }}
+        >
+          THANK YOU!
+        </text>
         <path
-          d="M-13 20q13 11 26 0"
+          d="M-11-14q11 9 22 0"
           fill="none"
           stroke="#E2645F"
           strokeWidth={2.4}
           strokeLinecap="round"
         />
-        <circle cx={-11} cy={12} r={2.4} fill={INK} />
-        <circle cx={11} cy={12} r={2.4} fill={INK} />
       </Motion>
       {[0, 1].map((i) => (
         <Motion
