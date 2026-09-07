@@ -151,23 +151,35 @@ export function breathe(p: number): Frame {
 export function ripple(p: number): Frame {
   return { ...REST, scale: 0.5 + 1.1 * p, opacity: 0.6 * (1 - p) };
 }
-/** A price tag on a string, drifting left to right and swinging back — the
- *  pivot is the knot at the shape's origin, ±14° about its resting angle.
+/** A price tag on a string: a quick glide left→right, a bounce at the end of
+ *  the throw, then a slow drift back. The pivot is the knot at the shape's
+ *  origin, ±20° about its resting angle.
  *
  *  A tag hangs BELOW its knot, so matrixAt puts its face at x = −sin(rot):
- *  positive rot carries it left, negative right. The drift left→right is
- *  therefore +14 → −14, and it takes most of the cycle; the swing back is
- *  quicker and overshoots a little before settling. A symmetric pendulum
- *  (the App still has one) reads as a wobble rather than as a direction.
+ *  positive rot carries it LEFT, negative RIGHT. Left-to-right is +20 → −20.
+ *
+ *  Two things make that read as a direction rather than as a wobble, and both
+ *  were learned the hard way:
+ *
+ *  1. The rightward stroke has to be the FAST one. A slow crossing with a
+ *     quick snap back is seen as a leftward flick, because the eye follows
+ *     whichever stroke moves faster — the first attempt here crossed over 58%
+ *     of the cycle and returned in 42%, and read as drifting left.
+ *  2. The tag has to actually CROSS the vertical. Paired with the 12° rest on
+ *     Specials, this range runs 32° to −8°: over the cup at one end, out past
+ *     the rim at the other. Staying on one side of the knot the whole time
+ *     reads as fluttering on that side, whichever way the numbers move.
+ *
  *  Diverges from the App on purpose — see the comment on Specials. */
 export function swing(p: number): Frame {
   return {
     ...REST,
     rot: keyframes(p, [
-      [0, 14],
-      [0.58, -14],
-      [0.86, 17],
-      [1, 14],
+      [0, 20],
+      [0.3, -20],
+      [0.4, -12],
+      [0.48, -18],
+      [1, 20],
     ]),
   };
 }

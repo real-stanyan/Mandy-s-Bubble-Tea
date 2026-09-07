@@ -476,11 +476,13 @@ function Specials({ live, tile }: Live) {
     <>
       <Blob d="M112 12c36-14 100-8 118 24 14 26-4 62-44 66-40 4-70-4-86-26C86 54 86 26 112 12z" fill="#F6CBA3" />
       <Cup x={150} y={8} s={0.96} liq="#DF8A4C" pearls pearlsRise live={live} />
-      {/* Tied to the rim's right corner and lying across the cup. It drifts from
-          the left of that rest across to the right and swings back — the App's
-          symmetric ±14° sway read as a wobble with no direction to it, so the
-          web's `swing` is the one that diverges from the mirror. */}
-      <Motion x={198} y={23} loop="swing" period={3600} rot={24} live={live}>
+      {/* Tied to the rim's right corner. The rest is 12° rather than the App's
+          24° so the ±20° glide crosses the vertical instead of fluttering on
+          one side of the knot: 32° lying across the cup at the left end, −8°
+          hung out past the rim at the right. The App's symmetric ±14° sway
+          about 24° never left the cup and read as a wobble, so the web's
+          `swing` is the one that diverges from the mirror. */}
+      <Motion x={198} y={23} loop="swing" period={3600} rot={12} live={live}>
         <Tag />
       </Motion>
       <Motion x={122} y={30} loop="twinkle" period={2800} live={live}>
