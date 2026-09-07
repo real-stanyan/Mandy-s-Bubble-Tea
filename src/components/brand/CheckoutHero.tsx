@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { wavePath } from "@/lib/motion/wave";
-import type { CupVisual, ToppingVisual } from "@/lib/menu/cup-visual";
+import type { CupVisual } from "@/lib/menu/cup-visual";
 import { flapFor, packFor } from "@/lib/motion/checkout-hero";
 import { HERO_MAX_CUPS } from "@/lib/menu/order-cups";
 import {
@@ -23,8 +23,8 @@ import {
 // counter (lucky cats beckoning, the bell dinging, steam off the urns); for
 // delivery, their cups going one by one into the insulated bag on the doorstep
 // while the doorbell chimes. Each cup is drawn from the same cup-visual the
-// item sheet uses — liquid colour, ice, toppings, foam — always in the Mini
-// Cup's cup with its lid and straw.
+// item sheet uses — liquid colour, ice, foam — always in the Mini Cup's cup
+// with its lid, straw and one uniform bed of pearls (see OrderCup).
 //
 // Port of the App's components/brand/CheckoutHero.tsx; same drawing, same
 // timings. Reduce Motion (and off screen) holds frame zero: bell idle, paws
@@ -90,109 +90,39 @@ export function CheckoutHero({ kind, cups, extra = 0, className }: Props) {
 /* ----------------------------- a cup from the order ----------------------------- */
 
 const LIQ_TOP = 30;
-const CUBES: [number, number, number][] = [
-  [16, 0, -10],
-  [27, 2, 8],
-  [38, 0, -5],
-  [22, -8, 6],
-  [33, -7, -8],
-];
 
-function Bed({
-  t,
-  y,
-  rise,
-  live,
-}: {
-  t: ToppingVisual;
-  y: number;
-  rise: boolean;
-  live: boolean;
-}) {
-  const color = (i: number) => t.colors[i % t.colors.length] ?? t.colors[0];
-  if (t.shape === "cube") {
-    return (
-      <>
-        {CUBES.map(([x, dy, r], i) =>
-          rise ? (
-            <Motion
-              key={i}
-              x={x + 4}
-              y={y + dy - 2}
-              loop="rise"
-              period={3400 + (i % 2) * 500}
-              delay={i * 500}
-              live={live}
-            >
-              <rect x={-4} y={-4} width={8} height={8} rx={2} fill={color(i)} transform={`rotate(${r})`} />
-            </Motion>
-          ) : (
-            <rect
-              key={i}
-              x={x}
-              y={y + dy - 6}
-              width={8}
-              height={8}
-              rx={2}
-              fill={color(i)}
-              transform={`rotate(${r} ${x + 4} ${y + dy - 2})`}
-            />
-          ),
-        )}
-      </>
-    );
-  }
-  if (t.shape === "crumb") {
-    return (
-      <>
-        {(
-          [
-            [18, -3, 20],
-            [26, -6, -15],
-            [34, -4, 40],
-            [42, -6, 10],
-          ] as [number, number, number][]
-        ).map(([x, dy, r], i) => (
-          <rect
-            key={i}
-            x={x}
-            y={LIQ_TOP + dy}
-            width={6}
-            height={4}
-            rx={1}
-            fill={color(0)}
-            transform={`rotate(${r} ${x} ${LIQ_TOP + dy})`}
-          />
-        ))}
-      </>
-    );
-  }
-  const r = t.shape === "sphere" ? 3.6 : 3.2;
-  const spots = t.shape === "sphere" ? PEARLS.slice(0, 5) : PEARLS;
+/** The bed every cup gets: the Mini Cup's seven pearls, drifting up and
+ *  settling back on their own stagger. Same in every cup on purpose — see the
+ *  note on OrderCup. */
+function Pearls({ live }: { live: boolean }) {
   return (
     <>
-      {spots.map(([x, py], i) =>
-        rise ? (
-          <Motion
-            key={i}
-            x={x}
-            y={y + (py - 71)}
-            loop="rise"
-            period={3200 + (i % 3) * 500}
-            delay={i * 450}
-            live={live}
-          >
-            <circle r={r} fill={color(i)} />
-          </Motion>
-        ) : (
-          <circle key={i} cx={x} cy={y + (py - 71)} r={r} fill={color(i)} />
-        ),
-      )}
+      {PEARLS.map(([x, y], i) => (
+        <Motion
+          key={i}
+          x={x}
+          y={y}
+          loop="rise"
+          period={3200 + (i % 3) * 500}
+          delay={i * 450}
+          live={live}
+        >
+          <circle r={3.4} fill="#3B2317" />
+        </Motion>
+      ))}
     </>
   );
 }
 
-/** The customer's cup: cup-visual in, the Mini Cup's cup out — lid and straw on every one. */
+/** The customer's cup: cup-visual in, the Mini Cup's cup out — lid and straw on
+ *  every one, and the same bed of pearls in every one.
+ *
+ *  The cups used to draw the customer's actual toppings, shape by shape. At the
+ *  size they are on the counter — 43px tall, three or four in a row — a bed of
+ *  cubes next to a bed of pearls next to a scatter of crumbs read as debris,
+ *  not as a drink. What the scene is for is recognition, and the ticket beside
+ *  it is what carries the build. So the pieces are uniform and the liquid is
+ *  not: the colour, the foam, the ice are still the customer's own. */
 function OrderCup({
   v,
   x,
@@ -207,8 +137,6 @@ function OrderCup({
   live: boolean;
 }) {
   const uid = useUid();
-  const beds = v.toppings.filter((t) => t.placement === "bottom").slice(0, 3);
-  const floating = v.toppings.filter((t) => t.placement === "top").slice(0, 1);
   const iceCount = v.ice === "extra" || v.ice === "normal" ? 3 : v.ice === "less" ? 2 : 0;
   const liquidOpacity = Math.min(1, 0.74 + Math.min(v.sugar, 1) * 0.26);
   return (
@@ -256,12 +184,7 @@ function OrderCup({
             ) : null}
           </g>
         ) : null}
-        {beds.map((t, i) => (
-          <Bed key={`${t.name}-${i}`} t={t} y={71 - i * 9} rise={i === 0} live={live} />
-        ))}
-        {floating.map((t, i) => (
-          <Bed key={`top-${i}`} t={t} y={LIQ_TOP} rise={false} live={live} />
-        ))}
+        <Pearls live={live} />
         {v.hasFoam ? (
           <>
             <path
