@@ -123,7 +123,7 @@ function Pearls({ live }: { live: boolean }) {
  *  not as a drink. What the scene is for is recognition, and the ticket beside
  *  it is what carries the build. So the pieces are uniform and the liquid is
  *  not: the colour, the foam, the ice are still the customer's own. */
-function OrderCup({
+export function OrderCup({
   v,
   x,
   y,

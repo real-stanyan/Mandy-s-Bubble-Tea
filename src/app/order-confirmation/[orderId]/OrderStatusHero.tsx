@@ -9,9 +9,13 @@ import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { FreshnessBar, type Tracking } from "@/components/delivery/DeliveryMap";
 import {
   deriveStatusUi,
+  orderScene,
   type DispatchStatus,
   type FulfillmentState,
+  type OrderScene,
 } from "@/lib/order-status-ui";
+import { OrderHero } from "@/components/brand/OrderHero";
+import type { CupVisual } from "@/lib/menu/cup-visual";
 
 // Leaflet touches `window` at import time — load the map client-side only.
 const DeliveryMap = dynamic(
@@ -33,6 +37,11 @@ type Props = {
    *  instead of "Preparing". Server-computed initially, kept fresh by the
    *  poll. */
   initialHeld?: boolean;
+  /** The customer's own cups, for the order hero — same mapper the checkout
+   *  hero and the item sheet use (lib/menu/order-cups). */
+  cups?: CupVisual[];
+  /** Cups beyond the ones the scene draws. */
+  extraCups?: number;
 };
 
 const POLL_MS = 5000;
@@ -52,6 +61,8 @@ export function OrderStatusHero({
   deliveryAddress,
   etaText,
   initialHeld = false,
+  cups = [],
+  extraCups = 0,
 }: Props) {
   const [state, setState] = useState<FulfillmentState | null>(initialState);
   const [dispatchStatus, setDispatchStatus] = useState<DispatchStatus | null>(
@@ -144,6 +155,8 @@ export function OrderStatusHero({
       // when.
       etaText={held ? null : etaText}
       held={held}
+      cups={cups}
+      extraCups={extraCups}
     />
   );
 }
@@ -157,11 +170,18 @@ function CardShell({
   orderNumber,
   isDelivery,
   tone,
+  scene,
+  cups,
+  extraCups = 0,
   children,
 }: {
   orderNumber?: string | null;
   isDelivery: boolean;
   tone: "active" | "muted";
+  /** The order hero's scene, or null when a drawing would be wrong here. */
+  scene?: OrderScene | null;
+  cups?: CupVisual[];
+  extraCups?: number;
   children: ReactNode;
 }) {
   const active = tone === "active";
@@ -203,10 +223,17 @@ function CardShell({
             : "Show this at the counter to collect"}
         </span>
       </div>
-      <div
-        className="mx-6 border-t border-dashed"
-        style={{ borderColor: "rgba(141,85,36,.22)" }}
-      />
+      {/* What is happening to the drinks, between the number and the words
+          about it. Full-bleed: it is the picture the card is built around,
+          not an icon beside a heading. */}
+      {scene && cups && cups.length > 0 ? (
+        <OrderHero scene={scene} cups={cups} extra={extraCups} />
+      ) : (
+        <div
+          className="mx-6 border-t border-dashed"
+          style={{ borderColor: "rgba(141,85,36,.22)" }}
+        />
+      )}
       <div className="p-6">{children}</div>
     </div>
   );
@@ -224,6 +251,8 @@ function StatusCard({
   orderNumber,
   etaText,
   held = false,
+  cups = [],
+  extraCups = 0,
 }: {
   state: FulfillmentState | null;
   isDelivery: boolean;
@@ -231,8 +260,12 @@ function StatusCard({
   orderNumber?: string | null;
   etaText?: string | null;
   held?: boolean;
+  cups?: CupVisual[];
+  extraCups?: number;
 }) {
   const ui = deriveStatusUi({ state, isDelivery, dispatchStatus, held });
+  const scene: OrderScene | null = orderScene(ui, isDelivery);
+  const shell = { scene, cups, extraCups };
   // A prep-time ETA ("5–7 mins") is misleading while a delivery order is still
   // placed/awaiting a driver, so only show it once the order is out for delivery
   // (step ≥ 2 now that "Placed" leads the delivery stepper). Pickup keeps its ETA
@@ -241,7 +274,7 @@ function StatusCard({
 
   if (ui.kind === "completed") {
     return (
-      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted">
+      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted" {...shell}>
         <div className="flex items-center gap-3.5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-green/15 text-green-dark">
             <Check size={22} />
@@ -257,7 +290,7 @@ function StatusCard({
 
   if (ui.kind === "canceled") {
     return (
-      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted">
+      <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="muted" {...shell}>
         <div className="flex items-center gap-3.5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink4/10 text-ink3">
             <Check size={22} className="rotate-45" />
@@ -273,7 +306,7 @@ function StatusCard({
 
   // active — unified card: order number on top, then the stepper
   return (
-    <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="active">
+    <CardShell orderNumber={orderNumber} isDelivery={isDelivery} tone="active" {...shell}>
     <div role="status" aria-live="polite">
       {/* Everything inside the active poster face is pinned day ink — see
           CardShell's note. */}
