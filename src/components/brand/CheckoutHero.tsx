@@ -222,30 +222,90 @@ function Cat({
 }) {
   return (
     <g transform={`translate(${x} 66)`}>
-      <path d="M-12 0C-13-14-8-20 0-20 8-20 13-14 12 0Z" fill={fill} stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
-      <ellipse cx={-6} cy={-2} rx={4} ry={2.4} fill={fill} stroke={INK} strokeWidth={1.4} />
-      {coin ? (
-        <>
-          <ellipse cx={1} cy={-6} rx={6} ry={4} fill="#F2B64A" stroke={INK} strokeWidth={1.4} />
-          <path d="M-2-6h6" stroke={INK} strokeWidth={1.2} strokeLinecap="round" />
-        </>
-      ) : null}
-      <path d="M-8-16q8 4 16 0" fill="none" stroke="#E2645F" strokeWidth={2.6} strokeLinecap="round" />
-      <circle cy={-13} r={2.2} fill="#F2B64A" stroke={INK} strokeWidth={1} />
+      {/* Tail, behind everything: an outlined stroke — an ink pass under a
+          fill pass — because a 4px-wide curl drawn as a filled shape needs
+          path data nobody can edit later. */}
       <path
-        d="M-9.5-29Q-11-37-5.5-36.5Q-2.5-34-1.5-31zM9.5-29Q11-37 5.5-36.5Q2.5-34 1.5-31z"
+        d="M11-3C19-5 21-13 15.5-16 12.5-17.6 10.5-14.5 12.5-13"
+        fill="none"
+        stroke={INK}
+        strokeWidth={6.5}
+        strokeLinecap="round"
+      />
+      <path
+        d="M11-3C19-5 21-13 15.5-16 12.5-17.6 10.5-14.5 12.5-13"
+        fill="none"
+        stroke={fill}
+        strokeWidth={3.4}
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M-12 0C-12.5-11-8-18.5 0-18.5 8-18.5 12.5-11 12 0Z"
         fill={fill}
         stroke={INK}
-        strokeWidth={1.6}
+        strokeWidth={1.8}
         strokeLinejoin="round"
       />
-      <circle cy={-24} r={10.5} fill={fill} stroke={INK} strokeWidth={1.8} />
-      <path d="M-6-25q2.5-3 5 0M1-25q2.5-3 5 0" fill="none" stroke={feat} strokeWidth={1.5} strokeLinecap="round" />
-      <path d="M-1-21h2" stroke={feat} strokeWidth={1.6} strokeLinecap="round" />
-      <path d="M-13-22h5M-13-19h5M8-22h5M8-19h5" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.7} />
-      <Motion x={9} y={-13} loop="beckon" period={1600} delay={delay} live={live}>
-        <rect x={-2} y={-18} width={7} height={19} rx={3.5} fill={fill} stroke={INK} strokeWidth={1.6} />
-        <path d="M0-15h3M0-12h3" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.6} />
+      {/* The bib. A maneki-neko is two-tone, and without it the black cat in
+          particular was one solid blob at the size these are drawn. */}
+      <path
+        d="M0-14C5.5-14 7.5-7.5 6.5-0.6L-6.5-0.6C-7.5-7.5-5.5-14 0-14Z"
+        fill="#FFF9F0"
+        stroke={INK}
+        strokeWidth={1.2}
+        strokeLinejoin="round"
+      />
+      <ellipse cx={-7} cy={-2.6} rx={4.4} ry={3} fill={fill} stroke={INK} strokeWidth={1.4} />
+      {coin ? (
+        <>
+          <ellipse cx={0.5} cy={-6.5} rx={7} ry={4.8} fill="#F2B64A" stroke={INK} strokeWidth={1.4} />
+          <path d="M-3-8h7M-3-5h7" stroke={INK} strokeWidth={1.1} strokeLinecap="round" />
+        </>
+      ) : null}
+      <path d="M-9-17.5Q0-13.5 9-17.5" fill="none" stroke="#E2645F" strokeWidth={3} strokeLinecap="round" />
+      <circle cy={-14.5} r={3} fill="#F2B64A" stroke={INK} strokeWidth={1.2} />
+      <path d="M0-16v3" stroke={INK} strokeWidth={1} strokeLinecap="round" />
+
+      {/* Ears before the head, so the head hides where they join. Bigger and
+          more upright than the slivers they replace — at 26px across, the
+          silhouette is most of what says "lucky cat". */}
+      <path
+        d="M-10.6-33-14-43-5.6-37.6ZM10.6-33 14-43 5.6-37.6Z"
+        fill={fill}
+        stroke={INK}
+        strokeWidth={1.7}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M-9.8-34-12.4-41.2-6.9-37.4ZM9.8-34 12.4-41.2 6.9-37.4Z"
+        fill="#E2645F"
+        opacity={0.5}
+      />
+      <circle cy={-27} r={12} fill={fill} stroke={INK} strokeWidth={1.8} />
+
+      {/* Two closed arcs, a nose and a w — and no whiskers. Four whisker
+          dashes at this size read as a scribble across the face, which is
+          most of what made these look scruffy. */}
+      <path
+        d="M-7-29.5q3-3.5 6 0M1-29.5q3-3.5 6 0"
+        fill="none"
+        stroke={feat}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <path d="M-1.7-24.6 1.7-24.6 0-22.7Z" fill={feat} />
+      <path
+        d="M0-22.7q-2.7 2.7-4.6 0.2M0-22.7q2.7 2.7 4.6 0.2"
+        fill="none"
+        stroke={feat}
+        strokeWidth={1.4}
+        strokeLinecap="round"
+      />
+
+      <Motion x={10} y={-15} loop="beckon" period={1600} delay={delay} live={live}>
+        <rect x={-3.8} y={-19.5} width={7.6} height={21} rx={3.8} fill={fill} stroke={INK} strokeWidth={1.6} />
+        <path d="M-1.3-16.4h2.6M-1.3-13.2h2.6" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.65} />
       </Motion>
     </g>
   );
