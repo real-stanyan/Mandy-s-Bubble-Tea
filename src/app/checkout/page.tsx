@@ -1311,8 +1311,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               {displayName}
             </p>
             <p className="mt-0.5 text-[13px] text-ink3">{profile.phone_e164}</p>
+            {/* Open state drives the chevron and the collapsed preview from
+                React rather than `group-open:`. Measured in the browser, the
+                variant's utilities don't take on these chevrons — the class
+                is present and the selector matches, and `rotate` still
+                computes 0deg — so the arrow swaps path instead of turning. */}
             <details
-              className="group mt-4"
+              className="mt-4"
               open={noteOpen}
               onToggle={(e) => setNoteOpen(e.currentTarget.open)}
             >
@@ -1323,14 +1328,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                       customer who typed one has no way to see it is still
                       attached without opening the fold again. */}
                   {note.trim() ? (
-                    <span className="text-ink3 group-open:hidden">
-                      · {note.trim()}
-                    </span>
+                    !noteOpen && <span className="text-ink3">· {note.trim()}</span>
                   ) : (
                     <span className="text-ink4">(optional)</span>
                   )}
                 </span>
-                <Chevron className="h-4 w-4 shrink-0 text-ink4 transition group-open:rotate-180" />
+                <Chevron up={noteOpen} className="h-4 w-4 shrink-0 text-ink4" />
               </summary>
               <textarea
                 value={note}
@@ -1817,7 +1820,9 @@ function SummaryRow({ line }: { line: CartLine }) {
 /*  Icons                                                              */
 /* ------------------------------------------------------------------ */
 
-function Chevron({ className }: { className?: string }) {
+/** `up` swaps the path rather than rotating it: `rotate-180` does not take on
+ *  these chevrons (see the note fold below and OrderSummaryTotals). */
+function Chevron({ up = false, className }: { up?: boolean; className?: string }) {
   return (
     <svg
       width="16"
@@ -1831,7 +1836,7 @@ function Chevron({ className }: { className?: string }) {
       aria-hidden="true"
       className={className}
     >
-      <polyline points="6 9 12 15 18 9" />
+      <polyline points={up ? "6 15 12 9 18 15" : "6 9 12 15 18 9"} />
     </svg>
   );
 }
