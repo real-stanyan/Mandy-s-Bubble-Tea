@@ -13,7 +13,6 @@ import {
   SHAKES,
   TIN,
   arrive,
-  beckonAt,
   cycles,
   dropIn,
   fill,
@@ -25,6 +24,7 @@ import {
   shakeArc,
   starDrift,
   ticketFeed,
+  tinCorners,
   tinMouth,
 } from "./order-hero";
 
@@ -65,7 +65,6 @@ describe("the loop closes", () => {
     ["noteSway", noteSway],
     ["starDrift", starDrift(0)],
     ["starDrift (offset)", starDrift(0.34)],
-    ["beckonAt", beckonAt(READY_PERIOD, 500)],
   ];
 
   it.each(onScreenThroughout)("%s is in the same place at p=1 as at p=0", (_n, fn) => {
@@ -258,5 +257,31 @@ describe("the shake arcs", () => {
     }
     expect(seen).toBeGreaterThan(0);
     expect(shakeArc(mid).scale).toBeGreaterThan(0);
+  });
+});
+
+describe("the tin stays out of the cup it is pouring into", () => {
+  // The bug this pins: at 125° the far corner of the cap swung ~13 units under
+  // the rim, so the tin poured from inside the cup. Tilt, lift and the tin's
+  // own size are all set by this assertion rather than by eye — change any one
+  // of them and this is what tells you.
+  it("keeps every corner of the tin above the rim for the whole pour", () => {
+    for (let i = 0; i <= 60; i++) {
+      const p = PREP.pourFrom + (i / 60) * (PREP.pourTo - PREP.pourFrom);
+      for (const c of tinCorners(p)) {
+        expect(c.y).toBeLessThan(CUP_MOUTH.rimY);
+      }
+    }
+  });
+
+  it("leaves the tin room to swing without clipping the stage", () => {
+    for (let i = 0; i <= 100; i++) {
+      for (const c of tinCorners(i / 100)) {
+        expect(c.x).toBeGreaterThan(0);
+        expect(c.x).toBeLessThan(360);
+        expect(c.y).toBeGreaterThan(0);
+        expect(c.y).toBeLessThan(200);
+      }
+    }
   });
 });
