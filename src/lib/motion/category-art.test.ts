@@ -133,22 +133,32 @@ describe("loops", () => {
   it("the specials tag glides left to right, then drifts back", () => {
     // A tag hangs below its knot, so matrixAt puts its face at x = -sin(rot):
     // positive rot is LEFT, negative is RIGHT. Left to right therefore runs
-    // +20 -> -20, and it crosses the vertical rather than fluttering on one
+    // +22 -> -22, and it crosses the vertical rather than fluttering on one
     // side of the knot.
-    expect(swing(0).rot).toBe(20);
-    expect(swing(0.3).rot).toBeCloseTo(-20, 5);
+    expect(swing(0).rot).toBe(22);
+    expect(swing(0.3).rot).toBeCloseTo(-22, 5);
     // Rightward the whole way across — no doubling back mid-glide.
     for (let p = 0.03; p <= 0.3; p += 0.03) {
       expect(swing(p).rot).toBeLessThan(swing(p - 0.03).rot);
     }
+    // The arc opens to the RIGHT. Against the resting angle Specials hangs it
+    // at, the throw runs 20° to -24°: the longer half is out past the rim,
+    // not back over the cup. Hung the other way round it reads as a left-hand
+    // flutter even though it crosses, which is what shipped in #375.
+    const SPECIALS_REST = -2;
+    const left = SPECIALS_REST + swing(0).rot;
+    const right = SPECIALS_REST + swing(0.3).rot;
+    expect(left).toBe(20);
+    expect(right).toBe(-24);
+    expect(Math.abs(right)).toBeGreaterThan(Math.abs(left));
     // The eye follows whichever stroke is faster, so the glide right has to
     // outrun the drift back. This is the assertion that makes it read as a
     // direction: with the two swapped, the same path reads as drifting LEFT.
     const speed = (a: number, b: number) => Math.abs(swing(b).rot - swing(a).rot) / (b - a);
     expect(speed(0.14, 0.16)).toBeGreaterThan(1.5 * speed(0.73, 0.75));
     // One bounce at the end of the throw, then home, so the loop has no seam.
-    expect(swing(0.4).rot).toBeCloseTo(-12, 5);
-    expect(swing(0.999).rot).toBeCloseTo(20, 1);
+    expect(swing(0.4).rot).toBeCloseTo(-13, 5);
+    expect(swing(0.999).rot).toBeCloseTo(22, 1);
   });
 
   it("the surface scrolls exactly one wavelength per cycle", () => {
