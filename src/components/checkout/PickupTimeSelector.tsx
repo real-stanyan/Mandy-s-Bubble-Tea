@@ -66,7 +66,14 @@ export function PickupTimeSelector({ value, onChange, kitchen }: Props) {
       <p className="mb-2 text-[12.5px] text-ink2">
         What time will you collect your drinks?
       </p>
-      <div className="flex flex-wrap gap-2">
+      {/* One row that scrolls, not two that wrap. At 375px the five pills
+          wrapped onto a second row, and the second row read as a separate
+          group rather than more of the same choice (#371). Bleeds to the
+          card edge (-mx-5) so a half-visible pill says "there's more this
+          way" instead of the row looking complete.
+          No scroll-snap: with the bleed padding, snap-mandatory settled at
+          scrollLeft 20 and put the first pill under the card's border. */}
+      <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
         {/* "Now" is not "instantly" — it means we start now, so it's ready
             in a few minutes. Saying so on the chip stops the pill row
             from reading as five flavours of waiting. */}
@@ -148,7 +155,7 @@ function TimePill({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl px-4 py-2 text-left text-[13px] font-semibold leading-tight transition ${
+      className={`shrink-0 rounded-2xl px-4 py-2 text-left text-[13px] font-semibold leading-tight transition ${
         active
           ? "border-2 border-brand bg-cream text-brand"
           : "border border-line bg-card text-ink2 hover:border-ink4"

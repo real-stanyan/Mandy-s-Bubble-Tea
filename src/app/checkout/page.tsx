@@ -146,6 +146,12 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   }
 
   const [note, setNote] = useState("");
+  // Folded by default: `note` never restores non-empty (it isn't persisted),
+  // so an always-open textarea costs every customer ~75px for a field most
+  // of them leave blank. State-backed rather than a bare `open` attribute —
+  // the quote poll re-renders this page every few seconds and would snap an
+  // uncontrolled <details> shut mid-sentence.
+  const [noteOpen, setNoteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -1149,8 +1155,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               <SectionLabel
                 hint={
                   loyaltyBalance > 0
-                    ? `${loyaltyBalance} star${loyaltyBalance !== 1 ? "s" : ""} banked · +${starsThisOrder} with this order`
-                    : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} with this order`
+                    ? `${loyaltyBalance} of ${starsPerReward} stars · +${starsThisOrder} with this order`
+                    : `+${starsThisOrder} star${starsThisOrder !== 1 ? "s" : ""} with this order · ${starsPerReward} stars = a free drink`
                 }
               >
                 Rewards
@@ -1162,16 +1168,19 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 <StarIcon />
               </span>
             </div>
-            <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-bg2">
-              <div
-                className="h-full rounded-full bg-brand transition-all"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-ink4">
-              <span>{loyaltyBalance} stars</span>
-              <span>{starsPerReward} = free drink</span>
-            </div>
+            {/* A bar at 0% under a legend reading "0 stars" is 74px spent
+                telling a first-time customer nothing they can act on — and
+                this page has 2000px of scroll to answer for (#371). The bar
+                appears once there is progress to show; the numbers it used
+                to caption now ride in the hint above it. */}
+            {loyaltyBalance > 0 && (
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-bg2">
+                <div
+                  className="h-full rounded-full bg-brand transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            )}
 
             {maxRewardCount > 0 && (
               <div className="mt-4 flex items-center justify-between gap-4 rounded-tile border border-line bg-paper px-4 py-3">
@@ -1302,18 +1311,39 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
               {displayName}
             </p>
             <p className="mt-0.5 text-[13px] text-ink3">{profile.phone_e164}</p>
-            <label className="mt-5 block">
-              <span className="mb-2 block text-[13px] font-medium text-ink2">
-                Note for the barista <span className="text-ink4">(optional)</span>
-              </span>
+            {/* Open state drives the chevron and the collapsed preview from
+                React rather than `group-open:`. Measured in the browser, the
+                variant's utilities don't take on these chevrons — the class
+                is present and the selector matches, and `rotate` still
+                computes 0deg — so the arrow swaps path instead of turning. */}
+            <details
+              className="mt-4"
+              open={noteOpen}
+              onToggle={(e) => setNoteOpen(e.currentTarget.open)}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-medium text-ink2 [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0 truncate">
+                  Note for the barista{" "}
+                  {/* Collapsed, the note itself is the label — otherwise a
+                      customer who typed one has no way to see it is still
+                      attached without opening the fold again. */}
+                  {note.trim() ? (
+                    !noteOpen && <span className="text-ink3">· {note.trim()}</span>
+                  ) : (
+                    <span className="text-ink4">(optional)</span>
+                  )}
+                </span>
+                <Chevron up={noteOpen} className="h-4 w-4 shrink-0 text-ink4" />
+              </summary>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. less ice, extra boba"
                 rows={2}
-                className="w-full rounded-tile border border-line bg-paper px-4 py-3 text-[14px] text-ink outline-none transition placeholder:text-ink4 focus:border-brand focus:bg-card"
+                aria-label="Note for the barista"
+                className="mt-2 w-full rounded-tile border border-line bg-paper px-4 py-3 text-[14px] text-ink outline-none transition placeholder:text-ink4 focus:border-brand focus:bg-card"
               />
-            </label>
+            </details>
           </section>
 
           {/* Payment Method — hidden only when nothing at all will be charged */}
@@ -1790,7 +1820,9 @@ function SummaryRow({ line }: { line: CartLine }) {
 /*  Icons                                                              */
 /* ------------------------------------------------------------------ */
 
-function Chevron({ className }: { className?: string }) {
+/** `up` swaps the path rather than rotating it: `rotate-180` does not take on
+ *  these chevrons (see the note fold below and OrderSummaryTotals). */
+function Chevron({ up = false, className }: { up?: boolean; className?: string }) {
   return (
     <svg
       width="16"
@@ -1804,7 +1836,7 @@ function Chevron({ className }: { className?: string }) {
       aria-hidden="true"
       className={className}
     >
-      <polyline points="6 9 12 15 18 9" />
+      <polyline points={up ? "6 15 12 9 18 15" : "6 9 12 15 18 9"} />
     </svg>
   );
 }

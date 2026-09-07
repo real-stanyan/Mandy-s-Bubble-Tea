@@ -25,6 +25,11 @@ const CARD =
   "rounded-card border border-line bg-card p-5 shadow-[var(--shadow-card-v)] sm:p-6";
 const EYEBROW = "text-[11.5px] font-bold uppercase tracking-[0.14em] text-ink3";
 
+/** Thumbnails drawn before the row falls back to "+N". Four 44px tiles plus
+ *  the label text and the pill is what fits at 360px without the name
+ *  truncating to nothing. */
+const MAX_THUMBS = 4;
+
 /**
  * Shown in place of the picker while the 40×30 text-only paper is loaded
  * (see lib/cup-label/label-mode.ts). Also drains any label selections
@@ -79,72 +84,88 @@ function CupLabelPickerSection() {
     ? (cups.find((c) => cupKey(c.lineId, c.cupIdx) === pickerCupKey) ?? null)
     : null;
 
+  const chosenCount = cups.filter(
+    (c) => labelSelections[cupKey(c.lineId, c.cupIdx)] !== undefined,
+  ).length;
+  // The pill opens the first cup still wearing the default — that's the one
+  // the customer means by "Choose". Once every cup is done it says "Change"
+  // and reopens the first, which is where a second pass starts anyway.
+  const nextCup =
+    cups.find((c) => labelSelections[cupKey(c.lineId, c.cupIdx)] === undefined) ??
+    cups[0];
+
   return (
     <>
+      {/* One row of thumbnails, whatever the cup count. This used to be a
+          stacked list — a 76px row per cup — so at 375px the card measured
+          215px for one cup, 303 for two and 569 for five, on a step that is
+          optional and has a good default. It is now 165px flat (#371).
+
+          Folded, but not hidden: the artwork is still on the page, every
+          thumbnail still opens that cup's picker, and the pill still names
+          the action. What went is the vertical repetition, not the door. */}
       <section className={CARD}>
-        <div className="flex items-center gap-2">
-          <h3 className={EYEBROW}>Cup labels</h3>
-          <span className="rounded-full bg-cream px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand">
-            Optional
-          </span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className={EYEBROW}>Cup labels</h3>
+            <span className="shrink-0 rounded-full bg-cream px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand">
+              Optional
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPickerCupKey(cupKey(nextCup.lineId, nextCup.cupIdx))}
+            className={`-mt-1 shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${
+              chosenCount === cups.length
+                ? "border border-line bg-card text-ink2 hover:bg-bg2"
+                : "bg-ink text-cream hover:opacity-90"
+            }`}
+          >
+            {chosenCount === cups.length ? "Change" : "Choose"}
+          </button>
         </div>
+
         <p className="mt-1 text-[13px] leading-snug text-ink3">
-          Every cup gets a printed sticker. Leave it and we&apos;ll surprise you
-          with a lucky cat 🐱 — or tap a cup to put your own design on it.
+          {chosenCount === 0
+            ? "Lucky cat 🐱 on every cup — tap one to change it."
+            : chosenCount === cups.length
+              ? `Your design on ${cups.length === 1 ? "your cup" : "every cup"} — tap to change.`
+              : `${chosenCount} of ${cups.length} customised — tap a cup to change it.`}
         </p>
 
-        <ul className="mt-4 space-y-2">
-          {cups.map((cup) => {
+        <ul className="mt-3 flex flex-wrap items-center gap-1.5">
+          {cups.slice(0, MAX_THUMBS).map((cup) => {
             const key = cupKey(cup.lineId, cup.cupIdx);
             const sel: CupLabelSelection | undefined = labelSelections[key];
             const chosen = sel !== undefined;
             return (
               <li key={key}>
+                {/* aria-label carries the per-cup summary the stacked rows
+                    used to print under each name. Sighted users read it off
+                    the artwork now; this is where it stays legible to
+                    everyone else. */}
                 <button
                   type="button"
                   onClick={() => setPickerCupKey(key)}
-                  className={`flex w-full items-center gap-3.5 rounded-tile border p-2.5 text-left transition hover:border-ink4 ${
-                    chosen ? "border-brand/40 bg-cream" : "border-line bg-card"
+                  className={`relative block h-11 w-11 overflow-hidden rounded-[8px] bg-[#fff] transition ${
+                    chosen
+                      ? "ring-2 ring-brand"
+                      : "ring-1 ring-black/10 hover:ring-ink4"
                   }`}
-                  aria-label={`${chosen ? "Change" : "Choose"} the label for ${cup.itemName}${
+                  aria-label={`${cup.itemName}${
                     cup.totalCups > 1 ? `, cup ${cup.cupIdx + 1} of ${cup.totalCups}` : ""
-                  }`}
+                  } — ${summaryFor(sel)}. Tap to ${chosen ? "change" : "choose"} its label.`}
                 >
-                  {/* The artwork square of the sticker, at thumb size. */}
-                  <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[8px] bg-[#fff] ring-1 ring-black/10 sm:h-16 sm:w-16">
-                    <CupThumb sel={sel} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-semibold text-ink">{cup.itemName}</p>
-                    <p className="truncate text-[12px] text-ink3">
-                      {cup.variationName}
-                      {cup.totalCups > 1
-                        ? ` · Cup ${cup.cupIdx + 1} of ${cup.totalCups}`
-                        : ""}
-                    </p>
-                    <p
-                      className={`mt-0.5 truncate text-[12px] ${
-                        chosen ? "font-semibold text-brand" : "text-ink3"
-                      }`}
-                    >
-                      {summaryFor(sel)}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold ${
-                      chosen
-                        ? "border border-line bg-card text-ink2"
-                        : "bg-ink text-cream"
-                    }`}
-                  >
-                    {chosen ? "Change" : "Choose"}
-                  </span>
+                  <CupThumb sel={sel} />
                 </button>
               </li>
             );
           })}
+          {cups.length > MAX_THUMBS && (
+            <li className="flex h-11 items-center pl-1 text-[12px] font-semibold text-ink3">
+              +{cups.length - MAX_THUMBS}
+            </li>
+          )}
         </ul>
       </section>
 
