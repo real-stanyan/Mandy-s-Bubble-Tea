@@ -6,8 +6,9 @@
 //
 // Mirror of the App's lib/motion/category-art.ts (the App drives the same
 // numbers through rn-svg's native `matrix` prop from a Reanimated worklet).
-// Keep the two in lockstep. Which drawing a category gets lives in
-// lib/menu/category-art.
+// Keep the two in lockstep — with ONE deliberate exception, `swing`, whose
+// note says why and which side is ahead. Which drawing a category gets lives
+// in lib/menu/category-art.
 
 /* ------------------------------ matrices ------------------------------ */
 
@@ -150,9 +151,25 @@ export function breathe(p: number): Frame {
 export function ripple(p: number): Frame {
   return { ...REST, scale: 0.5 + 1.1 * p, opacity: 0.6 * (1 - p) };
 }
-/** A price tag on a string: a sway of ±14° about its resting angle — the pivot is the knot at the shape's origin. */
+/** A price tag on a string, drifting left to right and swinging back — the
+ *  pivot is the knot at the shape's origin, ±14° about its resting angle.
+ *
+ *  A tag hangs BELOW its knot, so matrixAt puts its face at x = −sin(rot):
+ *  positive rot carries it left, negative right. The drift left→right is
+ *  therefore +14 → −14, and it takes most of the cycle; the swing back is
+ *  quicker and overshoots a little before settling. A symmetric pendulum
+ *  (the App still has one) reads as a wobble rather than as a direction.
+ *  Diverges from the App on purpose — see the comment on Specials. */
 export function swing(p: number): Frame {
-  return { ...REST, rot: 14 * Math.sin(2 * Math.PI * p) };
+  return {
+    ...REST,
+    rot: keyframes(p, [
+      [0, 14],
+      [0.58, -14],
+      [0.86, 17],
+      [1, 14],
+    ]),
+  };
 }
 /** The crown hops once a cycle, otherwise sits at its jaunty angle. */
 export function crownHop(p: number): Frame {
