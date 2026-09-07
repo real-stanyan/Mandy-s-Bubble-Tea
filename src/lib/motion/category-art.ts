@@ -156,30 +156,33 @@ export function ripple(p: number): Frame {
  *  origin, ±20° about its resting angle.
  *
  *  A tag hangs BELOW its knot, so matrixAt puts its face at x = −sin(rot):
- *  positive rot carries it LEFT, negative RIGHT. Left-to-right is +20 → −20.
+ *  positive rot carries it LEFT, negative RIGHT. Left-to-right is +22 → −22.
  *
- *  Two things make that read as a direction rather than as a wobble, and both
- *  were learned the hard way:
+ *  Three things make that read as a direction rather than as a wobble, and all
+ *  three were learned the hard way:
  *
  *  1. The rightward stroke has to be the FAST one. A slow crossing with a
  *     quick snap back is seen as a leftward flick, because the eye follows
  *     whichever stroke moves faster — the first attempt here crossed over 58%
  *     of the cycle and returned in 42%, and read as drifting left.
- *  2. The tag has to actually CROSS the vertical. Paired with the 12° rest on
- *     Specials, this range runs 32° to −8°: over the cup at one end, out past
- *     the rim at the other. Staying on one side of the knot the whole time
- *     reads as fluttering on that side, whichever way the numbers move.
+ *  2. The tag has to actually CROSS the vertical. Staying on one side of the
+ *     knot reads as fluttering on that side, whichever way the numbers move.
+ *  3. The arc has to OPEN to the right. Paired with the −2° rest on Specials
+ *     this runs 20° to −24°, so the throw right is the longer half; hung the
+ *     other way round (32° to −8°, which is what it was) the tag spends the
+ *     cycle over the cup and only peeks past the rim, and the whole thing
+ *     still reads as a left-hand flutter even though it crosses.
  *
  *  Diverges from the App on purpose — see the comment on Specials. */
 export function swing(p: number): Frame {
   return {
     ...REST,
     rot: keyframes(p, [
-      [0, 20],
-      [0.3, -20],
-      [0.4, -12],
-      [0.48, -18],
-      [1, 20],
+      [0, 22],
+      [0.3, -22],
+      [0.4, -13],
+      [0.48, -19],
+      [1, 22],
     ]),
   };
 }
