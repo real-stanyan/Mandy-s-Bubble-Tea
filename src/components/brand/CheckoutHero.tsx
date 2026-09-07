@@ -205,125 +205,6 @@ export function OrderCup({
 
 /* ----------------------------------- pickup ----------------------------------- */
 
-function Cat({
-  x,
-  fill,
-  feat,
-  coin,
-  delay,
-  live,
-}: {
-  x: number;
-  fill: string;
-  feat: string;
-  coin?: boolean;
-  delay: number;
-  live: boolean;
-}) {
-  return (
-    <g transform={`translate(${x} 66)`}>
-      {/* Tail, behind everything: an outlined stroke — an ink pass under a
-          fill pass — because a 4px-wide curl drawn as a filled shape needs
-          path data nobody can edit later. */}
-      <path
-        d="M11-3C19-5 21-13 15.5-16 12.5-17.6 10.5-14.5 12.5-13"
-        fill="none"
-        stroke={INK}
-        strokeWidth={6.5}
-        strokeLinecap="round"
-      />
-      <path
-        d="M11-3C19-5 21-13 15.5-16 12.5-17.6 10.5-14.5 12.5-13"
-        fill="none"
-        stroke={fill}
-        strokeWidth={3.4}
-        strokeLinecap="round"
-      />
-
-      <path
-        d="M-12 0C-12.5-11-8-18.5 0-18.5 8-18.5 12.5-11 12 0Z"
-        fill={fill}
-        stroke={INK}
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
-      {/* The bib. A maneki-neko is two-tone, and without it the black cat in
-          particular was one solid blob at the size these are drawn. */}
-      <path
-        d="M0-14C5.5-14 7.5-7.5 6.5-0.6L-6.5-0.6C-7.5-7.5-5.5-14 0-14Z"
-        fill="#FFF9F0"
-        stroke={INK}
-        strokeWidth={1.2}
-        strokeLinejoin="round"
-      />
-      <ellipse cx={-7} cy={-2.6} rx={4.4} ry={3} fill={fill} stroke={INK} strokeWidth={1.4} />
-      {coin ? (
-        <>
-          <ellipse cx={0.5} cy={-6.5} rx={7} ry={4.8} fill="#F2B64A" stroke={INK} strokeWidth={1.4} />
-          <path d="M-3-8h7M-3-5h7" stroke={INK} strokeWidth={1.1} strokeLinecap="round" />
-        </>
-      ) : null}
-      <path d="M-9-17.5Q0-13.5 9-17.5" fill="none" stroke="#E2645F" strokeWidth={3} strokeLinecap="round" />
-      <circle cy={-14.5} r={3} fill="#F2B64A" stroke={INK} strokeWidth={1.2} />
-      <path d="M0-16v3" stroke={INK} strokeWidth={1} strokeLinecap="round" />
-
-      {/* Ears before the head, so the head hides where they join. Bigger and
-          more upright than the slivers they replace — at 26px across, the
-          silhouette is most of what says "lucky cat". */}
-      <path
-        d="M-10.6-33-14-43-5.6-37.6ZM10.6-33 14-43 5.6-37.6Z"
-        fill={fill}
-        stroke={INK}
-        strokeWidth={1.7}
-        strokeLinejoin="round"
-      />
-      <path
-        d="M-9.8-34-12.4-41.2-6.9-37.4ZM9.8-34 12.4-41.2 6.9-37.4Z"
-        fill="#E2645F"
-        opacity={0.5}
-      />
-      <circle cy={-27} r={12} fill={fill} stroke={INK} strokeWidth={1.8} />
-
-      {/* Two closed arcs, a nose and a w — and no whiskers. Four whisker
-          dashes at this size read as a scribble across the face, which is
-          most of what made these look scruffy. */}
-      <path
-        d="M-7-29.5q3-3.5 6 0M1-29.5q3-3.5 6 0"
-        fill="none"
-        stroke={feat}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-      />
-      <path d="M-1.7-24.6 1.7-24.6 0-22.7Z" fill={feat} />
-      <path
-        d="M0-22.7q-2.7 2.7-4.6 0.2M0-22.7q2.7 2.7 4.6 0.2"
-        fill="none"
-        stroke={feat}
-        strokeWidth={1.4}
-        strokeLinecap="round"
-      />
-
-      <Motion x={10} y={-15} loop="beckon" period={1600} delay={delay} live={live}>
-        <rect x={-3.8} y={-19.5} width={7.6} height={21} rx={3.8} fill={fill} stroke={INK} strokeWidth={1.6} />
-        <path d="M-1.3-16.4h2.6M-1.3-13.2h2.6" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.65} />
-      </Motion>
-    </g>
-  );
-}
-
-function Urn({ x }: { x: number }) {
-  return (
-    <g transform={`translate(${x} 0)`}>
-      <rect x={0} y={20} width={34} height={44} rx={7} fill="#D8D3CA" stroke={INK} strokeWidth={2} />
-      <rect x={4} y={26} width={26} height={6} rx={2} fill="#fff" opacity={0.5} />
-      <ellipse cx={17} cy={20} rx={17} ry={5} fill="#EAE6DF" stroke={INK} strokeWidth={2} />
-      <rect x={14} y={10} width={6} height={8} rx={2} fill={INK} />
-      <path d="M17 64v6" stroke={INK} strokeWidth={2} />
-      <rect x={11} y={44} width={8} height={10} rx={2} fill="#8D5524" stroke={INK} strokeWidth={1.6} />
-      <path d="M15 54v6" stroke={INK} strokeWidth={2} strokeLinecap="round" />
-    </g>
-  );
-}
 
 function Bell({ x, y, live }: { x: number; y: number; live: boolean }) {
   return (
@@ -367,25 +248,12 @@ function Sparkle({ x, y, delay, live }: { x: number; y: number; delay: number; l
 function Pickup({ cups, live }: { cups: CupVisual[]; live: boolean }) {
   return (
     <>
+      {/* Bare wall above the counter (Stan, 2026-09-08). The shelf, the three
+          lucky cats, the urns and their steam are gone — the scene is about
+          the customer's own cups, and everything up there was competing with
+          them. Cat and Urn went with the last use. */}
       <rect width={360} height={200} fill="#F5E6D3" />
       <rect x={0} y={0} width={360} height={12} fill="#E8D7C0" />
-      <rect x={20} y={66} width={320} height={7} rx={2} fill="#C9A16B" stroke={INK} strokeWidth={2} />
-      <Cat x={48} fill="#F2B64A" feat={INK} delay={0} live={live} />
-      <Cat x={84} fill="#FFF9F0" feat={INK} coin delay={500} live={live} />
-      <Cat x={120} fill="#3B3633" feat="#FFF3DE" delay={1000} live={live} />
-      <Urn x={232} />
-      <Urn x={280} />
-      {(
-        [
-          [249, 0],
-          [297, 1400],
-          [242, 2400],
-        ] as [number, number][]
-      ).map(([sx, dl]) => (
-        <Motion key={`${sx}-${dl}`} x={sx} y={12} loop="wisp" period={3000} delay={dl} live={live}>
-          <path d="M0 0c-4-6 4-9 0-15" fill="none" stroke={INK} strokeWidth={2} strokeLinecap="round" opacity={0.5} />
-        </Motion>
-      ))}
       <rect x={0} y={140} width={360} height={60} fill="#C9A16B" />
       <rect x={0} y={136} width={360} height={9} fill="#E0BE8C" stroke={INK} strokeWidth={2} />
       {cups.map((v, i) => (
@@ -404,7 +272,9 @@ function Pickup({ cups, live }: { cups: CupVisual[]; live: boolean }) {
       </Motion>
       <Bell x={304} y={128} live={live} />
       <Plant x={344} y={122} live={live} />
-      <Sparkle x={22} y={100} delay={800} live={live} />
+      {/* Down beside the cups. Up where the shelf used to be it was the only
+          mark left on a bare wall, which read as a smudge rather than shine. */}
+      <Sparkle x={34} y={96} delay={800} live={live} />
     </>
   );
 }
