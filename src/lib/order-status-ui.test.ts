@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   deriveStatusUi,
+  orderScene,
   PICKUP_STEPS,
   DELIVERY_STEPS,
 } from "./order-status-ui";
@@ -165,5 +166,39 @@ describe("held scheduled pickup — Received only, until the ticket prints", () 
     const ui = deriveStatusUi({ state: "PROPOSED", isDelivery: false });
     expect(ui.heading).toBe("Preparing your order");
     expect(ui.step).toBe(1);
+  });
+});
+
+describe("orderScene — which picture the order page draws", () => {
+  const pickup = (state: Parameters<typeof deriveStatusUi>[0]["state"], held = false) =>
+    orderScene(deriveStatusUi({ state, isDelivery: false, held }), false);
+
+  it("walks the pickup states in the order a drink is actually made", () => {
+    expect(pickup("PROPOSED", true)).toBe("received");
+    expect(pickup("PROPOSED")).toBe("preparing");
+    expect(pickup("PREPARED")).toBe("ready");
+    expect(pickup("COMPLETED")).toBe("done");
+  });
+
+  it("draws nothing over a canceled order", () => {
+    // The copy under a cancel is doing careful work; a counter full of drinks
+    // beside it reads as the site not having noticed.
+    expect(pickup("CANCELED")).toBeNull();
+    expect(pickup("FAILED")).toBeNull();
+    expect(
+      orderScene(deriveStatusUi({ state: "CANCELED", isDelivery: true }), true),
+    ).toBeNull();
+  });
+
+  it("makes a delivery order like any other, then hands the screen to the map", () => {
+    const d = (dispatchStatus: Parameters<typeof deriveStatusUi>[0]["dispatchStatus"]) =>
+      orderScene(deriveStatusUi({ state: "PROPOSED", isDelivery: true, dispatchStatus }), true);
+    expect(d("pending")).toBe("preparing");
+    expect(d("accepted")).toBe("preparing");
+    // Out of the shop: the live map owns the screen from here.
+    expect(d("picked_up")).toBeNull();
+    expect(
+      orderScene(deriveStatusUi({ state: "COMPLETED", isDelivery: true }), true),
+    ).toBeNull();
   });
 });

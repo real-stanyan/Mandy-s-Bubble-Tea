@@ -179,3 +179,29 @@ export function deriveStatusUi({
     steps,
   };
 }
+
+/* ------------------------------ the order hero ----------------------------- */
+
+/** Which scene components/brand/OrderHero draws for this status. */
+export type OrderScene = "received" | "preparing" | "ready" | "done";
+
+/**
+ * The scene, or null when a drawing would be wrong rather than merely absent.
+ *
+ * Two cases return null on purpose:
+ *
+ *  • Canceled. A cheerful counter under "Order Canceled" reads as the site not
+ *    having noticed, and the declined-delivery copy is doing careful work that
+ *    a picture would undercut.
+ *  • A delivery once it has left the shop. From "Accepted" onward the screen
+ *    belongs to the live map, and the hero would be drawing a counter the
+ *    order is no longer on. Before that a delivery order is being made exactly
+ *    like a pickup one, so it gets the same Preparing scene.
+ */
+export function orderScene(ui: StatusUi, isDelivery: boolean): OrderScene | null {
+  if (ui.kind === "canceled") return null;
+  if (ui.kind === "completed") return isDelivery ? null : "done";
+  if (isDelivery) return ui.step <= 1 ? "preparing" : null;
+  if (ui.step <= 0) return "received";
+  return ui.step === 1 ? "preparing" : "ready";
+}

@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/utils";
 import { BUSINESS, LOYALTY } from "@/lib/constants";
 import { findLoyaltyAccountByPhone, getActiveProgram } from "@/lib/loyalty";
 import { estimateOrderWaitMinutes, formatWaitRange } from "@/lib/order-wait";
+import { extraCups, orderCups } from "@/lib/menu/order-cups";
 import { getDispatchTracking, type DispatchStatus } from "@/lib/driver-tokens";
 import { isPaymentFailedOrder } from "@/lib/tender-state";
 import { OrderComplaintSection } from "@/components/account/OrderComplaintSection";
@@ -210,6 +211,17 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     0,
   );
 
+  // The cups the order hero draws — the customer's own build, through the same
+  // cup-visual mapper the checkout hero and the item sheet use. Off the placed
+  // order's line items rather than the cart, which is long gone by now.
+  const heroLines = lineItems.map((li) => ({
+    name: li.name ?? "",
+    quantity: parseInt(li.quantity ?? "1", 10) || 1,
+    modifiers: (li.modifiers ?? []).map((m) => ({ name: m.name ?? "" })),
+  }));
+  const heroCups = orderCups(heroLines);
+  const heroExtra = extraCups(heroLines);
+
   // Money summary — subtotal from line totals, total from the order; the delta
   // captures order-level taxes / fees / discounts (rendered as one row).
   const subtotalCents = lineItems.reduce(
@@ -289,6 +301,8 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
             deliveryAddress={deliveryAddress}
             etaText={waitText}
             initialHeld={initialHeld}
+            cups={heroCups}
+            extraCups={heroExtra}
           />
           </div>
 
