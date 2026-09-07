@@ -255,8 +255,16 @@ export function AppDownloadPopup() {
               Mobile number
             </label>
             <div
-              className="mt-2 flex items-center gap-2 rounded-2xl border bg-white px-3.5 py-3 transition"
-              style={{ borderColor: error ? "#DC2626" : "#E8DBC8" }}
+              className="mt-2 flex items-center gap-2 rounded-2xl border px-3.5 py-3 transition"
+              /* White inline, not the bg-white utility: this popup is a fixed
+                 light card in both themes (its ground is an inline cream), but
+                 the evening remap turns .bg-white into the dark card token —
+                 which left the typed number ink-on-ink and invisible after
+                 sunset (2026-09-07). Same trap as WelcomeDiscountBanner. */
+              style={{
+                backgroundColor: "#FFFFFF",
+                borderColor: error ? "#DC2626" : "#E8DBC8",
+              }}
             >
               <span className="select-none text-[15px] font-medium text-[#9A876F]">+61</span>
               <input
