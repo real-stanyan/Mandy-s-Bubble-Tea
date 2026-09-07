@@ -5,6 +5,7 @@ import {
   matrixAt,
   matrixString,
   rotateAbout,
+  swing,
   tiltAngle,
   translate,
   waveOffset,
@@ -127,6 +128,22 @@ describe("loops", () => {
     expect(tiltAngle(0.24)).toBeGreaterThan(0);
     expect(tiltAngle(0.24)).toBeLessThan(42);
     expect(tiltAngle(0.95)).toBe(0);
+  });
+
+  it("the specials tag drifts left to right, then swings back", () => {
+    // A tag hangs below its knot, so matrixAt puts its face at x = -sin(rot):
+    // positive rot is LEFT, negative is RIGHT. The drift therefore runs
+    // +14 -> -14, and this is the assertion that keeps it that way round.
+    expect(swing(0).rot).toBe(14);
+    expect(swing(0.58).rot).toBeCloseTo(-14, 5);
+    // Rightward the whole way across — no doubling back mid-drift.
+    for (let p = 0.05; p <= 0.58; p += 0.05) {
+      expect(swing(p).rot).toBeLessThan(swing(p - 0.05).rot);
+    }
+    // The crossing takes most of the cycle; the return is quicker, overshoots
+    // a little, and lands where it started so the loop has no seam.
+    expect(swing(0.86).rot).toBeCloseTo(17, 5);
+    expect(swing(0.999).rot).toBeCloseTo(14, 1);
   });
 
   it("the surface scrolls exactly one wavelength per cycle", () => {

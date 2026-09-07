@@ -19,7 +19,7 @@ import {
 // degrees), ink lines and flat fills, the liquid colours of lib/menu/cup-visual,
 // and one signature motion per category on a slow loop: pearls rise, citrus
 // spins, an orange slice floats, steam curls, frost twinkles, the cheese-tea
-// cup tilts to sip, two colours swirl, a crown hops, a price tag swings.
+// cup tilts to sip, two colours swirl, a crown hops, a price tag drifts.
 //
 // Every moving part is a <g> whose transform matrix and opacity are driven
 // from a phase 0→1 (see lib/motion/category-art) by the shared ticker in
@@ -449,7 +449,7 @@ function Top10({ live, tile }: Live) {
   );
 }
 
-/** A price tag on a string, drawn hanging from (0, 0): the swing pivots at the knot. */
+/** A price tag on a string, drawn hanging from (0, 0): the drift pivots at the knot. */
 function Tag() {
   return (
     <>
@@ -470,14 +470,17 @@ function Tag() {
   );
 }
 
-/** This week's specials: the drink on the shelf with its price tag swinging, a couple of sparkles. */
+/** This week's specials: the drink on the shelf with its price tag drifting across it, a couple of sparkles. */
 function Specials({ live, tile }: Live) {
   return (
     <>
       <Blob d="M112 12c36-14 100-8 118 24 14 26-4 62-44 66-40 4-70-4-86-26C86 54 86 26 112 12z" fill="#F6CBA3" />
       <Cup x={150} y={8} s={0.96} liq="#DF8A4C" pearls pearlsRise live={live} />
-      {/* Tied to the rim's right corner and lying across the cup at an angle; the swing is a small sway about that rest. */}
-      <Motion x={198} y={23} loop="swing" period={3200} rot={24} live={live}>
+      {/* Tied to the rim's right corner and lying across the cup. It drifts from
+          the left of that rest across to the right and swings back — the App's
+          symmetric ±14° sway read as a wobble with no direction to it, so the
+          web's `swing` is the one that diverges from the mirror. */}
+      <Motion x={198} y={23} loop="swing" period={3600} rot={24} live={live}>
         <Tag />
       </Motion>
       <Motion x={122} y={30} loop="twinkle" period={2800} live={live}>
