@@ -15,6 +15,8 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { BRAND, LOYALTY } from "@/lib/constants";
 import { FulfillmentSelector, type FulfillmentType } from "@/components/checkout/FulfillmentSelector";
+import { CheckoutHero } from "@/components/brand/CheckoutHero";
+import { extraCups, orderCups } from "@/lib/menu/order-cups";
 import { PickupTimeSelector } from "@/components/checkout/PickupTimeSelector";
 import { getPreferredFulfillment, resolveInitialFulfillment } from "@/lib/order-mode";
 import { welcomeDiscountEligible } from "@/lib/promo-eligibility";
@@ -184,6 +186,20 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const applePayRequestRef = useRef<any>(null);
 
   const subtotal = useMemo(() => cartSubtotal(lines), [lines]);
+
+  // The cups the hero draws — the customer's own build, through the same
+  // cup-visual mapper the item sheet uses (components/brand/CheckoutHero).
+  const heroLines = useMemo(
+    () =>
+      lines.map((l) => ({
+        name: l.itemName,
+        quantity: l.quantity,
+        modifiers: l.modifiers,
+      })),
+    [lines],
+  );
+  const heroCups = useMemo(() => orderCups(heroLines), [heroLines]);
+  const heroExtra = useMemo(() => extraCups(heroLines), [heroLines]);
 
   // Apply the session order-mode preference (set from the home popup) as the
   // fulfillment default — once, on entry. DELIVERY is honored only when it's
@@ -1078,6 +1094,14 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             <SectionLabel hint="Pick up at the counter, or have it brought to you.">
               How you&apos;ll get it
             </SectionLabel>
+            {/* What happens next, with this order in it: the cups waiting on
+                the counter, or going into the bag at the door. */}
+            <CheckoutHero
+              kind={fulfillment === "PICKUP" ? "pickup" : "delivery"}
+              cups={heroCups}
+              extra={heroExtra}
+              className="mt-4 rounded-card"
+            />
             <div className="mt-4">
               <FulfillmentSelector
                 value={fulfillment}

@@ -5,9 +5,11 @@ import { Search, X } from "lucide-react";
 import { MenuHeader } from "@/components/menu/MenuHeader";
 import { getStoreStatus, type StoreStatus } from "@/lib/store-status";
 import { ProductCard } from "@/components/menu/ProductCard";
+import { CategoryBanner } from "@/components/menu/CategoryBanner";
 import { CategorySidebar } from "@/components/menu/CategorySidebar";
 import { useCategoryScrollSpy } from "@/components/menu/useCategoryScrollSpy";
 import { categoryBlurb } from "@/lib/category-copy";
+import { WEEKLY_SPECIALS_CATEGORY_SLUG } from "@/lib/menu/weekly-specials";
 import type { ProductRowData } from "@/components/menu/ProductRow";
 import { Reveal } from "@/components/motion/Reveal";
 
@@ -123,15 +125,16 @@ function CategorySection({ section }: { section: MenuBrowserSection }) {
   return (
     <section id={`cat-${section.slug}`} className="mb-12 scroll-mt-24">
       <Reveal className="mx-4 mb-4 lg:mx-0">
-        <h2
-          className="font-serif text-ink"
-          style={{ fontSize: 28, letterSpacing: -0.6, fontWeight: 600 }}
-        >
-          {section.squareName}
-        </h2>
-        <p className="mt-1 text-[14px] text-ink3">
-          {categoryBlurb(section.squareName, section.items.length)}
-        </p>
+        <CategoryBanner
+          name={section.squareName}
+          count={section.items.length}
+          blurb={categoryBlurb(section.squareName, section.items.length)}
+          note={
+            section.slug === WEEKLY_SPECIALS_CATEGORY_SLUG
+              ? "this week only"
+              : undefined
+          }
+        />
       </Reveal>
       <div className="mx-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:mx-0">
         {section.items.map((item, i) => (
@@ -180,6 +183,20 @@ export function MenuBrowser({ sections }: { sections: MenuBrowserSection[] }) {
 
   // Mobile shows one category at a time, chosen via the chip bar.
   const [mobileCat, setMobileCat] = useState(() => sections[0]?.slug ?? "");
+
+  // Arriving from the home page's category grid (/menu#cat-milk-tea): pick the
+  // family up on mobile, where only one section is mounted at a time and the
+  // browser's own anchor jump would find nothing.
+  useEffect(() => {
+    const slug = window.location.hash.replace(/^#cat-/, "");
+    if (!slug || slug === window.location.hash) return;
+    if (!sections.some((s) => s.slug === slug)) return;
+    setMobileCat(slug);
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      window.scrollTo({ top: 0 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const searchResults = useMemo(() => {
     if (!searching) return [] as ProductRowData[];
