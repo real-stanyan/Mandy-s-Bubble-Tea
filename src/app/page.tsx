@@ -1,13 +1,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Gift, Star } from "lucide-react";
-import { getMenu, type MenuItem } from "@/lib/catalog";
+import { getMenu, type Menu, type MenuItem } from "@/lib/catalog";
+import { categoryArtKind } from "@/lib/menu/category-art";
 import { FRAGRANCE_BLIND_BOX_PROMO } from "@/lib/constants";
 import { formatPrice } from "@/lib/utils";
 import { LoyaltyPopup } from "@/components/layout/LoyaltyPopup";
 import { AppDownloadPopup } from "@/components/home/AppDownloadPopup";
 import { OrderModePopup } from "@/components/home/OrderModePopup";
 import { HeroCup } from "@/components/home/HeroCup";
+import {
+  CategoriesGrid,
+  type HomeCategory,
+} from "@/components/home/CategoriesGrid";
 import { Reveal } from "@/components/motion/Reveal";
 import { CountUp } from "@/components/motion/CountUp";
 import { WelcomeDiscountBanner } from "@/components/home/WelcomeDiscountBanner";
@@ -58,6 +63,7 @@ type FeaturedItem = MenuItem & { categorySlug: string };
 
 type HomeData = {
   featured: FeaturedItem[];
+  categories: HomeCategory[];
 };
 
 function shuffle<T>(arr: T[]): T[] {
@@ -67,6 +73,24 @@ function shuffle<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// The families the home grid draws, in Square's own display order. A category
+// we have no drawing for is simply left out of the grid rather than shown as
+// an empty pastel box — it is still one tap away in the menu itself.
+function drawableCategories(menu: Menu): HomeCategory[] {
+  const out: HomeCategory[] = [];
+  for (const cat of menu.categories) {
+    const kind = categoryArtKind(cat.squareName);
+    if (!kind) continue;
+    out.push({
+      slug: cat.slug,
+      label: cat.squareName,
+      kind,
+      count: menu.itemsBySlug.get(cat.slug)?.length ?? cat.itemCount ?? null,
+    });
+  }
+  return out;
 }
 
 async function loadHomeData(): Promise<HomeData> {
@@ -81,14 +105,15 @@ async function loadHomeData(): Promise<HomeData> {
     const shuffled = shuffle(withImage);
     return {
       featured: shuffled.slice(0, 4),
+      categories: drawableCategories(menu),
     };
   } catch {
-    return { featured: [] };
+    return { featured: [], categories: [] };
   }
 }
 
 export default async function Home() {
-  const { featured } = await loadHomeData();
+  const { featured, categories } = await loadHomeData();
 
   return (
     <div className="flex flex-1 flex-col">
@@ -97,6 +122,7 @@ export default async function Home() {
       <Hero />
       <Marquee />
       <Featured items={featured} />
+      <CategoriesGrid categories={categories} />
       <StoryTeaser />
       <AppPromo />
       <AppDownloadPopup />
