@@ -1,7 +1,7 @@
 "use client";
 
 import { AMP, BODY, INK, Motion, PEARLS, Surface, WL, light, useInView, useUid } from "@/components/brand/art-kit";
-import { CheckoutHero, OrderCup } from "@/components/brand/CheckoutHero";
+import { CheckoutHero, OrderCup, PICKUP_FRAME } from "@/components/brand/CheckoutHero";
 import { wavePath } from "@/lib/motion/wave";
 import type { CupVisual } from "@/lib/menu/cup-visual";
 import {
@@ -72,7 +72,10 @@ export function OrderHero({
       ref={ref}
       // The scene's own daylight, the same in both themes — the App's PIN rule
       // for illustrations, as on CheckoutHero.
-      className={"relative aspect-[1.85] w-full overflow-hidden bg-[#F5E6D3] " + (className ?? "")}
+      // Same frame as the checkout hero's pickup scene — Ready IS that scene,
+      // so all four have to be the same height or the card jumps as the order
+      // advances.
+      className={`relative ${PICKUP_FRAME.aspect} w-full overflow-hidden bg-[#F5E6D3] ` + (className ?? "")}
       role="img"
       aria-label={
         scene === "received"
@@ -86,7 +89,7 @@ export function OrderHero({
         className="pointer-events-none block"
         width="100%"
         height="100%"
-        viewBox="0 0 360 200"
+        viewBox={PICKUP_FRAME.viewBox}
         preserveAspectRatio="xMidYMid slice"
         aria-hidden="true"
         focusable="false"
@@ -105,18 +108,14 @@ export function OrderHero({
 
 /* --------------------------------- the room -------------------------------- */
 
-/** The room the three new scenes stand in: the checkout hero's counter, and
- *  above it the shelf of topping jars every bubble tea bench has — which is
- *  also what stops the top third being empty wall. */
+/** The room these scenes stand in: the checkout hero's counter, and a bare
+ *  wall above it. The shelf of topping jars that used to fill the top third
+ *  came out with the checkout hero's cats (Stan, 2026-09-08) — the counter
+ *  and what is on it is the whole picture. */
 function Counter() {
   return (
     <>
       <rect width={360} height={200} fill="#F5E6D3" />
-      <rect x={0} y={0} width={360} height={12} fill="#E8D7C0" />
-      {JARS.map(([x, fill, r]) => (
-        <Jar key={x} x={x} fill={fill} pearlR={r} />
-      ))}
-      <rect x={20} y={SHELF_Y} width={320} height={7} rx={2} fill="#C9A16B" stroke={INK} strokeWidth={2} />
       <rect x={0} y={COUNTER_Y + 4} width={360} height={60} fill="#C9A16B" />
       <rect
         x={0}
@@ -128,32 +127,6 @@ function Counter() {
         strokeWidth={2}
       />
     </>
-  );
-}
-
-const SHELF_Y = 52;
-/** Pearls, jelly, cubes — the jars the bench actually keeps at eye level. */
-const JARS: [number, string, number][] = [
-  [40, "#3B2317", 3],
-  [76, "#C98A3C", 2.4],
-  [112, "#E2645F", 2.4],
-  [292, "#7CB86B", 2.6],
-  [324, "#3B2317", 3],
-];
-
-function Jar({ x, fill, pearlR }: { x: number; fill: string; pearlR: number }) {
-  return (
-    <g transform={`translate(${x} ${SHELF_Y})`}>
-      <rect x={-11} y={-26} width={22} height={26} rx={3} fill="#FDFAF4" stroke={INK} strokeWidth={1.8} />
-      <g clipPath="none" fill={fill}>
-        <circle cx={-5} cy={-5} r={pearlR} />
-        <circle cx={2} cy={-4} r={pearlR} />
-        <circle cx={7} cy={-6} r={pearlR} />
-        <circle cx={-2} cy={-10} r={pearlR} />
-        <circle cx={5} cy={-11} r={pearlR} />
-      </g>
-      <rect x={-13} y={-31} width={26} height={6} rx={2} fill="#8D5524" stroke={INK} strokeWidth={1.6} />
-    </g>
   );
 }
 
@@ -203,7 +176,7 @@ function Received({ cups, live }: { cups: CupVisual[]; live: boolean }) {
           opacity={0.5}
         />
       </Motion>
-      <Sparkle x={320} y={44} delay={0} live={live} />
+      <Sparkle x={318} y={98} delay={0} live={live} />
     </>
   );
 }
@@ -257,8 +230,8 @@ function Preparing({ cups, live }: { cups: CupVisual[]; live: boolean }) {
         </g>
       </Motion>
 
-      <Sparkle x={52} y={44} delay={0} live={live} />
-      <Sparkle x={330} y={38} delay={1300} live={live} />
+      <Sparkle x={56} y={102} delay={0} live={live} />
+      <Sparkle x={328} y={92} delay={1300} live={live} />
     </>
   );
 }
@@ -266,16 +239,19 @@ function Preparing({ cups, live }: { cups: CupVisual[]; live: boolean }) {
 function Tin({ live }: { live: boolean }) {
   return (
     <Motion x={TIN.x} y={TIN.y} frame={shake} period={PREP_PERIOD} live={live}>
+      {/* Sized to TIN_BOX in lib/motion/order-hero — a slimmer tin than the
+          cup it fills, and small enough that the pour pose keeps all four of
+          its corners above the rim. */}
       <path
-        d="M-14-30h28l4 50a6 6 0 0 1-6 6h-24a6 6 0 0 1-6-6z"
+        d="M-11-24h22l3 40a5 5 0 0 1-5 5h-18a5 5 0 0 1-5-5z"
         fill="#D8D3CA"
         stroke={INK}
         strokeWidth={2}
         strokeLinejoin="round"
       />
-      <path d="M-11-18h22" stroke="#fff" strokeWidth={3.4} strokeLinecap="round" opacity={0.55} />
-      <rect x={-16} y={-41} width={32} height={12} rx={3.5} fill="#8D5524" stroke={INK} strokeWidth={2} />
-      <rect x={-6} y={-48} width={12} height={8} rx={3} fill={INK} />
+      <path d="M-9-14h18" stroke="#fff" strokeWidth={3} strokeLinecap="round" opacity={0.55} />
+      <rect x={-13} y={-33} width={26} height={10} rx={3} fill="#8D5524" stroke={INK} strokeWidth={2} />
+      <rect x={-5} y={-39} width={10} height={7} rx={2.5} fill={INK} />
     </Motion>
   );
 }
@@ -378,19 +354,34 @@ function PickedUp({ live }: { live: boolean }) {
   return (
     <>
       <Counter />
-      <Motion x={180} y={COUNTER_Y - 34} frame={noteSway} period={DONE_PERIOD} live={live}>
-        <rect x={-40} y={0} width={80} height={34} rx={4} fill="#FFFDF6" stroke={INK} strokeWidth={1.8} />
-        {/* A smile, not the S-curve the first pass drew — that read as a
-            shrug on the one card that is meant to say thank you. */}
+      {/* Pivoting where the note meets the counter, so the sway reads as a
+          card propped there rather than one swinging from its top edge. */}
+      <Motion x={180} y={COUNTER_Y} frame={noteSway} period={DONE_PERIOD} live={live}>
+        <rect x={-47} y={-44} width={94} height={44} rx={4} fill="#FFFDF6" stroke={INK} strokeWidth={1.8} />
+        {/* textLength pins the width: the shop's rounded face is a webfont, and
+            without it a fallback's wider metrics would run the words off the
+            card on the one frame that matters. */}
+        <text
+          x={0}
+          y={-24}
+          textAnchor="middle"
+          textLength={74}
+          lengthAdjust="spacingAndGlyphs"
+          fill={INK}
+          style={{
+            font: '700 13px var(--font-shantell), "Comic Sans MS", cursive',
+            letterSpacing: "0.02em",
+          }}
+        >
+          THANK YOU!
+        </text>
         <path
-          d="M-13 20q13 11 26 0"
+          d="M-11-14q11 9 22 0"
           fill="none"
           stroke="#E2645F"
           strokeWidth={2.4}
           strokeLinecap="round"
         />
-        <circle cx={-11} cy={12} r={2.4} fill={INK} />
-        <circle cx={11} cy={12} r={2.4} fill={INK} />
       </Motion>
       {[0, 1].map((i) => (
         <Motion
@@ -410,8 +401,8 @@ function PickedUp({ live }: { live: boolean }) {
           />
         </Motion>
       ))}
-      <Sparkle x={296} y={52} delay={0} live={live} />
-      <Sparkle x={64} y={40} delay={1400} live={live} />
+      <Sparkle x={300} y={100} delay={0} live={live} />
+      <Sparkle x={70} y={106} delay={1400} live={live} />
     </>
   );
 }

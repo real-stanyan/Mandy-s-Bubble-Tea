@@ -14,7 +14,7 @@
 // (the cup shrank away to nothing and then snapped back to full size). The
 // test asserts it for every export rather than trusting the reading.
 
-import { REST, hump, keyframes, type Frame } from "@/lib/motion/category-art";
+import { REST, hump, type Frame } from "@/lib/motion/category-art";
 
 /* -------------------------------- easings -------------------------------- */
 
@@ -107,11 +107,39 @@ export const TIN = {
   y: 64,
   restRot: -6,
   /** The mouth, in the tin's own coordinates: the opening under the cap. */
-  mouthY: -38,
-  pourRot: 125,
-  pourTx: 42,
-  pourTy: -8,
+  mouthY: -30,
+  // The pour pose. Tilt and lift are set together, and they are set by the
+  // clearance test below, not by eye: at 125° with the tin sitting low, the
+  // far corner of the cap swung a good 13 units UNDER the rim, so the tin
+  // poured from inside the cup it was pouring into.
+  pourRot: 110,
+  pourTx: 39.8,
+  pourTy: -12.3,
 } as const;
+
+/** The tin's outline in its own coordinates — the box the pour pose has to
+ *  keep clear of the cup. Mirrors the drawing in components/brand/OrderHero. */
+export const TIN_BOX = { left: -14, right: 14, top: -39, bottom: 21 } as const;
+
+/** The four corners of the tin on the stage this frame. */
+export function tinCorners(p: number): { x: number; y: number }[] {
+  const f = shake(p);
+  const r = ((f.rot ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  const ox = TIN.x + (f.tx ?? 0);
+  const oy = TIN.y + (f.ty ?? 0);
+  const pts: [number, number][] = [
+    [TIN_BOX.left, TIN_BOX.top],
+    [TIN_BOX.right, TIN_BOX.top],
+    [TIN_BOX.left, TIN_BOX.bottom],
+    [TIN_BOX.right, TIN_BOX.bottom],
+  ];
+  return pts.map(([lx, ly]) => ({
+    x: ox + cos * lx - sin * ly,
+    y: oy + sin * lx + cos * ly,
+  }));
+}
 
 /* --------------------------------- the tin -------------------------------- */
 
@@ -296,24 +324,6 @@ export function starDrift(offset: number) {
 /** The thank-you note left on the counter, stirring where the cups were. */
 export function noteSway(p: number): Frame {
   return { ...REST, rot: -5 + 3 * hump(p) };
-}
-
-/** The lucky cat's paw, at the pace of whatever scene it stands in. */
-export function beckonAt(period: number, delayMs: number) {
-  const n = cycles(period, 1600);
-  const d = delayMs / 1600;
-  return (p: number): Frame => {
-    const q = (p * n + d) % 1;
-    return {
-      ...REST,
-      rot: keyframes(q, [
-        [0, 0],
-        [0.4, -22],
-        [0.6, -22],
-        [1, 0],
-      ]),
-    };
-  };
 }
 
 export const ORDER_LOOPS = {

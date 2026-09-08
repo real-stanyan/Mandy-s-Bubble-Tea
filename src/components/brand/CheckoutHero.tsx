@@ -39,17 +39,35 @@ type Props = {
   className?: string;
 };
 
+/**
+ * The pickup scene's frame, cropped to what it actually draws.
+ *
+ * Stripping the wall left the counter floating in dead space: nothing above
+ * y=25, nothing below y=168. The frame now starts under the ceiling strip and
+ * ends part-way down the counter front, so the drinks fill the picture and the
+ * card is shorter with it.
+ *
+ * Delivery keeps the full 360×200 — its doorstep runs edge to edge, with the
+ * ground at y=170 and the bag reaching 174. Cropping that would cut the floor
+ * out from under the scene.
+ *
+ * Exported because the order hero draws in the same room and has to agree.
+ */
+export const PICKUP_FRAME = { viewBox: "0 12 360 156", aspect: "aspect-[360/156]" } as const;
+const DELIVERY_FRAME = { viewBox: "0 0 360 200", aspect: "aspect-[1.85]" } as const;
+
 export function CheckoutHero({ kind, cups, extra = 0, className }: Props) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const shown = cups.slice(0, HERO_MAX_CUPS);
   const one = shown.length === 1;
+  const frame = kind === "pickup" ? PICKUP_FRAME : DELIVERY_FRAME;
   return (
     <div
       ref={ref}
       // The scene's own daylight, the same in both themes — hence the literal
       // grounds rather than a theme token (the App's PIN rule).
       className={
-        "relative aspect-[1.85] w-full overflow-hidden " +
+        `relative ${frame.aspect} w-full overflow-hidden ` +
         (kind === "pickup" ? "bg-[#F5E6D3] " : "bg-[#EAF0E4] ") +
         (className ?? "")
       }
@@ -64,7 +82,7 @@ export function CheckoutHero({ kind, cups, extra = 0, className }: Props) {
         className="pointer-events-none block"
         width="100%"
         height="100%"
-        viewBox="0 0 360 200"
+        viewBox={frame.viewBox}
         preserveAspectRatio="xMidYMid slice"
         aria-hidden="true"
         focusable="false"
@@ -205,65 +223,6 @@ export function OrderCup({
 
 /* ----------------------------------- pickup ----------------------------------- */
 
-function Cat({
-  x,
-  fill,
-  feat,
-  coin,
-  delay,
-  live,
-}: {
-  x: number;
-  fill: string;
-  feat: string;
-  coin?: boolean;
-  delay: number;
-  live: boolean;
-}) {
-  return (
-    <g transform={`translate(${x} 66)`}>
-      <path d="M-12 0C-13-14-8-20 0-20 8-20 13-14 12 0Z" fill={fill} stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
-      <ellipse cx={-6} cy={-2} rx={4} ry={2.4} fill={fill} stroke={INK} strokeWidth={1.4} />
-      {coin ? (
-        <>
-          <ellipse cx={1} cy={-6} rx={6} ry={4} fill="#F2B64A" stroke={INK} strokeWidth={1.4} />
-          <path d="M-2-6h6" stroke={INK} strokeWidth={1.2} strokeLinecap="round" />
-        </>
-      ) : null}
-      <path d="M-8-16q8 4 16 0" fill="none" stroke="#E2645F" strokeWidth={2.6} strokeLinecap="round" />
-      <circle cy={-13} r={2.2} fill="#F2B64A" stroke={INK} strokeWidth={1} />
-      <path
-        d="M-9.5-29Q-11-37-5.5-36.5Q-2.5-34-1.5-31zM9.5-29Q11-37 5.5-36.5Q2.5-34 1.5-31z"
-        fill={fill}
-        stroke={INK}
-        strokeWidth={1.6}
-        strokeLinejoin="round"
-      />
-      <circle cy={-24} r={10.5} fill={fill} stroke={INK} strokeWidth={1.8} />
-      <path d="M-6-25q2.5-3 5 0M1-25q2.5-3 5 0" fill="none" stroke={feat} strokeWidth={1.5} strokeLinecap="round" />
-      <path d="M-1-21h2" stroke={feat} strokeWidth={1.6} strokeLinecap="round" />
-      <path d="M-13-22h5M-13-19h5M8-22h5M8-19h5" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.7} />
-      <Motion x={9} y={-13} loop="beckon" period={1600} delay={delay} live={live}>
-        <rect x={-2} y={-18} width={7} height={19} rx={3.5} fill={fill} stroke={INK} strokeWidth={1.6} />
-        <path d="M0-15h3M0-12h3" stroke={feat} strokeWidth={1} strokeLinecap="round" opacity={0.6} />
-      </Motion>
-    </g>
-  );
-}
-
-function Urn({ x }: { x: number }) {
-  return (
-    <g transform={`translate(${x} 0)`}>
-      <rect x={0} y={20} width={34} height={44} rx={7} fill="#D8D3CA" stroke={INK} strokeWidth={2} />
-      <rect x={4} y={26} width={26} height={6} rx={2} fill="#fff" opacity={0.5} />
-      <ellipse cx={17} cy={20} rx={17} ry={5} fill="#EAE6DF" stroke={INK} strokeWidth={2} />
-      <rect x={14} y={10} width={6} height={8} rx={2} fill={INK} />
-      <path d="M17 64v6" stroke={INK} strokeWidth={2} />
-      <rect x={11} y={44} width={8} height={10} rx={2} fill="#8D5524" stroke={INK} strokeWidth={1.6} />
-      <path d="M15 54v6" stroke={INK} strokeWidth={2} strokeLinecap="round" />
-    </g>
-  );
-}
 
 function Bell({ x, y, live }: { x: number; y: number; live: boolean }) {
   return (
@@ -307,25 +266,11 @@ function Sparkle({ x, y, delay, live }: { x: number; y: number; delay: number; l
 function Pickup({ cups, live }: { cups: CupVisual[]; live: boolean }) {
   return (
     <>
+      {/* Bare wall above the counter (Stan, 2026-09-08). The shelf, the three
+          lucky cats, the urns and their steam are gone — the scene is about
+          the customer's own cups, and everything up there was competing with
+          them. Cat and Urn went with the last use. */}
       <rect width={360} height={200} fill="#F5E6D3" />
-      <rect x={0} y={0} width={360} height={12} fill="#E8D7C0" />
-      <rect x={20} y={66} width={320} height={7} rx={2} fill="#C9A16B" stroke={INK} strokeWidth={2} />
-      <Cat x={48} fill="#F2B64A" feat={INK} delay={0} live={live} />
-      <Cat x={84} fill="#FFF9F0" feat={INK} coin delay={500} live={live} />
-      <Cat x={120} fill="#3B3633" feat="#FFF3DE" delay={1000} live={live} />
-      <Urn x={232} />
-      <Urn x={280} />
-      {(
-        [
-          [249, 0],
-          [297, 1400],
-          [242, 2400],
-        ] as [number, number][]
-      ).map(([sx, dl]) => (
-        <Motion key={`${sx}-${dl}`} x={sx} y={12} loop="wisp" period={3000} delay={dl} live={live}>
-          <path d="M0 0c-4-6 4-9 0-15" fill="none" stroke={INK} strokeWidth={2} strokeLinecap="round" opacity={0.5} />
-        </Motion>
-      ))}
       <rect x={0} y={140} width={360} height={60} fill="#C9A16B" />
       <rect x={0} y={136} width={360} height={9} fill="#E0BE8C" stroke={INK} strokeWidth={2} />
       {cups.map((v, i) => (
@@ -344,7 +289,9 @@ function Pickup({ cups, live }: { cups: CupVisual[]; live: boolean }) {
       </Motion>
       <Bell x={304} y={128} live={live} />
       <Plant x={344} y={122} live={live} />
-      <Sparkle x={22} y={100} delay={800} live={live} />
+      {/* Down beside the cups. Up where the shelf used to be it was the only
+          mark left on a bare wall, which read as a smudge rather than shine. */}
+      <Sparkle x={34} y={96} delay={800} live={live} />
     </>
   );
 }
