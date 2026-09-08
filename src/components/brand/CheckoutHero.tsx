@@ -39,17 +39,35 @@ type Props = {
   className?: string;
 };
 
+/**
+ * The pickup scene's frame, cropped to what it actually draws.
+ *
+ * Stripping the wall left the counter floating in dead space: nothing above
+ * y=25, nothing below y=168. The frame now starts under the ceiling strip and
+ * ends part-way down the counter front, so the drinks fill the picture and the
+ * card is shorter with it.
+ *
+ * Delivery keeps the full 360×200 — its doorstep runs edge to edge, with the
+ * ground at y=170 and the bag reaching 174. Cropping that would cut the floor
+ * out from under the scene.
+ *
+ * Exported because the order hero draws in the same room and has to agree.
+ */
+export const PICKUP_FRAME = { viewBox: "0 12 360 156", aspect: "aspect-[360/156]" } as const;
+const DELIVERY_FRAME = { viewBox: "0 0 360 200", aspect: "aspect-[1.85]" } as const;
+
 export function CheckoutHero({ kind, cups, extra = 0, className }: Props) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const shown = cups.slice(0, HERO_MAX_CUPS);
   const one = shown.length === 1;
+  const frame = kind === "pickup" ? PICKUP_FRAME : DELIVERY_FRAME;
   return (
     <div
       ref={ref}
       // The scene's own daylight, the same in both themes — hence the literal
       // grounds rather than a theme token (the App's PIN rule).
       className={
-        "relative aspect-[1.85] w-full overflow-hidden " +
+        `relative ${frame.aspect} w-full overflow-hidden ` +
         (kind === "pickup" ? "bg-[#F5E6D3] " : "bg-[#EAF0E4] ") +
         (className ?? "")
       }
@@ -64,7 +82,7 @@ export function CheckoutHero({ kind, cups, extra = 0, className }: Props) {
         className="pointer-events-none block"
         width="100%"
         height="100%"
-        viewBox="0 0 360 200"
+        viewBox={frame.viewBox}
         preserveAspectRatio="xMidYMid slice"
         aria-hidden="true"
         focusable="false"
@@ -253,7 +271,6 @@ function Pickup({ cups, live }: { cups: CupVisual[]; live: boolean }) {
           the customer's own cups, and everything up there was competing with
           them. Cat and Urn went with the last use. */}
       <rect width={360} height={200} fill="#F5E6D3" />
-      <rect x={0} y={0} width={360} height={12} fill="#E8D7C0" />
       <rect x={0} y={140} width={360} height={60} fill="#C9A16B" />
       <rect x={0} y={136} width={360} height={9} fill="#E0BE8C" stroke={INK} strokeWidth={2} />
       {cups.map((v, i) => (

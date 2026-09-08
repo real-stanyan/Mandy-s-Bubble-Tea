@@ -1,7 +1,7 @@
 "use client";
 
 import { AMP, BODY, INK, Motion, PEARLS, Surface, WL, light, useInView, useUid } from "@/components/brand/art-kit";
-import { CheckoutHero, OrderCup } from "@/components/brand/CheckoutHero";
+import { CheckoutHero, OrderCup, PICKUP_FRAME } from "@/components/brand/CheckoutHero";
 import { wavePath } from "@/lib/motion/wave";
 import type { CupVisual } from "@/lib/menu/cup-visual";
 import {
@@ -72,7 +72,10 @@ export function OrderHero({
       ref={ref}
       // The scene's own daylight, the same in both themes — the App's PIN rule
       // for illustrations, as on CheckoutHero.
-      className={"relative aspect-[1.85] w-full overflow-hidden bg-[#F5E6D3] " + (className ?? "")}
+      // Same frame as the checkout hero's pickup scene — Ready IS that scene,
+      // so all four have to be the same height or the card jumps as the order
+      // advances.
+      className={`relative ${PICKUP_FRAME.aspect} w-full overflow-hidden bg-[#F5E6D3] ` + (className ?? "")}
       role="img"
       aria-label={
         scene === "received"
@@ -86,7 +89,7 @@ export function OrderHero({
         className="pointer-events-none block"
         width="100%"
         height="100%"
-        viewBox="0 0 360 200"
+        viewBox={PICKUP_FRAME.viewBox}
         preserveAspectRatio="xMidYMid slice"
         aria-hidden="true"
         focusable="false"
@@ -113,7 +116,6 @@ function Counter() {
   return (
     <>
       <rect width={360} height={200} fill="#F5E6D3" />
-      <rect x={0} y={0} width={360} height={12} fill="#E8D7C0" />
       <rect x={0} y={COUNTER_Y + 4} width={360} height={60} fill="#C9A16B" />
       <rect
         x={0}
