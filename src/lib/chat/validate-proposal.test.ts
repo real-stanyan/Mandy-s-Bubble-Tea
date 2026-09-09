@@ -401,6 +401,24 @@ describe("validateProposal — cross-modifier mutex", () => {
     );
     expect(r.ok).toBe(true);
   });
+
+  // The exclusivity is with the PARTNER, not with a second helping. Both menu
+  // UIs used to hide the stepper on these two, which capped them at one with
+  // no rule anywhere actually saying so — this pins the side that canIncrement,
+  // this validator and the shop's flat three-topping total already agreed on.
+  it("allows two Cheese Creams — the mutex is Brulee, not the count", () => {
+    const r = validateProposal(
+      menu,
+      proposal({
+        modifiers: [
+          { modifierId: "MOD_SUGAR_50", count: 1 },
+          { modifierId: "MOD_ICE_NONE", count: 1 },
+          { modifierId: "MOD_CHEESE_CREAM", count: 2 },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe("validateProposal — Oreo exemption from maxPerKind", () => {
