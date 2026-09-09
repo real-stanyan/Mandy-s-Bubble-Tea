@@ -11,7 +11,7 @@ import type {
 } from "@/lib/catalog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCart } from "@/store/cart";
+import { useCart, type CartLine } from "@/store/cart";
 import { isLockedToppingName } from "@/lib/menu/top10-presets";
 import {
   cappedDistinctCount,
@@ -24,6 +24,7 @@ import { resolveCupVisual } from "@/lib/menu/cup-visual";
 import {
   buildCartLine,
   buildDefaultCounts,
+  countsFromModifiers,
   unitPriceCentsFor,
   type CountMap,
 } from "@/lib/menu/build-cart-line";
@@ -71,6 +72,13 @@ type Props = {
    * included topping is sold out: "Order it without Pearls →".
    */
   plainHref?: string;
+  /**
+   * Cart line being re-customised from /checkout. The form opens on that
+   * line's size, sugar, toppings and quantity instead of the defaults, the
+   * button reads "Update", and saving swaps the line in place instead of
+   * adding a second one.
+   */
+  editLineId?: string;
 };
 
 function supportsMultiCount(list: ModifierList): boolean {
@@ -100,8 +108,16 @@ export function ItemOrderForm({
   stickyPreview = false,
   menuHref = "/menu",
   plainHref,
+  editLineId,
 }: Props) {
   const addLine = useCart((s) => s.addLine);
+  const replaceLine = useCart((s) => s.replaceLine);
+  const cartHydrated = useCart((s) => s.hydrated);
+  // The line under edit, live from the store: undefined outside edit mode,
+  // and once the customer has removed it (say, from another tab).
+  const editLine = useCart((s) =>
+    editLineId ? s.lines.find((l) => l.id === editLineId) : undefined,
+  );
   const router = useRouter();
   // Non-null only when rendered inside the item modal — dismiss it after a
   // successful add so the shopper returns to the menu. The full-route page
@@ -110,15 +126,51 @@ export function ItemOrderForm({
   // (Stan, 2026-09-05).
   const closeModal = useItemModalClose();
 
+  const defaultVariationId =
+    (item.variations.find((v) => !v.soldOut) ?? item.variations[0])?.id ?? "";
+  // What the form opens on when it is editing a line: that line's own size,
+  // toppings and count. A variation the catalog no longer sells falls back
+  // to the default so the customer is never stuck on a dead pill.
+  const seedFromLine = (line: CartLine) => ({
+    variationId: item.variations.some((v) => v.id === line.variationId)
+      ? line.variationId
+      : defaultVariationId,
+    counts: countsFromModifiers(modifierLists, line.modifiers, lockedToppings),
+    quantity: line.quantity,
+  });
+  const initialSeed = editLine ? seedFromLine(editLine) : null;
+
   const [variationId, setVariationId] = useState<string>(
-    (item.variations.find((v) => !v.soldOut) ?? item.variations[0])?.id ?? "",
+    initialSeed?.variationId ?? defaultVariationId,
   );
 
-  const [selectedByList, setSelectedByList] = useState<CountMap>(() =>
-    buildDefaultCounts(modifierLists, lockedToppings),
+  const [selectedByList, setSelectedByList] = useState<CountMap>(
+    () => initialSeed?.counts ?? buildDefaultCounts(modifierLists, lockedToppings),
   );
 
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(initialSeed?.quantity ?? 1);
+
+  // The cart hydrates from localStorage after mount, so on a hard load of the
+  // edit route the line only turns up a render later. Seed from it the first
+  // time it is there — state adjusted during render (the React-documented
+  // pattern) rather than in an effect, so the defaults never flash first.
+  const [seededFor, setSeededFor] = useState<string | null>(
+    editLine?.id ?? null,
+  );
+  if (editLine && seededFor !== editLine.id) {
+    setSeededFor(editLine.id);
+    const seed = seedFromLine(editLine);
+    setVariationId(seed.variationId);
+    setSelectedByList(seed.counts);
+    setQuantity(seed.quantity);
+  }
+  // Flipped once the edit is saved: keeps the button reading "Updated" for
+  // the frame between the store swap (which ends editLine) and the modal
+  // closing, instead of snapping back to "Add to Cart".
+  const [saved, setSaved] = useState(false);
+  const isEditing = editLine != null || saved;
+  const editLineGone =
+    editLineId != null && cartHydrated && !editLine && !saved;
 
   const isLocked = (mod: ModifierOption) =>
     isLockedToppingName(mod.name, lockedToppings);
@@ -340,16 +392,25 @@ export function ItemOrderForm({
   function handleAdd() {
     if (!canAdd || !selectedVariation) return;
 
-    addLine(
-      buildCartLine({
-        item,
-        displayName,
-        variation: selectedVariation,
-        modifierLists,
-        counts: selectedByList,
-      }),
-      quantity,
-    );
+    const built = buildCartLine({
+      item,
+      displayName,
+      variation: selectedVariation,
+      modifierLists,
+      counts: selectedByList,
+    });
+
+    if (editLine) {
+      // Swap the line where it sits and go back to the checkout page the
+      // edit came from — the drawer stays shut, nothing new was added.
+      replaceLine(editLine.id, built, quantity);
+      setSaved(true);
+      if (closeModal) closeModal();
+      else router.push("/checkout");
+      return;
+    }
+
+    addLine(built, quantity);
 
     setSelectedByList(buildDefaultCounts(modifierLists, lockedToppings));
     setQuantity(1);
@@ -693,6 +754,12 @@ export function ItemOrderForm({
         </div>
       )}
 
+      {editLineGone && (
+        <p className="mb-3 rounded-xl border border-line bg-bg px-3 py-2.5 text-[12.5px] leading-snug text-ink2">
+          This drink is no longer in your cart — adding it puts it back.
+        </p>
+      )}
+
       {/* Pinned to the bottom of whatever scrolls (the modal body, or the
           page) so the price and the add button stay reachable while the
           customer is still down in the topping lists. On the full page the
@@ -711,9 +778,9 @@ export function ItemOrderForm({
         <button
           type="button"
           onClick={handleAdd}
-          disabled={!canAdd}
+          disabled={!canAdd || saved}
           className={`flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 py-3.5 text-sm font-semibold text-white transition ${
-            canAdd ? "hover:opacity-90" : "cursor-not-allowed opacity-50"
+            canAdd && !saved ? "hover:opacity-90" : "cursor-not-allowed opacity-50"
           }`}
           style={{ backgroundColor: BRAND.primaryColor }}
         >
@@ -731,7 +798,11 @@ export function ItemOrderForm({
             <circle cx="20" cy="21" r="1" />
             <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
           </svg>
-          Add to Cart — {formatPrice(totalCents)}
+          {saved
+            ? "Updated"
+            : isEditing
+              ? `Update — ${formatPrice(totalCents)}`
+              : `Add to Cart — ${formatPrice(totalCents)}`}
         </button>
       </div>
     </div>

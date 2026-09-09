@@ -128,6 +128,8 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
   const router = useRouter();
   const clear = useCart((s) => s.clear);
   const openDrawer = useCart((s) => s.openDrawer);
+  const setLineQuantity = useCart((s) => s.setQuantity);
+  const removeLine = useCart((s) => s.removeLine);
   const labelSelections = useCart((s) => s.labelSelections);
   const keepLabelCopy = useCart((s) => s.keepLabelCopy);
   const setKeepLabelCopy = useCart((s) => s.setKeepLabelCopy);
@@ -1243,11 +1245,11 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
                 </span>
               </summary>
               <div className="border-t border-line px-5 pb-5 pt-4">
-                <ul className="space-y-4">
-                  {lines.map((line) => (
-                    <SummaryRow key={line.id} line={line} />
-                  ))}
-                </ul>
+                <OrderLines
+                  lines={lines}
+                  onQuantityChange={setLineQuantity}
+                  onRemove={removeLine}
+                />
 
                 <div className="mt-5 border-t border-line pt-4">
                   <OrderSummaryTotals
@@ -1459,11 +1461,13 @@ function CheckoutSignedIn({ lines }: { lines: CartLine[] }) {
             </span>
           </div>
 
-          <ul className="mt-5 space-y-4">
-            {lines.map((line) => (
-              <SummaryRow key={line.id} line={line} />
-            ))}
-          </ul>
+          <div className="mt-5">
+            <OrderLines
+              lines={lines}
+              onQuantityChange={setLineQuantity}
+              onRemove={removeLine}
+            />
+          </div>
 
           <div className="mt-6 border-t border-line pt-5">
             <OrderSummaryTotals
@@ -1770,7 +1774,59 @@ function BackArrow() {
   );
 }
 
-function SummaryRow({ line }: { line: CartLine }) {
+/** The order lines with their controls, shared by the mobile disclosure and
+ *  the desktop column. Quantity, Remove and Edit live here now — the summary
+ *  used to be read-only, so changing a drink meant leaving the page for the
+ *  cart drawer (quantity only) or the menu (a second copy of the drink). */
+function OrderLines({
+  lines,
+  onQuantityChange,
+  onRemove,
+}: {
+  lines: CartLine[];
+  onQuantityChange: (lineId: string, quantity: number) => void;
+  onRemove: (lineId: string) => void;
+}) {
+  return (
+    <>
+      <ul className="space-y-4">
+        {lines.map((line) => (
+          <SummaryRow
+            key={line.id}
+            line={line}
+            onQuantityChange={(q) => onQuantityChange(line.id, q)}
+            onRemove={() => onRemove(line.id)}
+          />
+        ))}
+      </ul>
+      <Link
+        href="/menu"
+        className="mt-4 flex items-center justify-center gap-1.5 rounded-full border border-dashed border-line py-2.5 text-[13px] font-semibold text-ink2 transition hover:border-brand hover:text-brand"
+      >
+        <span aria-hidden="true">+</span> Add another drink
+      </Link>
+    </>
+  );
+}
+
+/** Where "Edit" opens: the drink form, pre-filled from this line, in the item
+ *  modal over this page (@modal/(.)menu/edit/[item]). The cart does not
+ *  remember the category a line came from, so the line name rides along and
+ *  the server works it out — a TOP 10 display name reopens under TOP 10. */
+function editHrefFor(line: CartLine): string {
+  const query = new URLSearchParams({ line: line.id, name: line.itemName });
+  return `/menu/edit/${encodeURIComponent(line.itemId)}?${query.toString()}`;
+}
+
+function SummaryRow({
+  line,
+  onQuantityChange,
+  onRemove,
+}: {
+  line: CartLine;
+  onQuantityChange: (quantity: number) => void;
+  onRemove: () => void;
+}) {
   const details = [
     line.variationName,
     ...line.modifiers.map((m) => m.name),
@@ -1802,15 +1858,58 @@ function SummaryRow({ line }: { line: CartLine }) {
             {formatPrice(lineTotal(line))}
           </p>
         </div>
-        {/* Quantity reads as its own fact, not glued to the name — the old
-            "2× Thai Milk Tea" made the name harder to scan. */}
-        <p className="mt-0.5 text-[12.5px] leading-snug text-ink3">
-          {line.quantity > 1 && (
-            <span className="font-semibold text-ink2">×{line.quantity}</span>
-          )}
-          {line.quantity > 1 && details && <span> · </span>}
-          {details}
-        </p>
+        {details && (
+          <p className="mt-0.5 text-[12.5px] leading-snug text-ink3">{details}</p>
+        )}
+        {/* type="button" throughout: this list sits inside the checkout form,
+            and a bare <button> here would submit the order. */}
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div
+            role="group"
+            aria-label={`Quantity of ${line.itemName}`}
+            className="flex items-center rounded-full border border-line"
+          >
+            {/* Minus stops at one — Remove is its own, deliberate tap. */}
+            <button
+              type="button"
+              onClick={() => onQuantityChange(line.quantity - 1)}
+              disabled={line.quantity <= 1}
+              aria-label="Decrease quantity"
+              className="flex h-7 w-7 items-center justify-center rounded-l-full text-sm text-ink2 transition hover:bg-bg2 disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              −
+            </button>
+            <span className="w-6 text-center text-[13px] font-semibold tabular-nums text-ink">
+              {line.quantity}
+            </span>
+            <button
+              type="button"
+              onClick={() => onQuantityChange(line.quantity + 1)}
+              aria-label="Increase quantity"
+              className="flex h-7 w-7 items-center justify-center rounded-r-full text-sm text-ink2 transition hover:bg-bg2"
+            >
+              +
+            </button>
+          </div>
+          <div className="flex items-center gap-3 text-[12.5px] font-semibold">
+            {/* prefetch off, as on the home page: a prefetched navigation can
+                skip the @modal interception and open the full page instead. */}
+            <Link
+              href={editHrefFor(line)}
+              prefetch={false}
+              className="text-brand transition hover:underline"
+            >
+              Edit
+            </Link>
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-ink3 transition hover:text-ink"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
       </div>
     </li>
   );
