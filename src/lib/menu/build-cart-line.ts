@@ -109,3 +109,32 @@ export function buildCartLine(
     modifiers,
   };
 }
+
+/** Rebuild the form selection state from a cart line: the inverse of
+ *  buildCartLine, used when the checkout page sends a line back into
+ *  ItemOrderForm to be edited. A modifier the current catalog no longer
+ *  offers is dropped silently (the form can only show what exists), and TOP
+ *  10 locked toppings keep their floor of one, as in buildDefaultCounts. */
+export function countsFromModifiers(
+  modifierLists: ModifierList[],
+  modifiers: { id: string }[],
+  lockedToppings: string[] = [],
+): CountMap {
+  const tally = new Map<string, number>();
+  for (const m of modifiers) tally.set(m.id, (tally.get(m.id) ?? 0) + 1);
+  const counts: CountMap = {};
+  for (const ml of modifierLists) {
+    const map: Record<string, number> = {};
+    for (const mod of ml.modifiers) {
+      const n = tally.get(mod.id) ?? 0;
+      if (n > 0) map[mod.id] = n;
+    }
+    if (Object.keys(map).length > 0) counts[ml.id] = map;
+  }
+  for (const { listId, modifierId } of lockedModifierIds(modifierLists, lockedToppings)) {
+    const map = counts[listId] ?? {};
+    if ((map[modifierId] ?? 0) < 1) map[modifierId] = 1;
+    counts[listId] = map;
+  }
+  return counts;
+}

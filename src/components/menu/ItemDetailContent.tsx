@@ -10,22 +10,30 @@ import {
   TOP10_CATEGORY_SLUG,
 } from "@/lib/menu/top10-presets";
 import { originalPriceCentsFor } from "@/lib/menu/weekly-specials";
+import { editCategorySlugFor } from "@/lib/menu/edit-category";
 
 // Shared item-detail body, used by both the full route page
-// (menu/[category]/[item]) and the intercepting modal (@modal/(.)…). Loads
-// the item from Square and renders the image + info + order form. The page
-// wraps it in <main> + breadcrumb; the modal wraps it in a dialog card.
+// (menu/[category]/[item]) and the intercepting modal (@modal/(.)…), and by
+// the checkout page's edit routes (menu/edit/[item]). Loads the item from
+// Square and renders the image + info + order form. The page wraps it in
+// <main> + breadcrumb; the modal wraps it in a dialog card.
 
 type Props = {
-  categorySlug: string;
+  /** Omitted by the edit routes: the category is then worked out from the line. */
+  categorySlug?: string;
   itemId: string;
   inModal?: boolean;
+  /** Re-customising a cart line from /checkout: the form opens pre-filled
+   *  from it and "Update" swaps it in place (see ItemOrderForm.editLineId).
+   *  lineName decides the category — a TOP 10 display name reopens there. */
+  edit?: { lineId: string | null; lineName: string | null };
 };
 
 export async function ItemDetailContent({
   categorySlug,
   itemId,
   inModal = false,
+  edit,
 }: Props) {
   let menu;
   try {
@@ -40,7 +48,13 @@ export async function ItemDetailContent({
     );
   }
 
-  const detail = getItemDetail(menu, categorySlug, itemId);
+  // With no category to hand (the edit routes), find the drink's own; an
+  // empty slug resolves to nothing and falls through to "Drink not found".
+  const slug =
+    categorySlug ??
+    (edit ? editCategorySlugFor(menu, itemId, edit.lineName) : null) ??
+    "";
+  const detail = getItemDetail(menu, slug, itemId);
   if (!detail) {
     return (
       <div className="rounded-card border border-line bg-card p-10 text-center">
@@ -158,6 +172,7 @@ export async function ItemDetailContent({
             stickyPreview={inModal}
             menuHref={`/menu/${category.slug}`}
             plainHref={plainHref}
+            editLineId={edit?.lineId ?? undefined}
           />
         </div>
       </div>

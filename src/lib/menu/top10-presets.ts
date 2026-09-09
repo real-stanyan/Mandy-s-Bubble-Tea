@@ -84,6 +84,17 @@ export function displayNameFor(
   return getTop10Preset(itemName)?.displayName ?? itemName;
 }
 
+/** True when `name` is the customer-facing TOP 10 name of some drink. A cart
+ *  line stores the display name, not the category it came from, so this is
+ *  how a line says it was picked from TOP 10 and should reopen there —
+ *  locked toppings and all — when the customer edits it. */
+export function isTop10DisplayName(name: string): boolean {
+  const target = norm(name);
+  return Object.values(TOP10_PRESETS).some(
+    (p) => p.displayName != null && norm(p.displayName) === target,
+  );
+}
+
 // Total upcharge (in cents) of the locked toppings for this drink inside
 // TOP 10 — i.e. how much the curated toppings add on top of the base price.
 // 0 outside TOP 10 or for drinks with no preset. `modifiers` is the flattened

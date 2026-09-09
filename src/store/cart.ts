@@ -72,6 +72,17 @@ type CartState = {
   ) => void;
   setQuantity: (lineId: string, quantity: number) => void;
   removeLine: (lineId: string) => void;
+  /** Swap one line for a re-customised version of itself (the checkout
+   *  page's "Edit"). `quantity` is the new total for that drink. The row
+   *  keeps its place in the list; if the edit lands on a drink already in
+   *  the cart the two fold into one; the per-cup label selections ride
+   *  along to the new key so a sticker picked before the edit is not lost.
+   *  Never opens the drawer — the customer is standing on /checkout. */
+  replaceLine: (
+    lineId: string,
+    line: Omit<CartLine, "id" | "quantity">,
+    quantity: number,
+  ) => void;
   clear: () => void;
   openDrawer: () => void;
   closeDrawer: () => void;
@@ -118,6 +129,31 @@ function pruneSelectionsAboveCup(
     }
     const idx = Number(k.slice(prefix.length));
     if (Number.isFinite(idx) && idx < maxQty) next[k] = v;
+  }
+  return next;
+}
+
+/** Re-key one line's cup selections onto another line: cup i of `fromId`
+ *  becomes cup `offset + i` of `toId`, dropped if that lands past `maxQty`.
+ *  Selections already under `toId` (a twin line's own cups) are kept. */
+function moveSelectionsToLine(
+  selections: Record<string, CupLabelSelection>,
+  fromId: string,
+  toId: string,
+  offset: number,
+  maxQty: number,
+): Record<string, CupLabelSelection> {
+  const prefix = `${fromId}:`;
+  const next: Record<string, CupLabelSelection> = {};
+  for (const [k, v] of Object.entries(selections)) {
+    if (!k.startsWith(prefix)) {
+      next[k] = v;
+      continue;
+    }
+    const idx = Number(k.slice(prefix.length));
+    if (!Number.isFinite(idx)) continue;
+    const target = offset + idx;
+    if (target < maxQty) next[cupKey(toId, target)] = v;
   }
   return next;
 }
@@ -217,6 +253,74 @@ export const useCart = create<CartState>()(
           lines: state.lines.filter((l) => l.id !== lineId),
           labelSelections: pruneSelectionsForLine(state.labelSelections, lineId),
         })),
+
+      replaceLine: (lineId, partial, quantity) =>
+        set((state) => {
+          const qty = Math.max(1, Math.floor(quantity));
+          const newId = signatureFor(
+            partial.itemId,
+            partial.variationId,
+            partial.modifiers,
+          );
+          const oldIdx = state.lines.findIndex((l) => l.id === lineId);
+          if (oldIdx === -1) {
+            // The line went away under the form (another tab, a cleared
+            // cart). The customer still wants this drink: add it, quietly.
+            const twin = state.lines.find((l) => l.id === newId);
+            return {
+              lines: twin
+                ? state.lines.map((l) =>
+                    l.id === newId ? { ...l, quantity: l.quantity + qty } : l,
+                  )
+                : [...state.lines, { ...partial, id: newId, quantity: qty }],
+            };
+          }
+          if (newId === lineId) {
+            // Same drink, maybe a new quantity.
+            return {
+              lines: state.lines.map((l) =>
+                l.id === lineId ? { ...l, ...partial, quantity: qty } : l,
+              ),
+              labelSelections: pruneSelectionsAboveCup(
+                state.labelSelections,
+                lineId,
+                qty,
+              ),
+            };
+          }
+          const twin = state.lines.find((l) => l.id === newId);
+          if (!twin) {
+            const lines = state.lines.slice();
+            lines[oldIdx] = { ...partial, id: newId, quantity: qty };
+            return {
+              lines,
+              labelSelections: moveSelectionsToLine(
+                state.labelSelections,
+                lineId,
+                newId,
+                0,
+                qty,
+              ),
+            };
+          }
+          // Edited into a drink that is already in the cart: fold these cups
+          // in after the ones it has, and drop the row that was edited.
+          const offset = twin.quantity;
+          return {
+            lines: state.lines
+              .filter((l) => l.id !== lineId)
+              .map((l) =>
+                l.id === newId ? { ...l, quantity: l.quantity + qty } : l,
+              ),
+            labelSelections: moveSelectionsToLine(
+              state.labelSelections,
+              lineId,
+              newId,
+              offset,
+              offset + qty,
+            ),
+          };
+        }),
 
       clear: () =>
         set({
