@@ -29,6 +29,12 @@
   --shadow-mini-cart-v: 0 10px 20px rgba(107, 62, 21, 0.55);
   --shadow-primary-cta-v: 0 14px 24px rgba(42, 30, 20, 0.55);
 
+  /* The floating tab pill (SiteTabBar): clear paper glass by day. */
+  --tabbar-glass: rgba(255, 249, 240, 0.62);
+  --tabbar-edge: rgba(42, 30, 20, 0.10);
+  --tabbar-window: rgba(42, 30, 20, 0.08);
+  --tabbar-shadow: 0 10px 22px rgba(42, 30, 20, 0.16);
+
   --background: var(--bg);
   --foreground: var(--ink);
 }
@@ -56,6 +62,13 @@
   --brand-dark: #B5813A;
   --green: #4CC084;
   --green-dark: #3CA96E;
+
+  /* Warm grey glass a clear step lighter than the page, the way the
+     Instagram bar sits grey on black rather than black on black. */
+  --tabbar-glass: rgba(58, 50, 43, 0.74);
+  --tabbar-edge: rgba(245, 237, 225, 0.14);
+  --tabbar-window: rgba(245, 237, 225, 0.15);
+  --tabbar-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
 
   --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.4);
   --shadow-mini-cart-v: 0 10px 22px rgba(0, 0, 0, 0.6);
@@ -745,22 +758,42 @@ html[data-motion] [data-reveal="in"] {
 /* The nav is padded 14px (px-3.5) either side, so a column is a quarter
    of the CONTENT width, not the box — measured from that inset the pill
    lands under each icon instead of drifting right by half a gutter. */
-.tab-indicator {
-  position: absolute;
-  left: 14px;
-  top: 10px;
-  width: calc((100% - 28px) / 4);
-  height: 34px;
+/* The floating tab pill (SiteTabBar) — the App's FloatingTabBar in CSS.
+   Instagram proportions: 52px high, 20px clear on each side, the active
+   window inset 4px from the pill edge; it sits a little inside the
+   home-indicator inset where there is one. Shrinks toward its centre and
+   sits a touch lower while the page scrolls down (.is-shrunk). */
+.tabbar {
+  position: fixed;
+  left: 20px;
+  right: 20px;
+  bottom: max(calc(env(safe-area-inset-bottom) - 8px), 14px);
+  z-index: 40;
   display: grid;
-  place-items: center;
-  pointer-events: none;
-  transition: transform 460ms var(--ease-spring);
-}
-.tab-indicator-pill {
-  width: 46px;
-  height: 30px;
+  grid-template-columns: repeat(4, 1fr);
+  height: 52px;
+  padding: 0 4px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  background: var(--tabbar-glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  box-shadow: 0 0 0 1px var(--tabbar-edge), var(--tabbar-shadow);
+  transform-origin: 50% 60%;
+  transition: transform 240ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+.tabbar.is-shrunk {
+  transform: translateY(4px) scale(0.86);
+}
+.tabbar-window {
+  position: absolute;
+  top: 4px;
+  height: 44px;
+  width: min(78px, calc(25% - 8px));
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--tabbar-window);
+  pointer-events: none;
+  transition: left 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes mbt-tab-pop {
   0%   { transform: scale(0.82); }
@@ -774,7 +807,7 @@ html[data-motion] [data-reveal="in"] {
     animation: none !important;
   }
   .celebrate-layer { animation-duration: 1400ms; }
-  .tab-indicator { transition: none; }
+  .tabbar, .tabbar-window { transition: none; }
 }
 
 /* Settle — a topping tile's or milk card's glyph gives a little bounce

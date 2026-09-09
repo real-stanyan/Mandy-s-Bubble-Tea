@@ -15,8 +15,9 @@ export function SiteTabBarGate() {
   if (hidden) return null;
   return (
     <>
-      {/* Spacer keeps page content / footer clear of the fixed bar on mobile. */}
-      <div aria-hidden className="h-[68px] lg:hidden" />
+      {/* Spacer keeps page content / footer clear of the floating pill (52px
+          + its lift + breathing room) on mobile. */}
+      <div aria-hidden className="h-[92px] lg:hidden" />
       <SiteTabBar />
     </>
   );
