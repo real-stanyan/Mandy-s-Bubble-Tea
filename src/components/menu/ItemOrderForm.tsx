@@ -530,7 +530,14 @@ export function ItemOrderForm({
                           soldOut={mod.soldOut}
                           disabled={count === 0 && !canInc}
                           disabledReason={toppingBlockReason(ml, mod)}
-                          supportsStepper={multi && !isExclusiveModifier(mod)}
+                          // Exclusivity is about the PARTNER, not the count:
+                          // canIncrement already refuses Brulee while Cheese
+                          // Cream is on, and lets either one stack on its own
+                          // up to the shared three-topping total. Hiding the
+                          // stepper for them was a second, unwritten rule that
+                          // capped both at one — with no way to reach two even
+                          // though every other layer allowed it.
+                          supportsStepper={multi}
                           canIncrement={canInc}
                           canDecrement={!(locked && count <= 1)}
                           onIncrement={() => incrementModifier(ml, mod.id)}
