@@ -158,11 +158,6 @@ export function PushClient({
         return;
       }
       setPreview(j);
-      // Specials: the words come from the shelf. Show what will actually go
-      // out rather than the template with braces in it.
-      if (j.context.specials && campaignId === "weekly_specials" && j.samples[0]) {
-        // keep the editable template; the samples show the rendered version
-      }
     } catch (e) {
       setNotice({ tone: "err", text: e instanceof Error ? e.message : String(e) });
     } finally {
