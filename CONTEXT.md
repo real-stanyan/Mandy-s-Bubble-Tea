@@ -21,6 +21,10 @@
 | thumbUrl WYSIWYG | 缩略图显示 binarized 打印效果（`binarized.png`），不显示彩色源 | upload/builtin 都如此 |
 | Live Activity（LA） | iOS 灵动岛/锁屏实时订单卡片，靠 ActivityKit token 推送 | `live-activity-webhook.ts` |
 | order-card push | Android 常驻卡片镜像。**在 LA-token gate 之前**独立 fetch 订单（安卓无 LA token） | `order-card-push.ts` |
+| Push Center | `/staff/push`（owner passcode）：十条 campaign 的名单由数据算、发送由人点；漏斗 = 命中规则 → 有 App → 冷却 → 周上限 → 24h 内买过 → holdout → 设备 | `src/lib/push-center/`，ADR-0012 |
+| push_customer_state | 每个 Square 客户一行的订单画像（首/末单、单数、最近 30 单、常点、晚间占比），cron 每 30 分钟按 cursor 增量折入，首填走 `scripts/push-state-backfill.ts` | 只到回填窗口深度（120 天） |
+| cooldown / weekly cap | cooldown = 同一 campaign 在 N 天内不重发；weekly cap = 每人 7 天 ≤2 条营销推送且间隔 ≥48h；交易推送（订单就绪 / LA）不受限 | 读 `push_run_recipients`（按 user_id） |
+| holdout | 按 user_id 稳定哈希留出 10% 永不收营销推送，用来对比效果；页面可开关 | 默认关 |
 | 三态取餐 | pickup LA 三状态：RESERVED→preparing，PREPARED→ready，COMPLETED→completed | |
 | POS backup mode | 线上下单转 POS 备份的开关（`app_settings.pos_backup_mode`） | Square 宕机兜底 |
 | wallet pass | Apple/Google 钱包会员卡 | `src/lib/wallet/` |
