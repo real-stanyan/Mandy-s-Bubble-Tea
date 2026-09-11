@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
 import { TABS, activeTabIndex } from "@/components/layout/tabs";
+import { BagPill } from "@/components/cart/BagPill";
+import { useCart } from "@/store/cart";
 import { TAB_DRAG_EVENT, type TabDragDetail } from "@/lib/motion/swipe-nav";
 
 // Mobile bottom tab bar as a floating pill of frosted glass — the App's
@@ -14,8 +16,14 @@ import { TAB_DRAG_EVENT, type TabDragDetail } from "@/lib/motion/swipe-nav";
 // the page, back the moment they scroll up (the Instagram bar; Rick,
 // 2026-09-09). Mobile only (lg:hidden) — desktop uses the SiteHeader nav.
 // Gated out of /checkout and /order-confirmation by SiteTabBarGate. Styles
-// live in globals.css under .tabbar so the pill and its tokens sit with the
-// theme.
+// live in globals.css under .dock / .tabbar so the pill and its tokens sit
+// with the theme.
+//
+// The pill is one end of the bottom dock (lib/motion/cart-dock). While the
+// bag holds anything, the bag capsule (BagPill) sits at the row's right
+// end, the pill's own height and radius, and the pill flexes to whatever
+// the capsule leaves it: one row, one lift, one shrink. Empty, the pill has
+// the row. The App's dock, in CSS.
 //
 // prefetch={false} on every link here, and in the other always-visible
 // chrome (SiteHeader, MobileAppBar, AccountLink): this bar renders on EVERY
@@ -74,60 +82,76 @@ function useTabDrag(): TabDragDetail | null {
   return drag;
 }
 
+/** The capsule's slide is a transition, and a transition on first paint is
+ *  an entrance: a bag restored from storage would arrive on every page load.
+ *  So the dock only transitions from the frame after the cart has hydrated
+ *  — from then on a drink going in is the entrance it should be. */
+function useDockLive(): boolean {
+  const hydrated = useCart((s) => s.hydrated);
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    if (!hydrated) return;
+    const id = requestAnimationFrame(() => setLive(true));
+    return () => cancelAnimationFrame(id);
+  }, [hydrated]);
+  return live;
+}
+
 export function SiteTabBar() {
   const pathname = usePathname() ?? "";
   const orderCount = useActiveOrderCount();
   const activeIndex = activeTabIndex(pathname);
   const shrunk = useShrinkOnScroll();
   const drag = useTabDrag();
+  const live = useDockLive();
   const windowIndex = drag ? drag.index : activeIndex;
 
   return (
-    <nav
-      aria-label="Primary"
-      className={
-        "tabbar lg:hidden" +
-        (shrunk ? " is-shrunk" : "") +
-        (drag?.live ? " is-dragging" : "")
-      }
+    <div
+      className={"dock lg:hidden" + (shrunk ? " is-shrunk" : "") + (live ? " is-live" : "")}
+      // A sideways drag on the dock is never a page turn (SwipeNav).
+      data-no-swipe
     >
-      {/* The one window slides to the active column (each is 25% wide). */}
-      {windowIndex != null && windowIndex >= 0 ? (
-        <span
-          aria-hidden="true"
-          className="tabbar-window"
-          style={{ left: `${windowIndex * 25 + 12.5}%` }}
-        />
-      ) : null}
-      {TABS.map(({ href, label, icon: Icon, match }) => {
-        const active = match(pathname);
-        const badge = href === "/account/orders" ? orderCount : 0;
-        return (
-          <Link
-            prefetch={false}
-            key={href}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            className={
-              "press relative z-[1] grid h-full place-items-center rounded-full " +
-              (active ? "text-ink" : "text-ink3")
-            }
-          >
-            <span
-              key={active ? "on" : "off"}
-              className={"relative grid place-items-center " + (active ? "tab-icon-active" : "")}
+      <nav aria-label="Primary" className={"tabbar" + (drag?.live ? " is-dragging" : "")}>
+        {/* The one window slides to the active column (each is 25% wide). */}
+        {windowIndex != null && windowIndex >= 0 ? (
+          <span
+            aria-hidden="true"
+            className="tabbar-window"
+            style={{ left: `${windowIndex * 25 + 12.5}%` }}
+          />
+        ) : null}
+        {TABS.map(({ href, label, icon: Icon, match }) => {
+          const active = match(pathname);
+          const badge = href === "/account/orders" ? orderCount : 0;
+          return (
+            <Link
+              prefetch={false}
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={
+                "press relative z-[1] grid h-full place-items-center rounded-full " +
+                (active ? "text-ink" : "text-ink3")
+              }
             >
-              <Icon size={22} strokeWidth={active ? 2.4 : 1.9} />
-              {badge > 0 && (
-                <span className="absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[9.5px] font-bold text-white">
-                  {badge}
-                </span>
-              )}
-            </span>
-            <span className="sr-only">{label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+              <span
+                key={active ? "on" : "off"}
+                className={"relative grid place-items-center " + (active ? "tab-icon-active" : "")}
+              >
+                <Icon size={22} strokeWidth={active ? 2.4 : 1.9} />
+                {badge > 0 && (
+                  <span className="absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[9.5px] font-bold text-white">
+                    {badge}
+                  </span>
+                )}
+              </span>
+              <span className="sr-only">{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+      <BagPill />
+    </div>
   );
 }
