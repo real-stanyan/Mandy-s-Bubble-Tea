@@ -124,10 +124,13 @@ export function ChatBubble() {
         type="button"
         onClick={openChat}
         aria-label={t.launcherAria}
-        className="fixed bottom-24 right-5 z-40 flex h-13 items-center gap-2 rounded-full bg-brand px-4 text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:px-5"
+        // The bag capsule's own measure (BagPill: 52 high, 16 padding, a
+        // 20px glyph, 10 gap) with the label a size down, so the two pills
+        // stacked at the dock's edge read as one column.
+        className="fixed bottom-24 right-5 z-40 flex h-13 items-center gap-2.5 rounded-full bg-brand px-4 text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:px-5"
       >
-        <BobaChatIcon className="h-6 w-6" />
-        <span className="text-sm font-semibold">{t.launcherLabel}</span>
+        <BobaChatIcon className="h-5 w-5" />
+        <span className="text-[13px] font-semibold">{t.launcherLabel}</span>
       </button>
     </>
   );
