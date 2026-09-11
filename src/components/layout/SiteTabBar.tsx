@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LayoutGrid, ReceiptText, User } from "lucide-react";
 import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
+import { TABS, activeTabIndex } from "@/components/layout/tabs";
+import { TAB_DRAG_EVENT, type TabDragDetail } from "@/lib/motion/swipe-nav";
 
 // Mobile bottom tab bar as a floating pill of frosted glass — the App's
 // FloatingTabBar in CSS: clear paper by day, warm grey glass at night, icons
@@ -24,30 +25,9 @@ import { useActiveOrderCount } from "@/components/layout/useActiveOrderCount";
 // fetches, including /account 5x, /menu 4x and / 3x at 300–450ms each.
 // Tapping still streams the route normally; only the speculative fetch is
 // gone. Don't "fix" this by removing the prop.
-
-const TABS = [
-  { href: "/", label: "Home", icon: Home, match: (p: string) => p === "/" },
-  {
-    href: "/menu",
-    label: "Menu",
-    icon: LayoutGrid,
-    // Item detail (modal/route) lives under /menu — keep Menu lit.
-    match: (p: string) => p === "/menu" || p.startsWith("/menu/"),
-  },
-  {
-    href: "/account/orders",
-    label: "Orders",
-    icon: ReceiptText,
-    match: (p: string) => p.startsWith("/account/orders"),
-  },
-  {
-    href: "/account",
-    label: "Account",
-    icon: User,
-    // Account, but not the Orders sub-route (handled above).
-    match: (p: string) => p === "/account",
-  },
-];
+//
+// The tabs themselves (order, routes, icons) live in ./tabs — the swipe
+// between pages (SwipeNav) walks the same list.
 
 /** Movement smaller than this is a hand at rest, not a direction. */
 const DEAD_BAND = 6;
@@ -77,23 +57,46 @@ function useShrinkOnScroll(): boolean {
   return shrunk;
 }
 
+/** While a swipe holds the page (SwipeNav), the window sits where the page
+ *  is — a fractional tab, moving live under the finger; when the page
+ *  turns it slides on to the new tab at once, before the route lands. Null
+ *  when nothing is in hand and the route decides. */
+function useTabDrag(): TabDragDetail | null {
+  const [drag, setDrag] = useState<TabDragDetail | null>(null);
+  useEffect(() => {
+    const onDrag = (e: Event) => {
+      const detail = (e as CustomEvent<TabDragDetail>).detail;
+      setDrag(detail.index == null ? null : detail);
+    };
+    window.addEventListener(TAB_DRAG_EVENT, onDrag);
+    return () => window.removeEventListener(TAB_DRAG_EVENT, onDrag);
+  }, []);
+  return drag;
+}
+
 export function SiteTabBar() {
   const pathname = usePathname() ?? "";
   const orderCount = useActiveOrderCount();
-  const activeIndex = TABS.findIndex((t) => t.match(pathname));
+  const activeIndex = activeTabIndex(pathname);
   const shrunk = useShrinkOnScroll();
+  const drag = useTabDrag();
+  const windowIndex = drag ? drag.index : activeIndex;
 
   return (
     <nav
       aria-label="Primary"
-      className={"tabbar lg:hidden" + (shrunk ? " is-shrunk" : "")}
+      className={
+        "tabbar lg:hidden" +
+        (shrunk ? " is-shrunk" : "") +
+        (drag?.live ? " is-dragging" : "")
+      }
     >
       {/* The one window slides to the active column (each is 25% wide). */}
-      {activeIndex >= 0 ? (
+      {windowIndex != null && windowIndex >= 0 ? (
         <span
           aria-hidden="true"
           className="tabbar-window"
-          style={{ left: `${activeIndex * 25 + 12.5}%` }}
+          style={{ left: `${windowIndex * 25 + 12.5}%` }}
         />
       ) : null}
       {TABS.map(({ href, label, icon: Icon, match }) => {
