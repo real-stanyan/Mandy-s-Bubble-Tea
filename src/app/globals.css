@@ -34,6 +34,8 @@
   --tabbar-edge: rgba(42, 30, 20, 0.10);
   --tabbar-window: rgba(42, 30, 20, 0.08);
   --tabbar-shadow: 0 10px 22px rgba(42, 30, 20, 0.16);
+  /* The pane of frosted glass that swaps tab pages on the phone (SwipeNav). */
+  --swipe-glass: rgba(255, 249, 240, 0.66);
 
   --background: var(--bg);
   --foreground: var(--ink);
@@ -69,6 +71,7 @@
   --tabbar-edge: rgba(245, 237, 225, 0.14);
   --tabbar-window: rgba(245, 237, 225, 0.15);
   --tabbar-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+  --swipe-glass: rgba(38, 32, 27, 0.72);
 
   --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.4);
   --shadow-mini-cart-v: 0 10px 22px rgba(0, 0, 0, 0.6);
@@ -830,5 +833,74 @@ html[data-motion] [data-reveal="in"] {
 @media (prefers-reduced-motion: reduce) {
   .mbt-settle {
     animation: none;
+  }
+}
+
+/* ── Swipe between tab pages (SwipeNav) ────────────────────────────────────
+   On the phone a sideways drag pulls the page out under the thumb and a pane
+   of frosted glass in from the side, wearing the next tab; the real page
+   swaps in behind the glass once its route has streamed. The pane is laid
+   out 56px (SEAM_OVERLAP) wider than the viewport on both sides and
+   feathered on its leading edge, so where it rides over the page the join
+   is a blur that fades out, not a line. Glass by day is paper; by night the
+   warm grey of the pill. Mobile only: the desktop nav is the SiteHeader. */
+.swipe-page {
+  touch-action: pan-y pinch-zoom;
+}
+.swipe-ghost {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: -56px;
+  right: -56px;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  background: var(--swipe-glass);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+  backdrop-filter: blur(22px) saturate(1.2);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.swipe-ghost[data-state="idle"] {
+  display: none;
+}
+.swipe-ghost[data-dir="right"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 56px);
+  mask-image: linear-gradient(to right, transparent, #000 56px);
+}
+.swipe-ghost[data-dir="left"] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 56px);
+  mask-image: linear-gradient(to left, transparent, #000 56px);
+}
+.swipe-ghost-badge {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  transform: translateY(-6vh);
+}
+.swipe-ghost-icon {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-card-v);
+}
+.swipe-ghost-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+}
+/* While the finger holds the page, the pill window sits where the page is. */
+.tabbar.is-dragging .tabbar-window {
+  transition: none;
+}
+@media (min-width: 1024px) {
+  .swipe-ghost {
+    display: none !important;
   }
 }

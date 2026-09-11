@@ -16,6 +16,7 @@ import { ChatGate } from "@/components/chat/ChatGate";
 import { SiteHeaderGate } from "@/components/layout/SiteHeaderGate";
 import { SiteFooterGate } from "@/components/layout/SiteFooterGate";
 import { SiteTabBarGate } from "@/components/layout/SiteTabBarGate";
+import { SwipeNav } from "@/components/layout/SwipeNav";
 import { PublicHolidayBanner } from "@/components/layout/PublicHolidayBanner";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 
@@ -198,11 +199,16 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">
         <AuthProvider>
-          <PublicHolidayBanner />
-          <SiteHeaderGate />
-          {children}
-          {modal}
-          <SiteFooterGate />
+          {/* On the phone the page, its app bar and footer swipe sideways
+              to the next tab as one sheet (SwipeNav); the pill, drawers and
+              chat stay put over it. */}
+          <SwipeNav>
+            <PublicHolidayBanner />
+            <SiteHeaderGate />
+            {children}
+            {modal}
+            <SiteFooterGate />
+          </SwipeNav>
           <SiteTabBarGate />
           <CartDrawerGate />
           <ChatGate />
