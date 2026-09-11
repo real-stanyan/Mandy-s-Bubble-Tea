@@ -93,7 +93,7 @@ export function ChatBubble() {
   return (
     <>
       {showTeaser ? (
-        <div className="fixed bottom-[10.5rem] right-4 z-40 w-64 lg:bottom-[5.5rem] lg:right-6">
+        <div className="fixed bottom-[10.5rem] right-5 z-40 w-64 lg:bottom-[5.5rem] lg:right-6">
           <div className="relative rounded-card border border-line bg-card p-3 pr-8 shadow-card">
             <button
               type="button"
@@ -124,7 +124,7 @@ export function ChatBubble() {
         type="button"
         onClick={openChat}
         aria-label={t.launcherAria}
-        className="fixed bottom-24 right-4 z-40 flex h-13 items-center gap-2 rounded-full bg-brand px-4 text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:px-5"
+        className="fixed bottom-24 right-5 z-40 flex h-13 items-center gap-2 rounded-full bg-brand px-4 text-white shadow-primary-cta transition hover:bg-brand-dark active:scale-95 lg:bottom-6 lg:right-6 lg:px-5"
       >
         <BobaChatIcon className="h-6 w-6" />
         <span className="text-sm font-semibold">{t.launcherLabel}</span>

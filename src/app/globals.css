@@ -34,6 +34,9 @@
   --tabbar-edge: rgba(42, 30, 20, 0.10);
   --tabbar-window: rgba(42, 30, 20, 0.08);
   --tabbar-shadow: 0 10px 22px rgba(42, 30, 20, 0.16);
+  /* The bag capsule beside the pill (BagPill): what sits on the brand. */
+  --bag-fg: #FFFFFF;
+  --bag-shadow: 0 6px 14px rgba(107, 62, 21, 0.28);
   /* The pane of frosted glass that swaps tab pages on the phone (SwipeNav). */
   --swipe-glass: rgba(255, 249, 240, 0.66);
 
@@ -71,6 +74,9 @@
   --tabbar-edge: rgba(245, 237, 225, 0.14);
   --tabbar-window: rgba(245, 237, 225, 0.15);
   --tabbar-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+  /* Evening brand is brass, so the capsule wears day ink, not white. */
+  --bag-fg: #2A1E14;
+  --bag-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
   --swipe-glass: rgba(38, 32, 27, 0.72);
 
   --shadow-card-v: 0 2px 10px rgba(0, 0, 0, 0.4);
@@ -761,17 +767,36 @@ html[data-motion] [data-reveal="in"] {
 /* The nav is padded 14px (px-3.5) either side, so a column is a quarter
    of the CONTENT width, not the box — measured from that inset the pill
    lands under each icon instead of drifting right by half a gutter. */
-/* The floating tab pill (SiteTabBar) — the App's FloatingTabBar in CSS.
-   Instagram proportions: 52px high, 20px clear on each side, the active
-   window inset 4px from the pill edge; it sits a little inside the
-   home-indicator inset where there is one. Shrinks toward its centre and
-   sits a touch lower while the page scrolls down (.is-shrunk). */
-.tabbar {
+/* The bottom dock (SiteTabBar): the floating tab pill and, while the bag
+   holds anything, the bag capsule beside it — one row, one height, one
+   radius, one lift; the App's dock in CSS. 20px clear on each side, and it
+   sits a little inside the home-indicator inset where there is one. The
+   pill flexes to whatever the capsule leaves it, so the capsule's own width
+   transition is the whole choreography: it slides in from the right edge as
+   the pill makes room, and out again when the bag empties. The dock shrinks
+   toward its centre and sits a touch lower while the page scrolls down
+   (.is-shrunk) — pill and capsule together. */
+.dock {
   position: fixed;
   left: 20px;
   right: 20px;
   bottom: max(calc(env(safe-area-inset-bottom) - 8px), 14px);
   z-index: 40;
+  display: flex;
+  align-items: stretch;
+  height: 52px;
+  transform-origin: 50% 60%;
+  transition: transform 240ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+.dock.is-shrunk {
+  transform: translateY(4px) scale(0.86);
+}
+/* The floating tab pill — the App's FloatingTabBar. Instagram proportions:
+   52px high, the active window inset 4px from the pill edge. */
+.tabbar {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   height: 52px;
@@ -781,12 +806,76 @@ html[data-motion] [data-reveal="in"] {
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
   backdrop-filter: blur(20px) saturate(1.2);
   box-shadow: 0 0 0 1px var(--tabbar-edge), var(--tabbar-shadow);
-  transform-origin: 50% 60%;
-  transition: transform 240ms cubic-bezier(0.33, 1, 0.68, 1);
 }
-.tabbar.is-shrunk {
-  transform: translateY(4px) scale(0.86);
+/* The bag capsule (BagPill): the brand colour, the pill's height and
+   radius. --bag-w is its width for its total (lib/motion/cart-dock) — a
+   width of auto would not transition. Shut, it has no width, no gap, and
+   sits past the right edge, out of the way of the finger and the reader. */
+.bagpill {
+  flex: 0 0 var(--bag-w, 0px);
+  width: var(--bag-w, 0px);
+  margin-left: 10px;
+  height: 52px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--bag-fg);
+  box-shadow: var(--bag-shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
 }
+.bagpill:active {
+  transform: scale(0.96);
+}
+.bagpill.is-shut {
+  flex-basis: 0px;
+  width: 0px;
+  margin-left: 0;
+  opacity: 0;
+  transform: translateX(28px);
+  pointer-events: none;
+}
+/* The slide plays only once the cart has hydrated (.is-live): a bag
+   restored from storage is simply there, not arriving. A little give at
+   the end of the curve, so the pill lands on its new width like something
+   with weight — the App's spring. */
+.dock.is-live .bagpill {
+  transition:
+    flex-basis 440ms cubic-bezier(0.2, 0.9, 0.3, 1.04),
+    width 440ms cubic-bezier(0.2, 0.9, 0.3, 1.04),
+    margin-left 440ms cubic-bezier(0.2, 0.9, 0.3, 1.04),
+    transform 440ms cubic-bezier(0.2, 0.9, 0.3, 1.04),
+    opacity 220ms ease;
+}
+.bagpill-badge {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--bag-fg);
+  color: var(--brand);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* A drink joining: the capsule bumps (the badge pops on its own, badge-pop). */
+@keyframes mbt-bag-bump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+.bag-bump { animation: mbt-bag-bump 320ms var(--ease-spring) both; }
 .tabbar-window {
   position: absolute;
   top: 4px;
@@ -810,7 +899,8 @@ html[data-motion] [data-reveal="in"] {
     animation: none !important;
   }
   .celebrate-layer { animation-duration: 1400ms; }
-  .tabbar, .tabbar-window { transition: none; }
+  .dock, .tabbar-window, .dock.is-live .bagpill { transition: none; }
+  .bag-bump { animation: none; }
 }
 
 /* Settle — a topping tile's or milk card's glyph gives a little bounce
