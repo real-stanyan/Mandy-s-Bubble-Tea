@@ -299,6 +299,16 @@ function buildZpl(args: {
   parts.push("^CI28");           // UTF-8
   parts.push("^PR4");            // 4 ips — slower but cleaner for dense graphic
   parts.push("^LH0,0");
+  // Media settings live in the ZD410's NVRAM and survive roll changes and
+  // power cycles, so a format that doesn't state them inherits whatever the
+  // printer was last left on. Left on continuous media it stops seeing the
+  // die-cut gap and feeds a fixed ^LL945 per label: one good cup label, then
+  // a blank one ejected after it (Rick, 2026-09-12 — a whole strip of them).
+  // State both in every format: gap sensing, and label top at 0 the way the
+  // 40x30 renderer already does. Deliberately NOT saved with ^JUS — the
+  // point is to stop depending on what the printer remembers.
+  parts.push("^MNY");
+  parts.push("^LT0");
 
   // Top band: black bar with white text. ^GB draws a filled rect using
   // the third arg as line thickness (set = height = solid fill).

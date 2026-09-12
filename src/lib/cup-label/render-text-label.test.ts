@@ -19,6 +19,8 @@ describe("40x30 text-only cup label", () => {
     expect(out.zpl.endsWith("^XZ")).toBe(true);
     expect(out.zpl).toContain(`^PW${TEXT_LABEL_WIDTH_DOTS}`);
     expect(out.zpl).toContain(`^LL${TEXT_LABEL_HEIGHT_DOTS}`);
+    expect(out.zpl).toContain("^MNY"); // gap sensing stated, not inherited
+    expect(out.zpl).toContain("^LT0"); // label top pinned
     // Text-only paper: no graphic fields, ever (no doodle, no logo).
     expect(out.zpl).not.toContain("^GFA");
   });

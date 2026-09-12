@@ -20,9 +20,33 @@ describe("Zebra cup-label compositor (photo 50x80 layout — parked while 40x30 
     expect(out.zpl.endsWith("^XZ")).toBe(true);
     expect(out.zpl).toContain(`^PW${LABEL_WIDTH_DOTS}`);
     expect(out.zpl).toContain(`^LL${LABEL_HEIGHT_DOTS}`);
+    expect(out.zpl).toContain("^MNY"); // gap sensing stated, not inherited
+    expect(out.zpl).toContain("^LT0"); // label top pinned
     expect(out.zpl).toContain("^GFA,"); // graphic field present (doodle)
     expect(out.zpl).toContain("OL999"); // sticker number
     expect(out.zpl).toContain("Pearl Milk Tea"); // drink name
+  });
+
+  it("states media tracking so a blank label never follows a real one", async () => {
+    // 2026-09-12: the ZD410 printed one good label then ejected a blank, a
+    // whole strip of them. Media settings persist in the printer's NVRAM
+    // across rolls and power cycles, so a format that stays silent inherits
+    // them; left on continuous media the printer never sees the die-cut gap
+    // and feeds a fixed ^LL per label. Every format states it itself.
+    const out = await renderPhotoCupLabel({
+      stickerNumber: "83",
+      cupIdxOf: { idx: 1, total: 7 },
+      drinkName: "Oolong Milk Tea",
+      modifiersText: "Pearls -> Normal Ice -> Std Sugar",
+      doodleSvg: POOL[0].svg,
+    });
+    expect(out.zpl).toContain("^MNY");
+    expect(out.zpl).toContain("^LT0");
+    // Exactly one label per format — a stray second ^XA would itself feed a blank.
+    expect(out.zpl.split("^XA")).toHaveLength(2);
+    expect(out.zpl.split("^XZ")).toHaveLength(2);
+    // Never persisted: the fix is to stop trusting what the printer remembers.
+    expect(out.zpl).not.toContain("^JUS");
   });
 
   it("POS fix: customer name goes to the greeting, a numeric order number to the right slot", async () => {
