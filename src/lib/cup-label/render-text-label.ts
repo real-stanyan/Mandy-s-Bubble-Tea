@@ -195,9 +195,12 @@ export async function renderTextCupLabel(input: CupLabelInput): Promise<CupLabel
   parts.push("^CI28"); // UTF-8
   parts.push("^PR4");
   parts.push("^LH0,0");
-  // The ZD410 keeps ^LT (label top) in NVRAM across rolls — a stale
-  // offset from the 50x80 photo roll shifts this 30mm print down and
-  // clips the bottom. Pin it to 0 in every format.
+  // The ZD410 keeps ^LT (label top) AND media tracking in NVRAM across
+  // rolls — a stale offset from the 50x80 photo roll shifts this 30mm print
+  // down and clips the bottom, and a printer left on continuous media stops
+  // seeing the die-cut gap and ejects a blank label after every real one
+  // (Rick, 2026-09-12). State both in every format.
+  parts.push("^MNY");
   parts.push("^LT0");
 
   // Top band: solid black bar, white (^FR) text.
